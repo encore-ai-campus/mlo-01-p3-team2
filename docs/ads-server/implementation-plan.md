@@ -806,7 +806,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | **Step 0 전체** | **완료 (2026-10-07)** | 아래 종료 점검표 모두 충족. 구현: `apps/ads_server/` |
 | Step 0 보완 | 완료 (2026-10-07) | 외부 검토 4건(감사 로그 덮어쓰기·과대 multipart 500·PNG ICC 잔존·관리자 본인 비밀번호 변경 감사 누락) 재현 후 수정, 회귀 테스트 추가. 의존성 직접 항목 패치 고정, `STATIC_ROOT` 설정 |
 | Step 1 상세 계획 | 작성 (2026-10-07) | §6. 확정 반영: `Candidate`/`Eligible`, 적용 금액·종료 판정 `engine` 한 곳, 정수 포인트, `ENDED` 확정 상태, 가입 지급 50,000 |
-| 1-1 `masters` | 대기 | |
+| 1-1 `masters` | 완료 (2026-10-07) | 테스트 27개 추가(전체 223개), `check.sh` 통과. 정책 낙관적 잠금은 `expected_version`을 일부러 꺼 보면 테스트가 실패함을 확인(동시 저장 `['ok','ok']`). 경계 검사가 R2 위반 2건(`foundation.errors`·`foundation.models` 직접 import)을 잡아 `foundation.api` 경유로 수정. 위협 모델 T28 추가 |
 | 1-4 `engine` | 대기 | 1-1 다음(혼자 진행 시 권장 순서 1-1 → 1-4 → 1-2 → 1-3 → 1-5) |
 | 1-2 `campaigns` | 대기 | |
 | 1-3 `billing` | 대기 | |
