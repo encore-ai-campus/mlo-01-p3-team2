@@ -1,0 +1,55 @@
+"""C1 엔드포인트(결정). 뷰는 얇다: 인증·요청 제한(`media_endpoint`) → 본문 검증 → `records` 호출 → 계약 모양으로 변환.
+
+`slot_name` 은 표시용이라 결정에 저장하지 않고 응답을 만들 때 `masters` 에서 붙인다(DRD D-3).
+"""
+from django.contrib.auth.decorators import login_not_required
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET, require_http_methods
+
+from foundation.api import parse_json
+from masters import api as masters
+from records import api as records
+
+from .auth import media_endpoint
+from .requests import parse_decision_request
+
+BASE = "/api/media/v1"
+
+
+def _utc(moment):
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")  # 계약: RFC 3339 UTC(`Z`)
+
+
+def _decision_body(decision):
+    ad = None
+    if decision.chosen is not None:
+        c = decision.chosen
+        ad = {"creative_id": str(c.creative_id), "title": c.title, "image_url": c.image_url, "redirect_url": c.redirect_url}
+    return {
+        "decision_id": str(decision.decision_id), "slot_id": str(decision.slot_id),
+        "slot_name": masters.slot_names([decision.slot_id]).get(decision.slot_id, ""),
+        "decided_at": _utc(decision.decided_at), "ad": ad,
+    }
+
+
+@login_not_required
+@require_GET
+def health(request):
+    """살아 있는지만 답한다(인증 없음). 저장소를 건드리지 않고 내부 정보를 싣지 않는다."""
+    return JsonResponse({"status": "ok"})
+
+
+@require_http_methods(["POST"])
+@media_endpoint("decisions")
+def create_decision(request):
+    fields = parse_decision_request(parse_json(request))
+    decision = records.decide(request.media.media_id, fields.slot_id, subject_id=fields.subject_id, context=fields.context)
+    response = JsonResponse(_decision_body(decision), status=201)  # 저장한 뒤에만 여기에 온다
+    response["Location"] = f"{BASE}/decisions/{decision.decision_id}"
+    return response
+
+
+@require_http_methods(["GET"])
+@media_endpoint("reads")
+def get_decision(request, decision_id):
+    return JsonResponse(_decision_body(records.get_decision(request.media.media_id, decision_id)))

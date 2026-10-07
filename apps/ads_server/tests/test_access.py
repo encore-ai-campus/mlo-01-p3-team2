@@ -17,7 +17,11 @@ PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 # 새 공개 뷰나 "로그인만 필요" 뷰를 추가하면 **여기도 고쳐야 한다**(리뷰 지점).
-EXPECTED_PUBLIC = {"/accounts/signup/", "/accounts/login/", "/assets/<asset_name:name>"}
+EXPECTED_PUBLIC = {
+    "/accounts/signup/", "/accounts/login/", "/assets/<asset_name:name>",
+    # 매체 API(C1): 세션 로그인이 아니라 `X-Media-Key` 로 인증한다(`media_endpoint`). health 는 인증 없음
+    "/api/media/v1/health", "/api/media/v1/decisions", "/api/media/v1/decisions/<str:decision_id>",
+}
 LOGIN_ONLY = {"/accounts/logout/"}  # 로그인은 필요하지만 역할은 무관
 
 

@@ -21,6 +21,12 @@ class InvalidRequest(ApiError):
     status, code, title = 400, "invalid_request", "요청이 올바르지 않습니다"
 
 
+class ForbiddenContextKey(InvalidRequest):
+    """C1 `context` 에 직접 식별자 키(`username`·`email` 등)가 들어왔다."""
+
+    code, title = "forbidden_context_key", "context 에 사용할 수 없는 키가 있습니다"
+
+
 class Unauthorized(ApiError):
     status, code, title = 401, "unauthorized", "인증이 필요합니다"
 

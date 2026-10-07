@@ -173,6 +173,17 @@ def get_slot(slot_id):
     return _slot_view(row.slot, row)
 
 
+def slot_names(slot_ids):
+    """슬롯 이름(**표시용**, 바뀔 수 있다)을 질의 한 번으로. 없는·형식이 틀린 ID 는 결과에 없다."""
+    valid = []
+    for slot_id in slot_ids:
+        try:
+            valid.append(parse_uuid(slot_id, "게재 위치"))
+        except errors.NotFound:
+            pass
+    return dict(Slot.objects.filter(pk__in=valid).values_list("pk", "name"))
+
+
 def list_slots(active_only=True, media_id=None):
     qs = _current_policies()
     if active_only:

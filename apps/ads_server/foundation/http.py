@@ -57,6 +57,9 @@ def _depth(value):
     return deepest
 
 
+json_depth = _depth  # 공개 이름: 다른 입력 검증(예: C1 context 의 깊이 제한)이 같은 기준을 쓴다
+
+
 def parse_json(request, max_bytes=DEFAULT_MAX_BYTES, max_depth=DEFAULT_MAX_DEPTH):
     """요청 본문을 JSON 객체(dict)로 읽는다. 실패하면 ApiError(4xx)."""
     if not _JSON_CT.match(request.META.get("CONTENT_TYPE", "")):

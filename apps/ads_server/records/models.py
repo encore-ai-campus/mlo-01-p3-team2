@@ -14,6 +14,7 @@ class Decision(AppendOnlyModel):
     media_id = models.UUIDField(db_index=True)
     slot_id = models.UUIDField()
     subject_id = models.CharField(max_length=200, null=True, blank=True)  # V1 은 수집만 한다(설계 §3)
+    context = models.JSONField(default=dict, blank=True)  # 매체 부가 정보. 저장만 하고 해석하지 않는다(계약 C1, DRD D-2)
     decided_at = models.DateTimeField(default=timezone.now, db_index=True)
     # 선택된 광고의 스냅샷. 광고 없음이면 전부 NULL(그래도 한 건으로 남긴다)
     owner_id = models.UUIDField(null=True, blank=True)  # 과금할 지갑의 주인(그 시점의 값)

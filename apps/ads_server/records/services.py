@@ -36,10 +36,13 @@ def _view(d):
     )
 
 
-def decide(media_id, slot_id, subject_id=None, now=None, rng=None):
+def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None):
     """광고 한 건을 고르고 결정으로 저장한다. 후보가 없어도(광고 없음) 한 건으로 남긴다.
 
     저장이 실패하면 예외가 그대로 나가 `decision_id` 가 응답으로 나가지 않는다.
+
+    계약 C1의 응답 규칙(DRD D-1): **없는 슬롯·다른 매체의 슬롯은 404**(구분해 알리지 않는다), **매체가 비활성이면 403**(결정 없음),
+    **활성 매체의 비활성 슬롯은 광고 없음으로 기록**한다. `context` 는 호출한 쪽(경계)이 검증한 값을 그대로 저장한다.
     """
     now = _now(now)
     media_id, slot_id = parse_uuid(media_id, "매체"), parse_uuid(slot_id, "게재 위치")
@@ -47,15 +50,17 @@ def decide(media_id, slot_id, subject_id=None, now=None, rng=None):
         slot = masters.get_slot(slot_id)
     except errors.NotFound:
         slot = None
-    if slot is None or slot.media_id != media_id or not slot.is_active or not slot.media_is_active:
-        raise errors.NotFound("게재 위치를 찾을 수 없습니다.")  # 다른 매체의 슬롯·꺼진 슬롯은 없는 것과 같다
-
-    candidates, facts_by_creative = assemble(slot, now)
+    if slot is None or slot.media_id != media_id:
+        raise errors.NotFound("게재 위치를 찾을 수 없습니다.")  # 다른 매체의 슬롯은 없는 것과 같다
+    if not slot.media_is_active:
+        raise errors.Forbidden("이 매체는 비활성입니다.")
+    candidates, facts_by_creative = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
     result = engine_decide(
         candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 동점 광고를 고르게 노출하려는 추첨이다. 보안 값(키·토큰)을 만들지 않는다
         policy=settings.ADS_SELECTION_POLICY, filters=tuple(settings.ADS_ENGINE_FILTERS),
     )
     chosen = result.selection.chosen
+    trace = result.selection.trace if slot.is_active else {**result.selection.trace, "slot_inactive": True}
     values = {}
     if chosen is not None:
         fact = facts_by_creative[chosen.creative_id]
@@ -68,9 +73,9 @@ def decide(media_id, slot_id, subject_id=None, now=None, rng=None):
         )
     with transaction.atomic():
         decision = Decision.objects.create(
-            media_id=media_id, slot_id=slot_id, subject_id=subject_id, decided_at=now,
+            media_id=media_id, slot_id=slot_id, subject_id=subject_id, context=context or {}, decided_at=now,
             selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
-            trace=result.selection.trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
+            trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
         )
     return _view(decision)
 
@@ -79,6 +84,6 @@ def get_decision(media_id, decision_id):
     """결정 조회. **그 결정을 만든 매체만** 볼 수 있고, 아니면 없는 것과 같다(404)."""
     try:
         d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"), media_id=parse_uuid(media_id, "매체"))
-    except Decision.DoesNotExist:
+    except (Decision.DoesNotExist, errors.NotFound):  # 형식이 틀린 ID·없는 결정·다른 매체의 결정은 같은 응답이다
         raise errors.NotFound("결정을 찾을 수 없습니다.")
     return _view(d)
