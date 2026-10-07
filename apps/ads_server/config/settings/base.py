@@ -10,7 +10,7 @@ INSECURE_DEV_KEY = "dev-only-insecure-key-do-not-use-in-production"
 DEBUG = False
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "foundation.apps.AuditedAdminConfig",  # = django.contrib.admin + 관리자 본인 비밀번호 변경 감사
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -26,6 +26,7 @@ MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",  # 가장 먼저: 모든 응답·로그에 요청 ID
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
+    "foundation.middleware.RequestBodyLimitMiddleware",  # 본문을 읽는 모든 미들웨어(CSRF 등)보다 앞
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "foundation.middleware.CsrfExemptPrefixesMiddleware",  # CsrfViewMiddleware 앞
@@ -139,12 +140,7 @@ ASSET_MAX_BYTES = 2 * 1024 * 1024  # 업로드 용량 상한. 1~2MB 범위에서
 ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크기 규격 제한이 아니다)
 ASSET_STORAGE = "assets.storage.LocalFileStorage"
 ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
-# 업로드 전체 크기가 상한을 크게 넘으면 디스크에 쌓기 전에 중단한다(assets/uploads.py).
-FILE_UPLOAD_HANDLERS = [
-    "assets.uploads.MaxUploadSizeHandler",
-    "django.core.files.uploadhandler.MemoryFileUploadHandler",
-    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
-]
+# 업로드 전체 크기 가드는 foundation.middleware.RequestBodyLimitMiddleware 가 맡는다(본문을 읽기 전에 413).
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
 # 환경별 설정(dev/prod/test)이 ADMIN_URL_PATH 와 ACCESS_MAP 을 정한다.
@@ -160,6 +156,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영 웹서버가 서빙한다(prod 는 환경변수로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 5

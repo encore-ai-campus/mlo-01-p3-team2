@@ -72,22 +72,51 @@ class SignupAttempt(models.Model):
         indexes = [models.Index(fields=["ip", "created_at"])]
 
 
-class AuditImmutableError(Exception):
-    """감사 로그는 추가만 한다. 수정·삭제 시도는 예외다."""
+class AppendOnlyError(Exception):
+    """추가 전용 기록은 INSERT 만 허용한다. 수정·삭제·덮어쓰기 시도는 예외다."""
+
+
+AuditImmutableError = AppendOnlyError  # 감사 로그 쪽 기존 이름
 
 
 class AppendOnlyQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        raise AuditImmutableError("감사 로그는 수정할 수 없다.")
+        raise AppendOnlyError("추가 전용 기록은 수정할 수 없다.")
 
     def bulk_update(self, objs, fields, batch_size=None):
-        raise AuditImmutableError("감사 로그는 수정할 수 없다.")
+        raise AppendOnlyError("추가 전용 기록은 수정할 수 없다.")
 
     def delete(self):
-        raise AuditImmutableError("감사 로그는 삭제할 수 없다.")
+        raise AppendOnlyError("추가 전용 기록은 삭제할 수 없다.")
+
+    def bulk_create(self, objs, *args, update_conflicts=False, **kwargs):
+        if update_conflicts:  # 충돌 시 기존 행을 덮어쓰는 upsert
+            raise AppendOnlyError("추가 전용 기록은 upsert 로 덮어쓸 수 없다.")
+        return super().bulk_create(objs, *args, **kwargs)
 
 
-class AuditLog(models.Model):
+class AppendOnlyModel(models.Model):
+    """한 번 쓰면 바뀌지 않는 기록(감사 로그·원장·입찰 이력·결정)의 부모.
+
+    `_state.adding` 은 파이썬 인스턴스가 새것인지만 알려 준다 — 같은 PK 의 새 인스턴스는 DB 행을 덮어쓸 수 있다.
+    그래서 저장은 **항상 INSERT**(`force_insert`)로만 하고, 기존 행을 건드리는 모든 경로(`save` 의 갱신·`update`·upsert·삭제)를 막는다.
+    """
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, force_insert=False, force_update=False, update_fields=None, **kwargs):
+        if force_update or update_fields is not None or not self._state.adding:
+            raise AppendOnlyError("추가 전용 기록은 수정할 수 없다.")
+        super().save(*args, force_insert=True, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AppendOnlyError("추가 전용 기록은 삭제할 수 없다.")
+
+
+class AuditLog(AppendOnlyModel):
     """누가·언제·무엇을. 비밀값·개인정보는 기록하지 않는다(audit.record_audit 가 가린다)."""
 
     actor_id = models.UUIDField(null=True, blank=True, db_index=True)  # FK 가 아니다: 사용자가 바뀌어도 기록은 그대로
@@ -100,15 +129,5 @@ class AuditLog(models.Model):
     request_id = models.CharField(max_length=36, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
 
-    objects = AppendOnlyQuerySet.as_manager()
-
     class Meta:
         db_table = "foundation_audit_log"
-
-    def save(self, *args, **kwargs):
-        if not self._state.adding:
-            raise AuditImmutableError("감사 로그는 수정할 수 없다.")
-        super().save(*args, **kwargs)
-
-    def delete(self, *args, **kwargs):
-        raise AuditImmutableError("감사 로그는 삭제할 수 없다.")

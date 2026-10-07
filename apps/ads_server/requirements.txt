@@ -1,11 +1,12 @@
 # 광고 서버 의존성. 코드·스크립트에서 import/실행하는 모든 라이브러리를 여기에 적는다.
-# 버전은 패치까지 ~= 로 고정한다. 설계 §9: axes 호환 게이트(0-2) 실패 시 Django 를 ~=5.2 로 내린다.
+# 직접 의존성은 **패치 버전까지 `~=`** 로 고정한다(예: `~=6.1.2` 는 >=6.1.2,<6.2). 설계 §9: axes 호환 게이트(0-2) 실패 시 Django 를 ~=5.2 로 내린다.
+# 전이 의존성은 고정하지 않는다. 대신 scripts/check.sh 의 pip-audit 이 **설치된 전체 목록**을 점검한다. 배포 재현성이 필요해지면 잠금 파일을 추가한다.
 
 Django~=6.1.2
-python-dotenv>=1,<2      # 로컬 .env 로드 (config/env.py)
-django-axes~=8.3         # 로그인 5회 실패 시 5분 잠금 (0-2). Django 6.1 호환 게이트
-argon2-cffi              # Argon2 비밀번호 해시 (Django Argon2PasswordHasher 가 요구)
-Pillow                   # 이미지 판별·재인코딩 (assets, 0-5)
-pip-audit                # 의존성 취약점 점검 (scripts/check.sh, 0-6)
-bandit                   # 정적 보안 점검 (scripts/check.sh, 0-6)
-packaging                # scripts/pinned_requirements.py 가 사용
+python-dotenv~=1.2.4     # 로컬 .env 로드 (config/env.py)
+django-axes~=8.3.1       # 로그인 5회 실패 시 5분 잠금 (0-2). Django 6.1 호환 게이트
+argon2-cffi~=25.1.0      # Argon2 비밀번호 해시 (Django Argon2PasswordHasher 가 요구)
+Pillow~=12.3.0           # 이미지 판별·재인코딩 (assets, 0-5)
+pip-audit~=2.10.1        # 의존성 취약점 점검 (scripts/check.sh, 0-6)
+bandit~=1.9.4            # 정적 보안 점검 (scripts/check.sh, 0-6)
+packaging~=26.3.0        # scripts/pinned_requirements.py 가 사용

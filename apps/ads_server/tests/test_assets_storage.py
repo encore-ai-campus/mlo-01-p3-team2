@@ -5,12 +5,13 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from django.core.files.uploadhandler import StopUpload
-from django.test import SimpleTestCase, override_settings, tag
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client, SimpleTestCase, TestCase, override_settings, tag
+from django.urls import reverse
 
 from assets.api import asset_url, store, validate_image
 from assets.storage import LocalFileStorage
-from assets.uploads import OVERHEAD, MaxUploadSizeHandler
+from foundation.middleware import REQUEST_BODY_OVERHEAD
 from tests import image_factory as f
 
 GOOD = "ab" + "c" * 62 + ".png"
@@ -76,16 +77,44 @@ class StorageTests(SimpleTestCase):
 
 
 @tag("security")
-class UploadGuardTests(SimpleTestCase):
-    def test_handler_is_first_in_chain(self):
+class UploadGuardTests(TestCase):
+    """업로드 전체 크기 가드(위협 T16). CSRF 가 본문을 읽기 전에 413 으로 끊고, 임시 파일을 만들지 않는다."""
+
+    LIMIT = 1000
+
+    def post_multipart(self, size, enforce_csrf):
+        client = Client(enforce_csrf_checks=enforce_csrf)
+        upload = SimpleUploadedFile("big.png", b"\x89PNG" + b"x" * size, content_type="image/png")
+        return client.post(reverse("signup"), {"username": "a", "image": upload})
+
+    def test_oversized_multipart_is_413_with_and_without_csrf_and_leaves_no_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp, override_settings(ASSET_MAX_BYTES=self.LIMIT, FILE_UPLOAD_TEMP_DIR=tmp):
+            for enforce_csrf in (True, False):
+                response = self.post_multipart(self.LIMIT + REQUEST_BODY_OVERHEAD + 100, enforce_csrf)
+                self.assertEqual(response.status_code, 413, enforce_csrf)
+                self.assertEqual(response["Content-Type"], "application/problem+json")
+                self.assertEqual(response.json()["code"], "payload_too_large")
+                self.assertIn("X-Request-ID", response)
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_declared_content_length_over_limit_is_413_without_reading_the_body(self):
+        with override_settings(ASSET_MAX_BYTES=self.LIMIT):
+            response = Client().post(
+                reverse("signup"), data=b"tiny", content_type="multipart/form-data; boundary=x",
+                CONTENT_LENGTH=str(self.LIMIT + REQUEST_BODY_OVERHEAD + 1),
+            )
+        self.assertEqual(response.status_code, 413)
+
+    def test_body_within_limit_reaches_the_view(self):
+        with override_settings(ASSET_MAX_BYTES=self.LIMIT):
+            response = self.post_multipart(10, enforce_csrf=False)
+        self.assertNotEqual(response.status_code, 413)
+        self.assertLess(response.status_code, 500)
+
+    def test_guard_runs_before_the_csrf_middleware(self):
         from django.conf import settings
 
-        self.assertEqual(settings.FILE_UPLOAD_HANDLERS[0], "assets.uploads.MaxUploadSizeHandler")
-
-    @override_settings(ASSET_MAX_BYTES=1000)
-    def test_oversized_upload_is_stopped_before_spooling_to_disk(self):
-        handler = MaxUploadSizeHandler(None)
-        self.assertIsNone(handler.handle_raw_input(None, {}, 1000 + OVERHEAD, b"x"))  # 한도 이내
-        with self.assertRaises(StopUpload):
-            handler.handle_raw_input(None, {}, 1000 + OVERHEAD + 1, b"x")
-        self.assertIsNone(handler.handle_raw_input(None, {}, None, b"x"))  # 길이를 모르면 통과(검증 단계가 막는다)
+        names = settings.MIDDLEWARE
+        self.assertLess(
+            names.index("foundation.middleware.RequestBodyLimitMiddleware"), names.index("django.middleware.csrf.CsrfViewMiddleware")
+        )

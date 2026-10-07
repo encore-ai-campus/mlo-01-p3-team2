@@ -4,7 +4,7 @@ import uuid
 from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 
-from .errors import ApiError
+from .errors import ApiError, PayloadTooLarge
 from .http import problem_response
 from .logging import request_id_var
 
@@ -28,6 +28,30 @@ class RequestIdMiddleware:
             request_id_var.reset(token)
         response["X-Request-ID"] = rid
         return response
+
+
+REQUEST_BODY_OVERHEAD = 64 * 1024  # multipart 의 다른 필드·경계 문자열 여유
+
+
+class RequestBodyLimitMiddleware:
+    """선언된 `Content-Length` 가 업로드 상한(`ASSET_MAX_BYTES`) + 여유를 넘으면 **본문을 읽기 전에** 413 으로 끊는다(위협 T16).
+
+    CsrfViewMiddleware 가 `request.POST` 를 읽으면서 multipart 를 파싱하고 임시 파일을 만들기 때문에, 그 앞에서 막아야 한다.
+    (업로드 핸들러의 `handle_raw_input` 에서 예외를 던지는 방식은 Django 가 처리하지 못해 500 이 된다.)
+    상한 설정 이름만 읽고 `assets` 를 import 하지 않는다.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        try:
+            declared = int(request.META.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            declared = 0  # Django 와 같게: 형식이 틀린 길이는 0 으로 본다
+        if declared > settings.ASSET_MAX_BYTES + REQUEST_BODY_OVERHEAD:
+            return problem_response(request, PayloadTooLarge("요청 본문이 허용 크기를 넘습니다."))
+        return self.get_response(request)
 
 
 class CsrfExemptPrefixesMiddleware:

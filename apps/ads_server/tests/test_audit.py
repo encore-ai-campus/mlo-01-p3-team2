@@ -1,5 +1,6 @@
 import re
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 from django.urls import reverse
 
@@ -32,6 +33,26 @@ class AuditLogModelTests(TestCase):
         with self.assertRaises(AuditImmutableError):
             AuditLog.objects.bulk_update([entry], ["action"])
         self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.event")
+
+    def test_existing_row_cannot_be_overwritten_by_a_new_instance_or_upsert(self):
+        """`_state.adding` 은 Python 인스턴스 상태일 뿐이다. 같은 PK 의 새 인스턴스·upsert 로 기존 행을 바꿀 수 없어야 한다."""
+        entry = record_audit(None, "test.original")
+        with self.assertRaises((IntegrityError, AuditImmutableError)), transaction.atomic():
+            AuditLog(pk=entry.pk, action="review.overwritten").save()
+        with self.assertRaises(AuditImmutableError):
+            AuditLog(pk=entry.pk, action="review.overwritten").save(force_update=True)
+        with self.assertRaises(AuditImmutableError):
+            AuditLog(pk=entry.pk, action="review.overwritten").save(update_fields=["action"])
+        with self.assertRaises(AuditImmutableError):
+            AuditLog.objects.bulk_create(
+                [AuditLog(pk=entry.pk, action="review.overwritten")],
+                update_conflicts=True, update_fields=["action"], unique_fields=["id"],
+            )
+        with self.assertRaises((IntegrityError, AuditImmutableError)), transaction.atomic():
+            AuditLog.objects.update_or_create(pk=entry.pk, defaults={"action": "review.overwritten"})
+        AuditLog.objects.bulk_create([AuditLog(pk=entry.pk, action="review.overwritten")], ignore_conflicts=True)  # 건너뛸 뿐 덮어쓰지 않는다
+        self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.original")
+        self.assertEqual(AuditLog.objects.count(), 1)
 
     def test_audit_detail_strips_secret_keys(self):
         detail = {
@@ -149,3 +170,38 @@ class AdminAuditTests(TestCase):
         r = self.client.get("/test-admin/foundation/user/")
         self.assertEqual(r.status_code, 200)
         self.assertRegex(r.content.decode(), r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+
+
+@tag("security")
+class AdminSelfPasswordAuditTests(TestCase):
+    NEW = "Brand-New-Str0ng-pass-9"
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser("root_pw", PW, nickname="관리", class_label="-")
+        self.client.force_login(self.admin, backend=MODEL_BACKEND)
+
+    def test_own_password_change_is_audited_once_without_the_password(self):
+        r = self.client.post("/test-admin/password_change/", {
+            "old_password": PW, "new_password1": self.NEW, "new_password2": self.NEW,
+        })
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(User.objects.get(pk=self.admin.pk).check_password(self.NEW))
+        entry = AuditLog.objects.get(action="account.password_changed")
+        self.assertEqual((entry.actor_id, entry.target_id), (self.admin.pk, str(self.admin.pk)))
+        self.assertEqual(AuditLog.objects.filter(action="account.password_changed").count(), 1)
+        dump = str(list(AuditLog.objects.values()))
+        self.assertNotIn(self.NEW, dump)
+        self.assertNotIn(PW, dump)
+
+    def test_failed_password_change_is_not_audited_as_success(self):
+        r = self.client.post("/test-admin/password_change/", {
+            "old_password": "wrong-old-password", "new_password1": self.NEW, "new_password2": self.NEW,
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(AuditLog.objects.filter(action="account.password_changed").exists())
+        self.assertTrue(User.objects.get(pk=self.admin.pk).check_password(PW))
+        self.assertNotIn("wrong-old-password", str(list(AuditLog.objects.values())))
+
+    def test_get_of_the_form_is_not_audited(self):
+        self.assertEqual(self.client.get("/test-admin/password_change/").status_code, 200)
+        self.assertFalse(AuditLog.objects.filter(action="account.password_changed").exists())
