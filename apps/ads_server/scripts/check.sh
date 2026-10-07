@@ -46,7 +46,7 @@ run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test
 run "pip-audit (의존성 취약점)" audit_dependencies
-run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing records
+run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing records serving_api
 
 printf '\n======== 요약 ========\n'
 [ ${#skipped[@]} -gt 0 ] && printf '건너뜀: %s\n' "${skipped[*]}"

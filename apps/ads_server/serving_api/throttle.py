@@ -22,8 +22,8 @@ class TokenBuckets:
 
     def take(self, key, rate, burst):
         """토큰 한 개를 쓴다. 통과면 `None`, 막히면 다시 시도할 때까지의 **정수 초(1 이상)**."""
-        now = self.clock()
         with self._lock:
+            now = self.clock()  # 시각 조회부터 충전·차감·저장까지 한 임계 구역이다. 밖에서 읽으면 늦게 처리된 요청이 마지막 시각을 과거로 되돌린다
             tokens, last = self._state.get(key, (float(burst), now))
             tokens = min(float(burst), tokens + max(0.0, now - last) * rate)
             if tokens >= 1.0:

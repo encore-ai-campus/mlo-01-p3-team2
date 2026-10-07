@@ -1,7 +1,9 @@
 """C1 인증·요청 제한(2-2). 실제 데코레이터를 붙인 임시 뷰(tests/urls_media_api.py)에 계약 경로로 요청하고, 응답을 계약에 대조한다."""
 import uuid
 from datetime import timedelta
+from unittest import mock
 
+from django.db import OperationalError
 from django.test import Client, TestCase, override_settings, tag
 
 from masters import api as masters
@@ -138,13 +140,52 @@ class AuthenticationTests(MediaApiBase):
     def test_rejected_key_log_has_the_public_id_but_never_the_secret(self):
         key_hex, secret = self.key.split(".")
         with self.assertLogs("serving_api.auth", "WARNING") as logs:
-            self.call("get", f"{BASE}/decisions/{DID}", key=key_hex + ".A" + secret[1:])
-            self.call("get", f"{BASE}/decisions/{DID}", key="SECRET-LOOKING-VALUE-123")
+            wrong = key_hex + "." + ("B" if secret[0] == "A" else "A") + secret[1:]  # 첫 글자가 반드시 달라진다
+            self.assertNotEqual(wrong, self.key)
+            self.assertEqual(self.call("get", f"{BASE}/decisions/{DID}", key=wrong).status_code, 401)
+            self.assertEqual(self.call("get", f"{BASE}/decisions/{DID}", key="SECRET-LOOKING-VALUE-123").status_code, 401)
         text = "\n".join(logs.output)
         self.assertIn(key_hex, text)  # 어느 키가 거절됐는지 공개 식별자로 추적한다
         self.assertNotIn(secret[1:], text)
         self.assertNotIn("SECRET-LOOKING", text)  # 형식이 틀린 값은 아예 기록하지 않는다
         self.assertIn("key_id=-", text)
+
+
+@tag("security")
+class StorageFailureTests(MediaApiBase):
+    """키 저장소(DB)가 잠기거나 끊기면 500 이 아니라 **503 + Retry-After** 다(계약 C1 공통 응답)."""
+
+    def assert_unavailable(self, method, contract_path, url):
+        response = self.call(method, url)
+        self.assertEqual(response.status_code, 503, (method, url))
+        self.assertEqual(response["Content-Type"], "application/problem+json")
+        self.assertEqual(response.json()["code"], "unavailable")
+        self.assertEqual(response["Retry-After"], "1")
+        self.assertTrue(response["X-Request-ID"])
+        self.assertContract(self.contract, contract_path, method, response)
+
+    def test_key_lookup_failure_is_503_on_every_operation_and_the_view_never_runs(self):
+        with mock.patch("serving_api.auth.masters.authenticate_media_key", side_effect=OperationalError("database is locked")), \
+                mock.patch("tests.urls_media_api.parse_json") as view_ran:
+            for contract_path, method, url, _group in OPERATIONS:
+                self.assert_unavailable(method, contract_path, url)
+            view_ran.assert_not_called()
+        self.assertEqual(self.call("get", f"{BASE}/decisions/{DID}").status_code, 200)  # 복구되면 바로 정상
+
+    def test_storage_failure_inside_the_view_is_503_too(self):
+        with mock.patch("tests.urls_media_api.parse_json", side_effect=OperationalError("disk I/O error")):
+            self.assert_unavailable("post", "/decisions", f"{BASE}/decisions")
+
+    def test_a_failed_lookup_consumes_no_token_and_other_errors_are_not_turned_into_503(self):
+        with mock.patch("serving_api.auth.masters.authenticate_media_key", side_effect=OperationalError("locked")):
+            for _ in range(10):
+                self.call("get", f"{BASE}/decisions/{DID}")
+        self.assertEqual(buckets.take((self.media.media_id, "reads"), 1, 1), None)  # 한 번도 쓰지 않았다
+        with mock.patch("tests.urls_media_api.parse_json", side_effect=ValueError("bug")), \
+                self.assertRaises(ValueError):
+            Client(raise_request_exception=True).post(
+                f"{BASE}/decisions", data="{}", content_type="application/json", HTTP_X_MEDIA_KEY=self.key
+            )  # 프로그래밍 오류는 가리지 않는다(일괄 503 금지)
 
 
 @tag("security")

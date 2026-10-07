@@ -69,3 +69,41 @@ class TokenBucketTests(unittest.TestCase):
         [t.start() for t in threads]
         [t.join() for t in threads]
         self.assertEqual(results.count(None), 20)  # 80번 시도 중 정확히 버스트만큼만 통과
+
+    def test_reordered_requests_never_charge_the_same_elapsed_time_twice(self):
+        """시각을 먼저 읽은 요청이 **잠금을 늦게** 얻어도 마지막 갱신 시각이 과거로 돌아가면 안 된다.
+
+        rate=1, burst=1: 0초에 한 번, 1초 시점에 한 번 → 1초 구간에서 허용은 딱 2건. 시각 조회가 잠금 밖이면 3건이 통과한다.
+        """
+        slow_reads, release, value = threading.Event(), threading.Event(), [0.0]
+        slow = []
+
+        def clock():
+            if threading.current_thread() in slow:
+                slow_reads.set()
+                release.wait(2)  # 시각 0 을 얻고도 처리가 늦어지는 요청
+                return 0.0
+            return value[0]
+
+        buckets = TokenBuckets(clock)
+        passed = [buckets.take("k", 1, 1) is None]  # t=0: 초기 토큰
+        results = {}
+
+        def run(name):
+            results[name] = buckets.take("k", 1, 1)
+
+        late = threading.Thread(target=run, args=("late",))
+        slow.append(late)
+        late.start()
+        slow_reads.wait(2)
+        value[0] = 1.0
+        fast = threading.Thread(target=run, args=("fast",))
+        fast.start()
+        fast.join(0.3)  # 잠금 밖 조회면 여기서 먼저 끝난다. 안이면 late 가 잠금을 쥐고 있어 기다린다.
+        release.set()
+        late.join(2)
+        fast.join(2)
+        passed.append(results["fast"] is None)
+        passed.append(results["late"] is None)
+        passed.append(buckets.take("k", 1, 1) is None)  # t=1 에 한 번 더
+        self.assertEqual(passed.count(True), 2, passed)
