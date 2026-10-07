@@ -12,7 +12,7 @@
 | 결과 확인 | `GET .../decisions/{id}`, `GET .../reactions/{reaction_id}` | 200 | 404 없거나 다른 매체의 것 |
 | 이미지 | `GET /assets/{해시}.{png\|jpg}` (인증 없음) | 200 / 304 | 404 |
 
-모든 요청에 `X-Media-Key` 헤더(서버 간 전용, 브라우저에 노출 금지). 모든 응답에 `X-Request-ID`가 붙으니 문의할 때 알려 달라.
+**`/health`와 `/assets`를 뺀 모든 요청**에 `X-Media-Key` 헤더(서버 간 전용, 브라우저에 노출 금지). 인증이 필요한 요청은 키가 없거나 틀리면 **401**(`WWW-Authenticate: MediaKey realm="ads-media-api"` 포함), 키는 맞지만 매체가 비활성이면 **403**이다. 모든 응답에 `X-Request-ID`가 붙으니 문의할 때 알려 달라.
 
 ## 반응은 곧 과금이므로 유실되면 안 된다
 

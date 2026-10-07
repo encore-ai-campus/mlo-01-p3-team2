@@ -15,6 +15,7 @@ info:
     - **형식**: 요청·응답은 `application/json`(UTF-8), 오류는 `application/problem+json`(RFC 9457).
       필드 이름은 `snake_case`, ID는 UUID 문자열, 시각은 RFC 3339 **UTC**(`...Z`)다.
     - **인증**: 모든 요청(`/health`와 `/assets` 제외)에 헤더 `X-Media-Key`. 인증은 입력 검증보다 먼저 한다.
+      인증이 필요한 모든 엔드포인트는 같은 인증 응답을 낸다: **401**(키 없음·무효, `WWW-Authenticate` 포함), **403**(유효한 키지만 매체 비활성), **429**, **503**.
       키는 서버 간 호출 전용이며 브라우저에 노출하지 않는다.
     - **ID와 이름**: 자원의 식별은 **UUID**다. `slot_name` 같은 이름은 사람이 읽기 위한 **편의 정보**이며 바뀔 수 있으므로
       식별·로직에 쓰지 않는다.
@@ -208,6 +209,8 @@ paths:
                 $ref: "#/components/schemas/Decision"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -321,6 +324,8 @@ paths:
                     reason_code: duplicate_type
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -622,11 +627,16 @@ components:
                   - pointer: /subject_id
                     message: UUID 형식이어야 합니다
     Unauthorized:
-      description: 키가 없거나 올바르지 않다.
+      description: |
+        키가 없거나 올바르지 않다. 401 은 **인증 challenge** 를 담은 `WWW-Authenticate: MediaKey realm="ads-media-api"` 를 항상 보낸다
+        (`MediaKey` 는 `X-Media-Key` 헤더로 키를 보내는 방식을 가리키는 스킴 이름이다).
       headers:
         WWW-Authenticate:
+          description: 인증 challenge(RFC 9110 §11.6.1). 키는 `X-Media-Key` 헤더로 보낸다.
+          required: true
           schema:
             type: string
+            pattern: '^MediaKey realm="[A-Za-z0-9._-]+"$'
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
