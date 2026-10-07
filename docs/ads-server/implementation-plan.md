@@ -415,8 +415,8 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 | 3 | **모델 규약**: UUID PK, 고정 `label`, `db_table` 명시(`<label>_<model>`), 금액은 `PositiveBigIntegerField`(정수 포인트), 시각은 UTC. 앱 사이 FK는 라벨 문자열(`"masters.Slot"`)에 `on_delete=PROTECT`. 삭제 기능 없음 | R3, 설계 §3 C6 "삭제 없음" |
 | 4 | **추가 전용 모델**(`BidPolicy`·`Bid`·`LedgerEntry`·`Decision`)은 `foundation.models.AppendOnlyModel`을 상속한다(Step 0 보완에서 만들었고 `AuditLog`가 이미 사용). 저장은 **항상 INSERT**(`force_insert`)이고, 같은 PK 새 인스턴스·`force_update`·`update_fields`·`bulk_create(update_conflicts=True)`·`update/delete`를 모두 막는다. 새 모델마다 "기존 PK로 덮어쓰기 불가" 회귀 테스트를 한 줄 추가한다 | 설계 §4.4-2·8·1 |
 | 5 | **버전 번호**(`policy_version`·`bid_version`)는 한 트랜잭션에서 "현재 최대 + 1"을 저장하고, **호출자가 본 버전(`expected_version`)이 현재와 다르면 `StaleVersion`**(콘솔 계약의 409 `stale_version`)으로 거절한다. SQLite는 쓰기 트랜잭션이 직렬이라, `expected_version` 없이 "최대+1"만 쓰면 두 요청이 모두 성공(버전 n+1, n+2)해 나중 사람이 앞사람의 변경을 모르고 덮어쓴다. `(부모, 버전)` 유니크 제약은 다른 DB로 옮겼을 때를 위한 **안전망**이다 | 설계 §4.2, §6.5 |
-| 6 | **감사**: 관리자 행위(정책 새 버전·중단/해제·포인트 조정 등)와 광고주의 주요 변경은 **서비스 안에서** 감사 로그를 남긴다(뷰가 빼먹을 수 없게). 요청 없이 호출되면 `record_audit(None, …)`이 **요청 ID를 `foundation.logging.request_id_var`에서** 가져오도록 `foundation`을 보강한다 | T13 |
-| 7 | **시계는 서비스 함수가 `now` 인자로 받는다**(기본값 `timezone.now()`는 `api`의 얇은 바깥쪽에서만). 기간·종료·예산 일 경계 테스트가 시각을 고정할 수 있다 | `AdRequest.now` 주입(설계 §4.3) |
+| 6 | **감사**: 관리자 행위(정책 새 버전·중단/해제·포인트 조정 등)와 광고주의 주요 변경은 **서비스 안에서, 변경과 같은 트랜잭션에** 감사 로그를 남긴다(뷰가 빼먹을 수 없게, 커밋 뒤 감사 기록이 실패해 "감사 없는 변경"이 남지 않게). 요청 없이 호출되면 `record_audit(None, …)`이 **요청 ID를 `foundation.logging.request_id_var`에서** 가져오도록 `foundation`을 보강한다 | T13 |
+| 7 | **시계는 서비스 함수가 `now` 인자로 받는다**(안 주면 `_now()` 한 곳에서만 읽는다). 기간·종료·예산 일 경계 테스트가 시각을 고정할 수 있다 | `AdRequest.now` 주입(설계 §4.3) |
 | 8 | **테스트 데이터는 `tests/factories.py`의 작은 헬퍼 함수**(매체·슬롯·광고주·캠페인…)로 만든다. `factory_boy`는 쓰지 않는다 | §3 "쓰지 않는 것" |
 | 9 | 모든 모델이 `tests/boundaries`의 `test_all_models_have_explicit_db_table`·`test_app_labels_fixed`를 자동으로 지난다. 새 앱은 `config/settings/base.py`의 `INSTALLED_APPS`에 등록한다 | R3, R6 |
 
@@ -808,6 +808,6 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | Step 1 상세 계획 | 작성 (2026-10-07) | §6. 확정 반영: `Candidate`/`Eligible`, 적용 금액·종료 판정 `engine` 한 곳, 정수 포인트, `ENDED` 확정 상태, 가입 지급 50,000 |
 | 1-1 `masters` | 완료 (2026-10-07) | 테스트 27개 추가(전체 223개), `check.sh` 통과. 정책 낙관적 잠금은 `expected_version`을 일부러 꺼 보면 테스트가 실패함을 확인(동시 저장 `['ok','ok']`). 경계 검사가 R2 위반 2건(`foundation.errors`·`foundation.models` 직접 import)을 잡아 `foundation.api` 경유로 수정. 위협 모델 T28 추가 |
 | 1-4 `engine` | 완료 (2026-10-07) | 테스트 27개 추가(전체 250개). **Django·DB 없이 단독 통과**(`env -i … python -m unittest tests.test_engine_*`). 변형 검사: 동점 처리를 항상 첫 후보로 바꾸거나, `is_expired`·예산 비교의 경계를 어긋나게 하면 테스트가 실패함을 확인. 위협 모델 T29 추가 |
-| 1-2 `campaigns` | 대기 | |
+| 1-2 `campaigns` | 완료 (2026-10-07) | 테스트 57개 추가(전체 307개). 변형 검사: 종료 가드를 상태만 보게 하거나, 소유권 검사를 빼거나, 입찰 `expected_version` 검사를 끄면 테스트가 실패함을 확인. 동시 입찰 테스트가 "커밋 뒤 감사 기록"의 잠금 실패를 드러내 감사를 변경과 같은 트랜잭션으로 옮김(campaigns·masters). `foundation`에 `clean_text`·`parse_uuid` 공용화, `SlotView.media_is_active` 추가. 위협 모델 T30 추가 |
 | 1-3 `billing` | 대기 | |
 | 1-5 `records` | 대기 | |
