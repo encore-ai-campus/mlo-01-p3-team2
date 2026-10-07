@@ -91,6 +91,23 @@ class Creative(models.Model):
         db_table = "campaigns_creative"
 
 
+class CreativeImage(AppendOnlyModel):
+    """소재가 지금까지 **보유한 이미지 파일**(현재 + 과거). 쿼터와 서빙 가능 여부를 이 관계로 판단한다.
+
+    이전 이미지는 지우지 않는다(과거 결정이 URL 을 참조한다). 그래서 보유량에 포함하지 않으면 교체를 반복해 쿼터를 우회할 수 있고,
+    서빙 판정에서 빼면 교체 직후 과거 결정의 이미지가 404 가 된다. `Creative.image_name` 은 그중 **현재** 것을 가리킨다.
+    """
+
+    creative = models.ForeignKey(Creative, on_delete=models.PROTECT, related_name="images")
+    image_name = models.CharField(max_length=80, db_index=True)
+    image_bytes = models.PositiveIntegerField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "campaigns_creative_image"
+        constraints = [models.UniqueConstraint(fields=["creative", "image_name"], name="campaigns_creative_image_unique")]
+
+
 class Bid(AppendOnlyModel):
     """입찰의 한 버전. 하한 미만·상한 초과도 그대로 저장한다(설계 §4.2). 현재 값 = 최대 버전."""
 

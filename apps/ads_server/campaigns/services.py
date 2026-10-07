@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import OuterRef, Q, Subquery, Sum
+from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 
 from assets.api import store, validate_image
@@ -18,7 +18,7 @@ from masters import api as masters
 
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
-from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, ReviewRequest, ReviewStatus
+from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import AdGroupView, BidView, CampaignView, CandidateFacts, CreativeView, ReviewRequestView, SuspensionView
 
 
@@ -53,7 +53,10 @@ def _amount(value, pointer="/amount"):
 def _utc_time(value, pointer):
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise _problem(pointer, "시각은 시간대가 있는 값이어야 합니다.")
-    return value.astimezone(dt_timezone.utc)
+    try:
+        return value.astimezone(dt_timezone.utc)
+    except (OverflowError, ValueError):  # 표현 범위 밖(예: datetime.min 에 +09:00)
+        raise _problem(pointer, "표현할 수 없는 시각입니다.")
 
 
 def _limit(name):
@@ -402,21 +405,30 @@ def _redirect_url(value):
     if not isinstance(value, str):
         raise _problem("/redirect_url", "https 주소여야 합니다.")
     value = value.strip()
-    parts = urlsplit(value) if len(value) <= 2048 and value.isprintable() and " " not in value else None
-    if parts is None or parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
-        raise _problem("/redirect_url", "사용자 정보가 없는 https 주소(2048자 이하)여야 합니다.")
+    parts = host = port = None
+    if len(value) <= 2048 and value.isprintable() and " " not in value:
+        try:  # urlsplit 은 유효성 검사가 아니다: 잘못된 대괄호·포트는 ValueError 로 드러난다(`hostname`·`port` 접근 시점에)
+            parts = urlsplit(value)
+            host, port = parts.hostname, parts.port
+        except ValueError:
+            parts = None
+    if parts is None or parts.scheme != "https" or not host or parts.username or parts.password or port == 0:
+        raise _problem("/redirect_url", "사용자 정보가 없는 https 주소(올바른 포트, 2048자 이하)여야 합니다.")
     return value
 
 
-def _check_creative_quota(user, group, extra_bytes, replacing=None):
-    mine = Creative.objects.filter(ad_group__campaign__owner=user)
-    if replacing is None:
-        if Creative.objects.filter(ad_group=group).count() >= _limit("MAX_CREATIVES_PER_AD_GROUP"):
-            raise LimitExceeded("광고그룹의 소재 개수 상한에 도달했습니다.")
-        if mine.count() >= _limit("MAX_CREATIVES_PER_ADVERTISER"):
-            raise LimitExceeded("소재 개수 상한에 도달했습니다.")
-    total = mine.exclude(pk=replacing.pk if replacing else None).aggregate(s=Sum("image_bytes"))["s"] or 0
-    if total + extra_bytes > _limit("MAX_UPLOAD_BYTES_PER_ADVERTISER"):
+def _check_creative_count(user, group):
+    if Creative.objects.filter(ad_group=group).count() >= _limit("MAX_CREATIVES_PER_AD_GROUP"):
+        raise LimitExceeded("광고그룹의 소재 개수 상한에 도달했습니다.")
+    if Creative.objects.filter(ad_group__campaign__owner=user).count() >= _limit("MAX_CREATIVES_PER_ADVERTISER"):
+        raise LimitExceeded("소재 개수 상한에 도달했습니다.")
+
+
+def _check_image_quota(user, image):
+    """광고주가 **보유한 이미지 파일 총량**(현재 + 과거 교체분)이 상한을 넘지 않는지. 이미 보유한 같은 파일은 더하지 않는다."""
+    held = dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=user).values_list("image_name", "image_bytes"))
+    added = 0 if image.name in held else len(image.data)
+    if sum(held.values()) + added > _limit("MAX_UPLOAD_BYTES_PER_ADVERTISER"):
         raise LimitExceeded("업로드 총량 상한을 넘습니다.")
 
 
@@ -430,9 +442,11 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     with transaction.atomic():
         g = _ad_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
-        _check_creative_quota(user, g, len(image.data))
+        _check_creative_count(user, g)
+        _check_image_quota(user, image)  # 저장(파일 쓰기) 전에 확인한다: 거절된 업로드는 파일을 남기지 않는다
         name = store(image)
         c = Creative.objects.create(ad_group=g, title=title, redirect_url=redirect_url, image_name=name, image_bytes=len(image.data), created_at=now, updated_at=now)
+        CreativeImage.objects.create(creative=c, image_name=name, image_bytes=len(image.data), created_at=now)
         _audit(user, "creative.created", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "image": name})
     return _creative_view(c)
 
@@ -480,9 +494,10 @@ def replace_creative_image(user, creative_id, image_file, now=None):
     with transaction.atomic():
         c = _creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
-        _check_creative_quota(user, c.ad_group, len(image.data), replacing=c)
+        _check_image_quota(user, image)
         c.image_name, c.image_bytes, c.updated_at = store(image), len(image.data), now
         c.save()
+        CreativeImage.objects.get_or_create(creative=c, image_name=c.image_name, defaults={"image_bytes": c.image_bytes, "created_at": now})
         _audit(user, "creative.image_replaced", ("campaigns.creative", c.creative_id), {"image": c.image_name})
     return _creative_view(c)
 
@@ -525,11 +540,13 @@ def candidate_facts_for_slot(slot_id):
 
 
 def is_asset_servable(name, now=None):
-    """C3 이미지를 내보내도 되는가: 그 이름을 쓰는 소재가 있고 캠페인이 ACTIVE·PAUSED 이며 기간이 끝나지 않았을 때만.
+    """C3 이미지를 내보내도 되는가: 그 이름을 **보유한**(현재 또는 과거 교체분) 소재가 있고 그 캠페인이 ACTIVE·PAUSED 이며 기간이 끝나지 않았을 때만.
+
+    교체 후에도 과거 결정의 이미지 URL 은 계속 열린다(캠페인이 살아 있는 동안). 중단·종료되면 이전·현재 이미지 모두 404 다.
 
     `config` 가 `ASSET_SERVABLE_CHECK` 로 연결한다(assets 는 campaigns 를 import 하지 않는다).
     """
     now = _now(now)
-    return Creative.objects.filter(
-        image_name=name, ad_group__campaign__status__in=[CampaignStatus.ACTIVE, CampaignStatus.PAUSED],
-    ).filter(Q(ad_group__campaign__ends_at__isnull=True) | Q(ad_group__campaign__ends_at__gt=now)).exists()
+    return CreativeImage.objects.filter(
+        image_name=name, creative__ad_group__campaign__status__in=[CampaignStatus.ACTIVE, CampaignStatus.PAUSED],
+    ).filter(Q(creative__ad_group__campaign__ends_at__isnull=True) | Q(creative__ad_group__campaign__ends_at__gt=now)).exists()

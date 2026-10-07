@@ -182,6 +182,135 @@ class CampaignServiceTests(TestCase):
 
 
 @tag("security")
+class ImageHoldingTests(TestCase):
+    """이전 이미지는 지우지 않으므로, 교체를 반복해도 광고주가 **보유한 파일 총량**이 상한을 넘지 못한다."""
+
+    def distinct_images(self, n):
+        return [png_file((i * 9 % 256, i * 17 % 256, 100 + i)) for i in range(1, n + 1)]
+
+    def held_bytes(self, user):
+        from campaigns.models import CreativeImage
+
+        return sum(dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=user).values_list("image_name", "image_bytes")).values())
+
+    def test_repeated_image_replacement_cannot_bypass_the_quota(self):
+        w = World()
+        limit = w.creative.image_bytes + w.creative.image_bytes // 2  # 현재 이미지 + 절반
+        accepted = 0
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=limit):
+            for image in self.distinct_images(6):
+                try:
+                    api.replace_creative_image(w.adv, w.creative.creative_id, image, now=NOW)
+                    accepted += 1
+                except api.LimitExceeded:
+                    pass
+        self.assertEqual(accepted, 0)  # 첫 교체부터 (현재 + 새 이미지) 가 상한을 넘는다
+        self.assertLessEqual(self.held_bytes(w.adv), limit)
+
+    def test_replacements_up_to_the_limit_then_rejected_and_rejected_uploads_leave_no_file(self):
+        w = World()
+        size = w.creative.image_bytes
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=size * 3 + size // 2):
+            results = []
+            for image in self.distinct_images(6):
+                try:
+                    api.replace_creative_image(w.adv, w.creative.creative_id, image, now=NOW)
+                    results.append("ok")
+                except api.LimitExceeded:
+                    results.append("limit")
+        self.assertIn("limit", results)
+        self.assertLessEqual(self.held_bytes(w.adv), size * 3 + size // 2)  # 보유량은 어떤 순서로도 상한을 넘지 않는다
+        current = api.get_creative(w.adv, w.creative.creative_id)
+        rejected_name = None
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=self.held_bytes(w.adv)):
+            from assets.api import validate_image
+
+            probe = png_file((250, 1, 2))
+            image = validate_image(probe)
+            probe.seek(0)
+            with self.assertRaises(api.LimitExceeded):
+                api.replace_creative_image(w.adv, w.creative.creative_id, probe, now=NOW)
+            rejected_name = image.name
+        self.assertFalse(asset_exists(rejected_name))  # 거절된 업로드는 파일을 남기지 않는다
+        self.assertEqual(api.get_creative(w.adv, w.creative.creative_id).image_name, current.image_name)
+
+    def test_reuploading_a_file_already_held_adds_nothing(self):
+        w = World()
+        limit = w.creative.image_bytes  # 딱 현재 이미지 하나만큼
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=limit):
+            same = api.replace_creative_image(w.adv, w.creative.creative_id, png_file(), now=NOW)  # World 와 같은 이미지
+        self.assertEqual(same.image_name, w.creative.image_name)
+        self.assertEqual(self.held_bytes(w.adv), limit)
+
+    def test_other_advertisers_quota_is_independent(self):
+        w, other = World(), World()
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=w.creative.image_bytes):
+            with self.assertRaises(api.LimitExceeded):
+                api.replace_creative_image(w.adv, w.creative.creative_id, png_file((7, 7, 7)), now=NOW)
+            self.assertIsNotNone(api.replace_creative_image(other.adv, other.creative.creative_id, png_file(), now=NOW))  # 같은 이미지는 그대로
+
+    def test_old_image_stays_servable_after_replacement_until_the_campaign_stops(self):
+        """과거 결정의 이미지 URL 이 교체 직후 404 가 되면 매체의 광고가 깨진다. 단 중단·종료는 이전 이미지에도 적용된다."""
+        from records import api as records
+
+        w = World()
+        decision = records.decide(w.slot.media_id, w.slot.slot_id, now=NOW)
+        old_url_name = decision.chosen.image_name
+        api.replace_creative_image(w.adv, w.creative.creative_id, png_file((1, 200, 3)), now=NOW)
+        new_name = api.get_creative(w.adv, w.creative.creative_id).image_name
+        self.assertNotEqual(old_url_name, new_name)
+        with override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable"):
+            client = Client()
+            for name in (old_url_name, new_name):
+                self.assertEqual(client.get(f"/assets/{name}").status_code, 200, name)  # 과거 결정의 URL 도 열린다
+            api.suspend_campaign(w.admin, w.campaign.campaign_id, "부적절")
+            for name in (old_url_name, new_name):
+                self.assertEqual(client.get(f"/assets/{name}").status_code, 404, name)  # 중단은 이전 이미지에도
+            api.release_campaign(w.admin, w.campaign.campaign_id)
+            self.assertEqual(client.get(f"/assets/{old_url_name}").status_code, 200)
+            api.end_campaign(w.adv, w.campaign.campaign_id)
+            for name in (old_url_name, new_name):
+                self.assertEqual(client.get(f"/assets/{name}").status_code, 404, name)
+        self.assertFalse(api.is_asset_servable(old_url_name, now=NOW + 11 * DAY))
+
+
+class InputHardeningTests(TestCase):
+    def setUp(self):
+        self.w = World(with_creative=False)
+
+    def create(self, url):
+        return api.create_creative(self.w.adv, self.w.group.ad_group_id, "t", url, png_file(), now=NOW)
+
+    def test_malformed_urls_are_input_errors_not_exceptions(self):
+        for url in ("https://[", "https://example.com:bogus/", "https://example.com:99999/", "https://example.com:0/", "https://[::1", "https://exa mple.com", "https://", "https:///path"):
+            with self.assertRaises(InvalidRequest, msg=url):
+                self.create(url)
+        self.assertEqual(api.list_creatives(self.w.adv, self.w.group.ad_group_id), [])  # 실패한 시도는 남지 않는다
+        c = self.create("https://example.com:8443/path")
+        self.assertEqual(c.redirect_url, "https://example.com:8443/path")
+
+    def test_bad_url_on_update_changes_nothing(self):
+        c = self.create("https://example.com/ok")
+        for url in ("https://[", "https://example.com:bogus/", "https://example.com:99999/"):
+            with self.assertRaises(InvalidRequest, msg=url):
+                api.update_creative(self.w.adv, c.creative_id, {"title": "바뀌면 안 됨", "redirect_url": url}, now=NOW)
+        after = api.get_creative(self.w.adv, c.creative_id)
+        self.assertEqual((after.title, after.redirect_url), ("t", "https://example.com/ok"))
+
+    def test_out_of_range_datetimes_are_input_errors(self):
+        from datetime import datetime, timedelta, timezone
+
+        too_early = datetime.min.replace(tzinfo=timezone(timedelta(hours=9)))  # UTC 로 바꾸면 표현 범위를 벗어난다
+        too_late = datetime.max.replace(tzinfo=timezone(timedelta(hours=-9)))
+        for bad in (too_early, too_late):
+            with self.assertRaises(InvalidRequest, msg=bad):
+                api.create_campaign(self.w.adv, "시각 시험", bad, None, 100, now=NOW)
+            with self.assertRaises(InvalidRequest, msg=bad):
+                api.update_campaign(self.w.adv, self.w.campaign.campaign_id, {"ends_at": bad}, now=NOW)
+        self.assertEqual(len(api.list_campaigns(self.w.adv, now=NOW)), 1)  # 만들어지거나 바뀐 것이 없다
+
+
+@tag("security")
 class CampaignOwnershipTests(TestCase):
     def test_other_users_objects_are_404(self):
         w = World()

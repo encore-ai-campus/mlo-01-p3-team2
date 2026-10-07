@@ -122,3 +122,74 @@ class ConcurrentChargeTests(TransactionTestCase):
         self.assertEqual(api.spend_today([camp], now=NOW), {camp: 100})
         self.assertEqual(api.check_ledger(), [])
         self.assertTrue(any(getattr(o, "duplicate", None) is False for o in outcomes), outcomes)  # 처음 처리한 쪽이 있다
+
+
+@tag("security")
+class ChargeInputValidationTests(TestCase):
+    def snapshot(self, adv):
+        return (
+            LedgerEntry.objects.count(), api.get_wallet(adv, now=NOW).balance, list(CampaignSpend.objects.values_list("campaign_id", "spent")),
+        )
+
+    def test_charge_rejects_non_integer_or_out_of_range_amounts_and_changes_nothing(self):
+        adv, camp = funded(), uuid.uuid4()
+        before = self.snapshot(adv)
+        for bad in (0.5, 1.0, True, False, "5", None, 0, -1, 2**53, 2**63):
+            with self.assertRaises(InvalidRequest, msg=bad):
+                charge(adv, bad, f"bad-{bad!r}", camp)
+        self.assertEqual(self.snapshot(adv), before)  # 원장·잔액·소진액 모두 그대로
+        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(charge(adv, 5, "good", camp).charged, 5)  # 이후 정상 호출은 영향 없음
+
+    def test_charge_rejects_bad_policy_results_and_changes_nothing(self):
+        class Broken:
+            name = "broken/v1"
+
+            def __init__(self, value):
+                self.value = value
+
+            def amount_for(self, reaction_type, pricing_unit, applied_amount):
+                return self.value
+
+        adv, camp = funded(), uuid.uuid4()
+        before = self.snapshot(adv)
+        for i, bad in enumerate((0.5, True, -3, 2**53, "9", None)):
+            api.register_charge_policy(Broken(bad))
+            try:
+                with override_settings(BILLING_CHARGE_POLICY="broken/v1"):
+                    with self.assertRaises(ValueError, msg=bad):
+                        charge(adv, 5, f"policy-{i}", camp)
+            finally:
+                api.unregister_charge_policy("broken/v1")
+        self.assertEqual(self.snapshot(adv), before)
+        self.assertEqual(api.check_ledger(), [])
+
+    def test_balance_never_exceeds_max_amount(self):
+        from foundation.api import MAX_AMOUNT
+        from foundation.errors import InvalidRequest as Invalid
+        from tests.factories import make_admin
+        from django.db import IntegrityError, transaction
+
+        adv, admin = funded(1), make_admin()
+        with self.assertRaises(Invalid):  # 개별 금액은 범위 안이지만 합산하면 MAX + 1
+            api.adjust(admin, adv.pk, MAX_AMOUNT, "한도 시험", now=NOW)
+        self.assertEqual(api.get_wallet(adv, now=NOW).balance, 1)
+        api.adjust(admin, adv.pk, MAX_AMOUNT - 1, "정확히 한도까지", now=NOW)
+        self.assertEqual(api.get_wallet(adv, now=NOW).balance, MAX_AMOUNT)
+        with self.assertRaises(Invalid):
+            api.adjust(admin, adv.pk, 1, "한도 초과", now=NOW)
+        from billing.models import Wallet
+
+        with self.assertRaises(IntegrityError), transaction.atomic():  # DB 도 같은 범위를 지킨다
+            Wallet.objects.filter(owner=adv).update(balance=MAX_AMOUNT + 1)
+        self.assertEqual(api.check_ledger(), [])
+
+    def test_signup_grant_setting_must_be_a_sane_integer(self):
+        from django.core.exceptions import ImproperlyConfigured
+        from foundation.api import MAX_AMOUNT
+
+        for bad in (-1, 1.5, True, "50000", MAX_AMOUNT + 1):
+            with override_settings(SIGNUP_GRANT_POINTS=bad):
+                with self.assertRaises(ImproperlyConfigured, msg=bad):
+                    api.grant_signup(make_advertiser(), now=NOW)
+        self.assertEqual(LedgerEntry.objects.count(), 0)

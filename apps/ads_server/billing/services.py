@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
@@ -36,9 +37,15 @@ def _lock_wallet(owner_id):
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
 
 
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _append(wallet, entry_type, amount, now, **extra):
     """원장 한 줄을 더하고 잔액을 같은 트랜잭션에서 갱신한다. 호출한 쪽이 바깥 트랜잭션을 연다."""
     balance_after = wallet.balance + amount
+    if not 0 <= balance_after <= MAX_AMOUNT:  # 마지막 방어선(호출한 쪽이 이미 검사했어야 한다). DB 제약도 같은 범위를 지킨다
+        raise ValueError(f"잔액이 허용 범위를 벗어난다: {balance_after}")
     entry = LedgerEntry.objects.create(wallet=wallet, entry_type=entry_type, amount=amount, balance_after=balance_after, created_at=now, **extra)
     Wallet.objects.filter(pk=wallet.pk).update(balance=F("balance") + amount)
     wallet.balance = balance_after
@@ -51,6 +58,8 @@ def grant_signup(user, now=None):
     if user.role != Role.ADVERTISER:
         raise errors.Forbidden("광고주만 지갑을 가진다.")
     points = settings.SIGNUP_GRANT_POINTS
+    if not _is_int(points) or not 0 <= points <= MAX_AMOUNT:
+        raise ImproperlyConfigured(f"SIGNUP_GRANT_POINTS 는 0 이상 {MAX_AMOUNT} 이하의 정수여야 한다: {points!r}")
     with transaction.atomic():
         wallet, _created = Wallet.objects.get_or_create(owner=user, defaults={"created_at": now})
         wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
@@ -73,6 +82,8 @@ def adjust(actor, user_id, amount, note, now=None):
         wallet = _lock_wallet(parse_uuid(user_id, "지갑"))
         if wallet.balance + amount < 0:
             raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])
+        if wallet.balance + amount > MAX_AMOUNT:  # 개별 금액이 범위 안이어도 합산 결과가 잔액 상한을 넘을 수 있다
+            raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"조정 후 잔액이 {MAX_AMOUNT} 을 넘을 수 없습니다."}])
         entry = _append(wallet, EntryType.ADMIN_ADJUST, amount, now, note=note)
         _audit(actor, "billing.adjusted", ("billing.wallet", wallet.pk), {"amount": amount, "note": note, "balance_after": entry.balance_after})
     return _entry_view(entry)
@@ -101,9 +112,13 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
     한 트랜잭션에서 ① 원장 `CHARGE` ② 지갑 잔액 ③ 그날 소진액을 함께 바꾼다.
     """
     now = _now(now)
+    if not _is_int(applied_amount) or not 1 <= applied_amount <= MAX_AMOUNT:  # 소수·bool·범위 밖은 원장·잔액·소진액 어디에도 닿기 전에 거절
+        raise errors.InvalidRequest(errors=[{"pointer": "/applied_amount", "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."}])
     policy = get_charge_policy(settings.BILLING_CHARGE_POLICY)
     amount = policy.amount_for(reaction_type, pricing_unit, applied_amount)
-    if amount <= 0:
+    if not _is_int(amount) or not 0 <= amount <= MAX_AMOUNT:  # 정책이 잘못된 값을 돌려주는 것은 서버 쪽 결함이다
+        raise ValueError(f"과금 정책 {policy.name!r} 이(가) 올바르지 않은 과금액을 돌려줬다: {amount!r}")
+    if amount == 0:
         return None
     if not isinstance(reaction_ref, str) or not (1 <= len(reaction_ref) <= 100):
         raise errors.InvalidRequest(errors=[{"pointer": "/reaction_ref", "message": "1~100자 문자열이어야 합니다."}])
@@ -155,11 +170,13 @@ def spend_today(campaign_ids, now=None):
 
 def recompute_spend():
     """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수를 돌려준다."""
-    totals = {}
-    for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False).values_list("campaign_id", "created_at", "amount"):
-        key = (campaign_id, budget_day_of(created_at))
-        totals[key] = totals.get(key, 0) - amount
+    # 원장 읽기부터 교체까지 **한 쓰기 트랜잭션**이다. SQLite 는 시작할 때(IMMEDIATE) 쓰기 잠금을 잡으므로, 읽은 뒤 다른 연결의 과금이 끼어들어
+    # 새 과금이 파생값에서 빠지는 일이 없다(과금은 이 트랜잭션이 끝날 때까지 기다린다).
     with transaction.atomic():
+        totals = {}
+        for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False).values_list("campaign_id", "created_at", "amount"):
+            key = (campaign_id, budget_day_of(created_at))
+            totals[key] = totals.get(key, 0) - amount
         CampaignSpend.objects.all().delete()
         CampaignSpend.objects.bulk_create([CampaignSpend(campaign_id=c, budget_day=d, spent=s) for (c, d), s in totals.items() if s > 0])
     return len([1 for s in totals.values() if s > 0])

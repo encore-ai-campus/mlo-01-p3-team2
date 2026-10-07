@@ -18,11 +18,12 @@ class EntryType(models.TextChoices):
 
 class Wallet(models.Model):
     owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="wallet")
-    balance = models.PositiveBigIntegerField(default=0)  # 0 밑으로 내려가지 않는다(DB 제약). 값은 원장 합계와 같아야 한다
+    balance = models.PositiveBigIntegerField(default=0)  # 0 밑으로 내려가지 않고 MAX_AMOUNT 를 넘지 않는다(DB 제약). 값은 원장 합계와 같아야 한다
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "billing_wallet"
+        constraints = [models.CheckConstraint(condition=Q(balance__lte=MAX_AMOUNT), name="billing_wallet_balance_max")]
 
 
 class LedgerEntry(AppendOnlyModel):
@@ -56,6 +57,7 @@ class LedgerEntry(AppendOnlyModel):
             models.CheckConstraint(
                 condition=Q(entry_type="CHARGE") | Q(reaction_ref__isnull=True), name="billing_only_charges_have_reaction_ref"
             ),
+            models.CheckConstraint(condition=Q(balance_after__lte=MAX_AMOUNT), name="billing_entry_balance_after_max"),
         ]
 
 

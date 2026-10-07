@@ -52,7 +52,7 @@ def decide(media_id, slot_id, subject_id=None, now=None, rng=None):
 
     candidates, facts_by_creative = assemble(slot, now)
     result = engine_decide(
-        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),
+        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 동점 광고를 고르게 노출하려는 추첨이다. 보안 값(키·토큰)을 만들지 않는다
         policy=settings.ADS_SELECTION_POLICY, filters=tuple(settings.ADS_ENGINE_FILTERS),
     )
     chosen = result.selection.chosen

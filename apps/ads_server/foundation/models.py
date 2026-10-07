@@ -89,10 +89,16 @@ class AppendOnlyQuerySet(models.QuerySet):
     def delete(self):
         raise AppendOnlyError("추가 전용 기록은 삭제할 수 없다.")
 
-    def bulk_create(self, objs, *args, update_conflicts=False, **kwargs):
+    def bulk_create(
+        self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None
+    ):
+        """부모와 **같은 명시적 시그니처**로 받는다. `*args` 로 받으면 위치 인자로 넘긴 `update_conflicts` 를 못 본다."""
         if update_conflicts:  # 충돌 시 기존 행을 덮어쓰는 upsert
             raise AppendOnlyError("추가 전용 기록은 upsert 로 덮어쓸 수 없다.")
-        return super().bulk_create(objs, *args, **kwargs)
+        return super().bulk_create(
+            objs, batch_size=batch_size, ignore_conflicts=ignore_conflicts, update_conflicts=update_conflicts,
+            update_fields=update_fields, unique_fields=unique_fields,
+        )
 
 
 class AppendOnlyModel(models.Model):
