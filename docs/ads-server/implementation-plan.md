@@ -690,13 +690,13 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 필드 | 설명 |
 |---|---|
 | `decision_id`, `media_id`, `slot_id`, `subject_id`, `decided_at`(= 요청의 `now`) | 요청 쪽 사실 |
-| `chosen`(JSON 또는 열): `campaign_id`, `ad_group_id`, `creative_id`, `bid_amount`, `applied_amount`, `pricing_unit`, `bid_version`, `policy_version` | **선택된 광고의 스냅샷**(없으면 `NULL`, "광고 없음"도 한 건으로 기록) |
+| 선택된 광고 **열**: `owner_id`(과금할 지갑 주인), `campaign_id`, `ad_group_id`, `creative_id`, `bid_amount`, `applied_amount`, `pricing_unit`, `bid_version`, `policy_version` (모두 채워지거나 모두 `NULL` — DB `CHECK`) | **선택된 광고의 스냅샷**(없으면 `NULL`, "광고 없음"도 한 건으로 기록). 이후 반응 처리가 과금에 필요한 값을 결정에서 읽는다 |
 | `selection_policy`(이름), `trace`(JSON), `candidate_count`, `rejected_counts`(JSON) | 어떤 알고리즘이 어떤 근거로 골랐는지 |
 | `snapshot`(JSON) | 응답에 필요한 값: 소재 제목·이동 주소·이미지 이름 **그 시점 값** |
 
 **`assemble.py` (후보 조립, 판정 없음)**: 슬롯 하나에 대해 ① `masters.api.get_slots_with_policy`(정책) ② `campaigns.api.candidate_facts_for_slot`(캠페인·광고그룹·소재·입찰) ③ `billing.api.balances`·`spend_today`(잔액·남은 일예산)를 **각각 한 번의 질의**로 읽어 `Candidate` 목록으로 조립한다. 총 질의 수는 후보 수와 무관하다.
 
-**`records.api.decide(media_id, slot_id, subject_id, now, rng) -> DecisionView`** (Step 2-3의 `POST /decisions`가 부른다)
+**`records.api.decide(media_id, slot_id, subject_id, now, rng) -> DecisionView`** (Step 2-3의 `POST /decisions`가 부른다). 조회용 `get_decision(media_id, decision_id)`는 **그 결정을 만든 매체만** 볼 수 있다(아니면 404).
 
 1. 슬롯이 해당 매체의 활성 슬롯인지 확인(아니면 `NotFound`).
 2. `assemble` → `engine.api.decide(..., policy=settings.ADS_SELECTION_POLICY)`.
@@ -735,16 +735,33 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 
 ## 6.8 Step 1 종료 점검표
 
-- [ ] 1-1~1-5 테스트 통과, `scripts/check.sh` 통과(`check --deploy` 경고 0, `pip-audit` 0, `bandit` 0)
-- [ ] `engine` 테스트가 Django 설정 없이 단독으로 통과, 경계 검사(R1·R2·`engine` 순수성) 통과
-- [ ] 통합 시나리오 통과, 두 광고주의 서로 다른 객체 접근이 모두 404
-- [ ] 상태를 쓰는 코드가 `campaigns/transitions.py`뿐, 적용 금액·종료 판정 코드가 `engine`뿐(소스 검사 테스트)
-- [ ] `threat-model.md` 갱신: **T4**(소유권, 1단계 테스트), **T19**(중단 소재 이미지 404, 1단계 테스트), **T23**(관리자 행위 감사: 정책·중단·조정), §5.2 표의 **원장 변조·이중 과금·결정 스냅샷**(1-3·1-5) 행 등 Step 1에 대응하는 행에 실제 테스트 이름을 채움(`test_threat_model_sync`가 강제)
-- [ ] C6 계약 리뷰 반영: 서비스 `api` 함수·값 객체가 `contracts/console.openapi.yaml`의 자원·오류 코드(`stale_version`·`ended`·`suspended`·`not_suspended`·`review_pending`·`unit_mismatch`·`unit_immutable`·`limit_exceeded`)와 일치하는지 대조표로 확인, 어긋나면 계약 또는 서비스를 고친다
-- [ ] 설계 문서의 열린 결정 중 Step 1에서 확정된 것(쿼터 기본값 등)을 §10으로 이동
-- [ ] 진행 상태 표(§10) 갱신
+- [x] 1-1~1-5 테스트 통과, `scripts/check.sh` 통과(`check --deploy` 경고 0, 마이그레이션 최신, 테스트 356개, `pip-audit` 0, `bandit` 0)
+- [x] `engine` 테스트가 Django 설정 없이 단독으로 통과(`env -i … python -m unittest tests.test_engine_*`), 경계 검사(R1·R2·`engine` 순수성) 통과. 경계 검사가 구현 중 R2 위반 2건을 실제로 잡음
+- [x] 통합 시나리오(`tests/test_step1_scenario.py`) 통과, 두 광고주의 서로 다른 객체 접근이 모두 404(`test_other_users_objects_are_404`)
+- [x] 상태를 쓰는 코드가 `campaigns/transitions.py`뿐(`test_only_transitions_module_writes_status`), 적용 금액·종료 판정 코드가 `engine`뿐(`test_pricing_and_expiry_rules_are_defined_only_in_engine`, `test_only_engine_decides`). DB 조건식(`expire_due`·`is_asset_servable`)은 `is_expired`를 쿼리로 다시 쓴 것이라 경계에서 일치함을 `test_db_predicates_agree_with_is_expired`로 대조
+- [x] `threat-model.md` 갱신: T4·T19·T23, §5.2(원장 변조·이중 과금·결정 스냅샷), 신규 T28(정책)·T29(자격 필터)·T30(종료·중단 우회)·T31(포인트 정합성)·T32(결정 기록), 모두 실제 테스트 이름으로 연결(`test_threat_model_sync`가 강제)
+- [x] C6 계약 리뷰: 아래 §6.8.1 대조표. 어긋난 곳은 없고, 서비스 밖(콘솔 구성)에서 채울 값은 Step 3으로 명시
+- [x] 설계 문서 §10에 Step 1 결정 반영(쿼터 기본값은 **설정값 기본**으로 기록하고 §7-5는 CAPTCHA 때문에 열어 둠)
+- [x] 진행 상태 표(§10) 갱신
 
-## 6.9 Step 1 시작 전 확인 (남은 것)
+### 6.8.1 C6 계약과 서비스 `api` 대조
+
+| C6 (console.openapi.yaml) | 서비스 | 비고 |
+|---|---|---|
+| `POST /signup` | `console` 가입 뷰 → `foundation.create_advertiser` + `billing.grant_signup`(한 트랜잭션) | 지급 50,000(설정) |
+| `GET /slots` | `masters.list_slots` | 현재 정책 포함(`SlotView.policy`) |
+| `GET /wallet`, `/wallet/ledger` | `billing.get_wallet`, `list_ledger(before, limit)` | 계약의 `balance·spent_today·budget_day·resets_at`와 같은 값. 커서는 불투명 값 |
+| 캠페인 `GET·POST`, `GET·PATCH /{id}` | `list_campaigns`·`create_campaign`·`get_campaign`·`update_campaign` | PATCH 필드 `name·ends_at·daily_budget·status(ACTIVE↔PAUSED)`. 응답의 `today`(소진·남은 예산·리셋 시각)는 **콘솔이 `billing.spend_today`·`next_reset`으로 채운다**(Step 3) |
+| `POST /campaigns/{id}/end` | `end_campaign` | 되돌릴 수 없음, `ended_from` 포함 |
+| 재검토 요청 `GET·POST` | `list_review_requests`·`create_review_request` | 상태 `OPEN·RELEASED·REJECTED·CLOSED_ENDED` |
+| 광고그룹 `GET·POST`, `GET·PATCH` | `list_ad_groups`·`create_ad_group`(`bid_amount` 선택)·`get_ad_group`·`update_ad_group` | `pricing_unit`을 보내면 항상 `unit_immutable`. 응답의 `effects`는 **콘솔이 `masters`+`engine.effect_of`로 채운다**(Step 3) |
+| 입찰 `GET`, `POST`(`expected_version`, 첫 입찰은 `null`) | `list_bids`·`add_bid` | `bid-preview`와 `effects`도 같은 방식으로 콘솔이 구성(적용 금액 계산은 `engine` 한 곳) |
+| 소재 `GET·POST`(업로드), `GET·PATCH`, `PUT .../image` | `list_creatives`·`create_creative`·`get_creative`·`update_creative`·`replace_creative_image` | 업로드 검증 실패는 `assets.ImageRejected`(`reason`)로 전달, HTTP 변환(`invalid_image`)은 콘솔 몫 |
+| 관리자 기능(중단·해제·반려·정책·조정) | `suspend_campaign`·`release_campaign`·`reject_review_request`, `masters.*`, `billing.adjust` | C6에는 없음(Django admin, 설계 §3) |
+| `/reports/daily`, `/alerts` | **미구현** | 이벤트·반응 처리(Step 2) 이후. `alerts`는 현재 상태에서 계산하는 읽기 전용이라 Step 3 |
+| 오류 코드 | `stale_version`·`unit_mismatch`·`unit_immutable`·`suspended`·`not_suspended`·`review_pending`·`ended`·`limit_exceeded` 모두 같은 `code` 값의 예외 | `invalid_transition`은 계약에 없는 내부 방어용(409 `conflict` 계열)이라 계약에 추가할지 Step 3에서 정함 |
+
+## 6.9 Step 1 이후 남은 것
 
 - **쿼터 기본값**(캠페인 20·광고그룹 100·소재 100·이미지 100MB)은 제안값이다. 설계 §7-5가 열려 있으므로 시연 규모에 맞게 조정해도 된다(설정값).
 - **주기 작업 실행 방식**(`end_expired_campaigns` 등, 설계 §7-9): 1-2에서는 함수와 관리 명령까지 만든다.
@@ -810,4 +827,5 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 1-4 `engine` | 완료 (2026-10-07) | 테스트 27개 추가(전체 250개). **Django·DB 없이 단독 통과**(`env -i … python -m unittest tests.test_engine_*`). 변형 검사: 동점 처리를 항상 첫 후보로 바꾸거나, `is_expired`·예산 비교의 경계를 어긋나게 하면 테스트가 실패함을 확인. 위협 모델 T29 추가 |
 | 1-2 `campaigns` | 완료 (2026-10-07) | 테스트 57개 추가(전체 307개). 변형 검사: 종료 가드를 상태만 보게 하거나, 소유권 검사를 빼거나, 입찰 `expected_version` 검사를 끄면 테스트가 실패함을 확인. 동시 입찰 테스트가 "커밋 뒤 감사 기록"의 잠금 실패를 드러내 감사를 변경과 같은 트랜잭션으로 옮김(campaigns·masters). `foundation`에 `clean_text`·`parse_uuid` 공용화, `SlotView.media_is_active` 추가. 위협 모델 T30 추가 |
 | 1-3 `billing` | 완료 (2026-10-07) | 테스트 25개 추가(전체 332개). 변형 검사: 잔액 하한·멱등 검사·예산 경계 오프셋·소진액 갱신을 각각 빼면 테스트가 실패함을 확인. 가입 지급 기본 50,000(`SIGNUP_GRANT_POINTS`), 가입과 지급은 한 트랜잭션(console 가입 뷰). 동시성 테스트(과금·입찰·정책) 10회 반복 안정. 위협 모델 T31 추가, §5.2 두 행에 테스트 연결 |
-| 1-5 `records` | 대기 | |
+| 1-5 `records` | 완료 (2026-10-07) | 테스트 21개 + 통합 시나리오 1개 + 단일 원본 검사 2개 추가(전체 356개). 변형 검사: 저장 전에 응답을 돌려주거나, 스냅샷 대신 현재 값을 쓰거나, 잔액을 항상 충분하다고 가정하면 테스트가 실패함을 확인. 위협 모델 T32 추가 |
+| **Step 1 전체** | **완료 (2026-10-07)** | §6.8 종료 점검표 모두 충족. 구현: `masters`·`engine`·`campaigns`·`billing`·`records` |
