@@ -1,8 +1,33 @@
+import re
+import uuid
+
 from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 
 from .errors import ApiError
 from .http import problem_response
+from .logging import request_id_var
+
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+class RequestIdMiddleware:
+    """요청마다 UUID 를 붙인다. 들어온 `X-Request-ID` 는 **UUID 형식일 때만** 받아들인다(로그·헤더 주입 방지)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        incoming = request.META.get("HTTP_X_REQUEST_ID", "")
+        rid = incoming.lower() if _UUID.fullmatch(incoming) else str(uuid.uuid4())
+        request.request_id = rid
+        token = request_id_var.set(rid)
+        try:
+            response = self.get_response(request)
+        finally:
+            request_id_var.reset(token)
+        response["X-Request-ID"] = rid
+        return response
 
 
 class CsrfExemptPrefixesMiddleware:

@@ -70,3 +70,45 @@ class SignupAttempt(models.Model):
     class Meta:
         db_table = "foundation_signup_attempt"
         indexes = [models.Index(fields=["ip", "created_at"])]
+
+
+class AuditImmutableError(Exception):
+    """감사 로그는 추가만 한다. 수정·삭제 시도는 예외다."""
+
+
+class AppendOnlyQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise AuditImmutableError("감사 로그는 수정할 수 없다.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise AuditImmutableError("감사 로그는 수정할 수 없다.")
+
+    def delete(self):
+        raise AuditImmutableError("감사 로그는 삭제할 수 없다.")
+
+
+class AuditLog(models.Model):
+    """누가·언제·무엇을. 비밀값·개인정보는 기록하지 않는다(audit.record_audit 가 가린다)."""
+
+    actor_id = models.UUIDField(null=True, blank=True, db_index=True)  # FK 가 아니다: 사용자가 바뀌어도 기록은 그대로
+    actor_username = models.CharField(max_length=30, blank=True)
+    action = models.CharField(max_length=64, db_index=True)
+    target_type = models.CharField(max_length=64, blank=True)
+    target_id = models.CharField(max_length=64, blank=True)
+    detail = models.JSONField(default=dict, blank=True)
+    ip = models.CharField(max_length=45, blank=True)
+    request_id = models.CharField(max_length=36, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        db_table = "foundation_audit_log"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise AuditImmutableError("감사 로그는 수정할 수 없다.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AuditImmutableError("감사 로그는 삭제할 수 없다.")

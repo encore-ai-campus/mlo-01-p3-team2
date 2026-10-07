@@ -1,5 +1,6 @@
 """0-4 테스트용 URL 설정: 키 인증 API 접두사(CSRF 예외)와 일반 접두사의 동작을 비교한다."""
 import json
+import logging
 
 from django.contrib.auth.decorators import login_not_required
 from django.http import Http404, HttpResponse, JsonResponse
@@ -46,7 +47,14 @@ def cache_header(request):
     return response
 
 
+@login_not_required
+def log_hello(request, msg):
+    logging.getLogger("tests").warning("%s from the view", msg)
+    return HttpResponse("ok")
+
+
 urlpatterns = [
+    path("logs/<str:msg>/", log_hello),
     path("api/media/echo/", echo),
     path("api/other/echo/", echo),
     path("api/media/small/", small_echo),

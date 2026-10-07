@@ -23,6 +23,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "foundation.middleware.RequestIdMiddleware",  # 가장 먼저: 모든 응답·로그에 요청 ID
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -190,11 +191,15 @@ def sqlite_config(name, wal=True):
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {"()": "foundation.logging.RequestIdFilter"},
+        "redact": {"()": "foundation.logging.RedactingFilter"},
+    },
     "formatters": {
-        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+        "console": {"class": "logging.StreamHandler", "formatter": "plain", "filters": ["request_id", "redact"]},
     },
     "root": {"handlers": ["console"], "level": "INFO"},
 }
