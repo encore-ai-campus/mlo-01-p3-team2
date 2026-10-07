@@ -54,6 +54,7 @@ class Slot(models.Model):
 class BidPolicy(AppendOnlyModel):
     """슬롯별 입찰 정책의 한 버전. 수정이 아니라 새 버전 행 추가이고, 현재 값 = 최대 버전이다."""
 
+    bid_policy_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # 버전 행 하나의 식별자(결정·이벤트가 가리킨다)
     slot = models.ForeignKey(Slot, on_delete=models.PROTECT, related_name="policies")
     policy_version = models.PositiveIntegerField()
     floor_amount = models.PositiveBigIntegerField()

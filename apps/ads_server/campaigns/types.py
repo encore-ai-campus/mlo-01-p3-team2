@@ -28,6 +28,7 @@ class CampaignView:
 
 @dataclass(frozen=True)
 class BidView:
+    bid_id: uuid.UUID
     ad_group_id: uuid.UUID
     bid_version: int
     amount: int
@@ -81,6 +82,7 @@ class CandidateFacts:
     creative_id: uuid.UUID
     slot_id: uuid.UUID
     pricing_unit: str
+    bid_id: uuid.UUID
     bid_amount: int
     bid_version: int
     bid_created_at: datetime

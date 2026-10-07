@@ -14,6 +14,7 @@ class MediaView:
 
 @dataclass(frozen=True)
 class PolicyView:
+    bid_policy_id: uuid.UUID
     slot_id: uuid.UUID
     policy_version: int
     floor: int

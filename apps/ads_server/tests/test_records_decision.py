@@ -254,3 +254,34 @@ class OnlyEngineDecidesTests(TestCase):
                     hits.append(f"{path.name}:{n}: {line.strip()}")
         self.assertEqual(hits, [])
         self.assertIn("engine_decide(", (root / "services.py").read_text(encoding="utf-8"))
+
+
+class VersionRowIdentityTests(TestCase):
+    def test_decision_records_the_uuids_of_the_exact_bid_and_policy_rows(self):
+        """팀 DRD 의 selected_bid_id·selected_bid_policy_id 에 해당한다: 판정에 쓴 버전 행을 UUID 로 가리킨다."""
+        from campaigns.models import Bid
+        from masters.models import BidPolicy
+
+        w = World()
+        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1)
+        new_bid = campaigns.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
+        d = decide(w)
+        self.assertEqual(d.chosen.bid_id, new_bid.bid_id)
+        self.assertEqual(d.chosen.bid_id, Bid.objects.get(ad_group_id=w.group.ad_group_id, bid_version=2).bid_id)
+        self.assertEqual(d.chosen.bid_policy_id, BidPolicy.objects.get(slot_id=w.slot.slot_id, policy_version=2).bid_policy_id)
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 45, expected_version=2, now=NOW)  # 나중 변경은 과거 결정에 영향 없음
+        self.assertEqual(records.get_decision(w.slot.media_id, d.decision_id).chosen.bid_id, new_bid.bid_id)
+        self.assertIsNone(decide(World(with_creative=False)).chosen)
+
+    def test_version_rows_have_unique_immutable_uuids_exposed_by_api(self):
+        w = World()
+        v1 = campaigns.list_bids(w.adv, w.group.ad_group_id)[0]
+        v2 = campaigns.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
+        self.assertNotEqual(v1.bid_id, v2.bid_id)
+        self.assertEqual(campaigns.get_ad_group(w.adv, w.group.ad_group_id).current_bid.bid_id, v2.bid_id)
+        p1 = masters.get_slot(w.slot.slot_id).policy
+        p2 = masters.add_policy_version(w.admin, w.slot.slot_id, 11, 21, 51, "v2", expected_version=1)
+        self.assertNotEqual(p1.bid_policy_id, p2.bid_policy_id)
+        self.assertEqual(masters.get_slot(w.slot.slot_id).policy.bid_policy_id, p2.bid_policy_id)
+        facts = campaigns.candidate_facts_for_slot(w.slot.slot_id)
+        self.assertEqual(facts[0].bid_id, v2.bid_id)  # 후보 사실도 최신 버전 행을 가리킨다

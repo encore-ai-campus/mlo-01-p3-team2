@@ -94,6 +94,7 @@ class Creative(models.Model):
 class Bid(AppendOnlyModel):
     """입찰의 한 버전. 하한 미만·상한 초과도 그대로 저장한다(설계 §4.2). 현재 값 = 최대 버전."""
 
+    bid_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # 버전 행 하나의 식별자(결정·이벤트가 가리킨다)
     ad_group = models.ForeignKey(AdGroup, on_delete=models.PROTECT, related_name="bids")
     bid_version = models.PositiveIntegerField()
     amount = models.PositiveBigIntegerField()

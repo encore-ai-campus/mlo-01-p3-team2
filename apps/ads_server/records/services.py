@@ -26,7 +26,7 @@ def _view(d):
         chosen = ChosenView(
             owner_id=d.owner_id, campaign_id=d.campaign_id, ad_group_id=d.ad_group_id, creative_id=d.creative_id,
             pricing_unit=d.pricing_unit, bid_amount=d.bid_amount, applied_amount=d.applied_amount, bid_version=d.bid_version,
-            policy_version=d.policy_version, title=s["title"], redirect_url=s["redirect_url"], image_name=s["image_name"],
+            policy_version=d.policy_version, bid_id=d.bid_id, bid_policy_id=d.bid_policy_id, title=s["title"], redirect_url=s["redirect_url"], image_name=s["image_name"],
             image_url=asset_url(s["image_name"]),
         )
     return DecisionView(
@@ -63,6 +63,7 @@ def decide(media_id, slot_id, subject_id=None, now=None, rng=None):
             owner_id=fact.owner_id, campaign_id=chosen.campaign_id, ad_group_id=chosen.ad_group_id, creative_id=chosen.creative_id,
             pricing_unit=chosen.pricing_unit, bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
             bid_version=chosen.bid_version, policy_version=chosen.policy_version,
+            bid_id=fact.bid_id, bid_policy_id=slot.policy.bid_policy_id,  # 판정에 쓴 바로 그 버전 행
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},
         )
     with transaction.atomic():

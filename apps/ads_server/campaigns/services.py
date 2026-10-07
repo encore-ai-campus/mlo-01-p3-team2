@@ -97,7 +97,7 @@ def _open_review_id(campaign):
 
 
 def _bid_view(b):
-    return BidView(ad_group_id=b.ad_group_id, bid_version=b.bid_version, amount=b.amount, created_by=b.created_by, created_at=b.created_at)
+    return BidView(bid_id=b.bid_id, ad_group_id=b.ad_group_id, bid_version=b.bid_version, amount=b.amount, created_by=b.created_by, created_at=b.created_at)
 
 
 def _current_bid(ad_group):
@@ -503,6 +503,7 @@ def candidate_facts_for_slot(slot_id):
         )
         .select_related("ad_group", "ad_group__campaign")
         .annotate(
+            bid_id=Subquery(latest.values("bid_id")[:1]),
             bid_version=Subquery(latest.values("bid_version")[:1]),
             bid_amount=Subquery(latest.values("amount")[:1]),
             bid_created_at=Subquery(latest.values("created_at")[:1]),
@@ -514,7 +515,7 @@ def candidate_facts_for_slot(slot_id):
         CandidateFacts(
             owner_id=c.ad_group.campaign.owner_id, campaign_id=c.ad_group.campaign_id, ad_group_id=c.ad_group_id,
             creative_id=c.creative_id, slot_id=parse_uuid(slot_id, "게재 위치"), pricing_unit=c.ad_group.pricing_unit,
-            bid_amount=c.bid_amount, bid_version=c.bid_version, bid_created_at=c.bid_created_at,
+            bid_id=c.bid_id, bid_amount=c.bid_amount, bid_version=c.bid_version, bid_created_at=c.bid_created_at,
             campaign_status=c.ad_group.campaign.status, ad_group_enabled=c.ad_group.enabled,
             period_start=c.ad_group.campaign.starts_at, period_end=c.ad_group.campaign.ends_at,
             daily_budget=c.ad_group.campaign.daily_budget, title=c.title, redirect_url=c.redirect_url, image_name=c.image_name,

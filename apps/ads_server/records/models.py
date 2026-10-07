@@ -25,6 +25,8 @@ class Decision(AppendOnlyModel):
     applied_amount = models.PositiveBigIntegerField(null=True, blank=True)  # 과금액의 근거: 다시 계산하지 않는다(설계 §4.4-10)
     bid_version = models.PositiveIntegerField(null=True, blank=True)
     policy_version = models.PositiveIntegerField(null=True, blank=True)
+    bid_id = models.UUIDField(null=True, blank=True)  # 선택된 입찰 버전 행(campaigns_bid.bid_id). FK 아님: 결정은 과거 사실
+    bid_policy_id = models.UUIDField(null=True, blank=True)  # 판정에 쓴 정책 버전 행(masters_bid_policy.bid_policy_id)
     snapshot = models.JSONField(null=True, blank=True)  # 응답에 필요한 그 시점의 값: title·redirect_url·image_name
     # 어떤 알고리즘이 어떤 근거로 골랐는지
     selection_policy = models.CharField(max_length=64)
@@ -39,10 +41,10 @@ class Decision(AppendOnlyModel):
                 condition=(
                     Q(creative_id__isnull=True, campaign_id__isnull=True, ad_group_id__isnull=True, owner_id__isnull=True,
                       pricing_unit__isnull=True, bid_amount__isnull=True, applied_amount__isnull=True, bid_version__isnull=True,
-                      policy_version__isnull=True, snapshot__isnull=True)
+                      policy_version__isnull=True, bid_id__isnull=True, bid_policy_id__isnull=True, snapshot__isnull=True)
                     | Q(creative_id__isnull=False, campaign_id__isnull=False, ad_group_id__isnull=False, owner_id__isnull=False,
                         pricing_unit__isnull=False, bid_amount__isnull=False, applied_amount__isnull=False, bid_version__isnull=False,
-                        policy_version__isnull=False, snapshot__isnull=False)
+                        policy_version__isnull=False, bid_id__isnull=False, bid_policy_id__isnull=False, snapshot__isnull=False)
                 ),
                 name="records_decision_chosen_all_or_none",
             ),

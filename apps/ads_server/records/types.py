@@ -15,6 +15,8 @@ class ChosenView:
     applied_amount: int
     bid_version: int
     policy_version: int
+    bid_id: uuid.UUID
+    bid_policy_id: uuid.UUID
     title: str  # 광고주가 입력한 값: 신뢰할 수 없는 문자열(이스케이프는 소비자 몫, 계약 C1)
     redirect_url: str
     image_name: str

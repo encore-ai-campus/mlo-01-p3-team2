@@ -26,7 +26,7 @@ def _validate_policy(floor, base, cap):
 
 def _policy_view(row):
     return PolicyView(
-        slot_id=row.slot_id, policy_version=row.policy_version, floor=row.floor_amount, base=row.base_amount,
+        bid_policy_id=row.bid_policy_id, slot_id=row.slot_id, policy_version=row.policy_version, floor=row.floor_amount, base=row.base_amount,
         cap=row.cap_amount, changed_by=row.changed_by, changed_at=row.changed_at, reason=row.reason,
     )
 
