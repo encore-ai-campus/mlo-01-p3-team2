@@ -108,8 +108,11 @@ def problem_response(request, error):
     if error.errors:
         body["errors"] = error.errors
     response = JsonResponse(body, status=error.status, content_type="application/problem+json")
-    if error.retry_after is not None:
-        response["Retry-After"] = str(int(error.retry_after))
+    retry_after = error.retry_after if error.retry_after is not None else (1 if error.status in (429, 503) else None)
+    if retry_after is not None:  # 계약: 429·503 은 Retry-After 를 항상 보낸다
+        response["Retry-After"] = str(max(0, int(retry_after)))
+    for name, value in error.headers.items():
+        response[name] = value
     return response
 
 

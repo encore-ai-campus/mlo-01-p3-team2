@@ -13,6 +13,37 @@ class MediaView:
 
 
 @dataclass(frozen=True)
+class MediaIdentity:
+    """키 인증에 성공한 매체. 매체가 비활성이어도 만들어진다(403 은 호출하는 쪽이 판단한다)."""
+
+    media_id: uuid.UUID
+    key_id: uuid.UUID
+    media_is_active: bool
+
+
+@dataclass(frozen=True)
+class IssuedKey:
+    """발급 결과. **`key` 는 이 한 번만 보인다**(저장하지 않는다)."""
+
+    key_id: uuid.UUID
+    media_id: uuid.UUID
+    key: str
+    created_at: datetime
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class MediaKeyView:
+    key_id: uuid.UUID
+    media_id: uuid.UUID
+    label: str
+    created_at: datetime
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    active: bool
+
+
+@dataclass(frozen=True)
 class PolicyView:
     bid_policy_id: uuid.UUID
     slot_id: uuid.UUID

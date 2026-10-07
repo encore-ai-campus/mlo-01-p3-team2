@@ -51,6 +51,26 @@ class Slot(models.Model):
         return f"{self.media_id}/{self.name}"
 
 
+class MediaKey(models.Model):
+    """매체 서버가 `X-Media-Key` 로 보내는 키(설계 §3 C1). **평문은 저장하지 않는다** — 발급할 때 한 번만 돌려준다.
+
+    키 형식은 `<key_id>.<비밀>` 이다. `key_id`(공개 식별자)로 행을 찾고 비밀의 해시를 상수시간으로 비교한다.
+    비밀은 256비트 무작위 값이라 비밀번호용 느린 해시가 필요 없다(SHA-256 으로 충분하고 요청마다 비교해도 싸다).
+    매체마다 여러 개가 동시에 유효할 수 있다(교체 유예 기간).
+    """
+
+    key_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="keys")
+    secret_hash = models.CharField(max_length=64)
+    label = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField(null=True, blank=True)  # 교체 유예가 끝나는 시각. 없으면 계속 유효
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "masters_media_key"
+
+
 class BidPolicy(AppendOnlyModel):
     """슬롯별 입찰 정책의 한 버전. 수정이 아니라 새 버전 행 추가이고, 현재 값 = 최대 버전이다."""
 

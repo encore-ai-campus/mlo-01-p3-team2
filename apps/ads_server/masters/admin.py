@@ -4,7 +4,7 @@
 """
 from django.contrib import admin
 
-from .models import BidPolicy, Media, Slot
+from .models import BidPolicy, Media, MediaKey, Slot
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -33,3 +33,11 @@ class SlotAdmin(ReadOnlyAdmin):
 class BidPolicyAdmin(ReadOnlyAdmin):
     list_display = ("slot", "policy_version", "floor_amount", "base_amount", "cap_amount", "changed_at", "reason")
     ordering = ("slot", "-policy_version")
+
+
+@admin.register(MediaKey)
+class MediaKeyAdmin(ReadOnlyAdmin):
+    """키 평문은 저장하지 않고, 해시도 화면에 보이지 않는다."""
+
+    list_display = ("key_id", "media", "label", "created_at", "expires_at", "revoked_at")
+    exclude = ("secret_hash",)

@@ -41,3 +41,15 @@ OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
 - 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
 - 정적 파일(CSS)은 DEBUG 에서만 `runserver` 가 서빙한다. 운영에서는 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 웹서버(인프라)가 서빙한다. 웹서버 설정은 배포 단계의 일이다.
+
+## 매체 키 (C1 인증)
+
+매체 서버는 `X-Media-Key` 헤더로 키를 보낸다. 키는 관리자가 발급하며 **평문은 발급할 때 한 번만 출력**되고 저장되지 않는다.
+
+```bash
+python manage.py media_key issue  <매체 ID> --admin <관리자 아이디> --label 운영
+python manage.py media_key rotate <매체 ID> --admin <관리자 아이디> --grace-hours 24   # 새 키 발급, 기존 키는 24시간 뒤 만료(그동안 둘 다 유효)
+python manage.py media_key revoke <키 ID>   --admin <관리자 아이디>                  # 유출 시 즉시 폐기
+```
+
+요청 제한(`MEDIA_RATE_LIMITS`)은 프로세스 메모리 기반이라 워커가 여러 개면 한도가 그만큼 느슨해진다(설계 §10).

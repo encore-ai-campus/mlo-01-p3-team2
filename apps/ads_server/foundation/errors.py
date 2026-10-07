@@ -9,11 +9,12 @@ class ApiError(Exception):
     code = "internal_error"
     title = "서버 오류가 발생했습니다"
 
-    def __init__(self, detail=None, *, errors=None, retry_after=None):
+    def __init__(self, detail=None, *, errors=None, retry_after=None, headers=None):
         super().__init__(detail or self.title)
         self.detail = detail
         self.errors = errors  # [{"pointer": "/field", "message": "..."}]
-        self.retry_after = retry_after  # 초. 429·503
+        self.retry_after = retry_after  # 초. 429·503 은 항상 붙는다(없으면 1)
+        self.headers = headers or {}  # 응답에 그대로 싣는 헤더(예: 401 의 WWW-Authenticate)
 
 
 class InvalidRequest(ApiError):
