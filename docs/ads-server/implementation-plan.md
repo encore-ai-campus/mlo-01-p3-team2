@@ -643,8 +643,8 @@ console/views/auth.py (가입 흐름이 지급을 호출)
 |---|---|
 | `grant_signup(user)` | 설정값 `SIGNUP_GRANT_POINTS`(기본 **50,000**)를 `SIGNUP_GRANT`로 지급, 지갑 생성. **한 사용자에 한 번만**(재호출은 변화 없음) |
 | `adjust(actor, user_id, amount, note)` | 관리자 조정(부호 있는 정수, 사유 필수). 잔액을 0 밑으로 내리는 음수 조정은 거부. 감사 |
-| `charge(wallet_owner_id, campaign_id, amount, reaction_ref, now)` | **멱등** 과금(Step 2-5에서 호출). 한 트랜잭션에서 ① `CHARGE` 항목 ② 잔액 ③ `CampaignSpend`. **남은 잔액만큼만 차감**하고 부족분은 `shortfall`에 기록. 같은 `reaction_ref`는 처음 결과 그대로 |
-| `get_wallet(user)`, `list_ledger(user, cursor, limit)` | 잔액·`spent_today`·`resets_at`, 원장 내역(최신순) |
+| `charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, applied_amount, reaction_ref, now)` | 설정된 `ChargePolicy`가 0이라고 하면 `None`(과금 없음). **멱등** 과금(Step 2-5에서 호출). 한 트랜잭션에서 ① `CHARGE` 항목 ② 잔액 ③ `CampaignSpend`. **남은 잔액만큼만 차감**하고 부족분은 `shortfall`에 기록. 같은 `reaction_ref`는 처음 결과 그대로 |
+| `get_wallet(user, now)`, `list_ledger(user, before, limit)` | 잔액·`spent_today`(원장의 오늘 CHARGE 합)·`resets_at`, 원장 내역(최신순, `(항목, 다음 커서)` 반환) |
 | `balances(owner_ids)`, `spend_today(campaign_ids, now)` | **한 번의 질의**로 여러 값(결정 조립용, N+1 방지) |
 | `budget_day_of(instant)`, `next_reset(instant)` | **예산 일 경계 함수 한 곳.** `BUDGET_DAY_OFFSET_HOURS`(기본 0 = UTC 자정). 소진액 집계와 화면의 리셋 시각이 같은 함수를 쓴다 |
 | `recompute_spend()` | 원장에서 `CampaignSpend`를 다시 만든다(경계 설정을 바꾼 뒤 실행) |
@@ -809,5 +809,5 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 1-1 `masters` | 완료 (2026-10-07) | 테스트 27개 추가(전체 223개), `check.sh` 통과. 정책 낙관적 잠금은 `expected_version`을 일부러 꺼 보면 테스트가 실패함을 확인(동시 저장 `['ok','ok']`). 경계 검사가 R2 위반 2건(`foundation.errors`·`foundation.models` 직접 import)을 잡아 `foundation.api` 경유로 수정. 위협 모델 T28 추가 |
 | 1-4 `engine` | 완료 (2026-10-07) | 테스트 27개 추가(전체 250개). **Django·DB 없이 단독 통과**(`env -i … python -m unittest tests.test_engine_*`). 변형 검사: 동점 처리를 항상 첫 후보로 바꾸거나, `is_expired`·예산 비교의 경계를 어긋나게 하면 테스트가 실패함을 확인. 위협 모델 T29 추가 |
 | 1-2 `campaigns` | 완료 (2026-10-07) | 테스트 57개 추가(전체 307개). 변형 검사: 종료 가드를 상태만 보게 하거나, 소유권 검사를 빼거나, 입찰 `expected_version` 검사를 끄면 테스트가 실패함을 확인. 동시 입찰 테스트가 "커밋 뒤 감사 기록"의 잠금 실패를 드러내 감사를 변경과 같은 트랜잭션으로 옮김(campaigns·masters). `foundation`에 `clean_text`·`parse_uuid` 공용화, `SlotView.media_is_active` 추가. 위협 모델 T30 추가 |
-| 1-3 `billing` | 대기 | |
+| 1-3 `billing` | 완료 (2026-10-07) | 테스트 25개 추가(전체 332개). 변형 검사: 잔액 하한·멱등 검사·예산 경계 오프셋·소진액 갱신을 각각 빼면 테스트가 실패함을 확인. 가입 지급 기본 50,000(`SIGNUP_GRANT_POINTS`), 가입과 지급은 한 트랜잭션(console 가입 뷰). 동시성 테스트(과금·입찰·정책) 10회 반복 안정. 위협 모델 T31 추가, §5.2 두 행에 테스트 연결 |
 | 1-5 `records` | 대기 | |
