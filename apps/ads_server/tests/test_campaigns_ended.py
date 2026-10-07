@@ -62,6 +62,25 @@ class ExpireTests(TestCase):
 
 
 @tag("security")
+class DbPredicatesAgreeWithEngineTests(TestCase):
+    """DB 조건식(`expire_due`·`is_asset_servable`)은 engine 의 `is_expired` 를 쿼리로 다시 쓴 것이다. 경계에서 어긋나지 않게 대조한다."""
+
+    def test_db_predicates_agree_with_is_expired(self):
+        from engine.api import is_expired
+
+        for offset in (timedelta(seconds=-1), timedelta(0), timedelta(seconds=1), None):
+            w = World(ends_in=None)
+            ends_at = None if offset is None else NOW + offset
+            Campaign.objects.filter(pk=w.campaign.campaign_id).update(ends_at=ends_at)
+            expected = is_expired(ends_at, NOW)
+            self.assertEqual(not api.is_asset_servable(w.creative.image_name, now=NOW), expected, offset)
+            changed = api.end_expired_campaigns(now=NOW)
+            self.assertEqual(Campaign.objects.get(pk=w.campaign.campaign_id).status == "ENDED", expected, offset)
+            self.assertEqual(changed >= (1 if expected else 0), True)
+            Campaign.objects.filter(pk=w.campaign.campaign_id).update(status="ENDED", ends_at=NOW - timedelta(days=1))  # 다음 반복에 영향 없게
+
+
+@tag("security")
 class EndedGuardTests(TestCase):
     def writes(self, w, now):
         cid, gid, crid = w.campaign.campaign_id, w.group.ad_group_id, w.creative.creative_id

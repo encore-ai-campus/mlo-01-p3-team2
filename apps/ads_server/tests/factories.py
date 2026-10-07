@@ -38,11 +38,13 @@ class World:
     """광고주 한 명이 캠페인·광고그룹(입찰 30)·소재까지 가진 상태. 모든 호출은 고정 시각 NOW 기준."""
 
     def __init__(self, unit="IMPRESSION", with_creative=True, ends_in=10 * DAY):
+        from billing import api as billing
         from campaigns import api as campaigns
 
         self.api = campaigns
         self.admin = make_admin()
         self.adv = make_advertiser()
+        billing.grant_signup(self.adv, now=NOW)  # 가입하면 지급된다(기본 50,000)
         self.slot = make_slot(self.admin, unit=unit)
         self.campaign = campaigns.create_campaign(self.adv, "캠페인", NOW - DAY, None if ends_in is None else NOW + ends_in, 5000, now=NOW)
         self.group = campaigns.create_ad_group(self.adv, self.campaign.campaign_id, "그룹", unit, [self.slot.slot_id], bid_amount=30, now=NOW)

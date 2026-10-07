@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "masters.apps.MastersConfig",
     "campaigns.apps.CampaignsConfig",
     "billing.apps.BillingConfig",
+    "records.apps.RecordsConfig",
     "console.apps.ConsoleConfig",
 ]
 
@@ -149,6 +150,10 @@ ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1
 SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod 는 환경변수로 바꿀 수 있다
 BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
 BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
+
+# --- 광고 선택 (설계 §4.3). 구현 선택은 config 한 곳(R4): 알고리즘·필터를 바꿔도 Decision 구조는 그대로다 ---
+ADS_SELECTION_POLICY = "highest-bid/v1"
+ADS_ENGINE_FILTERS = ("status", "period", "floor", "budget", "balance")  # 순서가 곧 판정 순서
 
 # --- 광고주 한도 (설계 §7-5는 열림: 아래는 제안 기본값, 모두 설정값) ---
 MAX_CAMPAIGNS_PER_ADVERTISER = 20
