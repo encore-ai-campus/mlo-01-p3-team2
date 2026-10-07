@@ -1,4 +1,5 @@
 """공통 설정. **환경변수를 읽지 않는다**(dev·prod 가 읽고, test 는 읽지 않는다)."""
+from datetime import timedelta
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -12,8 +13,11 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
+    "django.contrib.messages",
     "django.contrib.staticfiles",
+    "axes",
     "foundation.apps.FoundationConfig",
+    "console.apps.ConsoleConfig",
 ]
 
 MIDDLEWARE = [
@@ -22,6 +26,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "axes.middleware.AxesMiddleware",  # 반드시 마지막: 잠금 응답을 만든다
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -36,12 +42,59 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
 AUTH_USER_MODEL = "foundation.User"
+
+# --- 비밀번호 (설계 §5.1): Argon2, 최소 10자, 흔한 비밀번호·숫자만·아이디 유사 금지 ---
+PASSWORD_MIN_LENGTH = 10
+PASSWORD_HASHERS = ["django.contrib.auth.hashers.Argon2PasswordHasher"]
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+     "OPTIONS": {"user_attributes": ("username", "nickname")}},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+     "OPTIONS": {"min_length": PASSWORD_MIN_LENGTH}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# --- 로그인 잠금: 같은 (아이디 + IP) 로 5회 실패하면 5분 잠금 (설계 §5.1) ---
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",  # 잠금 검사. ModelBackend 보다 앞
+    "django.contrib.auth.backends.ModelBackend",
+]
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=5)
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]  # 아이디만 기준이면 남이 계정을 잠가버릴 수 있다
+AXES_RESET_ON_SUCCESS = True
+AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False  # 잠금 중 시도가 잠금을 연장하지 않는다("5분 뒤 재시도")
+AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 가입 제한과 같은 IP 판정을 쓴다
+AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
+
+# 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다).
+TRUSTED_PROXY_COUNT = 0
+
+# --- 가입 (설계 §5.1, 열린 결정 §7-6: 수치는 설정값) ---
+SIGNUP_MAX_PER_IP_PER_HOUR = 5
+
+# --- 세션·쿠키: 게임 서버와 같은 호스트에서 돌 때 충돌하지 않도록 전용 이름 ---
+SESSION_COOKIE_NAME = "ads_sessionid"
+CSRF_COOKIE_NAME = "ads_csrftoken"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 8 * 60 * 60  # 8시간
+SESSION_COOKIE_SECURE = False  # prod 는 True
+CSRF_COOKIE_SECURE = False  # prod 는 True
+MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"  # 별도 쿠키를 만들지 않는다
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "/advertiser/"
+LOGOUT_REDIRECT_URL = "login"
 
 # 시간은 저장·계산 모두 UTC. KST 는 화면 표시 변환에서만 쓴다(foundation 의 `kst` 필터).
 LANGUAGE_CODE = "ko-kr"

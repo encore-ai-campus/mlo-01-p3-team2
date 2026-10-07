@@ -1,0 +1,12 @@
+body { font-family: system-ui, "Apple SD Gothic Neo", sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
+header { background: #fff; border-bottom: 1px solid #e3e6ec; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+header form { margin: 0; }
+main { max-width: 480px; margin: 40px auto; padding: 0 16px; }
+.card { background: #fff; border: 1px solid #e3e6ec; border-radius: 10px; padding: 24px; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+label { display: block; font-size: 14px; margin: 14px 0 4px; }
+input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #c9ced8; border-radius: 6px; }
+button { margin-top: 18px; padding: 10px 16px; border: 0; border-radius: 6px; background: #2f6fed; color: #fff; cursor: pointer; }
+.errorlist { color: #c0392b; list-style: none; padding: 0; margin: 4px 0 0; font-size: 13px; }
+.notice { background: #eaf7ee; border: 1px solid #bfe3c9; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
+.muted { color: #6b7280; font-size: 13px; }

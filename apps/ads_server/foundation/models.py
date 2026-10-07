@@ -59,3 +59,14 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.username
+
+
+class SignupAttempt(models.Model):
+    """가입 시도 기록(IP 제한용). 개인 정보는 담지 않는다."""
+
+    ip = models.CharField(max_length=45)  # IPv6 최대 45자
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = "foundation_signup_attempt"
+        indexes = [models.Index(fields=["ip", "created_at"])]

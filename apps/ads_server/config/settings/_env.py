@@ -20,6 +20,16 @@ def env_bool(name, default=False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name, default=0):
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise ImproperlyConfigured(f"환경변수 {name} 은(는) 정수여야 합니다.")
+
+
 def env_list(name, default=(), required=False):
     value = env_str(name, required=required)
     if value is None:
