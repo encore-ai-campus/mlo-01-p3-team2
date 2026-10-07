@@ -412,7 +412,7 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 |---|---|---|
 | 1 | **`api.py`는 ORM 모델이 아니라 불변 값 객체(`@dataclass(frozen=True)`)를 돌려준다.** 다른 모듈은 모델을 만지지 않는다 | 모듈 내부(필드·테이블)를 바꿔도 밖이 안 깨진다(R2). 모델을 넘기면 지연 조회로 N+1이 숨는다 |
 | 2 | **규칙은 `services.py`(모듈 안)에만 둔다.** 모델 `save()`·뷰·관리자 화면에 규칙을 흩뿌리지 않는다. 광고주용 함수는 `user`를 받고 `foundation.api.owned_or_404`를 지난다(남의 것 404) | 설계 §6.6 규칙 1, T4 |
-| 3 | **모델 규약**: UUID PK, 고정 `label`, `db_table` 명시(`<label>_<model>`), 금액은 `PositiveBigIntegerField`(정수 포인트), 시각은 UTC. 앱 사이 FK는 라벨 문자열(`"masters.Slot"`)에 `on_delete=PROTECT`. 삭제 기능 없음 | R3, 설계 §3 C6 "삭제 없음" |
+| 3 | **모델 규약**: 자원 모델은 UUID PK, **추가 전용 기록(입찰·정책 버전·원장·결정·감사 로그)은 정수 PK + UUID UNIQUE 식별자**, 고정 `label`, `db_table` 명시(`<label>_<model>`), 금액은 `PositiveBigIntegerField`(정수 포인트), 시각은 UTC. 앱 사이 FK는 라벨 문자열(`"masters.Slot"`)에 `on_delete=PROTECT`. 삭제 기능 없음 | R3, 설계 §3 C6 "삭제 없음" |
 | 4 | **추가 전용 모델**(`BidPolicy`·`Bid`·`LedgerEntry`·`Decision`)은 `foundation.models.AppendOnlyModel`을 상속한다(Step 0 보완에서 만들었고 `AuditLog`가 이미 사용). 저장은 **항상 INSERT**(`force_insert`)이고, 같은 PK 새 인스턴스·`force_update`·`update_fields`·`bulk_create(update_conflicts=True)`·`update/delete`를 모두 막는다. 새 모델마다 "기존 PK로 덮어쓰기 불가" 회귀 테스트를 한 줄 추가한다 | 설계 §4.4-2·8·1 |
 | 5 | **버전 번호**(`policy_version`·`bid_version`)는 한 트랜잭션에서 "현재 최대 + 1"을 저장하고, **호출자가 본 버전(`expected_version`)이 현재와 다르면 `StaleVersion`**(콘솔 계약의 409 `stale_version`)으로 거절한다. SQLite는 쓰기 트랜잭션이 직렬이라, `expected_version` 없이 "최대+1"만 쓰면 두 요청이 모두 성공(버전 n+1, n+2)해 나중 사람이 앞사람의 변경을 모르고 덮어쓴다. `(부모, 버전)` 유니크 제약은 다른 DB로 옮겼을 때를 위한 **안전망**이다 | 설계 §4.2, §6.5 |
 | 6 | **감사**: 관리자 행위(정책 새 버전·중단/해제·포인트 조정 등)와 광고주의 주요 변경은 **서비스 안에서, 변경과 같은 트랜잭션에** 감사 로그를 남긴다(뷰가 빼먹을 수 없게, 커밋 뒤 감사 기록이 실패해 "감사 없는 변경"이 남지 않게). 요청 없이 호출되면 `record_audit(None, …)`이 **요청 ID를 `foundation.logging.request_id_var`에서** 가져오도록 `foundation`을 보강한다 | T13 |
@@ -721,9 +721,9 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 
 **완료 증거**: 테스트 통과, `check.sh` 통과.
 
-## 6.7 Step 1 통합 시나리오 (HTTP 없이 `api`만)
+## 6.7 Step 1 통합 시나리오 (광고 도메인은 서비스 `api`만, 가입만 console 뷰)
 
-`tests/test_step1_scenario.py` 하나가 아래를 순서대로 실행한다. **이것이 Step 1의 합격 증거**다.
+`tests/test_step1_scenario.py` 하나가 아래를 순서대로 실행한다. **이것이 Step 1의 합격 증거**다. 광고 도메인 흐름(2단계 이후)은 서비스 `api` 호출뿐이고, **가입(2단계)만 console 가입 뷰를 Django Client로** 부른다(지급이 가입과 한 트랜잭션임을 함께 보이려는 것). 서비스 조합 증거와 가입 뷰 증거는 `test_signup_flow_creates_wallet_with_points_and_audit`·`test_signup_and_grant_same_transaction`이 따로도 남긴다.
 
 1. 관리자: 매체 1·슬롯 3(과금 단위 노출 둘, 클릭 하나) 등록, 정책 `A 10~50`, `B 10~20`, `C 40~100`.
 2. 광고주 두 명 가입(각 50,000 지급, 감사 로그 2건씩).
@@ -775,7 +775,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 |---|---|---|
 | 2-1 | **계약 확정**: `contracts/serving.openapi.yaml`(초안 작성됨, 설계 §3). `openapi-spec-validator`로 파일 검증, **provider 계약 테스트 틀**(`PyYAML`+`jsonschema`로 실제 응답을 계약 스키마에 대조) | 검증기 통과, 매체 쪽 담당자와 공유(재시도·`reaction_id`·접수/처리 분리 약속 포함) |
 | 2-2 | 매체 인증(공유 키 `X-Media-Key`, 해시 저장·상수시간 비교·교체), 매체별 요청 제한. 인증은 입력 검증보다 먼저. **실패는 401, 비활성 매체는 403, 제한 초과는 429 + `Retry-After`** | 인증 실패·제한·키 교체 테스트 |
-| 2-3 | `POST /decisions`(**201 + `Location`**, 광고 없음도 201), `GET /decisions/{id}`(**본인 매체만, 아니면 404**), `GET /health`. **저장 뒤에만 `decision_id` 응답** | 계약 테스트, 저장 실패 시 `decision_id`가 나가지 않음, 다른 매체의 결정은 404 |
+| 2-3 | `POST /decisions`(**201 + `Location`**, 광고 없음도 201), `GET /decisions/{id}`(**본인 매체만, 아니면 404**), `GET /health`. **저장 뒤에만 `decision_id` 응답**. **DRD §10 D-1~D-3 반영**: ① 비활성 슬롯·비활성 매체도 그 매체의 슬롯이면 201 + `ad: null`로 결정을 기록하고(다른 매체의 슬롯·없는 슬롯만 404, `records.decide`의 현재 `NotFound` 동작과 그 테스트를 바꾼다) ② 매체 `context`를 결정에 JSON 열로 저장(크기 제한은 계약 그대로) ③ 응답의 `slot_name`은 serving 계층이 `masters`에서 붙인다(결정에 저장하지 않음) | 계약 테스트, 저장 실패 시 `decision_id`가 나가지 않음, 다른 매체의 결정은 404, **D-1~D-3 각각의 계약 테스트** |
 | 2-4 | `PUT /decisions/{id}/reactions/{reaction_id}`(inbox): 원문 보존 + **(매체, `reaction_id`) 유니크** + `RECEIVED`를 한 트랜잭션에, **저장 뒤 2xx**(**201 처음 / 200 같은 내용 재전송 / 409 같은 ID 다른 내용**), 잠금·장애 시 503 + `Retry-After` | 중복·충돌(409)·저장 실패 테스트, 원문 보존, 다른 매체가 같은 `reaction_id`를 써도 충돌 없음 |
 | 2-5 | 반응 처리(+ `GET .../reactions/{reaction_id}`로 결과 조회, 본인 매체만): 별도 트랜잭션, 규칙 체인(`known-decision`·`same-media`·`once-per-type`), `ChargePolicy` 과금, `ACCEPTED`/`REJECTED`, **`process_reactions` 재처리 명령** | 타 매체 거부, 유형별 1회, 거부 반응 보존, 처리 중 실패 후 재처리해도 이중 과금 없음 |
 | 2-6 | **동시성 검증**: 150개 동시 결정·150개 동시 반응 | 수신 확인한 건 전부 저장, 유실 0, 이중 과금 0, 잔액=원장 합계 |
@@ -830,3 +830,4 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 1-5 `records` | 완료 (2026-10-07) | 테스트 21개 + 통합 시나리오 1개 + 단일 원본 검사 2개 추가(전체 356개). 변형 검사: 저장 전에 응답을 돌려주거나, 스냅샷 대신 현재 값을 쓰거나, 잔액을 항상 충분하다고 가정하면 테스트가 실패함을 확인. 위협 모델 T32 추가 |
 | **Step 1 전체** | **완료 (2026-10-07)** | §6.8 종료 점검표 모두 충족. 구현: `masters`·`engine`·`campaigns`·`billing`·`records` |
 | DRD 정합 | 완료 (2026-10-07) | 입찰·정책 버전 행에 UUID(`bid_id`·`bid_policy_id`) 추가, 결정이 함께 기록. 기존 행은 마이그레이션이 채움(이전 스키마에서 만든 데이터로 검증하는 테스트 포함). 테스트 359개 |
+| Step 1 보완 | 완료 (2026-10-07) | 외부 검토 5건 + 입력 검증 3건 재현 후 수정. ① 이미지 교체 반복의 쿼터 우회(P1) → `CreativeImage` 보유 관계로 쿼터 ② 추가 전용 5개 모델의 위치 인자 upsert 우회 → 부모와 같은 명시적 시그니처 ③ 소수 과금 → 입력·정책 반환값 정수 검사, 잔액 상한 `MAX_AMOUNT`(서비스+DB) ④ 재계산과 과금의 경쟁 → 원장 읽기부터 교체까지 한 쓰기 트랜잭션 ⑤ 교체 직후 과거 이미지 404 → 같은 보유 관계로 서빙 판단 ⑥ 잘못된 URL(`https://[`·포트)·`datetime` 범위 오류를 입력 오류로. Bandit 대상에 Step 1 모듈 5개 추가. 테스트 376개. 위협 모델 갱신 |
