@@ -1,6 +1,8 @@
 """운영 설정. 필수 값이 없거나 개발용 값이면 **기동하지 않는다**."""
 from django.core.exceptions import ImproperlyConfigured
 
+from config.access_map import build_access_map, validate_admin_path
+
 from ._env import env_int, env_list, env_str
 from .base import *  # noqa: F401,F403
 from .base import INSECURE_DEV_KEY, sqlite_config
@@ -13,6 +15,8 @@ DEBUG = False  # 환경변수로 바꿀 수 없다.
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 TRUSTED_PROXY_COUNT = env_int("TRUSTED_PROXY_COUNT", 0)
+ADMIN_URL_PATH = validate_admin_path(env_str("ADMIN_URL_PATH", required=True))  # 기본값 admin/ 금지
+ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", required=True)
 
 DATABASES = {"default": sqlite_config(env_str("DATABASE_PATH", required=True))}

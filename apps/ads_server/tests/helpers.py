@@ -22,4 +22,5 @@ PROD_ENV = {
     "SECRET_KEY": "Zk3-Qm8vXr1TnB6yLp0aWd9sHc4eUj7fGi2oNx5uKb-Ye_Va8Rt1Mq",  # 50자 이상·문자 다양(Django W009)
     "ALLOWED_HOSTS": "ads.example.com",
     "DATABASE_PATH": "/tmp/ads-test.sqlite3",
+    "ADMIN_URL_PATH": "ops-9f3a/",
 }

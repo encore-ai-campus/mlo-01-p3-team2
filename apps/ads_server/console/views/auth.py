@@ -1,10 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.core.exceptions import ValidationError
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect, render, resolve_url
 from django.views import View
 
-from foundation.api import SignupRateLimited, client_ip, create_advertiser, register_attempt
+from foundation.api import Role, SignupRateLimited, client_ip, create_advertiser, register_attempt
 
 from ..forms import SignupForm
 
@@ -43,6 +43,12 @@ class SignupView(View):
 class ConsoleLoginView(LoginView):
     template_name = "console/login.html"
     redirect_authenticated_user = True
+
+    def get_default_redirect_url(self):
+        """`next` 가 없을 때 역할별 첫 화면으로. 관리자는 관리자 화면, 광고주는 광고주 화면."""
+        if self.request.user.role == Role.ADMIN:
+            return resolve_url("admin:index")
+        return resolve_url("advertiser_home")
 
 
 class ConsoleLogoutView(LogoutView):

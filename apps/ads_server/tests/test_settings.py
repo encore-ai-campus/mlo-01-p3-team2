@@ -28,8 +28,8 @@ class ProdSettingsTests(SimpleTestCase):
         r = run_python(SHOW_SECRET, "config.settings.prod", dict(PROD_ENV, SECRET_KEY="short"))
         self.assertNotEqual(r.returncode, 0)
 
-    def test_prod_requires_allowed_hosts_and_database_path(self):
-        for missing in ("ALLOWED_HOSTS", "DATABASE_PATH"):
+    def test_prod_requires_allowed_hosts_database_path_and_admin_path(self):
+        for missing in ("ALLOWED_HOSTS", "DATABASE_PATH", "ADMIN_URL_PATH"):
             env = {k: v for k, v in PROD_ENV.items() if k != missing}
             r = run_python(SHOW_SECRET, "config.settings.prod", env)
             self.assertNotEqual(r.returncode, 0, missing)

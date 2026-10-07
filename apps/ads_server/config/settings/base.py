@@ -10,6 +10,7 @@ INSECURE_DEV_KEY = "dev-only-insecure-key-do-not-use-in-production"
 DEBUG = False
 
 INSTALLED_APPS = [
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -27,6 +28,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "foundation.access.RoleGateMiddleware",  # 역할별 URL 게이트. 로그인 검사보다 앞(관리자 경로를 익명에게도 숨긴다)
+    "django.contrib.auth.middleware.LoginRequiredMiddleware",  # 기본 거부: 공개 뷰만 @login_not_required 로 표시
     "axes.middleware.AxesMiddleware",  # 반드시 마지막: 잠금 응답을 만든다
 ]
 
@@ -91,6 +94,9 @@ SESSION_COOKIE_AGE = 8 * 60 * 60  # 8시간
 SESSION_COOKIE_SECURE = False  # prod 는 True
 CSRF_COOKIE_SECURE = False  # prod 는 True
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"  # 별도 쿠키를 만들지 않는다
+
+# --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
+# 환경별 설정(dev/prod/test)이 ADMIN_URL_PATH 와 ACCESS_MAP 을 정한다.
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "/advertiser/"
