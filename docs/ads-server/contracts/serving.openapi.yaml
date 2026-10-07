@@ -462,7 +462,8 @@ components:
     Context:
       type: object
       description: |
-        매체 부가 정보. **저장만 하고 해석하지 않는다.** 직렬화 4 KiB 이하, 중첩 깊이 4 이하.
+        매체 부가 정보. **저장만 하고 해석하지 않는다.** 직렬화 4 KiB(UTF-8 바이트, 공백 없는 JSON) 이하, 중첩 깊이 4 이하
+        (`context` 객체 자신이 깊이 1이다).
         직접 식별자 키(`login_id`, `username`, `password`, `password_hash`, `nickname`, `email`)는 어느 깊이에서도
         허용하지 않는다(400 `forbidden_context_key`).
       additionalProperties: true
