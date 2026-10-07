@@ -26,12 +26,12 @@ python manage.py test                 # 전체
 python manage.py test --tag security  # 보안 회귀 묶음
 ```
 
-## `check --deploy` 경고 기록
+## `check --deploy`
 
-0-2 이후 남은 경고. **0-4 끝에 0으로 만든다.**
+0-4 이후 prod 설정의 경고는 **0**이다(`python -m django check --deploy --fail-level WARNING`, 테스트로 강제).
+`security.W021`(HSTS 프리로드)만 **의도적으로 끈다**: 내부 서비스이고 프리로드 등록은 되돌리기 어렵다(`config/settings/prod.py`에 사유).
 
-| 코드 | 내용 | 해소 단계 |
-|---|---|---|
-| security.W002 | X-Frame-Options 미들웨어 없음 | 0-4 |
-| security.W004 | `SECURE_HSTS_SECONDS` 미설정 | 0-4 |
-| security.W008 | `SECURE_SSL_REDIRECT` 미설정 | 0-4 |
+## 알려진 사항
+
+- Django admin 에 `User` 모델은 아직 등록하지 않았다(Step 3-1, 감사 로그 0-6에서 함께). 지금은 `createsuperuser`와 쉘로 계정을 다룬다.
+- 정적 파일(CSS)은 DEBUG 에서만 `runserver` 가 서빙한다. 운영에서는 웹서버(인프라)가 `STATIC_ROOT` 를 서빙한다.

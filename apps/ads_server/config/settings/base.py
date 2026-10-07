@@ -23,13 +23,18 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "foundation.middleware.CsrfExemptPrefixesMiddleware",  # CsrfViewMiddleware 앞
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "foundation.access.RoleGateMiddleware",  # 역할별 URL 게이트. 로그인 검사보다 앞(관리자 경로를 익명에게도 숨긴다)
     "django.contrib.auth.middleware.LoginRequiredMiddleware",  # 기본 거부: 공개 뷰만 @login_not_required 로 표시
+    "foundation.middleware.ApiErrorMiddleware",
+    "foundation.middleware.NoStoreMiddleware",
     "axes.middleware.AxesMiddleware",  # 반드시 마지막: 잠금 응답을 만든다
 ]
 
@@ -44,6 +49,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.template.context_processors.csp",  # CSP nonce 를 템플릿에 전달(admin 의 인라인 <style>)
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
             ],
@@ -94,6 +100,37 @@ SESSION_COOKIE_AGE = 8 * 60 * 60  # 8시간
 SESSION_COOKIE_SECURE = False  # prod 는 True
 CSRF_COOKIE_SECURE = False  # prod 는 True
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"  # 별도 쿠키를 만들지 않는다
+
+# --- HTTP 보안 (0-4, 설계 §3·위협 T9~T14) ---
+from django.utils.csp import CSP  # noqa: E402  (이 블록의 설정에서만 쓴다)
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+
+# 엄격한 CSP. 인라인 스크립트·스타일은 쓰지 않는다. Django admin 의 인라인 <style> 한 곳만 nonce 로 허용된다.
+SECURE_CSP = {
+    "default-src": [CSP.SELF],
+    "script-src": [CSP.SELF],
+    "style-src": [CSP.SELF, CSP.NONCE],
+    "img-src": [CSP.SELF, "data:"],
+    "font-src": [CSP.SELF],
+    "connect-src": [CSP.SELF],
+    "object-src": [CSP.NONE],
+    "base-uri": [CSP.SELF],
+    "form-action": [CSP.SELF],
+    "frame-ancestors": [CSP.NONE],
+}
+
+# 키 인증을 쓰는 서버 간 API 만 CSRF 에서 뺀다. 이 목록이 **유일한** 예외다.
+CSRF_EXEMPT_PREFIXES = ["/api/media/"]
+CSRF_FAILURE_VIEW = "foundation.http.csrf_failure"
+
+# 요청 크기: 업로드 파일 제외 본문 1MiB, 폼 필드 100개. 이미지 용량은 0-5(assets), JSON API 본문은 parse_json(16 KiB).
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
+DATA_UPLOAD_MAX_NUMBER_FILES = 5
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
 # 환경별 설정(dev/prod/test)이 ADMIN_URL_PATH 와 ACCESS_MAP 을 정한다.
