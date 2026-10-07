@@ -41,7 +41,7 @@ Step 4~5  Raw 수집 → Kafka (Step 2 이후)
 | 병렬로 나눠 맡을 수 있는 지점 | 조건 |
 |---|---|
 | 0-5(`assets`)와 0-2~0-4 | 0-1(골격) 이후. 서로 import하지 않는다 |
-| 1-4(`engine`)와 1-1·1-2·1-3 | `engine`이 정의하는 `Candidate`·`SelectionPolicy` 시그니처만 먼저 합의 |
+| 1-4(`engine`)와 1-1·1-2·1-3 | `engine`이 정의하는 `Candidate`·`Eligible`·`SelectionPolicy` 시그니처만 먼저 합의(필드 목록은 설계 §4.3에서 확정) |
 | 1-3(`billing`)과 1-1·1-2 | 캠페인을 ID 값으로만 다룬다 |
 | 3-1(관리자)과 3-2(광고주) | Step 1 이후 |
 
@@ -407,15 +407,16 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 | 단계 | 모듈 | 핵심 산출물 | 완료 증거(요지) |
 |---|---|---|---|
 | 1-1 | `masters` | `Media`, `Slot`(과금 단위 고정), `BidPolicy`(버전 추가, `floor≤base≤cap` DB 제약+서비스 검증) | 제약 위반 거부, 동시 버전 저장 한쪽 실패 |
-| 1-2 | `campaigns` | `Campaign`(일예산), `AdGroup`(슬롯 M:N, 과금 단위 고정), `Creative`, `Bid`(버전), **`ReviewRequest`(재검토 요청)**, 상태 전이 표 한 파일, 슬롯별 적용 금액·노출 자격 계산 함수, **`assets` 서빙 가능 여부 함수(`is_asset_servable`) 제공** | 설계 §4.6 예시(30 → 30/20/제외) 통과, 단위 불일치 거부, 중단된 캠페인 이미지 404 |
+| 1-2 | `campaigns` | `Campaign`(일예산), `AdGroup`(슬롯 M:N, 과금 단위 고정), `Creative`, `Bid`(버전), **`ReviewRequest`(재검토 요청)**, 상태 전이 표 한 파일(`ENDED`는 끝), **`end_expired_campaigns`(기간 종료 전환)·`end_campaign`(조기 종료)·`ENDED` 쓰기 가드**, **`assets` 서빙 가능 여부 함수(`is_asset_servable`) 제공**. 입찰·상태·기간은 값만 공급하고 적용 금액 계산은 하지 않는다(1-4) | 범위 밖 입찰도 저장, 단위 불일치 거부, 중단된 캠페인 이미지 404, **종료 후 수정 거부(상태 갱신 전 구간 포함), 조기 종료, `SUSPENDED` 만료 전환, `OPEN` 재검토 요청 닫힘** |
 | 1-3 | `billing` | `Wallet`, `LedgerEntry`(추가 전용), 일 소진액(원장에서 재계산 가능), 예산 일 경계 함수, `ChargePolicy`(`by-unit/v1`), 가입 지급 | 잔액=원장 합계, 0 밑으로 안 내려감, 일 경계 설정 변경 후 재계산 일치 |
-| 1-4 | `engine` | `Candidate`·`SelectionPolicy`·`Selection`, 자격 필터(상태·기간·하한·예산·잔액), `highest-bid/v1`(동점 무작위), 이름 → 구현 등록 | DB·Django 없이 판정표·동점 분포·`subject_id` 무관·정책 이름 교체 테스트, import 금지 테스트 |
+| 1-4 | `engine` | `Candidate`·`Eligible`·`SelectionPolicy`·`Selection`, **적용 금액 계산 함수(§4.2 규칙 한 곳, 콘솔 안내값과 공용)**, 자격 필터(상태·기간·하한·예산·잔액, `AdRequest.now` 사용), **`is_expired(ends_at, now)`(종료 판정 한 곳)**, `highest-bid/v1`(동점 무작위), 이름 → 구현 등록 | DB·Django 없이 적용 금액 표(30 → 30/20/제외)·판정표·동점 분포·`subject_id` 무관·정책 이름 교체 테스트, import 금지 테스트 |
 | 1-5 | `records` | `Decision`(불변 스냅샷: 후보·적용 금액·슬롯·두 버전·알고리즘 이름·`trace`), 결정 유스케이스 | 입찰·정책·소재를 수정해도 과거 결정이 변하지 않음 |
 
 **Step 1 시작 전에 정할 것**
-- `Candidate` 필드 목록(1-4가 정의하고 1-5가 채운다). 병렬 작업의 합의점이므로 1-1 전에 확정한다.
-- **C6 초안 리뷰**(`contracts/console.openapi.yaml`): `campaigns`·`billing` 서비스 `api`의 함수와 반환 구조가 이 계약의 자원·규칙(입찰 추가만·`expected_version`·과금 단위 고정·정지 중 제한·쿼터·소유권 404·`effects` 계산)과 일치하도록 1-2 시작 전에 확정한다.
-- 가입 지급 포인트 양(설정값, 설계 §7-2), 광고그룹당 소재 수(V1은 1개로 확정, 설계 §10).
+- ~~`Candidate` 필드 목록~~ **확정(설계 §4.3, §10).** `Candidate`/`Eligible` 두 타입, 금액은 정수 포인트, 적용 금액 계산은 `engine` 한 곳.
+- **C6 초안 리뷰**(`contracts/console.openapi.yaml`): `campaigns`·`billing` 서비스 `api`의 함수와 반환 구조가 이 계약의 자원·규칙(입찰 추가만·`expected_version`·과금 단위 고정·정지 중 제한·쿼터·소유권 404)과 일치하도록 1-2 시작 전에 확정한다.
+- `end_expired_campaigns` 등 주기 작업의 실행 방식(설계 §7-9). 1-2에서는 함수와 관리 명령까지 만들고 주기 실행은 인프라와 정한다.
+- ~~가입 지급 포인트 양~~ **확정: 기본 50,000(설정값 `SIGNUP_GRANT_POINTS`, 설계 §10).** 광고그룹당 소재 수는 V1 1개로 확정(설계 §10).
 - **Step 0 결과 반영**: 가입 흐름이 1-3에서 `billing` 지급을 호출하도록 `console` 가입 흐름을 확장한다(`foundation` → `billing` 방향 의존이 생기지 않게 `console`이 두 `api`를 순서대로 호출).
 
 ---
