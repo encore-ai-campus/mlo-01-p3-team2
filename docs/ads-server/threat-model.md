@@ -76,11 +76,12 @@
 | # | 위협 | 자산 | 행위자 | 대응 | 단계 | 검증 |
 |---|---|---|---|---|---|---|
 | T15 | 위장 파일 업로드(확장자 조작, 실행 파일, SVG의 스크립트) | A3 | 광고주 | 내용으로 형식 판별(JPEG·PNG만), 재인코딩, 해시 이름 | 0-5 | `test_format_decided_by_content_not_extension`, `test_rejects_svg_gif_webp_bmp`, `test_rejects_text_file_renamed_to_png` |
-| T16 | 압축 폭탄·초대형 파일로 메모리·디스크 소진 | A5 | 광고주 | 용량 상한(초과분은 끝까지 읽지 않음), **업로드 전체 크기가 상한을 크게 넘으면 임시 파일에 쌓기 전에 중단(`MaxUploadSizeHandler`)**, 픽셀 수 상한, 애니메이션 거부 | 0-5 | `test_rejects_over_size_without_reading_all`, `test_rejects_decompression_bomb`, `test_rejects_animated_images` |
+| T16 | 압축 폭탄·초대형 파일로 메모리·디스크 소진 | A5 | 광고주 | 용량 상한(초과분은 끝까지 읽지 않음), **선언된 요청 길이가 상한을 크게 넘으면 본문을 읽기 전에(CSRF보다 앞에서) 413으로 중단(`RequestBodyLimitMiddleware`), 임시 파일 미생성**, 픽셀 수 상한, 애니메이션 거부 | 0-5 | `test_rejects_over_size_without_reading_all`, `test_oversized_multipart_is_413_with_and_without_csrf_and_leaves_no_temp_files`, `test_declared_content_length_over_limit_is_413_without_reading_the_body`, `test_rejects_decompression_bomb`, `test_rejects_animated_images` |
 | T17 | 경로 조작(`..`)·임의 파일 읽기 | A8 | 익명 | URL 정규식으로 형식 제한, 저장 이름은 해시, 사용자 입력 이름 미사용 | 0-5 | `test_path_traversal_returns_404`, `test_name_is_content_hash_and_independent_of_upload_name` |
-| T18 | EXIF 위치·기기 정보 등 개인 정보 유출 | A3 | 광고주(본인 모르게) | 재인코딩으로 메타데이터 제거 | 0-5 | `test_reencode_strips_exif` |
+| T18 | EXIF 위치·기기 정보 등 개인 정보 유출 | A3 | 광고주(본인 모르게) | 재인코딩으로 메타데이터(EXIF·ICC·XMP·텍스트·dpi 등) 제거: **ICC로 sRGB 변환 후 픽셀만 새 이미지로 옮겨 저장**(색 손실 없음). 신뢰할 수 없는 프로필은 열기 실패·색 공간 불일치 시 변환 없이 처리 | 0-5 | `test_reencode_strips_exif`, `test_reencode_strips_png_icc_profile_and_other_ancillary_chunks`, `test_reencode_strips_jpeg_icc_profile`, `test_png_alpha_is_preserved_after_cleaning`, `test_wide_gamut_png_is_converted_to_srgb_not_just_stripped`, `test_unusable_profiles_are_treated_as_srgb_and_do_not_fail_the_upload` |
 | T19 | 중단된 소재가 계속 보임(캐시 잔존) | A3 | 학습자 | `Cache-Control: no-cache` + `ETag`, 중단 시 404 | 0-5, 1 | `test_etag_and_304`, `test_cache_control_no_cache_on_200_and_304`, `test_servable_check_false_returns_404` |
 | T20 | 쓰기 중인 파일이 노출·반쯤 쓴 파일 | A3 | 시스템 | 임시 파일 + `os.replace`로 확정 | 0-5 | `test_atomic_write_leaves_no_partial_file` |
+| T27 | **조작된 ICC 프로필로 색 변환 라이브러리(Pillow 번들 lcms2)를 공격**: 파싱 오류·메모리 소진·크래시. 이미지를 sRGB로 변환하면서 생긴 공격면(2026-10-07 추가) | A3, A5 | 광고주 | ① 업로드 용량 상한 안의 입력만 도달 ② PNG `iCCP`의 압축 해제 폭탄은 Pillow가 한도를 넘으면 거부 → `corrupt` ③ **프로필 1MiB 초과는 lcms에 넘기지 않음**(sRGB 간주) ④ 프로필 열기·색 공간 불일치·변환 오류는 모두 잡아 sRGB로 간주(업로드는 거부하지 않음) ⑤ 이미 sRGB인 프로필은 변환 생략 ⑥ 변환 결과만 저장하고 프로필은 버림 ⑦ `pip-audit`가 Pillow(lcms2 포함) 취약점 점검. **lcms2 자체의 미발견 취약점은 막지 못한다 → §6 잔여 위험** | 0-5 | `test_unusable_profiles_are_treated_as_srgb_and_do_not_fail_the_upload`, `test_oversized_icc_profile_is_not_parsed_and_upload_still_works`, `test_png_icc_decompression_bomb_is_rejected_cleanly`, `test_wide_gamut_png_is_converted_to_srgb_not_just_stripped`, `test_srgb_profile_leaves_pixels_untouched` |
 
 ## 4.4 시스템·운영
 
@@ -88,7 +89,7 @@
 |---|---|---|---|---|---|---|
 | T21 | 비밀값 유출(저장소 커밋, 기본값 사용) | A8 | 개발자 | 환경변수·`.env`만, `.env` 미커밋, prod는 키가 없으면 기동 실패 | 0-1 | `test_prod_requires_secret_key`, `.gitignore` 점검 |
 | T22 | 로그에 비밀번호·키·세션 기록 | A1, A7, A8 | 시스템 | 본문·민감 헤더 미기록, 로그 필터 | 0-6 | `test_logs_never_contain_password_or_keys` |
-| T23 | 관리자 행위 추적 불가 | A9 | 관리자 | 추가 전용 감사 로그(비밀 키 제거) | 0-6 | `test_audit_log_is_append_only`, `test_audit_detail_strips_secret_keys`, `test_signup_and_login_events_recorded` |
+| T23 | 관리자 행위 추적 불가 | A9 | 관리자 | 추가 전용 감사 로그(비밀 키 제거). **INSERT 전용 저장**: 같은 PK 새 인스턴스·`force_update`·upsert로 기존 행을 덮어쓸 수 없음. 관리자 본인의 비밀번호 변경·타인 초기화도 기록 | 0-6 | `test_audit_log_is_append_only`, `test_existing_row_cannot_be_overwritten_by_a_new_instance_or_upsert`, `test_audit_detail_strips_secret_keys`, `test_signup_and_login_events_recorded`, `test_own_password_change_is_audited_once_without_the_password` |
 | T24 | 취약한 의존성 | 전체 | 외부 | 패치 버전 고정, `pip-audit`, `bandit` | 0-6 | `scripts/check.sh` |
 | T25 | 커밋이 디스크에 안 내려가 정전 시 반응 유실 | A5 | 환경 | SQLite WAL + `synchronous=FULL`, 저장 후 확인 | 0-1, 2 | `test_sqlite_pragmas`, (2) 부하 테스트 |
 | T26 | 경계 규칙이 무너져 보안 로직이 흩어짐 | 전체 | 개발자 | 경계 검사 테스트, 모델 규약 테스트 | 0-6 | `test_layer_rules`, `test_only_api_imports_across_modules`, `test_all_models_have_explicit_db_table` |
@@ -136,6 +137,7 @@
 | 이메일이 없어 비밀번호 분실은 관리자 초기화 | 개인 정보 최소화 결정 | 사용자 수가 늘면 |
 | SQLite 단일 노드(쓰기 직렬) | V1 결정 | 부하 테스트(Step 2-6)에서 한계가 보일 때 |
 | 가입 지급 포인트의 다중 계정 수집 | 포인트가 외부 가치와 연결되기 전까지 영향 작음 | 메타버스 포인트 연계(C5) 시 |
+| **조작된 ICC 프로필이 lcms2의 미발견 취약점을 건드림(T27)** | sRGB 변환은 색 정확도(사용자 경험)를 위해 선택했고, 공개 가입이라 업로더는 신뢰할 수 없다. 입력 크기·프로필 크기를 제한하고 오류를 모두 잡지만 네이티브 라이브러리 내부는 막을 수 없다 | **Pillow 보안 공지·업그레이드 시마다**, 또는 이미지 처리를 별도 프로세스·권한으로 격리할 때(배포 설계). 부담이 커지면 "프로필이 있으면 변환 없이 폐기"로 후퇴할 수 있다 |
 
 # 7. 이 표를 갱신하는 규칙
 
