@@ -30,6 +30,21 @@ def _media_type(value):
     return (value or "").split(";")[0].strip().lower()
 
 
+NO_BODY_STATUSES = (204, 304)  # HTTP 가 본문을 금지하는 상태(RFC 9110 §15.3.5·§15.4.5)
+ASCII_INT = re.compile(r"-?[0-9]+", re.ASCII)
+
+
+def cookie_problems(response):
+    """응답이 쿠키를 설정하는지. **Django 는 쿠키를 `response.headers` 가 아니라 `response.cookies` 에 따로 담는다**."""
+    problems = []
+    if "Set-Cookie" in response.headers:
+        problems.append("Set-Cookie 헤더가 있다")
+    cookies = getattr(response, "cookies", None)
+    if cookies:
+        problems.append(f"쿠키를 설정했다: {sorted(cookies.keys())}")
+    return problems
+
+
 def body_bytes(response):
     """일반 응답과 스트리밍 응답(`FileResponse`: 이미지)의 본문을 모두 읽는다."""
     if getattr(response, "streaming", False):
@@ -95,8 +110,11 @@ class Contract:
                 continue
             schema = header.get("schema", {})
             resolved = self.resolve(schema)
-            instance = int(value) if resolved.get("type") == "integer" and re.fullmatch(r"-?\d+", value) else value
+            instance = int(value) if resolved.get("type") == "integer" and ASCII_INT.fullmatch(value) else value  # ASCII 숫자만(전각·아라비아 숫자는 문자열로 남아 실패)
             problems += [f"헤더 {name}: {e}" for e in self.schema_errors(schema, instance)]
+
+        if response.status_code in NO_BODY_STATUSES and body_bytes(response):
+            problems.append(f"{status} 응답은 본문이 없어야 한다")
 
         content = declared.get("content")
         if content:
@@ -112,6 +130,9 @@ class Contract:
                         problems.append("본문이 JSON 이 아니다")
                     else:
                         problems += [f"본문 {e}" for e in self.schema_errors(schema, body)]
+                        # RFC 9457 §3.1.2: 생성하는 서버는 본문 status 가 HTTP 상태와 같아야 한다
+                        if media == "application/problem+json" and isinstance(body, dict) and body.get("status") != response.status_code:
+                            problems.append(f"본문 status({body.get('status')!r}) 가 HTTP 상태({response.status_code}) 와 다르다")
                 elif not body_bytes(response):
                     problems.append("본문이 비어 있다")
         return problems
@@ -123,3 +144,6 @@ class ProviderContractMixin:
     def assertContract(self, contract, path, method, response):
         problems = contract.response_problems(path, method, response)
         self.assertEqual(problems, [], f"{method.upper()} {path} → {response.status_code}")
+
+    def assertNoCookies(self, response):
+        self.assertEqual(cookie_problems(response), [])

@@ -111,6 +111,43 @@ class ContractCheckerTests(SimpleTestCase):
         self.assertEqual(self.problems(Fake(304, None, {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}"), [])
         self.assertTrue(self.problems(Fake(304, None, {}), "/assets/{asset_name}"))  # 304 에도 ETag·Cache-Control
 
+    def test_problem_status_must_match_the_http_status(self):
+        """RFC 9457 §3.1.2: 본문 status 가 HTTP 상태와 다르면 클라이언트와 로그가 서로 다른 오류로 읽는다."""
+        def problem(status, body_status):
+            body = {"type": f"/problems/x", "title": "t", "status": body_status, "code": "unavailable", "request_id": REQUEST_ID}
+            headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID, "Retry-After": "1"}
+            return Fake(status, body, headers)
+
+        self.assertEqual(self.problems(problem(503, 503)), [])
+        for http, body in ((503, 400), (429, 200)):
+            found = self.problems(problem(http, body))
+            self.assertTrue(any("status" in f and "다르다" in f for f in found), (http, body, found))
+
+    def test_401_must_carry_a_media_key_challenge(self):
+        def unauthorized(challenge):
+            headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID}
+            if challenge is not None:
+                headers["WWW-Authenticate"] = challenge
+            body = {"type": "/problems/unauthorized", "title": "t", "status": 401, "code": "unauthorized", "request_id": REQUEST_ID}
+            return Fake(401, body, headers)
+
+        self.assertEqual(self.problems(unauthorized('MediaKey realm="ads-media-api"')), [])  # 정상 값
+        for label, challenge in {"missing": None, "empty": "", "wrong scheme": 'Basic realm="x"', "no realm": "MediaKey", "bare": "ads-media-api"}.items():
+            found = self.problems(unauthorized(challenge))
+            self.assertTrue(found, label)
+            self.assertTrue(any("WWW-Authenticate" in f for f in found), (label, found))
+
+    def test_statuses_that_forbid_a_body_are_checked(self):
+        self.assertEqual(self.problems(Fake(304, None, {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}"), [])
+        found = self.problems(Fake(304, b"unexpected body", {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}")
+        self.assertTrue(any("본문이 없어야" in f for f in found), found)
+
+    def test_retry_after_accepts_only_ascii_digits(self):
+        problem = {"type": "/problems/rate_limited", "title": "t", "status": 429, "code": "rate_limited", "request_id": REQUEST_ID}
+        for value in ("٣", "３", "²", "1_0"):  # 아라비아-인도·전각·위첨자 숫자, 밑줄
+            headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID, "Retry-After": value}
+            self.assertTrue(self.problems(Fake(429, problem, headers)), value)
+
     def test_named_schema_helper_rejects_bad_values(self):
         self.assertEqual(self.contract.named_schema_errors("Uuid", "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f"), [])
         for bad in ("x", 5, None, "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0"):

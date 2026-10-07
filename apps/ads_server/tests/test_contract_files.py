@@ -65,6 +65,23 @@ class ServingContractRuleTests(SimpleTestCase):
         for needle in ("비활성 슬롯", "403", "404", "ad: null"):
             self.assertIn(needle, desc)
 
+    def test_every_authenticated_operation_declares_the_common_auth_responses(self):
+        """인증이 필요한 모든 엔드포인트가 401·403·429·503 을 선언한다(한 곳이 빠지면 규칙대로 만든 응답이 계약 위반이 된다)."""
+        checked = 0
+        for path, method, op in self.contract.operations():
+            if op.get("security") == []:
+                continue
+            checked += 1
+            self.assertLessEqual({"401", "403", "429", "503"}, set(op["responses"]), f"{method} {path}")
+        self.assertGreaterEqual(checked, 4)  # createDecision, getDecision, putReaction, getReaction
+
+    def test_401_requires_a_media_key_challenge_header(self):
+        header = self.contract.resolve(self.contract.spec["components"]["responses"]["Unauthorized"]["headers"]["WWW-Authenticate"])
+        self.assertTrue(header.get("required"))
+        self.assertEqual(self.contract.schema_errors(header["schema"], 'MediaKey realm="ads-media-api"'), [])
+        for bad in ("", "Basic realm=\"x\"", "MediaKey"):
+            self.assertTrue(self.contract.schema_errors(header["schema"], bad), bad)
+
     def test_throttled_and_unavailable_always_carry_retry_after(self):
         for name in ("TooManyRequests", "Unavailable"):
             headers = self.contract.spec["components"]["responses"][name]["headers"]

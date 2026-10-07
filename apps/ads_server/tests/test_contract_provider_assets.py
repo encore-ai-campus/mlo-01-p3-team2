@@ -45,8 +45,28 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
         self.assertContract(self.contract, PATH, "get", blocked)
 
     def test_no_cookie_is_set_and_no_auth_is_required(self):
+        """익명·로그인 세션 모두 쿠키를 만들지 않는다(200·304·404 전부). Django 쿠키는 `response.cookies` 에 있으므로 거기까지 본다."""
+        from tests.factories import make_advertiser
+
+        logged_in = Client()
+        logged_in.force_login(make_advertiser())
+        for client in (Client(), logged_in):
+            first = client.get(f"/assets/{self.png.name}")
+            responses = [first, client.get(f"/assets/{self.png.name}", HTTP_IF_NONE_MATCH=first["ETag"]), client.get("/assets/" + "0" * 64 + ".png")]
+            self.assertEqual([r.status_code for r in responses], [200, 304, 404])
+            for response in responses:
+                self.assertNoCookies(response)
+
+    def test_the_cookie_check_catches_a_response_that_sets_a_cookie(self):
+        """검사가 공회전하지 않음: 쿠키를 일부러 설정한 응답은 실패해야 한다(headers 만 보면 놓친다)."""
+        from tests.contract_support import cookie_problems
+
         response = Client().get(f"/assets/{self.png.name}")
-        self.assertNotIn("Set-Cookie", response.headers)  # 세션·CSRF 쿠키를 만들지 않는다
+        response.set_cookie("review_cookie", "present")
+        self.assertNotIn("Set-Cookie", response.headers)  # 이 검사만으로는 놓친다
+        self.assertTrue(cookie_problems(response))
+        with self.assertRaises(AssertionError):
+            self.assertNoCookies(response)
 
 
 def never(name):
