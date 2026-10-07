@@ -2,6 +2,7 @@
 import json
 import re
 
+from .logging import request_id_var
 from .net import client_ip
 
 _SENSITIVE_KEY = re.compile(r"password|passwd|token|secret|api[_-]?key|(^|[_-])key($|[_-])|authorization|cookie|session", re.I)
@@ -20,6 +21,15 @@ def redact_detail(value):
     if value is None or isinstance(value, (int, float, bool)):
         return value
     return str(value)[:_MAX_STRING]
+
+
+def _request_id(request):
+    """요청이 있으면 그 ID, 요청 없이 서비스가 직접 호출됐으면 로깅이 쓰는 현재 요청 ID(없으면 빈 값)."""
+    rid = getattr(request, "request_id", "") if request is not None else ""
+    if not rid:
+        current = request_id_var.get()
+        rid = "" if current == "-" else current
+    return str(rid or "")
 
 
 def record_audit(request, action, target=None, detail=None, actor=None):
@@ -48,5 +58,5 @@ def record_audit(request, action, target=None, detail=None, actor=None):
         target_id=target_id,
         detail=cleaned,
         ip=(client_ip(request) if request is not None else "") or "",
-        request_id=str(getattr(request, "request_id", "") or ""),
+        request_id=_request_id(request),
     )

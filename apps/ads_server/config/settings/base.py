@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "axes",
     "foundation.apps.FoundationConfig",
     "assets.apps.AssetsConfig",
+    "masters.apps.MastersConfig",
     "console.apps.ConsoleConfig",
 ]
 

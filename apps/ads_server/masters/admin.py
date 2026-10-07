@@ -1,0 +1,35 @@
+"""관리자 화면 등록. **읽기 전용**이다: 서비스 규칙(검증·버전·감사)을 우회하지 않도록 변경은 서비스 함수로만 한다.
+
+변경 화면(정책 새 버전·일괄 입력 등)은 Step 3-1 에서 서비스를 호출하는 뷰로 만든다.
+"""
+from django.contrib import admin
+
+from .models import BidPolicy, Media, Slot
+
+
+class ReadOnlyAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Media)
+class MediaAdmin(ReadOnlyAdmin):
+    list_display = ("name", "is_active", "created_at")
+
+
+@admin.register(Slot)
+class SlotAdmin(ReadOnlyAdmin):
+    list_display = ("name", "media", "pricing_unit", "is_active")
+    list_filter = ("pricing_unit", "is_active")
+
+
+@admin.register(BidPolicy)
+class BidPolicyAdmin(ReadOnlyAdmin):
+    list_display = ("slot", "policy_version", "floor_amount", "base_amount", "cap_amount", "changed_at", "reason")
+    ordering = ("slot", "-policy_version")

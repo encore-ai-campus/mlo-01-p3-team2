@@ -36,6 +36,12 @@ class Conflict(ApiError):
     status, code, title = 409, "conflict", "요청이 현재 상태와 충돌합니다"
 
 
+class StaleVersion(Conflict):
+    """호출자가 본 버전이 현재와 다르다(입찰·정책의 낙관적 잠금). 새로 불러와 다시 시도한다."""
+
+    code, title = "stale_version", "다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 시도하세요"
+
+
 class PayloadTooLarge(ApiError):
     status, code, title = 413, "payload_too_large", "요청이 너무 큽니다"
 

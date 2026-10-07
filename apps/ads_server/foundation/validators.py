@@ -5,6 +5,7 @@ import unicodedata
 from django.core.exceptions import ValidationError
 
 USERNAME_RE = re.compile(r"[a-z0-9_]{4,20}")
+MAX_AMOUNT = 2**53 - 1  # 포인트 금액의 최대값. JSON(JavaScript) 정수로 정확히 표현되는 한계(계약 `Money`와 같다)
 
 
 def validate_username(value):
