@@ -119,19 +119,21 @@ class LedgerIntegrityTests(TestCase):
             LedgerEntry.objects.filter(pk=row.pk).update(amount=1)
         with self.assertRaises(AppendOnlyError):
             LedgerEntry.objects.filter(wallet__owner=adv).delete()
-        clone = LedgerEntry(pk=row.pk, wallet=row.wallet, entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
+        clone = LedgerEntry(pk=row.pk, wallet=row.wallet, seq=row.seq, entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
         with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             clone.save()
         with self.assertRaises(AppendOnlyError):
-            LedgerEntry.objects.bulk_create([clone], update_conflicts=True, update_fields=["amount"], unique_fields=["id"])
+            LedgerEntry.objects.bulk_create([clone], update_conflicts=True, update_fields=["amount"], unique_fields=["entry_id"])
         self.assertEqual(LedgerEntry.objects.get(pk=row.pk).amount, 500)
 
     def test_ledger_db_constraints(self):
         adv = funded(500)
         wallet = Wallet.objects.get(owner=adv)
 
+        seqs = iter(range(100, 200))  # 제약 하나만 시험하도록 seq 는 매번 새 값(NOT NULL·유일 제약에 걸려 우연히 통과하지 않게)
+
         def attempt(**kw):
-            values = dict(wallet=wallet, entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
+            values = dict(wallet=wallet, seq=next(seqs), entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
             values.update(kw)
             with self.assertRaises(IntegrityError, msg=kw), transaction.atomic():
                 LedgerEntry.objects.create(**values)
@@ -143,7 +145,7 @@ class LedgerIntegrityTests(TestCase):
         attempt(entry_type="ADMIN_ADJUST", amount=0)
         attempt(entry_type="ADMIN_ADJUST", amount=5, reaction_ref="x")  # 반응 키는 과금에만
         attempt(entry_type="ADMIN_ADJUST", amount=2**53)
-        LedgerEntry.objects.create(wallet=wallet, entry_type="CHARGE", amount=0, balance_after=500, reaction_ref="ok-ref")
+        LedgerEntry.objects.create(wallet=wallet, seq=next(seqs), entry_type="CHARGE", amount=0, balance_after=500, reaction_ref="ok-ref")
         attempt(entry_type="CHARGE", amount=-1, reaction_ref="ok-ref")  # 같은 반응 키로 두 번 과금 불가(DB)
 
     def test_check_ledger_detects_tampering(self):
@@ -162,6 +164,57 @@ class LedgerIntegrityTests(TestCase):
             cur.execute("UPDATE billing_wallet SET balance = balance - 5")
             cur.execute("UPDATE billing_ledger_entry SET balance_after = balance_after + 1 WHERE entry_type = 'CHARGE'")
         self.assertTrue(any("balance_after" in p for p in api.check_ledger()))
+
+
+@tag("security")
+class LedgerSequenceTests(TestCase):
+    """원장 순서는 **지갑 안의 `seq`**(1부터 빈틈없이)다. 자동 증가 PK 에 기대지 않는다(설계 §4, PK 규칙)."""
+
+    def seqs(self, adv):
+        return list(LedgerEntry.objects.filter(wallet__owner=adv).order_by("seq").values_list("seq", flat=True))
+
+    def test_seq_runs_from_one_without_gaps_and_per_wallet(self):
+        a, b, admin = funded(1000), funded(1000), make_admin()
+        charge(a, 10, "a1")
+        api.adjust(admin, a.pk, 5, "보너스", now=NOW)
+        charge(b, 10, "b1")
+        charge(a, 10, "a2")
+        self.assertEqual(self.seqs(a), [1, 2, 3, 4])  # 지급·과금·조정·과금
+        self.assertEqual(self.seqs(b), [1, 2])  # 다른 지갑의 줄이 번호를 건드리지 않는다
+        self.assertEqual(api.check_ledger(), [])
+
+    def test_a_duplicate_charge_does_not_consume_a_seq(self):
+        adv = funded(1000)
+        charge(adv, 10, "same")
+        charge(adv, 10, "same")  # 멱등: 줄이 늘지 않는다
+        self.assertEqual(self.seqs(adv), [1, 2])
+
+    def test_db_rejects_a_duplicate_or_non_positive_seq(self):
+        adv = funded(1000)
+        wallet = Wallet.objects.get(owner=adv)
+        for seq in (1, 0):
+            with self.assertRaises(IntegrityError, msg=seq), transaction.atomic():
+                LedgerEntry.objects.create(wallet=wallet, seq=seq, entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
+
+    def test_check_ledger_detects_a_gap_in_seq(self):
+        adv = funded(1000)
+        charge(adv, 10, "r1")
+        charge(adv, 10, "r2")
+        self.assertEqual(api.check_ledger(), [])
+        with connection.cursor() as cur:  # 가운데 줄의 번호를 비운다(ORM 우회)
+            cur.execute("UPDATE billing_ledger_entry SET seq = 7 WHERE seq = 2")
+        problems = api.check_ledger()
+        self.assertTrue(any("seq" in p for p in problems), problems)
+
+    def test_list_ledger_cursor_is_the_seq(self):
+        adv = funded(1000)
+        for i in range(4):
+            charge(adv, 10, f"c{i}")
+        page, cursor = api.list_ledger(adv, limit=2)
+        self.assertEqual(cursor, 4)  # 이 쪽의 가장 오래된 줄의 seq
+        rest, cursor = api.list_ledger(adv, before=cursor, limit=5)
+        self.assertEqual((len(page), len(rest), cursor), (2, 3, None))
+        self.assertEqual([e.entry_type for e in rest][-1], "SIGNUP_GRANT")
 
 
 @tag("security")

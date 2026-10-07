@@ -46,7 +46,10 @@ def _append(wallet, entry_type, amount, now, **extra):
     balance_after = wallet.balance + amount
     if not 0 <= balance_after <= MAX_AMOUNT:  # 마지막 방어선(호출한 쪽이 이미 검사했어야 한다). DB 제약도 같은 범위를 지킨다
         raise ValueError(f"잔액이 허용 범위를 벗어난다: {balance_after}")
-    entry = LedgerEntry.objects.create(wallet=wallet, entry_type=entry_type, amount=amount, balance_after=balance_after, created_at=now, **extra)
+    last_seq = LedgerEntry.objects.filter(wallet=wallet).order_by("-seq").values_list("seq", flat=True).first() or 0  # 지갑 잠금 안이라 다른 줄이 끼어들지 않는다
+    entry = LedgerEntry.objects.create(
+        wallet=wallet, seq=last_seq + 1, entry_type=entry_type, amount=amount, balance_after=balance_after, created_at=now, **extra
+    )
     Wallet.objects.filter(pk=wallet.pk).update(balance=F("balance") + amount)
     wallet.balance = balance_after
     return entry
@@ -147,13 +150,13 @@ def get_wallet(user, now=None):
 
 
 def list_ledger(user, before=None, limit=50):
-    """원장 내역(최신순). `before` 는 앞 쪽의 `next_cursor`. 반환: (항목 목록, 다음 커서 또는 None)."""
+    """원장 내역(최신순). `before` 는 앞 쪽의 `next_cursor`(지갑 안의 순번 `seq`). 반환: (항목 목록, 다음 커서 또는 None)."""
     limit = max(1, min(int(limit), 200))
-    qs = LedgerEntry.objects.filter(wallet__owner=user).order_by("-id")
+    qs = LedgerEntry.objects.filter(wallet__owner=user).order_by("-seq")
     if before is not None:
-        qs = qs.filter(id__lt=int(before))
+        qs = qs.filter(seq__lt=int(before))
     rows = list(qs[: limit + 1])
-    next_cursor = rows[limit - 1].id if len(rows) > limit else None
+    next_cursor = rows[limit - 1].seq if len(rows) > limit else None
     return [_entry_view(e) for e in rows[:limit]], next_cursor
 
 
@@ -183,11 +186,13 @@ def recompute_spend():
 
 
 def check_ledger():
-    """정합성 점검: 지갑마다 `잔액 == 원장 합계`이고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
+    """정합성 점검: 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
     problems = []
     for wallet in Wallet.objects.all():
         running = 0
-        for entry in LedgerEntry.objects.filter(wallet=wallet).order_by("id"):
+        for expected_seq, entry in enumerate(LedgerEntry.objects.filter(wallet=wallet).order_by("seq"), start=1):
+            if entry.seq != expected_seq:
+                problems.append(f"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 seq={entry.seq}, 기대={expected_seq}")
             running += entry.amount
             if entry.balance_after != running:
                 problems.append(f"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 balance_after={entry.balance_after}, 누적={running}")

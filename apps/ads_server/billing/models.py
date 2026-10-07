@@ -17,6 +17,7 @@ class EntryType(models.TextChoices):
 
 
 class Wallet(models.Model):
+    wallet_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="wallet")
     balance = models.PositiveBigIntegerField(default=0)  # 0 밑으로 내려가지 않고 MAX_AMOUNT 를 넘지 않는다(DB 제약). 값은 원장 합계와 같아야 한다
     created_at = models.DateTimeField(default=timezone.now)
@@ -29,8 +30,9 @@ class Wallet(models.Model):
 class LedgerEntry(AppendOnlyModel):
     """원장의 한 줄. 추가만 하고 정정은 반대 부호의 새 줄(ADMIN_ADJUST)로 한다(설계 §4.4-8)."""
 
-    entry_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    entry_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name="entries")
+    seq = models.PositiveIntegerField()  # 지갑 안의 순서(1부터, 지갑 잠금 안에서 +1). 연속성 점검·목록 커서의 기준
     entry_type = models.CharField(max_length=20, choices=EntryType.choices)
     amount = models.BigIntegerField()  # 부호 있는 정수. 지급·충전은 +, 과금은 −(또는 잔액이 없으면 0)
     balance_after = models.PositiveBigIntegerField()
@@ -44,6 +46,8 @@ class LedgerEntry(AppendOnlyModel):
     class Meta:
         db_table = "billing_ledger_entry"
         constraints = [
+            models.UniqueConstraint(fields=["wallet", "seq"], name="billing_entry_seq_per_wallet"),
+            models.CheckConstraint(condition=Q(seq__gte=1), name="billing_entry_seq_from_one"),
             models.UniqueConstraint(fields=["wallet"], condition=Q(entry_type="SIGNUP_GRANT"), name="billing_one_signup_grant_per_wallet"),
             models.UniqueConstraint(fields=["reaction_ref"], condition=Q(reaction_ref__isnull=False), name="billing_charge_once_per_reaction"),
             models.CheckConstraint(
@@ -64,6 +68,7 @@ class LedgerEntry(AppendOnlyModel):
 class CampaignSpend(models.Model):
     """캠페인의 그날 소진액. **원장에서 다시 계산할 수 있는 파생값**이다(recompute_spend)."""
 
+    spend_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     campaign_id = models.UUIDField()
     budget_day = models.DateField()
     spent = models.PositiveBigIntegerField(default=0)

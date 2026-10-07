@@ -12,7 +12,7 @@ MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 
 def actions():
-    return list(AuditLog.objects.order_by("id").values_list("action", flat=True))
+    return list(AuditLog.objects.order_by("created_at", "log_id").values_list("action", flat=True))
 
 
 @tag("security")
@@ -46,7 +46,7 @@ class AuditLogModelTests(TestCase):
         with self.assertRaises(AuditImmutableError):
             AuditLog.objects.bulk_create(
                 [AuditLog(pk=entry.pk, action="review.overwritten")],
-                update_conflicts=True, update_fields=["action"], unique_fields=["id"],
+                update_conflicts=True, update_fields=["action"], unique_fields=["log_id"],
             )
         with self.assertRaises((IntegrityError, AuditImmutableError)), transaction.atomic():
             AuditLog.objects.update_or_create(pk=entry.pk, defaults={"action": "review.overwritten"})

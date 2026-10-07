@@ -24,7 +24,7 @@ class WalletAdmin(ReadOnlyAdmin):
 class LedgerEntryAdmin(ReadOnlyAdmin):
     list_display = ("created_at", "wallet", "entry_type", "amount", "balance_after", "campaign_id", "charge_policy", "shortfall")
     list_filter = ("entry_type",)
-    ordering = ("-id",)
+    ordering = ("-created_at", "-seq")
 
 
 @admin.register(CampaignSpend)

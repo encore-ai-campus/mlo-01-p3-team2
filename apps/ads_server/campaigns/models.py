@@ -25,7 +25,7 @@ class ReviewStatus(models.TextChoices):
 
 
 class Campaign(models.Model):
-    campaign_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    campaign_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="campaigns")
     name = models.CharField(max_length=100)
     starts_at = models.DateTimeField()
@@ -48,7 +48,7 @@ class Campaign(models.Model):
 
 
 class AdGroup(models.Model):
-    ad_group_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ad_group_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="ad_groups")
     name = models.CharField(max_length=100)
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
@@ -68,6 +68,7 @@ class AdGroup(models.Model):
 
 
 class AdGroupSlot(models.Model):
+    ad_group_slot_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     ad_group = models.ForeignKey(AdGroup, on_delete=models.CASCADE, related_name="slot_links")
     slot = models.ForeignKey("masters.Slot", on_delete=models.PROTECT, related_name="+")
 
@@ -77,7 +78,7 @@ class AdGroupSlot(models.Model):
 
 
 class Creative(models.Model):
-    creative_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    creative_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     ad_group = models.ForeignKey(AdGroup, on_delete=models.PROTECT, related_name="creatives")
     title = models.CharField(max_length=200)
     redirect_url = models.CharField(max_length=2048)
@@ -98,6 +99,7 @@ class CreativeImage(AppendOnlyModel):
     서빙 판정에서 빼면 교체 직후 과거 결정의 이미지가 404 가 된다. `Creative.image_name` 은 그중 **현재** 것을 가리킨다.
     """
 
+    creative_image_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     creative = models.ForeignKey(Creative, on_delete=models.PROTECT, related_name="images")
     image_name = models.CharField(max_length=80, db_index=True)
     image_bytes = models.PositiveIntegerField()
@@ -111,7 +113,7 @@ class CreativeImage(AppendOnlyModel):
 class Bid(AppendOnlyModel):
     """입찰의 한 버전. 하한 미만·상한 초과도 그대로 저장한다(설계 §4.2). 현재 값 = 최대 버전."""
 
-    bid_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # 버전 행 하나의 식별자(결정·이벤트가 가리킨다)
+    bid_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)  # 버전 행 하나의 식별자이자 PK(결정·이벤트가 가리킨다)
     ad_group = models.ForeignKey(AdGroup, on_delete=models.PROTECT, related_name="bids")
     bid_version = models.PositiveIntegerField()
     amount = models.PositiveBigIntegerField()
@@ -129,7 +131,7 @@ class Bid(AppendOnlyModel):
 class ReviewRequest(models.Model):
     """재검토 요청. 만든 뒤에는 상태·답변만 닫히고(transitions.py) 지워지지 않는다."""
 
-    review_request_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    review_request_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="review_requests")
     message = models.CharField(max_length=500, blank=True)
     status = models.CharField(max_length=20, choices=ReviewStatus.choices, default=ReviewStatus.OPEN)

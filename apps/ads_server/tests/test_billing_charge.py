@@ -1,7 +1,8 @@
 import threading
+import time
 import uuid
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api
@@ -122,6 +123,36 @@ class ConcurrentChargeTests(TransactionTestCase):
         self.assertEqual(api.spend_today([camp], now=NOW), {camp: 100})
         self.assertEqual(api.check_ledger(), [])
         self.assertTrue(any(getattr(o, "duplicate", None) is False for o in outcomes), outcomes)  # 처음 처리한 쪽이 있다
+
+
+    def test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs(self):
+        adv, camp = funded(10_000), uuid.uuid4()
+        barrier, errors = threading.Barrier(4), []
+
+        def worker(n):
+            try:
+                barrier.wait(timeout=5)
+                for i in range(3):
+                    for _attempt in range(200):  # 테스트 DB(인메모리 공유 캐시)는 테이블 잠금이 바로 오류가 된다. 매체처럼 재시도한다
+                        try:
+                            charge(adv, 10, f"w{n}-{i}", camp)
+                            break
+                        except OperationalError:
+                            time.sleep(0.002)
+                    else:
+                        raise AssertionError("재시도 한도 초과")
+            except Exception as e:  # noqa: BLE001
+                errors.append(repr(e))
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+        [t.start() for t in threads]
+        [t.join(timeout=30) for t in threads]
+        self.assertEqual(errors, [])
+        seqs = list(LedgerEntry.objects.filter(wallet__owner=adv).order_by("seq").values_list("seq", flat=True))
+        self.assertEqual(seqs, list(range(1, 14)))  # 지급 1 + 과금 12, 빈틈·중복 없음
+        self.assertEqual(api.check_ledger(), [])
 
 
 @tag("security")

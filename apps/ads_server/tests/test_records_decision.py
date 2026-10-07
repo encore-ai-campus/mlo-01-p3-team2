@@ -66,7 +66,7 @@ class DecisionSnapshotTests(TestCase):
         with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             clone.save()
         with self.assertRaises(AppendOnlyError):
-            Decision.objects.bulk_create([clone], update_conflicts=True, update_fields=["selection_policy"], unique_fields=["id"])
+            Decision.objects.bulk_create([clone], update_conflicts=True, update_fields=["selection_policy"], unique_fields=["decision_id"])
         self.assertEqual(Decision.objects.get(pk=row.pk).applied_amount, 30)
 
     def test_chosen_columns_are_all_or_none_in_db(self):

@@ -72,7 +72,7 @@ class PolicyConstraintTests(TestCase):
         with self.assertRaises(AppendOnlyError):
             BidPolicy.objects.bulk_create(
                 [policy(slot, pk=row.pk, policy_version=1, cap_amount=999)],
-                update_conflicts=True, update_fields=["cap_amount"], unique_fields=["id"],
+                update_conflicts=True, update_fields=["cap_amount"], unique_fields=["bid_policy_id"],
             )
         self.assertEqual(BidPolicy.objects.get(pk=row.pk).cap_amount, 50)
 

@@ -69,7 +69,7 @@ class BidAndAdGroupModelTests(TestCase):
         with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             self.bid(pk=row.pk, amount=999).save()
         with self.assertRaises(AppendOnlyError):
-            Bid.objects.bulk_create([self.bid(pk=row.pk, amount=999)], update_conflicts=True, update_fields=["amount"], unique_fields=["id"])
+            Bid.objects.bulk_create([self.bid(pk=row.pk, amount=999)], update_conflicts=True, update_fields=["amount"], unique_fields=["bid_id"])
         self.assertEqual(Bid.objects.get(pk=row.pk).amount, 30)
 
     def test_ad_group_pricing_unit_immutable(self):

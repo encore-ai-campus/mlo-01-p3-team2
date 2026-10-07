@@ -15,7 +15,7 @@ class PricingUnit(models.TextChoices):
 
 
 class Media(models.Model):
-    media_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    media_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     name = models.CharField(max_length=100, unique=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -28,7 +28,7 @@ class Media(models.Model):
 
 
 class Slot(models.Model):
-    slot_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    slot_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="slots")
     name = models.CharField(max_length=100)
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
@@ -59,7 +59,7 @@ class MediaKey(models.Model):
     매체마다 여러 개가 동시에 유효할 수 있다(교체 유예 기간).
     """
 
-    key_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    key_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="keys")
     secret_hash = models.CharField(max_length=64)
     label = models.CharField(max_length=100, blank=True)
@@ -74,7 +74,7 @@ class MediaKey(models.Model):
 class BidPolicy(AppendOnlyModel):
     """슬롯별 입찰 정책의 한 버전. 수정이 아니라 새 버전 행 추가이고, 현재 값 = 최대 버전이다."""
 
-    bid_policy_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # 버전 행 하나의 식별자(결정·이벤트가 가리킨다)
+    bid_policy_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)  # 버전 행 하나의 식별자이자 PK(결정·이벤트가 가리킨다)
     slot = models.ForeignKey(Slot, on_delete=models.PROTECT, related_name="policies")
     policy_version = models.PositiveIntegerField()
     floor_amount = models.PositiveBigIntegerField()

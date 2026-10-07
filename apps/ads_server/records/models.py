@@ -9,7 +9,7 @@ from foundation.api import AppendOnlyModel
 
 
 class Decision(AppendOnlyModel):
-    decision_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    decision_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     # 요청 쪽 사실
     media_id = models.UUIDField(db_index=True)
     slot_id = models.UUIDField()

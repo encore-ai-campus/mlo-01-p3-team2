@@ -43,10 +43,11 @@ class AllAppendOnlyModelsTests(TestCase):
             model, field = type(row), OVERWRITE[name]
             original = getattr(row, field)
             conflict_fields = [model._meta.get_field(field)]
+            pk = model._meta.pk.name
             calls = {
-                "keyword upsert": lambda c: model.objects.bulk_create([c], update_conflicts=True, update_fields=[field], unique_fields=["id"]),
-                "positional upsert": lambda c: model.objects.bulk_create([c], None, False, True, conflict_fields, ["id"]),
-                "positional upsert (batch_size)": lambda c: model.objects.bulk_create([c], 10, False, True, conflict_fields, ["id"]),
+                "keyword upsert": lambda c: model.objects.bulk_create([c], update_conflicts=True, update_fields=[field], unique_fields=[pk]),
+                "positional upsert": lambda c: model.objects.bulk_create([c], None, False, True, conflict_fields, [pk]),
+                "positional upsert (batch_size)": lambda c: model.objects.bulk_create([c], 10, False, True, conflict_fields, [pk]),
             }
             for label, call in calls.items():
                 with self.assertRaises(AppendOnlyError, msg=(name, label)):

@@ -36,7 +36,7 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     """아이디·비밀번호·닉네임·반만 가진다. 이메일·이름 필드는 없다(설계 §5.1)."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     username = models.CharField(max_length=30, unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.ADVERTISER)
     nickname = models.CharField(max_length=20)
@@ -64,6 +64,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 class SignupAttempt(models.Model):
     """가입 시도 기록(IP 제한용). 개인 정보는 담지 않는다."""
 
+    attempt_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     ip = models.CharField(max_length=45)  # IPv6 최대 45자
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -125,6 +126,7 @@ class AppendOnlyModel(models.Model):
 class AuditLog(AppendOnlyModel):
     """누가·언제·무엇을. 비밀값·개인정보는 기록하지 않는다(audit.record_audit 가 가린다)."""
 
+    log_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     actor_id = models.UUIDField(null=True, blank=True, db_index=True)  # FK 가 아니다: 사용자가 바뀌어도 기록은 그대로
     actor_username = models.CharField(max_length=30, blank=True)
     action = models.CharField(max_length=64, db_index=True)

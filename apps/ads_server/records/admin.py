@@ -7,7 +7,7 @@ from .models import Decision
 @admin.register(Decision)
 class DecisionAdmin(admin.ModelAdmin):
     list_display = ("decided_at", "media_id", "slot_id", "campaign_id", "applied_amount", "selection_policy", "candidate_count")
-    ordering = ("-id",)
+    ordering = ("-decided_at",)
 
     def has_add_permission(self, request):
         return False
