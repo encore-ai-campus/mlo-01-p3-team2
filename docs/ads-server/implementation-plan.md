@@ -60,7 +60,7 @@ Step 4~5  Raw 수집 → Kafka (Step 2 이후)
 | `Pillow` | 이미지 판별·재인코딩 | 0-5 | |
 | `pip-audit` | 의존성 취약점 점검 | 0-6 | 개발용이지만 스크립트가 쓰므로 파일에 적는다 |
 | `bandit` | 정적 보안 점검 | 0-6 | 위와 같음 |
-| `PyYAML` | 계약 파일(`serving.openapi.yaml`) 로드 | 2-1 | **계약 확정**: `contracts/serving.openapi.yaml`(응답 규칙 충돌 해소: 매체 비활성 403·비활성 슬롯 201+`ad: null`·없는/타 매체 슬롯 404, `POST /decisions`에 404 추가, 필수 헤더 표시, 요청 제한·전환 정의·`title` 확정, C3 공유 파일 규칙). **파일 검증**(`openapi-spec-validator`·예시 전수 검증)과 **응답 검증**(`tests/contract_support.py`: 상태 코드·헤더·미디어 타입·본문, `format` 검사 연결)을 구분. C3은 실제 서버 응답으로 **provider 계약 테스트 첫 적용** | 검증기 통과, 검사기 자체 시험(잘못된 UUID·시각·URI·누락 헤더를 잡음), 변형 검사. **완료 (2026-10-07).** 매체 쪽 담당자와의 공유는 [contracts/README.md](contracts/README.md)를 건네는 것으로(사람의 일) |
+| `PyYAML` | 계약 파일(`serving.openapi.yaml`) 로드 | 2-1 | 완료 내용은 §10 진행 상태의 2-1 |
 | `jsonschema` | 실제 응답을 계약 스키마에 대조(provider 계약 테스트) | 2-1 | OpenAPI 3.1 스키마는 JSON Schema 2020-12 |
 | `openapi-spec-validator` | 계약 파일이 올바른 OpenAPI 3.1인지 검증 | 2-1 | 검증 스크립트용 |
 
@@ -813,6 +813,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | 승격 | 완료 (2026-10-07) | `intake/` → `docs/ads-server/`, 구현은 `apps/ads_server/` |
+| DRD 승격 | 완료 (2026-10-08) | 광고 서버 데이터 요구사항 문서 [ads-server-drd.md](ads-server-drd.md) (`intake/` → `docs/ads-server/`) |
 | 0-0 위협 모델 | 완료 (2026-10-07) | [threat-model.md](threat-model.md): 위협 26건(Step 0 보완에서 T27 추가), 0-1~0-6 모두 대응 행 있음 |
 | 0-1 골격·설정·User | 완료 (2026-10-07) | 테스트 26개, `runserver` 확인, WAL·`synchronous=FULL` 확인. `check --deploy` 경고 5건 기록(README) |
 | 0-2 계정·인증·세션 | 완료 (2026-10-07) | 테스트 59개(보안 태그 33개) 통과, 브라우저로 가입→로그인→로그아웃 확인. **Django 6.1 / axes 게이트 통과**(설계 §9 기록) |
@@ -831,5 +832,5 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | **Step 1 전체** | **완료 (2026-10-07)** | §6.8 종료 점검표 모두 충족. 구현: `masters`·`engine`·`campaigns`·`billing`·`records` |
 | DRD 정합 | 완료 (2026-10-07) | 입찰·정책 버전 행에 UUID(`bid_id`·`bid_policy_id`) 추가, 결정이 함께 기록. 기존 행은 마이그레이션이 채움(이전 스키마에서 만든 데이터로 검증하는 테스트 포함). 테스트 359개 |
 | Step 1 보완 | 완료 (2026-10-07) | 외부 검토 5건 + 입력 검증 3건 재현 후 수정. ① 이미지 교체 반복의 쿼터 우회(P1) → `CreativeImage` 보유 관계로 쿼터 ② 추가 전용 5개 모델의 위치 인자 upsert 우회 → 부모와 같은 명시적 시그니처 ③ 소수 과금 → 입력·정책 반환값 정수 검사, 잔액 상한 `MAX_AMOUNT`(서비스+DB) ④ 재계산과 과금의 경쟁 → 원장 읽기부터 교체까지 한 쓰기 트랜잭션 ⑤ 교체 직후 과거 이미지 404 → 같은 보유 관계로 서빙 판단 ⑥ 잘못된 URL(`https://[`·포트)·`datetime` 범위 오류를 입력 오류로. Bandit 대상에 Step 1 모듈 5개 추가. 테스트 376개. 위협 모델 갱신 |
-| 2-2 매체 인증·요청 제한 | 완료 (2026-10-07) | `masters.MediaKey`(평문 미저장, 발급·유예 교체·즉시 폐기, 감사), `serving_api.auth.media_endpoint`(401+challenge·403·429, 인증 → 요청 제한 → 뷰), 토큰 버킷(프로세스 메모리 한계 명시), `media_key` 관리 명령. 계약 경로의 임시 뷰로 4개 operation의 401·403·429를 계약에 대조. 변형 검사 5종(상수시간 비교·비활성 검사·`WWW-Authenticate`·폐기 키 허용 등) 확인. 테스트 407 → 439(+32). 위협 모델 T34 |
+| 2-2 매체 인증·요청 제한 | 완료 (2026-10-07) | `masters.MediaKey`(평문 미저장, 발급·유예 교체·즉시 폐기, 감사), `serving_api.auth.media_endpoint`(401+challenge·403·429, 인증 → 요청 제한 → 뷰), 토큰 버킷(프로세스 메모리 한계 명시), `media_key` 관리 명령. 계약 경로의 임시 뷰로 4개 operation의 401·403·429를 계약에 대조. 변형 검사 5종(상수시간 비교·비활성 검사·`WWW-Authenticate`·폐기 키 허용 등) 확인. 테스트 407 → 439(+32). 위협 모델 T34. **검토 보완(같은 날)**: 토큰 버킷이 시각을 잠금 밖에서 읽어 처리 순서가 뒤바뀌면 같은 경과 시간을 두 번 충전(시각 조회부터 저장까지 한 임계 구역으로, 순서 역전 회귀 테스트), 인증 저장소 장애(`OperationalError`)가 500이던 것을 인증·뷰 전체를 감싸는 데코레이터에서 503 + `Retry-After`로 변환(`OperationalError`만, 다른 예외는 가리지 않음), 키 거절 로그 테스트가 비밀값 첫 글자가 `A`일 때(1/64) 정상 키를 만들어 실패하던 것, Bandit 대상에 `serving_api` 추가(`assert` → 명시적 설정 예외), 라이브러리 표 열 수 정리 |
 | 2-1 계약 확정 | 완료 (2026-10-07) | 계약 응답 규칙 충돌 해소(2-2의 403 ↔ 2-3의 201), C1 `POST /decisions` 404 추가, 필수 헤더 표시, 요청 제한·전환·title 확정, C3 공유 파일 규칙. 계약 파일 검증·응답 검증 틀(`tests/contract_support.py`, `format` 검사 연결) + C3 provider 계약 테스트. **Step 1 마이그레이션 보완**: 교체된 과거 이미지의 보유 관계를 과거 결정·감사 로그로 복구(records 0003). 테스트 376 → 400(+24). **검토 보완(같은 날)**: 조회 두 API의 403 계약 누락, 쿠키 금지 검사가 `response.cookies`를 놓침, Problem 본문 `status` ≠ HTTP 상태 허용, 401 `WWW-Authenticate` 필수화·형식 확정, 304·204 본문 금지 검사, `Retry-After`는 ASCII 숫자만(각각 변형 검사로 실패 확인). 테스트 400 → 407(+7) |
