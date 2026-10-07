@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 
 def backfill(apps, schema_editor):
-    """이미 있는 소재의 현재 이미지를 보유 관계에 넣는다(이전 교체분은 기록이 없어 알 수 없다)."""
+    """이미 있는 소재의 **현재** 이미지를 보유 관계에 넣는다. 교체되어 지금은 가리키지 않는 과거 이미지는 과거 결정·감사 로그에서 records 0003 이 복구한다."""
     Creative, CreativeImage = apps.get_model("campaigns", "Creative"), apps.get_model("campaigns", "CreativeImage")
     CreativeImage.objects.bulk_create(
         [CreativeImage(creative=c, image_name=c.image_name, image_bytes=c.image_bytes, created_at=c.created_at) for c in Creative.objects.all()]
