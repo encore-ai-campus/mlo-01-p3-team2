@@ -23,4 +23,6 @@ PROD_ENV = {
     "ALLOWED_HOSTS": "ads.example.com",
     "DATABASE_PATH": "/tmp/ads-test.sqlite3",
     "ADMIN_URL_PATH": "ops-9f3a/",
+    "MEDIA_ROOT": "/tmp/ads-test-media",
+    "ASSET_PUBLIC_BASE_URL": "https://ads.example.com",
 }

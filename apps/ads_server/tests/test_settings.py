@@ -29,7 +29,7 @@ class ProdSettingsTests(SimpleTestCase):
         self.assertNotEqual(r.returncode, 0)
 
     def test_prod_requires_allowed_hosts_database_path_and_admin_path(self):
-        for missing in ("ALLOWED_HOSTS", "DATABASE_PATH", "ADMIN_URL_PATH"):
+        for missing in ("ALLOWED_HOSTS", "DATABASE_PATH", "ADMIN_URL_PATH", "MEDIA_ROOT", "ASSET_PUBLIC_BASE_URL"):
             env = {k: v for k, v in PROD_ENV.items() if k != missing}
             r = run_python(SHOW_SECRET, "config.settings.prod", env)
             self.assertNotEqual(r.returncode, 0, missing)

@@ -1,4 +1,8 @@
 """테스트 설정. **환경변수·.env 를 읽지 않는다**(개발자 로컬 값이 테스트 결과를 바꾸지 않게)."""
+import atexit
+import shutil
+import tempfile
+
 from .base import *  # noqa: F401,F403
 from config.access_map import build_access_map
 
@@ -13,6 +17,11 @@ ALLOWED_HOSTS = ["testserver", "localhost"]
 
 ADMIN_URL_PATH = "test-admin/"
 ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
+
+# 테스트용 임시 저장소(프로세스 종료 시 정리)
+MEDIA_ROOT = tempfile.mkdtemp(prefix="ads-test-media-")
+atexit.register(shutil.rmtree, MEDIA_ROOT, ignore_errors=True)
+ASSET_PUBLIC_BASE_URL = "http://testserver"
 
 # 접근 통제 테스트용 더미 모델 앱(소유자가 있는 모델)
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.support_app"]

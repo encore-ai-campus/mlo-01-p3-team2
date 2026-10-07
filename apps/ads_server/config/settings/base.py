@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "axes",
     "foundation.apps.FoundationConfig",
+    "assets.apps.AssetsConfig",
     "console.apps.ConsoleConfig",
 ]
 
@@ -131,6 +132,18 @@ CSRF_FAILURE_VIEW = "foundation.http.csrf_failure"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
 DATA_UPLOAD_MAX_NUMBER_FILES = 5
+
+# --- 소재 이미지 (0-5, 설계 §8) ---
+ASSET_MAX_BYTES = 2 * 1024 * 1024  # 업로드 용량 상한. 1~2MB 범위에서 팀이 정한다(설계 §7-5). env 로 바꿀 수 있다.
+ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크기 규격 제한이 아니다)
+ASSET_STORAGE = "assets.storage.LocalFileStorage"
+ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
+# 업로드 전체 크기가 상한을 크게 넘으면 디스크에 쌓기 전에 중단한다(assets/uploads.py).
+FILE_UPLOAD_HANDLERS = [
+    "assets.uploads.MaxUploadSizeHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
 # 환경별 설정(dev/prod/test)이 ADMIN_URL_PATH 와 ACCESS_MAP 을 정한다.

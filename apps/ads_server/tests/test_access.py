@@ -17,7 +17,7 @@ PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 # 새 공개 뷰나 "로그인만 필요" 뷰를 추가하면 **여기도 고쳐야 한다**(리뷰 지점).
-EXPECTED_PUBLIC = {"/accounts/signup/", "/accounts/login/"}
+EXPECTED_PUBLIC = {"/accounts/signup/", "/accounts/login/", "/assets/<asset_name:name>"}
 LOGIN_ONLY = {"/accounts/logout/"}  # 로그인은 필요하지만 역할은 무관
 
 
