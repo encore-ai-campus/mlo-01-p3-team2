@@ -1,0 +1,1775 @@
+openapi: 3.1.0
+
+info:
+  title: 광고 서버 Console API (C6, 광고주 콘솔)
+  version: 1.0.0-draft
+  summary: 광고주가 캠페인·광고그룹·소재·입찰을 관리하고 성과·포인트를 보는 API
+  description: |
+    **Status: Approved(승격 2026-10-07), 단 V1에서는 구현하지 않는다.**
+    V1의 광고주 콘솔은 Django 템플릿이고, 화면이 **서비스 `api`를 직접 호출**한다(설계 §6.6).
+    이 파일은 **서비스 계층이 지켜야 할 규칙의 명세**이자, 콘솔을 별도 프론트로 분리할 때 구현할 JSON API의 원본이다.
+    V1 구현은 아래 규칙(검증·상태 전이·버전·소유권)을 서비스에서 똑같이 지킨다.
+
+    **범위**: 광고주 기능만 다룬다. 관리자 기능(입찰 정책 새 버전 입력, 캠페인 중단/해제, 포인트 조정, 매체·슬롯 관리)은
+    Django admin(서버 렌더)이라 이 계약의 범위 밖이다.
+
+    ## 규약
+
+    - **자원 중심(RESTful)**. 계층: 캠페인 → 광고그룹 → 소재. 입찰은 광고그룹의 하위 자원이며 **추가만 가능**하다(버전).
+      조회·생성은 중첩 경로(`/campaigns/{id}/ad-groups`), 개별 접근은 얕은 경로(`/ad-groups/{id}`)를 쓴다.
+    - **버전**: URL(`/api/console/v1`). 형식: JSON(UTF-8), 오류는 `application/problem+json`(RFC 9457), `snake_case`, ID는 UUID.
+    - **시각은 UTC**(RFC 3339 `...Z`). 표시용 KST 변환은 프론트가 한다. **날짜 구간의 "일" 경계는 예산의 일 경계와 같다**
+      (`BUDGET_DAY_OFFSET_HOURS`, 기본 UTC 자정).
+    - **금액은 문자열**(`"30.00"`, 소수 2자리). 부동소수점 오차를 피한다. 단위는 **포인트**다.
+    - **인증**: 로그인 세션 쿠키. **쓰기 요청(POST·PUT·PATCH·DELETE)에는 `X-CSRFToken` 헤더**가 필요하다(쿠키 `ads_csrftoken` 값).
+      같은 출처로 배포하는 것을 전제로 한다(설계 §6.6).
+    - **ID와 이름**: 자원의 식별은 **UUID**다. 이름(`name`)은 사람이 읽기 위한 **편의 정보**이며 바뀔 수 있다.
+      경로·요청에서 자원을 가리킬 때는 항상 ID를 쓴다.
+    - **소유권**: 광고주는 **자기 자원만** 접근한다. 남의 자원이나 없는 자원은 모두 **404**다(존재 여부를 알리지 않는다).
+    - **페이지**: 목록은 커서 방식(`limit`, `cursor`) → `{items, next_cursor}`.
+    - **삭제 없음**: 캠페인·광고그룹·소재는 `DELETE`가 없다. 과거 결정·원장이 참조하는 이력을 보존해야 하므로
+      끄기(`status`, `enabled`)로 처리한다. `DELETE`는 405다.
+    - 모든 응답에 `X-Request-ID`가 붙는다.
+
+    ## 핵심 규칙 (서비스 계층이 지켜야 하는 것)
+
+    | 규칙 | 내용 |
+    |---|---|
+    | 과금 단위 고정 | 광고그룹의 `pricing_unit`은 만들 때 정하고 **바꿀 수 없다**(409). 고른 슬롯은 모두 그 단위여야 한다(400 `unit_mismatch`) |
+    | 입찰은 추가만 | 입찰 변경은 새 `bid_version` 추가(`POST .../bids`). 수정·삭제 없음 |
+    | 입력은 거절하지 않는다 | 하한 미만·상한 초과 입찰도 저장된다. 응답의 `effects`가 **슬롯별 노출 여부와 적용 금액**을 알려준다 |
+    | 동시 수정 보호 | 입찰 생성 시 본 버전(`expected_version`)이 현재와 다르면 409 `stale_version` |
+    | 관리자 중단 | `SUSPENDED` 캠페인은 광고주가 `status`를 바꿀 수 없다(409 `suspended`). 사유는 읽을 수 있다. **그 밖의 수정(소재·입찰·기간 등)은 허용**하고, 고친 뒤 **재검토 요청**(`POST .../review-requests`)으로 관리자에게 알린다. 요청은 정지 중에만, 동시에 하나만(409 `not_suspended`·`review_pending`) |
+    | 상한(쿼터) | 광고주당 캠페인·광고그룹·소재 수와 업로드 총량 상한(설정값)을 넘으면 409 `limit_exceeded` |
+    | 예산·잔액은 상태가 아님 | 예산 소진·잔액 부족은 `status`가 아니라 `today`·`alerts`로 나타난다 |
+
+servers:
+  - url: https://{host}/api/console/v1
+    variables:
+      host:
+        default: ads.internal.example
+
+security:
+  - SessionCookie: []
+    CsrfToken: []
+
+tags:
+  - name: account
+    description: 가입·세션·내 정보
+  - name: catalog
+    description: 게재 위치(슬롯)와 현재 입찰 정책(읽기 전용)
+  - name: campaigns
+  - name: ad-groups
+  - name: bids
+  - name: creatives
+  - name: wallet
+    description: 포인트 지갑·원장(읽기 전용)
+  - name: reports
+    description: 성과·알림
+
+paths:
+  /signup:
+    post:
+      tags: [account]
+      operationId: signup
+      summary: 광고주로 가입한다
+      description: |
+        받는 항목은 아이디·비밀번호·닉네임·반뿐이다. **역할은 항상 `advertiser`**이며 요청으로 정할 수 없다.
+        가입하면 **포인트가 지급**된다(`SIGNUP_GRANT`). IP당 가입 시도 횟수가 제한된다.
+        아이디가 이미 있을 때도 일반적인 검증 오류(400)로 응답한다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "201":
+          description: 가입 완료. 로그인은 별도(`POST /session`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /session:
+    post:
+      tags: [account]
+      operationId: createSession
+      summary: 로그인한다 (세션 생성)
+      description: |
+        성공하면 세션 쿠키를 설정한다. **같은 아이디+IP로 5회 실패하면 5분간 잠긴다**(429 + `Retry-After`).
+        실패 메시지는 아이디 존재 여부를 구분하지 않는다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 로그인됨
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [account]
+      operationId: deleteSession
+      summary: 로그아웃한다 (세션 폐기)
+      responses:
+        "204":
+          description: 로그아웃됨
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me:
+    get:
+      tags: [account]
+      operationId: getMe
+      summary: 내 정보
+      responses:
+        "200":
+          description: 내 정보
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [account]
+      operationId: updateMe
+      summary: 닉네임·반을 수정한다
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: 수정된 내 정보
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me/password:
+    put:
+      tags: [account]
+      operationId: changePassword
+      summary: 비밀번호를 바꾼다
+      description: 현재 비밀번호를 확인한다. 새 비밀번호는 가입 때와 같은 검증을 받는다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "204":
+          description: 변경됨
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /slots:
+    get:
+      tags: [catalog]
+      operationId: listSlots
+      summary: 게재 위치(슬롯) 목록과 현재 입찰 정책
+      description: |
+        광고그룹을 만들 때 위치를 고르는 데 쓴다. 매체(플랫폼)별로 묶어 보여줄 수 있도록 매체 정보가 들어 있다.
+        **읽기 전용**이며, 정책(하한·기준가·상한)은 관리자가 정한다.
+      parameters:
+        - name: pricing_unit
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PricingUnit"
+        - name: media_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: 슬롯 목록(페이지 없음)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Slot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /wallet:
+    get:
+      tags: [wallet]
+      operationId: getWallet
+      summary: 포인트 잔액
+      responses:
+        "200":
+          description: 지갑
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /wallet/ledger:
+    get:
+      tags: [wallet]
+      operationId: listLedger
+      summary: 포인트 원장 내역 (지급·과금·조정)
+      description: 추가만 되는 원장이다. 최신순.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/LedgerType"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: 원장 항목
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/LedgerEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /campaigns:
+    get:
+      tags: [campaigns]
+      operationId: listCampaigns
+      summary: 내 캠페인 목록
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CampaignStatus"
+      responses:
+        "200":
+          description: 캠페인 목록(최신순)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Campaign"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [campaigns]
+      operationId: createCampaign
+      summary: 캠페인을 만든다 (즉시 `ACTIVE`)
+      description: 관리자 승인 없이 곧바로 집행 상태가 된다. 기간 안에서 노출 후보가 된다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignCreate"
+            examples:
+              basic:
+                value:
+                  name: 가을 스터디 모집
+                  starts_at: "2026-10-08T00:00:00Z"
+                  ends_at: "2026-10-31T00:00:00Z"
+                  daily_budget: "5000.00"
+      responses:
+        "201":
+          description: 만들어짐
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /campaigns/{campaign_id}:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+    get:
+      tags: [campaigns]
+      operationId: getCampaign
+      summary: 캠페인 조회
+      responses:
+        "200":
+          description: 캠페인
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [campaigns]
+      operationId: updateCampaign
+      summary: 캠페인 수정 (이름·기간·일예산·켜기/끄기)
+      description: |
+        보낸 필드만 바뀐다. `status`는 `ACTIVE`↔`PAUSED`만 광고주가 바꿀 수 있다.
+        **`SUSPENDED` 중에는 `status`를 바꿀 수 없다**(409 `suspended`). 다른 수정은 허용되며, 고친 뒤에는 재검토를 요청한다(`POST /campaigns/{campaign_id}/review-requests`). `ENDED`는 기간이 끝나면 시스템이 정한다
+        (일찍 끝내려면 `ends_at`을 현재로 바꾼다). 일예산을 줄여도 오늘 이미 쓴 금액은 그대로이고 남은 예산만 줄어든다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignUpdate"
+            examples:
+              pause:
+                value:
+                  status: PAUSED
+      responses:
+        "200":
+          description: 수정된 캠페인
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /campaigns/{campaign_id}/review-requests:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+    get:
+      tags: [campaigns]
+      operationId: listReviewRequests
+      summary: 재검토 요청 내역
+      description: 이 캠페인의 재검토 요청 이력이다(추가만 되는 기록). 최신순.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 재검토 요청 내역
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReviewRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [campaigns]
+      operationId: createReviewRequest
+      summary: 재검토를 요청한다
+      description: |
+        관리자가 중단한 캠페인을 **고친 뒤** 관리자에게 다시 봐 달라고 요청한다.
+
+        - 캠페인이 `SUSPENDED`일 때만 만들 수 있다(아니면 409 `not_suspended`).
+        - **동시에 하나만** 열 수 있다. 이미 `OPEN`인 요청이 있으면 409 `review_pending`.
+        - 관리자는 **해제**(캠페인이 `ACTIVE`로 돌아가고 요청은 `RELEASED`) 또는 **반려**(정지 유지, 요청은 `REJECTED`, 답변 메모)한다.
+          결과는 이 자원의 `GET`과 `/alerts`로 확인한다. 관리자는 요청 없이도 직접 해제할 수 있다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequestCreate"
+            examples:
+              fixed:
+                value:
+                  message: 이동 주소를 공식 홈페이지로 바꾸고 이미지를 교체했습니다.
+      responses:
+        "201":
+          description: 요청이 만들어졌다(`OPEN`).
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /campaigns/{campaign_id}/ad-groups:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+    get:
+      tags: [ad-groups]
+      operationId: listAdGroups
+      summary: 캠페인의 광고그룹 목록
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 광고그룹 목록
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AdGroup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ad-groups]
+      operationId: createAdGroup
+      summary: 광고그룹을 만든다
+      description: |
+        게재 위치(슬롯) 1개 이상과 과금 단위를 정한다. **과금 단위는 이후 바꿀 수 없다.**
+        고른 슬롯이 모두 그 과금 단위여야 한다(400 `unit_mismatch`).
+        `bid_amount`를 함께 보내면 입찰 버전 1이 같은 요청에서 만들어진다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdGroupCreate"
+            examples:
+              withBid:
+                value:
+                  name: 로비 배너
+                  pricing_unit: CLICK
+                  slot_ids: [5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10]
+                  bid_amount: "30.00"
+      responses:
+        "201":
+          description: 만들어짐
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdGroup"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /ad-groups/{ad_group_id}:
+    parameters:
+      - $ref: "#/components/parameters/AdGroupId"
+    get:
+      tags: [ad-groups]
+      operationId: getAdGroup
+      summary: 광고그룹 조회 (현재 입찰과 슬롯별 적용 결과 포함)
+      responses:
+        "200":
+          description: 광고그룹
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdGroup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [ad-groups]
+      operationId: updateAdGroup
+      summary: 광고그룹 수정 (이름·켜기/끄기·게재 위치)
+      description: |
+        `slot_ids`를 보내면 **전체 집합을 교체**한다(1개 이상, 모두 광고그룹의 과금 단위와 같아야 함).
+        `pricing_unit`을 바꾸려는 요청은 409 `unit_immutable`이다. 입찰은 여기서 바꾸지 않고 `POST .../bids`로 한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdGroupUpdate"
+      responses:
+        "200":
+          description: 수정된 광고그룹
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdGroup"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /ad-groups/{ad_group_id}/bids:
+    parameters:
+      - $ref: "#/components/parameters/AdGroupId"
+    get:
+      tags: [bids]
+      operationId: listBids
+      summary: 입찰 변경 이력 (버전 목록)
+      description: 최신 버전이 먼저 나온다. 추가만 되는 이력이다.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 입찰 이력
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Bid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [bids]
+      operationId: createBid
+      summary: 입찰가를 바꾼다 (새 버전 추가)
+      description: |
+        **기존 입찰을 고치지 않고 새 `bid_version`을 추가**한다. 변경은 다음 광고 선택부터 반영되고 과거 결정은 그대로다.
+
+        - **하한 미만·상한 초과도 저장된다**(거절하지 않음). 응답의 `effects`로 슬롯별 노출 여부와 적용 금액을 알려준다.
+        - `expected_version`은 **화면에서 본 현재 버전**이다. 현재 버전과 다르면 **409 `stale_version`**(다른 곳에서 먼저 바꿨음).
+          첫 입찰이면 `null`.
+        - 금액은 0 초과, 소수 2자리.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BidCreate"
+            examples:
+              raise:
+                value:
+                  amount: "45.00"
+                  expected_version: 2
+      responses:
+        "201":
+          description: 새 버전이 추가되었다.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BidWithEffects"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /ad-groups/{ad_group_id}/bid-preview:
+    parameters:
+      - $ref: "#/components/parameters/AdGroupId"
+    get:
+      tags: [bids]
+      operationId: previewBid
+      summary: 입찰가를 저장하기 전에 슬롯별 결과를 미리 본다
+      description: 아무것도 저장하지 않는다. 입력 칸 아래 안내 문구(노출됨/상한 적용/하한 미만)를 만드는 데 쓴다.
+      parameters:
+        - name: amount
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Money"
+      responses:
+        "200":
+          description: 슬롯별 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [amount, effects]
+                properties:
+                  amount:
+                    $ref: "#/components/schemas/Money"
+                  effects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SlotEffect"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /ad-groups/{ad_group_id}/creatives:
+    parameters:
+      - $ref: "#/components/parameters/AdGroupId"
+    get:
+      tags: [creatives]
+      operationId: listCreatives
+      summary: 광고그룹의 소재 목록
+      responses:
+        "200":
+          description: 소재 목록(V1은 최대 1개)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Creative"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [creatives]
+      operationId: createCreative
+      summary: 소재를 만든다 (이미지 업로드)
+      description: |
+        `multipart/form-data`. 이미지는 **내용으로 판별**한다(JPEG·PNG만, 확장자·`Content-Type`은 신뢰하지 않음).
+        용량·픽셀 수 상한을 넘거나 애니메이션·손상 파일은 거부한다. 저장 시 **다시 인코딩**해서 메타데이터를 제거하고,
+        파일 이름은 내용 해시가 된다. `redirect_url`은 **`https`만** 허용한다.
+        V1은 광고그룹당 소재 1개라 이미 있으면 409 `limit_exceeded`다.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreativeCreate"
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        "201":
+          description: 만들어짐
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+  /creatives/{creative_id}:
+    parameters:
+      - $ref: "#/components/parameters/CreativeId"
+    get:
+      tags: [creatives]
+      operationId: getCreative
+      summary: 소재 조회
+      responses:
+        "200":
+          description: 소재
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [creatives]
+      operationId: updateCreative
+      summary: 소재의 제목·이동 주소·켜기/끄기를 수정한다
+      description: 이미지는 `PUT /creatives/{creative_id}/image`로 바꾼다. 수정은 **이후 광고 선택부터** 반영되고 과거 결정은 그대로다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreativeUpdate"
+      responses:
+        "200":
+          description: 수정된 소재
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /creatives/{creative_id}/image:
+    parameters:
+      - $ref: "#/components/parameters/CreativeId"
+    put:
+      tags: [creatives]
+      operationId: replaceCreativeImage
+      summary: 소재 이미지를 교체한다
+      description: |
+        이미지 검증·재인코딩 규칙은 소재 생성과 같다. 새 파일은 새 주소(내용 해시)를 가지며,
+        교체된 뒤의 광고 선택부터 새 이미지가 나간다.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              additionalProperties: false
+              properties:
+                image:
+                  type: string
+                  contentMediaType: application/octet-stream
+                  description: JPEG 또는 PNG. 용량 상한(설정값, 기본 2MB).
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        "200":
+          description: 교체된 소재
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+  /reports/daily:
+    get:
+      tags: [reports]
+      operationId: getDailyReport
+      summary: 일별 성과 (노출·클릭·전환·소진 포인트)
+      description: |
+        대시보드의 지표 카드·추세 그래프용이다. **날짜 구간은 `from` 포함, `to` 미포함**이고, 날짜 경계는 예산의 일 경계(기본 UTC 자정)다.
+        `previous_totals`는 바로 앞의 같은 길이 구간이라 증감률 계산에 쓴다.
+        노출·클릭·전환은 **인정된(`ACCEPTED`) 반응**만 센다.
+      parameters:
+        - $ref: "#/components/parameters/FromRequired"
+        - $ref: "#/components/parameters/ToRequired"
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: ad_group_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: 일별 성과
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyReport"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /alerts:
+    get:
+      tags: [reports]
+      operationId: listAlerts
+      summary: 지금 확인할 알림 (현재 상태에서 계산)
+      description: |
+        저장된 알림이 아니라 **현재 상태에서 계산한 조건 목록**이다. 조건이 해소되면 사라진다.
+        관리자 중단 사유, 기간 종료, 예산 소진, 잔액 부족, 입찰이 하한 미만(노출 안 됨) 또는 상한 초과(상한 적용 중) 등.
+      responses:
+        "200":
+          description: 알림 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Alert"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: ads_sessionid
+      description: 로그인 세션 쿠키(`HttpOnly`, `SameSite=Lax`).
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRFToken
+      description: 쓰기 요청(POST·PUT·PATCH·DELETE)에 필요하다. 쿠키 `ads_csrftoken`의 값을 보낸다.
+
+  parameters:
+    CampaignId:
+      name: campaign_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    AdGroupId:
+      name: ad_group_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    CreativeId:
+      name: creative_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 `next_cursor`. 값의 의미는 알 수 없는 불투명 문자열이다.
+      schema:
+        type: string
+        maxLength: 256
+    From:
+      name: from
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/DateTimeUtc"
+    To:
+      name: to
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/DateTimeUtc"
+    FromRequired:
+      name: from
+      in: query
+      required: true
+      description: 구간 시작(포함). 일 경계에 맞춰야 한다.
+      schema:
+        $ref: "#/components/schemas/DateTimeUtc"
+    ToRequired:
+      name: to
+      in: query
+      required: true
+      description: 구간 끝(미포함). 최대 구간은 92일.
+      schema:
+        $ref: "#/components/schemas/DateTimeUtc"
+
+  headers:
+    RequestId:
+      description: 요청 ID(UUID). 문의 시 알려준다.
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    RetryAfter:
+      description: 이 시간(초) 뒤에 다시 시도한다.
+      schema:
+        type: integer
+        minimum: 0
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+    DateTimeUtc:
+      type: string
+      format: date-time
+      pattern: "Z$"
+      description: RFC 3339, UTC(`Z`)만 허용한다.
+
+    Money:
+      type: string
+      pattern: "^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,2})?$"
+      description: 포인트 금액. 소수 2자리까지의 10진 문자열. 입력할 때는 0 초과여야 한다.
+
+    SignedMoney:
+      type: string
+      pattern: "^-?(0|[1-9][0-9]{0,15})(\\.[0-9]{1,2})?$"
+      description: 부호가 있는 포인트 금액(원장).
+
+    PricingUnit:
+      type: string
+      enum: [IMPRESSION, CLICK, CONVERSION]
+      description: 노출 / 클릭 / 전환. 입찰 금액이 이 반응 1건당 금액이다.
+
+    CampaignStatus:
+      type: string
+      enum: [ACTIVE, PAUSED, SUSPENDED, ENDED]
+
+    LedgerType:
+      type: string
+      enum: [SIGNUP_GRANT, CHARGE, ADMIN_ADJUST, TOPUP]
+
+    Profile:
+      type: object
+      required: [user_id, username, nickname, class_label, created_at]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/Uuid"
+        username:
+          type: string
+        nickname:
+          type: string
+        class_label:
+          type: string
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    SignupRequest:
+      type: object
+      required: [username, password, nickname, class_label]
+      additionalProperties: false
+      description: 이 네 가지만 받는다. 역할·이메일·실명 필드는 없다.
+      properties:
+        username:
+          type: string
+          pattern: "^[a-z0-9_]{4,20}$"
+        password:
+          type: string
+          minLength: 10
+          maxLength: 128
+          writeOnly: true
+        nickname:
+          type: string
+          minLength: 2
+          maxLength: 20
+        class_label:
+          type: string
+          minLength: 1
+          maxLength: 30
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          writeOnly: true
+
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        nickname:
+          type: string
+          minLength: 2
+          maxLength: 20
+        class_label:
+          type: string
+          minLength: 1
+          maxLength: 30
+
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+        new_password:
+          type: string
+          minLength: 10
+          maxLength: 128
+          writeOnly: true
+
+    Slot:
+      type: object
+      required: [slot_id, media, name, pricing_unit, active, policy]
+      additionalProperties: false
+      properties:
+        slot_id:
+          $ref: "#/components/schemas/Uuid"
+        media:
+          type: object
+          required: [media_id, name]
+          additionalProperties: false
+          properties:
+            media_id:
+              $ref: "#/components/schemas/Uuid"
+            name:
+              type: string
+        name:
+          type: string
+          description: 슬롯 이름. **읽기 편하라고 주는 정보**이며 식별은 `slot_id`로 한다(이름은 바뀔 수 있다).
+        pricing_unit:
+          $ref: "#/components/schemas/PricingUnit"
+        active:
+          type: boolean
+        policy:
+          description: 현재 입찰 정책. 아직 없으면 `null`(이 슬롯에는 노출되지 않는다).
+          oneOf:
+            - $ref: "#/components/schemas/SlotPolicy"
+            - type: "null"
+
+    SlotPolicy:
+      type: object
+      required: [policy_version, floor_amount, base_amount, cap_amount]
+      additionalProperties: false
+      description: 노출 범위는 `[floor_amount, cap_amount]`다. 기준가(`base_amount`)는 입찰 화면의 기본 입력값이다.
+      properties:
+        policy_version:
+          type: integer
+          minimum: 1
+        floor_amount:
+          $ref: "#/components/schemas/Money"
+        base_amount:
+          $ref: "#/components/schemas/Money"
+        cap_amount:
+          $ref: "#/components/schemas/Money"
+
+    SlotEffect:
+      type: object
+      required: [slot_id, eligible, applied_amount, reason, policy_version]
+      additionalProperties: false
+      description: 어떤 입찰 금액이 **이 슬롯의 현재 정책**에서 어떻게 취급되는지.
+      properties:
+        slot_id:
+          $ref: "#/components/schemas/Uuid"
+        eligible:
+          type: boolean
+          description: 노출 후보가 되는가
+        applied_amount:
+          description: 적용 금액. 후보가 아니면 `null`.
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        reason:
+          type: string
+          description: |
+            `within_range`(범위 안, 그대로 적용), `capped_at_cap`(상한 초과, 상한으로 적용),
+            `below_floor`(하한 미만, 노출 안 됨), `no_policy`(정책 없음), `slot_inactive`(슬롯 비활성).
+            클라이언트는 알 수 없는 값을 오류로 처리하지 않는다.
+        policy_version:
+          type:
+            - integer
+            - "null"
+
+    Today:
+      type: object
+      required: [budget_day, spent, remaining, resets_at]
+      additionalProperties: false
+      description: 오늘(예산 일 경계 기준)의 소진 현황.
+      properties:
+        budget_day:
+          type: string
+          format: date
+        spent:
+          $ref: "#/components/schemas/Money"
+        remaining:
+          $ref: "#/components/schemas/Money"
+        resets_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    Suspension:
+      type: object
+      required: [reason, suspended_at, open_review_request_id]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: 관리자가 적은 중단 사유.
+        suspended_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        open_review_request_id:
+          description: 대기 중(`OPEN`)인 재검토 요청이 있으면 그 ID, 없으면 `null`.
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+
+    ReviewRequestStatus:
+      type: string
+      enum: [OPEN, RELEASED, REJECTED]
+      description: 대기 중 / 관리자가 해제함 / 관리자가 반려함(정지 유지).
+
+    ReviewRequest:
+      type: object
+      required: [review_request_id, campaign_id, message, status, response_note, created_at, closed_at]
+      additionalProperties: false
+      properties:
+        review_request_id:
+          $ref: "#/components/schemas/Uuid"
+        campaign_id:
+          $ref: "#/components/schemas/Uuid"
+        message:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+          description: 광고주가 적은 메모.
+        status:
+          $ref: "#/components/schemas/ReviewRequestStatus"
+        response_note:
+          type:
+            - string
+            - "null"
+          description: 관리자가 적은 답변(반려 사유 등). 대기 중에는 `null`.
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        closed_at:
+          oneOf:
+            - $ref: "#/components/schemas/DateTimeUtc"
+            - type: "null"
+
+    ReviewRequestCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          maxLength: 500
+          description: 무엇을 고쳤는지 관리자에게 알리는 메모(선택).
+
+    Campaign:
+      type: object
+      required: [campaign_id, name, starts_at, ends_at, daily_budget, status, suspension, today, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        campaign_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        starts_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        ends_at:
+          description: 끝나는 시각(미포함). 없으면 `null`(계속).
+          oneOf:
+            - $ref: "#/components/schemas/DateTimeUtc"
+            - type: "null"
+        daily_budget:
+          $ref: "#/components/schemas/Money"
+        status:
+          $ref: "#/components/schemas/CampaignStatus"
+        suspension:
+          description: "`SUSPENDED`일 때만 값이 있다."
+          oneOf:
+            - $ref: "#/components/schemas/Suspension"
+            - type: "null"
+        today:
+          $ref: "#/components/schemas/Today"
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        updated_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    CampaignCreate:
+      type: object
+      required: [name, starts_at, daily_budget]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        starts_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        ends_at:
+          description: 시작보다 뒤여야 한다. 생략하면 계속 진행.
+          $ref: "#/components/schemas/DateTimeUtc"
+        daily_budget:
+          $ref: "#/components/schemas/Money"
+
+    CampaignUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        ends_at:
+          oneOf:
+            - $ref: "#/components/schemas/DateTimeUtc"
+            - type: "null"
+        daily_budget:
+          $ref: "#/components/schemas/Money"
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED]
+          description: 광고주가 켜고 끌 수 있는 값만 허용한다.
+
+    CurrentBid:
+      type: object
+      required: [bid_version, amount, created_at]
+      additionalProperties: false
+      properties:
+        bid_version:
+          type: integer
+          minimum: 1
+        amount:
+          $ref: "#/components/schemas/Money"
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    AdGroup:
+      type: object
+      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, current_bid, effects, created_at]
+      additionalProperties: false
+      properties:
+        ad_group_id:
+          $ref: "#/components/schemas/Uuid"
+        campaign_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        pricing_unit:
+          $ref: "#/components/schemas/PricingUnit"
+        slot_ids:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Uuid"
+        enabled:
+          type: boolean
+        current_bid:
+          description: 현재 입찰(최대 버전). 아직 없으면 `null`(노출되지 않는다).
+          oneOf:
+            - $ref: "#/components/schemas/CurrentBid"
+            - type: "null"
+        effects:
+          type: array
+          description: 현재 입찰이 **슬롯별 현재 정책**에서 어떻게 취급되는지. 입찰이 없으면 빈 배열.
+          items:
+            $ref: "#/components/schemas/SlotEffect"
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    AdGroupCreate:
+      type: object
+      required: [name, pricing_unit, slot_ids]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        pricing_unit:
+          $ref: "#/components/schemas/PricingUnit"
+        slot_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Uuid"
+        bid_amount:
+          description: 함께 보내면 입찰 버전 1이 만들어진다.
+          $ref: "#/components/schemas/Money"
+
+    AdGroupUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        enabled:
+          type: boolean
+        slot_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Uuid"
+        pricing_unit:
+          description: 보내면 항상 409(`unit_immutable`)다. 과금 단위는 바꿀 수 없다.
+          $ref: "#/components/schemas/PricingUnit"
+
+    Bid:
+      type: object
+      required: [bid_version, amount, created_at]
+      additionalProperties: false
+      properties:
+        bid_version:
+          type: integer
+          minimum: 1
+        amount:
+          $ref: "#/components/schemas/Money"
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    BidCreate:
+      type: object
+      required: [amount, expected_version]
+      additionalProperties: false
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+        expected_version:
+          description: 화면에서 본 현재 버전. 첫 입찰이면 `null`. 현재 버전과 다르면 409 `stale_version`.
+          type:
+            - integer
+            - "null"
+          minimum: 1
+
+    BidWithEffects:
+      allOf:
+        - $ref: "#/components/schemas/Bid"
+        - type: object
+          required: [effects]
+          properties:
+            effects:
+              type: array
+              items:
+                $ref: "#/components/schemas/SlotEffect"
+
+    Creative:
+      type: object
+      required: [creative_id, ad_group_id, title, redirect_url, image, enabled, created_at]
+      additionalProperties: false
+      properties:
+        creative_id:
+          $ref: "#/components/schemas/Uuid"
+        ad_group_id:
+          $ref: "#/components/schemas/Uuid"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        redirect_url:
+          type: string
+          format: uri
+          pattern: "^https://"
+          maxLength: 2048
+        image:
+          $ref: "#/components/schemas/CreativeImage"
+        enabled:
+          type: boolean
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    CreativeImage:
+      type: object
+      required: [url, content_type, width, height, size_bytes]
+      additionalProperties: false
+      description: 서버가 재인코딩해 저장한 이미지의 정보. `url`은 C3 주소다.
+      properties:
+        url:
+          type: string
+          format: uri
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png]
+        width:
+          type: integer
+        height:
+          type: integer
+        size_bytes:
+          type: integer
+
+    CreativeCreate:
+      type: object
+      required: [title, redirect_url, image]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        redirect_url:
+          type: string
+          format: uri
+          pattern: "^https://"
+          maxLength: 2048
+        image:
+          type: string
+          contentMediaType: application/octet-stream
+          description: JPEG 또는 PNG. 용량 상한(설정값, 기본 2MB).
+
+    CreativeUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        redirect_url:
+          type: string
+          format: uri
+          pattern: "^https://"
+          maxLength: 2048
+        enabled:
+          type: boolean
+
+    Wallet:
+      type: object
+      required: [balance, spent_today, budget_day, resets_at]
+      additionalProperties: false
+      properties:
+        balance:
+          $ref: "#/components/schemas/Money"
+        spent_today:
+          $ref: "#/components/schemas/Money"
+        budget_day:
+          type: string
+          format: date
+        resets_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    LedgerEntry:
+      type: object
+      required: [entry_id, type, amount, occurred_at, memo, reference]
+      additionalProperties: false
+      properties:
+        entry_id:
+          $ref: "#/components/schemas/Uuid"
+        type:
+          $ref: "#/components/schemas/LedgerType"
+        amount:
+          $ref: "#/components/schemas/SignedMoney"
+        occurred_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        memo:
+          type:
+            - string
+            - "null"
+          description: 관리자 조정 사유 등.
+        reference:
+          description: 과금(`CHARGE`)일 때 어떤 캠페인·광고그룹의 어떤 반응이었는지.
+          oneOf:
+            - type: object
+              required: [campaign_id, ad_group_id, reaction_type]
+              additionalProperties: false
+              properties:
+                campaign_id:
+                  $ref: "#/components/schemas/Uuid"
+                ad_group_id:
+                  $ref: "#/components/schemas/Uuid"
+                reaction_type:
+                  $ref: "#/components/schemas/PricingUnit"
+            - type: "null"
+
+    Page:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {}
+        next_cursor:
+          type:
+            - string
+            - "null"
+          description: 다음 페이지가 없으면 `null`.
+
+    Totals:
+      type: object
+      required: [impressions, clicks, conversions, spent]
+      additionalProperties: false
+      properties:
+        impressions:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        conversions:
+          type: integer
+          minimum: 0
+        spent:
+          $ref: "#/components/schemas/Money"
+
+    DailyReport:
+      type: object
+      required: [from, to, rows, totals, previous_totals]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: "#/components/schemas/DateTimeUtc"
+        to:
+          $ref: "#/components/schemas/DateTimeUtc"
+        rows:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Totals"
+              - type: object
+                required: [date]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                    description: 예산 일 경계 기준의 날짜.
+        totals:
+          $ref: "#/components/schemas/Totals"
+        previous_totals:
+          $ref: "#/components/schemas/Totals"
+
+    Alert:
+      type: object
+      required: [code, severity, target, message, since]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: |
+            `campaign_suspended`, `review_rejected`(재검토 반려, 답변 메모 포함), `campaign_ended`, `budget_exhausted`,
+            `balance_low`, `bid_below_floor`, `bid_capped`.
+            클라이언트는 알 수 없는 값을 오류로 처리하지 않는다.
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        target:
+          type: object
+          required: [type, id]
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              enum: [campaign, ad_group, wallet]
+            id:
+              $ref: "#/components/schemas/Uuid"
+        message:
+          type: string
+        since:
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details. 프로그램은 `code`로 분기한다.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          description: |
+            공통: `invalid_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `payload_too_large`,
+            `unsupported_media_type`, `rate_limited`, `unavailable`.
+            도메인: `unit_mismatch`, `unit_immutable`, `stale_version`, `suspended`, `not_suspended`, `review_pending`, `limit_exceeded`,
+            `invalid_image`(상세 `reason`: `unsupported_format`, `too_large`, `too_many_pixels`, `animated`, `corrupt`).
+        detail:
+          type: string
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+        errors:
+          type: array
+          items:
+            type: object
+            required: [pointer, message]
+            properties:
+              pointer:
+                type: string
+              message:
+                type: string
+
+  responses:
+    ValidationError:
+      description: 입력이 올바르지 않다(`invalid_request`, `unit_mismatch`, `invalid_image`, `forbidden` 등). 고쳐서 다시 보낸다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: 로그인이 필요하거나 로그인에 실패했다. 실패 사유는 구분해 알리지 않는다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: 없거나 내 자원이 아니다(존재 여부를 구분해 알리지 않는다).
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: |
+        현재 상태와 충돌한다. `code`로 구분한다: `stale_version`(입찰을 다른 곳에서 먼저 바꿈 → 새로 불러와 다시),
+        `suspended`(관리자 중단 중), `not_suspended`(재검토 요청은 중단 중에만), `review_pending`(이미 대기 중인 요청이 있음),
+        `unit_immutable`, `limit_exceeded`(상한 초과).
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: 업로드가 용량 상한을 넘는다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: 허용하지 않는 `Content-Type`이다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    TooManyRequests:
+      description: 요청이 너무 많거나 로그인이 잠겼다. `Retry-After` 뒤에 다시 시도한다.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unavailable:
+      description: 일시적으로 처리할 수 없다. `Retry-After` 뒤에 다시 시도한다.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

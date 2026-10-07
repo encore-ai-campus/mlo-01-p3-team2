@@ -1,0 +1,665 @@
+openapi: 3.1.0
+
+info:
+  title: 광고 서버 Media API (C1) 및 Asset URL (C3)
+  version: 1.0.0-draft
+  summary: 매체 서버가 광고를 요청하고 반응을 보고하는 서버 간 API
+  description: |
+    **Status: Approved (승격 2026-10-07).** 설계 문서 `ads-server-design.md` §3의 C1·C3 계약이다.
+    이 파일이 계약의 원본이고, 광고 서버는 이 파일에 대한 provider 계약 테스트를 갖는다.
+
+    ## 규약
+
+    - **자원 중심(RESTful).** 광고 요청은 `Decision` 자원을 만든다. 노출·클릭·전환은 `Decision` 아래의 `Reaction` 하위 자원이다.
+    - **버전**은 URL(`/api/media/v1`)에 둔다. 호환되지 않는 변경은 `/v2`로 올리고 v1은 유지한다.
+    - **형식**: 요청·응답은 `application/json`(UTF-8), 오류는 `application/problem+json`(RFC 9457).
+      필드 이름은 `snake_case`, ID는 UUID 문자열, 시각은 RFC 3339 **UTC**(`...Z`)다.
+    - **인증**: 모든 요청(`/health`와 `/assets` 제외)에 헤더 `X-Media-Key`. 인증은 입력 검증보다 먼저 한다.
+      키는 서버 간 호출 전용이며 브라우저에 노출하지 않는다.
+    - **ID와 이름**: 자원의 식별은 **UUID**다. `slot_name` 같은 이름은 사람이 읽기 위한 **편의 정보**이며 바뀔 수 있으므로
+      식별·로직에 쓰지 않는다.
+    - **신뢰할 수 없는 값**: 응답의 문자열(`title`, `redirect_url` 등)은 광고주가 입력한 값이다.
+      매체는 화면에 쓸 때 **이스케이프**하고, `redirect_url`은 새 창(`noopener`)으로 연다.
+    - **요청 ID**: 모든 응답에 `X-Request-ID`가 붙는다. 문의 시 이 값을 알려준다.
+    - **크기 제한**: 요청 본문은 최대 16 KiB. `context`는 직렬화 4 KiB, 중첩 깊이 4 이하.
+
+    ## 반응 전달 규칙 (유실 방지)
+
+    반응은 곧 과금이므로 유실되면 안 된다.
+
+    1. 매체는 노출·클릭·전환을 **감지하는 즉시** 보고한다(모아서 보내지 않는다).
+    2. **2xx 응답 = 광고 서버가 디스크에 저장했다는 확인**이다.
+    3. 2xx를 받기 전까지 매체는 **같은 `reaction_id`로 같은 요청을 재시도**한다(타임아웃·연결 실패·5xx·429, 지수 백오프, `Retry-After` 존중).
+       같은 `reaction_id`는 몇 번을 보내도 한 번만 처리된다.
+    4. `reaction_id`는 **매체가 만든다**(UUID). 감지 시점에 만들고 재시도 때 바꾸지 않는다. 유일성의 범위는 **매체 안**이다.
+    5. 400 같은 4xx(429 제외)는 재시도해도 소용없다. 재시도하지 않는다.
+    6. 접수(2xx)와 처리(과금 판정)는 **분리**된다. 처리 결과는 `GET` 으로 확인한다.
+
+    ## 열린 항목 (설계 문서 §7 참고)
+
+    - 전환(`CONVERSION`)의 정의는 매체가 정하고 보고한다. 광고 서버는 해석하지 않는다.
+    - 소재 `title` 최대 길이(현재 200)는 광고주 입력 규칙 확정 시 바뀔 수 있다.
+
+servers:
+  - url: https://{host}/api/media/v1
+    description: 광고 서버 (서버 간 호출)
+    variables:
+      host:
+        default: ads.internal.example
+        description: 배포 환경에서 정해진다.
+
+security:
+  - MediaKey: []
+
+tags:
+  - name: decisions
+    description: 광고 결정 (광고 요청)
+  - name: reactions
+    description: 광고 반응 (노출·클릭·전환)
+  - name: system
+    description: 상태 확인
+  - name: assets
+    description: 소재 이미지 (C3)
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: 서버 상태 확인
+      description: 인증 없이 호출할 수 있다. 내부 정보를 반환하지 않는다.
+      security: []
+      responses:
+        "200":
+          description: 정상
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    const: ok
+
+  /decisions:
+    post:
+      tags: [decisions]
+      operationId: createDecision
+      summary: 광고를 요청한다 (Decision 생성)
+      description: |
+        슬롯에 보여줄 광고를 고르고 **결정(Decision)을 기록**한 뒤 돌려준다.
+
+        - 보여줄 광고가 없어도(`ad: null`) 결정은 기록되고 **201**이다. 비활성 슬롯도 같다.
+        - **결정을 저장한 뒤에만** `decision_id`를 응답한다. 저장하지 못하면 503이고 `decision_id`는 나가지 않는다.
+        - **멱등하지 않다.** 재시도하면 새 결정이 만들어질 수 있다. 과금은 반응에서만 일어나므로 무해하다.
+        - `subject_id`는 **가명 UUID**여야 한다. 광고 서버는 이 값을 수집만 하고 해석하지 않는다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+            examples:
+              basic:
+                summary: 기본 요청
+                value:
+                  slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
+                  subject_id: 0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0
+                  context:
+                    session_id: 2c9a1f44-5d6e-4f70-8a81-9b92c3d4e5f6
+      responses:
+        "201":
+          description: 결정이 기록되었다.
+          headers:
+            Location:
+              description: 생성된 결정의 주소
+              schema:
+                type: string
+                format: uri-reference
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Decision"
+              examples:
+                withAd:
+                  summary: 광고 있음
+                  value:
+                    decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
+                    slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
+                    slot_name: lobby-banner
+                    decided_at: "2026-10-07T03:21:45Z"
+                    ad:
+                      creative_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+                      title: 가을 학습 스터디 모집
+                      image_url: https://ads.internal.example/assets/3f5a0c1e9b7d4a62c8e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9.png
+                      redirect_url: https://example.com/study
+                noAd:
+                  summary: 광고 없음
+                  value:
+                    decision_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                    slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
+                    slot_name: lobby-banner
+                    decided_at: "2026-10-07T03:22:10Z"
+                    ad: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /decisions/{decision_id}:
+    parameters:
+      - $ref: "#/components/parameters/DecisionId"
+    get:
+      tags: [decisions]
+      operationId: getDecision
+      summary: 내가 만든 결정을 조회한다
+      description: |
+        정합성 확인용이다. **이 매체가 만든 결정만** 조회할 수 있고, 없거나 다른 매체의 결정이면 404다
+        (존재 여부를 알리지 않는다).
+      responses:
+        "200":
+          description: 결정
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Decision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /decisions/{decision_id}/reactions/{reaction_id}:
+    parameters:
+      - $ref: "#/components/parameters/DecisionId"
+      - $ref: "#/components/parameters/ReactionId"
+    put:
+      tags: [reactions]
+      operationId: putReaction
+      summary: 반응을 보고한다 (멱등)
+      description: |
+        노출·클릭·전환이 **감지되는 즉시** 보고한다. `reaction_id`를 **매체가 정해** 경로에 넣으므로 PUT은 멱등이다.
+
+        | 상황 | 응답 |
+        |---|---|
+        | 처음 받음 | **201** |
+        | 같은 `reaction_id`·같은 내용의 재전송 | **200** (처음과 같은 자원) |
+        | 같은 `reaction_id`인데 내용이 다름 | **409** |
+
+        **이 응답은 "접수" 확인이다.** 2xx는 광고 서버가 저장했다는 뜻이고, 과금 대상인지는 이후에 판정된다
+        (`status`가 `RECEIVED` → `ACCEPTED` 또는 `REJECTED`). 결과는 `GET`으로 확인한다.
+        존재하지 않는 결정이나 다른 매체의 결정에 대한 보고도 일단 접수되고 `REJECTED`로 판정된다(접수한 반응은 지우지 않는다).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionRequest"
+            examples:
+              impression:
+                summary: 노출
+                value:
+                  type: IMPRESSION
+                  occurred_at: "2026-10-07T03:21:46Z"
+      responses:
+        "201":
+          description: 처음 접수했다.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reaction"
+              examples:
+                received:
+                  value:
+                    reaction_id: c0ffee00-1111-4222-8333-444455556666
+                    decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
+                    type: IMPRESSION
+                    occurred_at: "2026-10-07T03:21:46Z"
+                    received_at: "2026-10-07T03:21:46Z"
+                    status: RECEIVED
+                    reason_code: null
+        "200":
+          description: 이미 접수된 같은 보고다 (재전송). 처음과 같은 자원을 돌려준다.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reaction"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    get:
+      tags: [reactions]
+      operationId: getReaction
+      summary: 반응의 처리 결과를 조회한다
+      description: |
+        **이 매체가 보고한 반응만** 조회할 수 있다. 없으면 404.
+        `status`는 `RECEIVED`(접수, 처리 대기) → `ACCEPTED`(인정) 또는 `REJECTED`(거부, `reason_code`에 사유)로 바뀐다.
+      responses:
+        "200":
+          description: 반응
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reaction"
+              examples:
+                rejected:
+                  value:
+                    reaction_id: c0ffee00-1111-4222-8333-444455556666
+                    decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
+                    type: IMPRESSION
+                    occurred_at: "2026-10-07T03:21:46Z"
+                    received_at: "2026-10-07T03:21:46Z"
+                    status: REJECTED
+                    reason_code: duplicate_type
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /assets/{asset_name}:
+    servers:
+      - url: https://{host}
+        variables:
+          host:
+            default: ads.internal.example
+    parameters:
+      - name: asset_name
+        in: path
+        required: true
+        description: 소재 이미지 이름. 내용 해시(SHA-256 16진수 64자) + 확장자.
+        schema:
+          type: string
+          pattern: "^[0-9a-f]{64}\\.(jpg|png)$"
+    get:
+      tags: [assets]
+      operationId: getAsset
+      summary: 소재 이미지를 받는다 (C3)
+      description: |
+        `Decision`의 `image_url`이 가리키는 주소다. **인증이 없고 쿠키를 쓰지 않는다**(최종 사용자 브라우저가 직접 받는다).
+
+        - `Cache-Control: no-cache` + `ETag`(= 해시). 브라우저는 사본을 쓰기 전에 서버에 확인하고, 변경이 없으면 **304**다.
+        - **중단된 캠페인의 이미지는 404**다. 확인 요청이 항상 서버를 거치므로 중단이 즉시 반영된다.
+        - 이미 열려 있는 화면에 남은 사본은 그 화면을 다시 불러오기 전까지 보일 수 있다.
+      security: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 이미지
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-cache
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+            Cross-Origin-Resource-Policy:
+              schema:
+                type: string
+                const: cross-origin
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: 변경 없음. 가진 사본을 쓴다.
+        "404":
+          description: 없거나 서빙할 수 없다(중단 포함).
+
+components:
+  securitySchemes:
+    MediaKey:
+      type: apiKey
+      in: header
+      name: X-Media-Key
+      description: 매체별로 발급한 키. 서버 간 호출 전용이다.
+
+  parameters:
+    DecisionId:
+      name: decision_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    ReactionId:
+      name: reaction_id
+      in: path
+      required: true
+      description: 매체가 만든 UUID. 매체 안에서 유일해야 한다.
+      schema:
+        $ref: "#/components/schemas/Uuid"
+
+  headers:
+    RequestId:
+      description: 요청 ID(UUID). 문의 시 알려준다.
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    RetryAfter:
+      description: 이 시간(초) 뒤에 다시 시도한다.
+      schema:
+        type: integer
+        minimum: 0
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+    DateTimeUtc:
+      type: string
+      format: date-time
+      pattern: "Z$"
+      description: RFC 3339, UTC(`Z`)만 허용한다.
+
+    Context:
+      type: object
+      description: |
+        매체 부가 정보. **저장만 하고 해석하지 않는다.** 직렬화 4 KiB 이하, 중첩 깊이 4 이하.
+        직접 식별자 키(`login_id`, `username`, `password`, `password_hash`, `nickname`, `email`)는 어느 깊이에서도
+        허용하지 않는다(400 `forbidden_context_key`).
+      additionalProperties: true
+      maxProperties: 50
+
+    DecisionRequest:
+      type: object
+      required: [slot_id, subject_id]
+      additionalProperties: false
+      properties:
+        slot_id:
+          description: 게재 위치의 **식별자(UUID)**. 이름이 아니라 UUID로 지정한다. 슬롯 이름은 응답의 `slot_name`으로 확인한다.
+          $ref: "#/components/schemas/Uuid"
+        subject_id:
+          description: 노출 대상의 **가명 UUID**. 직접 식별자는 안 된다. 수집만 하고 해석하지 않는다.
+          $ref: "#/components/schemas/Uuid"
+        context:
+          $ref: "#/components/schemas/Context"
+
+    Ad:
+      type: object
+      required: [creative_id, title, image_url, redirect_url]
+      additionalProperties: false
+      description: 보여줄 광고. 모든 문자열은 신뢰할 수 없는 값이다(이스케이프).
+      properties:
+        creative_id:
+          $ref: "#/components/schemas/Uuid"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        image_url:
+          type: string
+          format: uri
+          description: 광고 서버가 제공하는 이미지 주소(C3).
+        redirect_url:
+          type: string
+          format: uri
+          pattern: "^https://"
+          maxLength: 2048
+          description: 클릭 시 이동할 주소. `https`만 허용된다. 새 창(`noopener`)으로 연다.
+
+    Decision:
+      type: object
+      required: [decision_id, slot_id, slot_name, decided_at, ad]
+      additionalProperties: false
+      properties:
+        decision_id:
+          $ref: "#/components/schemas/Uuid"
+        slot_id:
+          $ref: "#/components/schemas/Uuid"
+        slot_name:
+          type: string
+          description: 슬롯의 이름. **읽기 편하라고 함께 주는 정보**이며 식별에 쓰지 않는다(바뀔 수 있다).
+        decided_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        ad:
+          description: 보여줄 광고. 없으면 `null`.
+          oneOf:
+            - $ref: "#/components/schemas/Ad"
+            - type: "null"
+
+    ReactionType:
+      type: string
+      enum: [IMPRESSION, CLICK, CONVERSION]
+      description: 노출 / 클릭 / 전환. 광고그룹의 과금 단위와 같은 유형만 과금된다.
+
+    ReactionRequest:
+      type: object
+      required: [type, occurred_at]
+      additionalProperties: false
+      properties:
+        type:
+          $ref: "#/components/schemas/ReactionType"
+        occurred_at:
+          description: 매체가 반응을 감지한 시각. 참고용이며 서버의 수신 시각(`received_at`)이 기준이다.
+          $ref: "#/components/schemas/DateTimeUtc"
+
+    ReactionStatus:
+      type: string
+      enum: [RECEIVED, ACCEPTED, REJECTED]
+      description: 접수(처리 대기) / 인정 / 거부.
+
+    ReactionReasonCode:
+      type: [string, "null"]
+      description: |
+        `REJECTED`일 때의 사유. 클라이언트는 **알 수 없는 값을 만나도 오류로 처리하지 않는다**(값이 늘어날 수 있다).
+        현재 값: `unknown_decision`, `media_mismatch`, `duplicate_type`.
+
+    Reaction:
+      type: object
+      required: [reaction_id, decision_id, type, occurred_at, received_at, status, reason_code]
+      additionalProperties: false
+      properties:
+        reaction_id:
+          $ref: "#/components/schemas/Uuid"
+        decision_id:
+          $ref: "#/components/schemas/Uuid"
+        type:
+          $ref: "#/components/schemas/ReactionType"
+        occurred_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        received_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        status:
+          $ref: "#/components/schemas/ReactionStatus"
+        reason_code:
+          $ref: "#/components/schemas/ReactionReasonCode"
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details. `code`로 프로그램이 분기하고 `detail`은 사람이 읽는다.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          description: 오류 종류를 나타내는 상대 주소(`/problems/<code>`).
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          description: |
+            `unauthorized`, `forbidden`, `invalid_request`, `forbidden_context_key`, `not_found`, `conflict`,
+            `payload_too_large`, `unsupported_media_type`, `rate_limited`, `unavailable`
+        detail:
+          type: string
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+        errors:
+          type: array
+          description: 입력 검증 오류 목록(`invalid_request`).
+          items:
+            type: object
+            required: [pointer, message]
+            properties:
+              pointer:
+                type: string
+                description: 오류가 난 위치(JSON Pointer). 예 `/slot_id`
+              message:
+                type: string
+
+  responses:
+    BadRequest:
+      description: 요청 형식·값이 올바르지 않다. **재시도해도 소용없다.**
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            invalid:
+              value:
+                type: /problems/invalid_request
+                title: 요청이 올바르지 않습니다
+                status: 400
+                code: invalid_request
+                errors:
+                  - pointer: /subject_id
+                    message: UUID 형식이어야 합니다
+    Unauthorized:
+      description: 키가 없거나 올바르지 않다.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: 키는 유효하지만 이 요청을 할 수 없다(매체 비활성, 이 매체의 슬롯이 아님 등).
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: 없거나 이 매체의 자원이 아니다(존재 여부를 구분해 알리지 않는다).
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: 같은 `reaction_id`인데 이미 접수된 내용과 다르다. **재시도해도 소용없다.** `reaction_id`를 새로 만들지 말고 원인을 확인한다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: 요청 본문이 16 KiB를 넘는다.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: "`Content-Type`이 `application/json`이 아니다."
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    TooManyRequests:
+      description: 요청이 너무 많다. **`Retry-After` 뒤에 같은 요청을 다시 보낸다.**
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unavailable:
+      description: |
+        일시적으로 받지 못한다(저장소 잠금·장애 등). **저장하지 않았고 수신 확인도 하지 않았다.**
+        `Retry-After` 뒤에 **같은 요청**(반응이면 같은 `reaction_id`)을 다시 보낸다.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
