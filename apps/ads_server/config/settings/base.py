@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "assets.apps.AssetsConfig",
     "masters.apps.MastersConfig",
     "campaigns.apps.CampaignsConfig",
+    "billing.apps.BillingConfig",
     "console.apps.ConsoleConfig",
 ]
 
@@ -143,6 +144,11 @@ ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크�
 ASSET_STORAGE = "assets.storage.LocalFileStorage"
 ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
 # 업로드 전체 크기 가드는 foundation.middleware.RequestBodyLimitMiddleware 가 맡는다(본문을 읽기 전에 413).
+
+# --- 포인트·예산 (설계 §4.7) ---
+SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod 는 환경변수로 바꿀 수 있다
+BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
+BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 광고주 한도 (설계 §7-5는 열림: 아래는 제안 기본값, 모두 설정값) ---
 MAX_CAMPAIGNS_PER_ADVERTISER = 20
