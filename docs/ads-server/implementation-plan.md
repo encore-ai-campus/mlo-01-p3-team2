@@ -3,7 +3,7 @@
 > Status: Approved (2026-10-07 `intake/`에서 승격). 구현은 `apps/ads_server/`에서 진행하며 진행 상태는 §10에 기록한다.
 > 작성: 2026-10-07
 > 기준 문서: [ads-server-design.md](ads-server-design.md) (구조·계약·결정), [console-ui-benchmark.md](console-ui-benchmark.md) (화면)
-> 상세도: **Step 0은 구현 수준으로 상세**, Step 1~2는 개요, Step 3~5는 요약. 뒤 단계는 앞 단계 결과에 따라 바뀔 수 있어 그때 상세화한다.
+> 상세도: **Step 0은 구현 수준으로 상세(완료), Step 1도 상세(2026-10-07 작성)**, Step 2는 개요, Step 3~5는 요약. 뒤 단계는 앞 단계 결과에 따라 바뀔 수 있어 그때 상세화한다.
 > 경로는 `apps/ads_server/` 기준이다.
 
 ---
@@ -321,7 +321,7 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 **할 일**
 
 1. **검증**(`validate_image(fileobj)`): ① **`ASSET_MAX_BYTES + 1`바이트까지만** 읽어 초과를 판정(전부 읽지 않음) ② **내용으로 형식 판별** — Pillow가 판별한 형식이 **JPEG 또는 PNG**일 때만 허용(확장자·`Content-Type`은 신뢰하지 않음, SVG·GIF·WebP·BMP 거부) ③ 가로×세로가 `ASSET_MAX_PIXELS` 이하(Pillow의 폭탄 방어도 켬) ④ **애니메이션(다중 프레임) 거부** ⑤ 손상된 파일은 거부.
-2. **재인코딩**: 디코딩한 뒤 **새로 인코딩해서 저장**한다(EXIF·ICC·텍스트 청크 제거, 위치 정보 등 개인 정보 방지). JPEG은 품질 고정, PNG는 최적화. 원본 바이트를 그대로 저장하지 않는다.
+2. **재인코딩**: 디코딩한 뒤 **새로 인코딩해서 저장**한다(위치 정보 등 개인 정보 방지). **색은 먼저 sRGB로 변환한다**: 내장 ICC(Display P3·Adobe RGB·CMYK·그레이 등)로 sRGB 픽셀 값을 계산한 뒤, **픽셀만 새 이미지로 옮겨 저장**해 ICC·EXIF·XMP·텍스트 청크·dpi를 모두 버린다(Pillow 인코더는 `info`의 ICC를 되살리므로 새 이미지로 옮긴다). 프로필이 없거나 이미 sRGB면 변환하지 않고, **1MiB를 넘거나** 깨졌거나 이미지 모드와 색 공간이 안 맞는 프로필은 **거부하지 않고 sRGB로 간주**한다(조작된 프로필의 공격면은 위협 T27, 잔여 위험 §6). 투명도·알파는 보존. 형식은 유지한다(JPEG → JPEG, PNG → PNG). JPEG은 품질 고정, PNG는 최적화. 원본 바이트를 그대로 저장하지 않는다.
 3. **저장 이름**: 재인코딩한 바이트의 **SHA-256 해시 + 확장자**(`<hash>.jpg|png`). 사용자 입력 이름은 어디에도 쓰지 않는다. 같은 내용은 같은 파일이 된다(중복 제거). 저장 위치는 해시 앞 2자 디렉터리로 나눈다.
 4. **저장소**: `AssetStorage` 프로토콜(`put`, `open`, `exists`)과 `LocalFileStorage`. **임시 파일에 쓰고 `os.replace`로 확정**(반쯤 쓴 파일이 노출되지 않게), 권한은 소유자 읽기·쓰기 중심.
 5. **서빙**: `GET /assets/<64자 hex>.<jpg|png>`. URL 패턴이 **형식을 정규식으로 제한**하므로 `..` 같은 경로 조작이 라우팅 단계에서 막힌다.
@@ -400,24 +400,355 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 
 ---
 
-# 6. Step 1: 도메인 코어 (개요)
+# 6. Step 1: 도메인 코어 (상세)
 
-상세 계획은 Step 0 종료 후 작성한다. 지금 정해 둘 것만 적는다.
+**Step 1 합격선**: HTTP 없이 **서비스 `api`만으로** 한 광고주의 전 과정이 돈다. 매체·슬롯·정책 등록 → 가입(지급) → 캠페인·광고그룹·소재·입찰 → 결정 한 건 저장. 그리고 `scripts/check.sh`가 계속 통과한다. 결정은 입찰·정책·소재를 나중에 고쳐도 변하지 않는다.
 
-| 단계 | 모듈 | 핵심 산출물 | 완료 증거(요지) |
-|---|---|---|---|
-| 1-1 | `masters` | `Media`, `Slot`(과금 단위 고정), `BidPolicy`(버전 추가, `floor≤base≤cap` DB 제약+서비스 검증) | 제약 위반 거부, 동시 버전 저장 한쪽 실패 |
-| 1-2 | `campaigns` | `Campaign`(일예산), `AdGroup`(슬롯 M:N, 과금 단위 고정), `Creative`, `Bid`(버전), **`ReviewRequest`(재검토 요청)**, 상태 전이 표 한 파일(`ENDED`는 끝), **`end_expired_campaigns`(기간 종료 전환)·`end_campaign`(조기 종료)·`ENDED` 쓰기 가드**, **`assets` 서빙 가능 여부 함수(`is_asset_servable`) 제공**. 입찰·상태·기간은 값만 공급하고 적용 금액 계산은 하지 않는다(1-4) | 범위 밖 입찰도 저장, 단위 불일치 거부, 중단된 캠페인 이미지 404, **종료 후 수정 거부(상태 갱신 전 구간 포함), 조기 종료, `SUSPENDED` 만료 전환, `OPEN` 재검토 요청 닫힘** |
-| 1-3 | `billing` | `Wallet`, `LedgerEntry`(추가 전용), 일 소진액(원장에서 재계산 가능), 예산 일 경계 함수, `ChargePolicy`(`by-unit/v1`), 가입 지급 | 잔액=원장 합계, 0 밑으로 안 내려감, 일 경계 설정 변경 후 재계산 일치 |
-| 1-4 | `engine` | `Candidate`·`Eligible`·`SelectionPolicy`·`Selection`, **적용 금액 계산 함수(§4.2 규칙 한 곳, 콘솔 안내값과 공용)**, 자격 필터(상태·기간·하한·예산·잔액, `AdRequest.now` 사용), **`is_expired(ends_at, now)`(종료 판정 한 곳)**, `highest-bid/v1`(동점 무작위), 이름 → 구현 등록 | DB·Django 없이 적용 금액 표(30 → 30/20/제외)·판정표·동점 분포·`subject_id` 무관·정책 이름 교체 테스트, import 금지 테스트 |
-| 1-5 | `records` | `Decision`(불변 스냅샷: 후보·적용 금액·슬롯·두 버전·알고리즘 이름·`trace`), 결정 유스케이스 | 입찰·정책·소재를 수정해도 과거 결정이 변하지 않음 |
+**Step 1 끝에 추가되는 모듈**: `masters`, `engine`, `campaigns`, `billing`, `records`(L1~L3, 설계 §6). `console`은 가입 흐름만 확장한다(지급 호출). 화면·HTTP API는 Step 2~3이다.
 
-**Step 1 시작 전에 정할 것**
-- ~~`Candidate` 필드 목록~~ **확정(설계 §4.3, §10).** `Candidate`/`Eligible` 두 타입, 금액은 정수 포인트, 적용 금액 계산은 `engine` 한 곳.
-- **C6 초안 리뷰**(`contracts/console.openapi.yaml`): `campaigns`·`billing` 서비스 `api`의 함수와 반환 구조가 이 계약의 자원·규칙(입찰 추가만·`expected_version`·과금 단위 고정·정지 중 제한·쿼터·소유권 404)과 일치하도록 1-2 시작 전에 확정한다.
-- `end_expired_campaigns` 등 주기 작업의 실행 방식(설계 §7-9). 1-2에서는 함수와 관리 명령까지 만들고 주기 실행은 인프라와 정한다.
-- ~~가입 지급 포인트 양~~ **확정: 기본 50,000(설정값 `SIGNUP_GRANT_POINTS`, 설계 §10).** 광고그룹당 소재 수는 V1 1개로 확정(설계 §10).
-- **Step 0 결과 반영**: 가입 흐름이 1-3에서 `billing` 지급을 호출하도록 `console` 가입 흐름을 확장한다(`foundation` → `billing` 방향 의존이 생기지 않게 `console`이 두 `api`를 순서대로 호출).
+## 6.0 공통 규약 (Step 1 전체)
+
+| # | 규약 | 이유 |
+|---|---|---|
+| 1 | **`api.py`는 ORM 모델이 아니라 불변 값 객체(`@dataclass(frozen=True)`)를 돌려준다.** 다른 모듈은 모델을 만지지 않는다 | 모듈 내부(필드·테이블)를 바꿔도 밖이 안 깨진다(R2). 모델을 넘기면 지연 조회로 N+1이 숨는다 |
+| 2 | **규칙은 `services.py`(모듈 안)에만 둔다.** 모델 `save()`·뷰·관리자 화면에 규칙을 흩뿌리지 않는다. 광고주용 함수는 `user`를 받고 `foundation.api.owned_or_404`를 지난다(남의 것 404) | 설계 §6.6 규칙 1, T4 |
+| 3 | **모델 규약**: UUID PK, 고정 `label`, `db_table` 명시(`<label>_<model>`), 금액은 `PositiveBigIntegerField`(정수 포인트), 시각은 UTC. 앱 사이 FK는 라벨 문자열(`"masters.Slot"`)에 `on_delete=PROTECT`. 삭제 기능 없음 | R3, 설계 §3 C6 "삭제 없음" |
+| 4 | **추가 전용 모델**(`BidPolicy`·`Bid`·`LedgerEntry`·`Decision`)은 `foundation.models.AppendOnlyModel`을 상속한다(Step 0 보완에서 만들었고 `AuditLog`가 이미 사용). 저장은 **항상 INSERT**(`force_insert`)이고, 같은 PK 새 인스턴스·`force_update`·`update_fields`·`bulk_create(update_conflicts=True)`·`update/delete`를 모두 막는다. 새 모델마다 "기존 PK로 덮어쓰기 불가" 회귀 테스트를 한 줄 추가한다 | 설계 §4.4-2·8·1 |
+| 5 | **버전 번호**(`policy_version`·`bid_version`)는 한 트랜잭션에서 "현재 최대 + 1"을 저장하고, **호출자가 본 버전(`expected_version`)이 현재와 다르면 `StaleVersion`**(콘솔 계약의 409 `stale_version`)으로 거절한다. SQLite는 쓰기 트랜잭션이 직렬이라, `expected_version` 없이 "최대+1"만 쓰면 두 요청이 모두 성공(버전 n+1, n+2)해 나중 사람이 앞사람의 변경을 모르고 덮어쓴다. `(부모, 버전)` 유니크 제약은 다른 DB로 옮겼을 때를 위한 **안전망**이다 | 설계 §4.2, §6.5 |
+| 6 | **감사**: 관리자 행위(정책 새 버전·중단/해제·포인트 조정 등)와 광고주의 주요 변경은 **서비스 안에서** 감사 로그를 남긴다(뷰가 빼먹을 수 없게). 요청 없이 호출되면 `record_audit(None, …)`이 **요청 ID를 `foundation.logging.request_id_var`에서** 가져오도록 `foundation`을 보강한다 | T13 |
+| 7 | **시계는 서비스 함수가 `now` 인자로 받는다**(기본값 `timezone.now()`는 `api`의 얇은 바깥쪽에서만). 기간·종료·예산 일 경계 테스트가 시각을 고정할 수 있다 | `AdRequest.now` 주입(설계 §4.3) |
+| 8 | **테스트 데이터는 `tests/factories.py`의 작은 헬퍼 함수**(매체·슬롯·광고주·캠페인…)로 만든다. `factory_boy`는 쓰지 않는다 | §3 "쓰지 않는 것" |
+| 9 | 모든 모델이 `tests/boundaries`의 `test_all_models_have_explicit_db_table`·`test_app_labels_fixed`를 자동으로 지난다. 새 앱은 `config/settings/base.py`의 `INSTALLED_APPS`에 등록한다 | R3, R6 |
+
+## 6.1 단계 순서와 병렬
+
+```
+1-1 masters ──▶ 1-2 campaigns ──┐
+1-4 engine ─────────────────────┼──▶ 1-5 records ──▶ 6.7 통합 시나리오
+1-3 billing ────────────────────┘
+```
+
+혼자 진행하면 **1-1 → 1-4 → 1-2 → 1-3 → 1-5** 순서를 권한다. `engine`을 일찍 하는 이유는 1-2의 입찰 저장 규칙과 콘솔 안내값이 모두 `engine`의 적용 금액 함수를 쓰기 때문이다. 1-3(`billing`)·1-4(`engine`)는 서로 독립이라 나눠 맡을 수 있다.
+
+## 6.2 1-1 `masters` (매체·슬롯·입찰 정책)
+
+**산출물**
+
+```
+masters/
+  apps.py  models.py  services.py  api.py  admin.py(등록만, 화면은 Step 3-1)
+  migrations/0001_initial.py
+tests/test_masters_models.py  tests/test_masters_services.py
+foundation/models.py  (AppendOnlyModel 믹스인, AuditLog 교체)  foundation/audit.py (요청 ID 보강)
+```
+
+**모델**
+
+| 모델 | 필드 | 제약 |
+|---|---|---|
+| `Media` | `media_id`, `name`, `is_active`, `created_at` | `name` 유일 |
+| `Slot` | `slot_id`, `media`(FK), `name`, `pricing_unit`(`IMPRESSION`·`CLICK`·`CONVERSION`), `is_active`, `created_at` | `(media, name)` 유일(제안: 매체 안에서 유일, 설계 §4 식별자 규칙). **`pricing_unit`은 만든 뒤 바꿀 수 없다**(`save()`가 변경을 거부) |
+| `BidPolicy`(추가 전용) | `slot`(FK), `policy_version`, `floor_amount`, `base_amount`, `cap_amount`, `changed_by`(사용자 ID), `changed_at`, `reason` | `(slot, policy_version)` 유일, **DB `CHECK`: `0 < floor ≤ base ≤ cap`** |
+
+**`masters.api` 함수** (모두 값 객체 반환)
+
+| 함수 | 내용 |
+|---|---|
+| `create_media(actor, name)`, `set_media_active(actor, media_id, active)` | 관리자 전용. 감사 |
+| `create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason)` | **슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다.** 따라서 모든 슬롯은 항상 현재 정책을 가진다(`no_policy` 상태가 생기지 않는다) |
+| `add_policy_version(actor, slot_id, floor, base, cap, reason, expected_version)` | 새 버전 추가(수정 아님). 서비스 검증 + DB 제약. **`expected_version`이 현재와 다르면 `StaleVersion`**(관리자 두 명이 같은 화면에서 저장하면 나중 쪽이 거절되어 앞 변경을 모르고 덮어쓰지 않는다) |
+| `add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason)` | **일괄 입력**(설계 §4.6). `expected_versions`는 `{slot_id: 본 버전}`. 한 트랜잭션, 슬롯마다 자기 버전이 쌓인다. 하나라도 어긋나거나 실패하면 전부 취소 |
+| `get_slot(slot_id)`, `list_slots(active_only=True)` | 현재 정책 포함(`SlotView`, `PolicyView`) |
+| `get_slots_with_policy(slot_ids)` | **한 번의 질의**로 여러 슬롯의 현재 정책(결정 조립용, N+1 방지) |
+| `set_slot_active(actor, slot_id, active)` | 비활성 슬롯은 새 광고그룹이 못 고르고 후보에서 빠진다 |
+
+**테스트**
+
+| 테스트 | 확인 |
+|---|---|
+| `test_policy_check_constraint_in_db` | 서비스를 우회해 `floor > base`를 직접 저장해도 DB가 거부 |
+| `test_policy_service_rejects_zero_negative_and_order_violation` | 0·음수·순서 위반 거부(서비스 오류) |
+| `test_policy_is_append_only` | 수정·삭제·`update()` 거부 |
+| `test_add_policy_version_increments_per_slot` | 슬롯별로 1부터 증가, 슬롯끼리 영향 없음 |
+| `test_policy_stale_expected_version_rejected` | 같은 `expected_version`으로 두 번 저장하면 두 번째가 `StaleVersion`, 버전은 n+1 하나만 생김(순차 호출) |
+| `test_concurrent_policy_saves_only_one_wins` | 스레드 2개가 같은 `expected_version`으로 동시에 저장 → 정확히 한쪽만 성공(SQLite `IMMEDIATE` 직렬화 아래에서도) |
+| `test_policy_cannot_be_overwritten_by_existing_pk` | 기존 PK의 새 인스턴스·upsert로 정책 행을 못 바꿈 |
+| `test_slot_pricing_unit_immutable` | 변경 시도 거부 |
+| `test_create_slot_creates_first_policy_atomically` | 정책 입력 오류면 슬롯도 안 생김 |
+| `test_slot_name_unique_per_media_only` | 다른 매체에서는 같은 이름 가능 |
+| `test_bulk_policy_is_all_or_nothing` | 일괄 입력 중 한 슬롯이 실패하거나 버전이 어긋나면 전부 취소 |
+| `test_get_slots_with_policy_single_query` | `assertNumQueries(1)` |
+| `test_admin_actions_are_audited` | 정책 추가·매체 변경이 감사 로그에 남고 요청 ID가 채워짐 |
+| `test_non_admin_actor_rejected` | 관리자가 아니면 거부 |
+
+**완료 증거**: 위 테스트 통과, `scripts/check.sh` 통과, 경계 검사가 `masters`를 `foundation` 외에는 import하지 않음을 확인.
+
+## 6.3 1-4 `engine` (선택 로직, 순수)
+
+`engine`은 **Django·프로젝트 모듈을 import하지 않는다**(경계 테스트가 강제). 설정은 읽지 않고 호출하는 쪽(`records`)이 정책 이름·필터 목록을 인자로 넘긴다(R4).
+
+**산출물**
+
+```
+engine/
+  api.py                 # decide(), effect_of(), is_expired(), 타입 재공개
+  types.py               # Candidate, Eligible, AdRequest, Selection, Effect, DecisionResult
+  pricing.py             # effect_of(bid, floor, cap), is_expired(ends_at, now)   ← 규칙이 사는 곳
+  filters/{__init__,chain,status,period,floor,budget,balance}.py
+  policies/{base,highest_bid}.py
+  registry.py            # 이름 → 구현 (정책, 필터)
+tests/test_engine_pricing.py  tests/test_engine_filters.py  tests/test_engine_policies.py
+```
+
+**할 일**
+
+1. **타입**(설계 §4.3 필드 표 그대로): `Candidate`, `Eligible`(= `Candidate` + `applied_amount`), `AdRequest`(`subject_id`, `slot_id`, `now`), `Selection`(`chosen: Eligible | None`, `trace: dict`). 모두 불변. 금액은 `int`(`bool`·`float` 거부), 시각은 UTC 지정(naive 거부), 생성 시 검증.
+2. **`effect_of(bid, floor, cap) -> Effect(eligible, applied_amount, reason)`**: 설계 §4.2 표를 코드로. `reason`은 C6 `SlotEffect`와 같은 값(`within_range`·`capped_at_cap`·`below_floor`). 콘솔의 `effects`·`bid-preview`는 이 함수를 그대로 부른다(`no_policy`·`slot_inactive`는 `masters` 값으로 콘솔이 붙인다).
+3. **`is_expired(ends_at, now)`**: `ends_at`이 `None`이면 거짓, `ends_at ≤ now`이면 참(**종료 시각 포함**, C6의 "끝나는 시각(미포함)"과 같은 뜻). 선택 필터·`campaigns`의 전환 작업·수정 가드가 모두 이 함수를 쓴다.
+4. **필터 체인**: 순서 고정, 각 필터는 `(Eligible, request) -> 거절 사유 | None`. 순서: ① `status`(캠페인 `ACTIVE`, 광고그룹 `enabled`) ② `period`(`period_start ≤ now`, `not is_expired`) ③ `floor`(`below_floor`) ④ `budget`(`remaining_daily_budget ≥ applied_amount`) ⑤ `balance`(`wallet_balance ≥ applied_amount`). 적용 금액은 필터 앞에서 `effect_of`로 계산한다. 거절은 사유별 **개수만** `trace`에 남긴다(후보가 많아도 `trace`가 커지지 않게).
+5. **`SelectionPolicy` 프로토콜과 `highest-bid/v1`**: 적용 금액 최대, **동점이면 `rng`로 무작위**, `trace`에 동점 후보 ID 목록과 뽑힌 값. 후보가 없으면 `chosen=None`. `request`는 읽지 않는다.
+6. **`decide(candidates, request, rng, policy="highest-bid/v1", filters=DEFAULT) -> DecisionResult`**: 가격 계산 → 필터 → 정책 선택. 알 수 없는 정책·필터 이름은 즉시 오류(조용히 기본값으로 바꾸지 않는다).
+
+**테스트**
+
+| 테스트 | 확인 |
+|---|---|
+| `test_effect_table_design_example` | 입찰 30 → 슬롯 A(10~50) 30, B(10~20) 20, C(40~100) 제외 |
+| `test_effect_boundaries` | `bid == floor` 노출, `bid == cap` 그대로, `cap + 1` → `cap`, `floor - 1` 제외 |
+| `test_is_expired_boundaries` | `ends_at == now`는 종료, `None`은 무기한, `now - 1`초 |
+| `test_types_reject_bad_values` | 소수·`bool`·음수·naive 시각 거부, 불변 |
+| `test_each_filter_rejects_with_reason` | 상태·광고그룹 꺼짐·시작 전·종료·하한·예산·잔액 각각 |
+| `test_budget_and_balance_boundary` | `remaining == applied`는 통과, 1 모자라면 거절 |
+| `test_filter_order_and_rejection_counts_in_trace` | 사유별 개수 |
+| `test_highest_bid_picks_max_applied_amount` | 상한에 닿은 두 입찰은 동점 |
+| `test_tie_break_reproducible_with_seed` | 같은 시드 → 같은 선택 |
+| `test_tie_break_is_uniform` | 3자 동점 3,000회 → 각 후보 비율이 허용 범위 안 |
+| `test_subject_id_does_not_change_result` | `subject_id`만 바꿔도 같은 입력 → 같은 결과 |
+| `test_no_candidates_returns_none` | `chosen=None` |
+| `test_policy_swappable_by_name` | 더미 정책을 등록해 이름만 바꾸면 다른 알고리즘이 돌고 `Selection` 구조는 같음 |
+| `test_unknown_policy_or_filter_raises` | |
+| 경계 검사(기존) | `engine`이 `django`·프로젝트 모듈을 import하지 않음 |
+
+**완료 증거**: DB·Django 설정 없이 `engine` 테스트만 단독으로 통과(`python -m unittest tests.test_engine_*`가 마이그레이션 없이 돈다), 경계 검사 통과.
+
+## 6.4 1-2 `campaigns` (캠페인·광고그룹·소재·입찰·재검토 요청)
+
+**산출물**
+
+```
+campaigns/
+  apps.py  models.py  services.py  api.py  transitions.py  queries.py  admin.py(등록만)
+  management/commands/end_expired_campaigns.py
+  migrations/0001_initial.py
+tests/test_campaigns_models.py  tests/test_campaigns_transitions.py
+tests/test_campaigns_services.py  tests/test_campaigns_ended.py  tests/test_campaigns_review.py
+```
+
+**모델**
+
+| 모델 | 필드 | 제약·규칙 |
+|---|---|---|
+| `Campaign` | `campaign_id`, `owner`(FK `foundation.User`), `name`, `starts_at`, `ends_at`(없으면 `NULL`), `daily_budget`, `status`, `ended_from`, `suspended_reason`, `suspended_at`, `created_at`, `updated_at` | `daily_budget > 0`, `ends_at > starts_at`(있을 때) |
+| `AdGroup` | `ad_group_id`, `campaign`, `name`, `pricing_unit`(생성 후 고정), `enabled`, `created_at` | |
+| `AdGroupSlot` | `ad_group`, `slot`(FK `masters.Slot`) | `(ad_group, slot)` 유일. **슬롯의 과금 단위 = 광고그룹의 과금 단위**여야 저장 |
+| `Creative` | `creative_id`, `ad_group`, `title`, `redirect_url`(https), `image_name`(assets 이름), `image_bytes`, `enabled`, `created_at`, `updated_at` | `image_name` 인덱스. 광고그룹당 개수는 설정 `MAX_CREATIVES_PER_AD_GROUP`(V1 = 1)로 서비스가 제한 |
+| `Bid`(추가 전용) | `ad_group`, `bid_version`, `amount`, `created_by`, `created_at` | `(ad_group, bid_version)` 유일, `amount > 0`. **하한 미만·상한 초과도 저장** |
+| `ReviewRequest`(추가 전용 기록, 상태만 닫힘) | `review_request_id`, `campaign`, `message`, `status`(`OPEN`·`RELEASED`·`REJECTED`·`CLOSED_ENDED`), `response_note`, `created_at`, `closed_at` | **캠페인당 `OPEN`은 하나**(`UniqueConstraint(condition=status=OPEN)`) |
+
+**상태 전이 표 (`transitions.py` 한 파일, 상태를 쓰는 곳은 여기뿐 — 설계 §4.4-5)**
+
+| 동작 | 이전 → 이후 | 누가 |
+|---|---|---|
+| `pause` | `ACTIVE → PAUSED` | 광고주 |
+| `resume` | `PAUSED → ACTIVE` | 광고주 |
+| `suspend` | `ACTIVE`·`PAUSED → SUSPENDED` | 관리자(사유 필수) |
+| `release` | `SUSPENDED → ACTIVE` | 관리자 |
+| `end` | `ACTIVE`·`PAUSED → ENDED` (`ends_at`을 현재로 확정) | 광고주 |
+| `expire` | `ACTIVE`·`PAUSED`·`SUSPENDED → ENDED` | 시스템(`ends_at ≤ now`) |
+| (그 밖) | `ENDED`에서 나가는 전이 없음 | — |
+
+**서비스 규칙**
+
+1. **`ENDED` 가드**: 캠페인과 그 하위(광고그룹·소재·입찰)의 모든 쓰기 앞에서 `status == ENDED` **또는** `is_expired(ends_at, now)`이면 `CampaignEnded`(409 `ended`). 저장된 상태가 갱신되기 전에도 막는다. 가드는 `services.py`의 **함수 하나**(`_assert_open`)이고 모든 쓰기 함수가 지난다.
+2. **종료일 변경**: 종료 전에는 늘리거나 줄일 수 있고(`None` 허용), 새 값은 `now`보다 뒤여야 한다. 시작보다 뒤여야 한다.
+3. **`end_expired_campaigns(now)`**: `ends_at ≤ now`이고 `ENDED`가 아닌 캠페인을 **조건부 `UPDATE`**로 `ENDED`로 바꾸고 `ended_from`을 기록, `OPEN` 재검토 요청을 `CLOSED_ENDED`로 닫는다. 멱등. 한 트랜잭션. 관리 명령으로도 실행한다(주기 실행은 §7-9와 함께 인프라가 정한다).
+4. **입찰**: `add_bid(user, ad_group_id, amount, expected_version)` — `expected_version`이 현재와 다르면 `StaleVersion`(409). 입력은 거절하지 않고 저장한다(0 이하·최대값 초과만 400).
+5. **광고그룹**: 슬롯 목록 변경 시 모두 같은 단위·활성 슬롯이어야 한다(`unit_mismatch`). `pricing_unit`을 보내면 항상 `unit_immutable`.
+6. **소재**: 이미지는 `assets.api.validate_image` → `store`를 서비스가 호출한다(`ImageRejected`는 그대로 전달). `redirect_url`은 `https`만. 이미지 교체 시 새 이름으로 바꾸고 이전 파일은 지우지 않는다(과거 결정이 참조할 수 있다).
+7. **관리자 동작**: `suspend_campaign(actor, campaign_id, reason)`, `release_campaign(actor, campaign_id)`(`OPEN` 요청이 있으면 `RELEASED`), `reject_review_request(actor, review_request_id, note)`(정지 유지, 사유 필수). 모두 감사.
+8. **재검토 요청**: `create_review_request(user, campaign_id, message)`는 `SUSPENDED`일 때만(아니면 `not_suspended`), `OPEN`이 이미 있으면 `review_pending`.
+9. **쿼터(광고주당)**: 캠페인·광고그룹·소재 개수와 이미지 총량. 기본값 **[제안, 설계 §7-5는 열림]**: 캠페인 20, 광고그룹 100, 소재 100, 이미지 100MB. 모두 설정값. 초과는 `LimitExceeded`(409 `limit_exceeded`).
+10. **읽기 함수** (모듈 밖에서 쓰는 것): `get_campaign`, `list_campaigns(user)`, `get_ad_group`, `list_bids`, `current_bid`, `list_review_requests`, **`candidate_facts_for_slot(slot_id)`**, **`is_asset_servable(name)`**.
+    - `candidate_facts_for_slot`은 한 번의 질의(`select_related`)로 (캠페인·광고그룹·소재·현재 입찰)을 돌려준다. **조회 조건은 구조적 소속만 쓴다**: 저장된 `status = ACTIVE`, 광고그룹 `enabled`, 소재 `enabled`, 그 슬롯을 고른 광고그룹. **기간·금액 판정은 조회에 넣지 않는다**(판정은 `engine` 한 곳, 설계 §4.3). 상태 갱신이 늦은 종료 캠페인이 섞여 와도 `engine`이 거른다.
+    - `is_asset_servable(name)`은 그 이름을 쓰는 소재가 있고 캠페인이 `ACTIVE`·`PAUSED`이며 기간이 끝나지 않았을 때만 참. `config`가 `ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"`로 연결한다(Step 0-5의 설정 훅, `assets`는 `campaigns`를 import하지 않는다).
+
+**테스트**
+
+| 파일 | 테스트 | 확인 |
+|---|---|---|
+| `test_campaigns_transitions` | `test_transition_table_allows_only_listed` | 표에 없는 전이는 거부, `ENDED`에서 나가는 전이 없음 |
+| | `test_suspended_blocks_advertiser_status_change` | 광고주의 `pause`·`resume`·`end`는 `suspended` |
+| | `test_only_transitions_module_writes_status` | 소스 검사: `status`를 직접 대입하는 코드가 `transitions.py` 밖에 없음 |
+| `test_campaigns_ended` | `test_end_expired_moves_all_three_states` | `ACTIVE`·`PAUSED`·`SUSPENDED` 모두 `ENDED`, `ended_from` 기록 |
+| | `test_end_expired_is_idempotent_and_conditional` | 두 번 돌려도 한 번만, 아직 안 끝난 캠페인은 불변 |
+| | `test_edit_rejected_when_expired_but_status_still_active` | **상태 갱신 전 구간**에서도 수정·재개·종료일 연장이 `ended` |
+| | `test_ended_blocks_all_writes_below` | 광고그룹·소재·입찰 쓰기 모두 `ended`, 읽기는 가능 |
+| | `test_early_end_sets_ends_at_now_and_is_irreversible` | 두 번째 호출은 `ended`, `SUSPENDED`는 `suspended` |
+| | `test_ends_at_must_be_in_future_and_after_start` | |
+| | `test_end_closes_open_review_request` | `CLOSED_ENDED`, 종료된 캠페인 해제는 `ended` |
+| | `test_extend_vs_expire_race` | 연장 커밋이 먼저면 연장이 이기고 전환은 건너뜀, 전환이 먼저면 연장은 `ended` |
+| `test_campaigns_services` | `test_ad_group_unit_must_match_slots` / `test_pricing_unit_immutable` | `unit_mismatch`·`unit_immutable` |
+| | `test_bid_out_of_range_is_stored` | 하한 미만·상한 초과 입찰 저장 |
+| | `test_bid_stale_version_conflict` | 동시 두 입찰 중 한쪽이 `StaleVersion` |
+| | `test_bid_is_append_only` | |
+| | `test_other_users_objects_are_404` (`@tag("security")`) | 모든 광고주용 함수가 남의 캠페인·광고그룹·소재를 404 |
+| | `test_quota_limits` | 개수·총량 초과 `limit_exceeded` |
+| | `test_creative_image_validated_and_https_only` | 위장·초과 이미지, `http://` 거부 |
+| | `test_one_creative_per_ad_group_in_v1` | 설정을 올리면 늘어남 |
+| | `test_candidate_facts_single_query_and_structure_only` | `assertNumQueries`, 기간이 끝난 캠페인도 조회에는 포함(판정은 engine) |
+| | `test_is_asset_servable` | `ACTIVE`·`PAUSED` 참, `SUSPENDED`·`ENDED`·미등록 이름 거짓 → **중단된 캠페인 이미지가 서버에서 404** |
+| `test_campaigns_review` | `test_review_request_only_when_suspended_and_one_open` | `not_suspended`·`review_pending` |
+| | `test_release_and_reject` | 해제는 `ACTIVE`+`RELEASED`, 반려는 정지 유지+사유 |
+| | `test_admin_actions_are_audited` | 중단·해제·반려 |
+
+**완료 증거**: 테스트 통과, `check.sh` 통과, 이미지 서빙 URL이 중단 즉시 404가 되는 것을 `Client`로 확인(`assets` 뷰 + `ASSET_SERVABLE_CHECK`).
+
+## 6.5 1-3 `billing` (지갑·원장·예산·과금 정책)
+
+`billing`은 `campaigns`를 import하지 않고 캠페인을 **ID 값**으로만 다룬다.
+
+**산출물**
+
+```
+billing/
+  apps.py  models.py  services.py  api.py  budget_day.py  admin.py(등록만)
+  policies/{base,by_unit}.py          # ChargePolicy, by-unit/v1
+  management/commands/recompute_spend.py  management/commands/check_ledger.py
+  migrations/0001_initial.py
+tests/test_billing_ledger.py  tests/test_billing_budget.py  tests/test_billing_charge.py
+console/views/auth.py (가입 흐름이 지급을 호출)
+```
+
+**모델**
+
+| 모델 | 필드 | 제약 |
+|---|---|---|
+| `Wallet` | `owner`(FK `foundation.User`, 유일), `balance`, `created_at` | `balance ≥ 0`(DB `CHECK`) |
+| `LedgerEntry`(추가 전용) | `entry_id`, `wallet`, `entry_type`(`SIGNUP_GRANT`·`CHARGE`·`ADMIN_ADJUST`·`TOPUP`), `amount`(부호 있는 정수), `balance_after`, `campaign_id`(UUID, FK 아님), `reaction_ref`(유일, 과금 멱등 키), `charge_policy`, `shortfall`, `note`, `created_at` | `(wallet) + SIGNUP_GRANT` 유일(부분 유니크), `reaction_ref` 유일(`NULL` 제외) |
+| `CampaignSpend` | `campaign_id`, `budget_day`(날짜), `spent` | `(campaign_id, budget_day)` 유일. **원장에서 다시 계산할 수 있는 파생값** |
+
+**`billing.api`**
+
+| 함수 | 내용 |
+|---|---|
+| `grant_signup(user)` | 설정값 `SIGNUP_GRANT_POINTS`(기본 **50,000**)를 `SIGNUP_GRANT`로 지급, 지갑 생성. **한 사용자에 한 번만**(재호출은 변화 없음) |
+| `adjust(actor, user_id, amount, note)` | 관리자 조정(부호 있는 정수, 사유 필수). 잔액을 0 밑으로 내리는 음수 조정은 거부. 감사 |
+| `charge(wallet_owner_id, campaign_id, amount, reaction_ref, now)` | **멱등** 과금(Step 2-5에서 호출). 한 트랜잭션에서 ① `CHARGE` 항목 ② 잔액 ③ `CampaignSpend`. **남은 잔액만큼만 차감**하고 부족분은 `shortfall`에 기록. 같은 `reaction_ref`는 처음 결과 그대로 |
+| `get_wallet(user)`, `list_ledger(user, cursor, limit)` | 잔액·`spent_today`·`resets_at`, 원장 내역(최신순) |
+| `balances(owner_ids)`, `spend_today(campaign_ids, now)` | **한 번의 질의**로 여러 값(결정 조립용, N+1 방지) |
+| `budget_day_of(instant)`, `next_reset(instant)` | **예산 일 경계 함수 한 곳.** `BUDGET_DAY_OFFSET_HOURS`(기본 0 = UTC 자정). 소진액 집계와 화면의 리셋 시각이 같은 함수를 쓴다 |
+| `recompute_spend()` | 원장에서 `CampaignSpend`를 다시 만든다(경계 설정을 바꾼 뒤 실행) |
+| `check_ledger()` | 모든 지갑에서 `balance == Σ amount`, `balance_after`의 연속성을 확인(어긋나면 목록 반환·명령은 비정상 종료) |
+| `ChargePolicy` / `by-unit/v1` | 반응 유형이 광고그룹 과금 단위와 같을 때만 과금, 금액은 Decision의 적용 금액. 어떤 정책이었는지 `charge_policy`에 이름 기록(R8). 정책 이름은 설정으로 고른다 |
+
+**가입 흐름 확장**: `console`의 가입 뷰가 **한 트랜잭션(`transaction.atomic`) 안에서** `foundation.api.create_advertiser` → `billing.api.grant_signup`을 차례로 부른다(`foundation`이 `billing`을 알지 않는다). 지급이 실패하면 가입도 취소된다. 감사 로그에 `account.signup`과 `billing.signup_grant`가 남는다.
+
+**테스트**
+
+| 테스트 | 확인 |
+|---|---|
+| `test_signup_grants_configured_points_once` | 가입 → 잔액 = 설정값, 원장 `SIGNUP_GRANT` 1건, 재호출 무변화 |
+| `test_signup_and_grant_same_transaction` | 지급 실패 시 사용자도 안 생김 |
+| `test_balance_equals_ledger_sum_after_any_sequence` | 지급·과금·조정을 무작위로 섞은 뒤 `check_ledger`가 통과 |
+| `test_balance_never_below_zero` | 잔액보다 큰 과금은 잔액만큼만, `shortfall` 기록 / DB `CHECK`가 직접 쓰기도 거부 |
+| `test_charge_idempotent_by_reaction_ref` | 같은 키 2번 → 1건, 두 번째는 처음 결과 반환 |
+| `test_charge_concurrent_same_ref_once` | 스레드 2개가 같은 키로 과금 → 원장 1건, 잔액 1번만 차감 |
+| `test_ledger_is_append_only` | 수정·삭제·`update()` 거부 |
+| `test_adjust_requires_admin_note_and_audited` | 비관리자·사유 없음 거부, 감사 |
+| `test_budget_day_boundary_default_utc` | `00:00:00Z`가 새 날, `23:59:59Z`는 어제 |
+| `test_budget_day_offset_and_recompute_matches_ledger` | 오프셋을 +9로 바꾸고 `recompute_spend` → 소진액이 원장 재집계와 일치 |
+| `test_spent_today_resets_at_boundary` | |
+| `test_charge_policy_by_unit` | 단위가 같은 반응만 과금, 다른 유형은 0, 정책 이름 기록 |
+| `test_charge_policy_swappable_by_setting` | 더미 정책 이름으로 교체 |
+| `test_balances_single_query` | `assertNumQueries` |
+
+**완료 증거**: 테스트 통과, `check_ledger` 명령이 깨끗한 DB에서 0으로 종료, 브라우저로 새 가입 시 잔액 50,000(가입 → 지급 → `get_wallet`, 서버 로그 확인), `check.sh` 통과.
+
+## 6.6 1-5 `records` (결정 유스케이스)
+
+**산출물**
+
+```
+records/
+  apps.py  models.py  services.py  api.py  assemble.py
+  migrations/0001_initial.py
+tests/test_records_decision.py  tests/test_records_assemble.py
+```
+
+**모델**: `Decision`(추가 전용 불변 스냅샷)
+
+| 필드 | 설명 |
+|---|---|
+| `decision_id`, `media_id`, `slot_id`, `subject_id`, `decided_at`(= 요청의 `now`) | 요청 쪽 사실 |
+| `chosen`(JSON 또는 열): `campaign_id`, `ad_group_id`, `creative_id`, `bid_amount`, `applied_amount`, `pricing_unit`, `bid_version`, `policy_version` | **선택된 광고의 스냅샷**(없으면 `NULL`, "광고 없음"도 한 건으로 기록) |
+| `selection_policy`(이름), `trace`(JSON), `candidate_count`, `rejected_counts`(JSON) | 어떤 알고리즘이 어떤 근거로 골랐는지 |
+| `snapshot`(JSON) | 응답에 필요한 값: 소재 제목·이동 주소·이미지 이름 **그 시점 값** |
+
+**`assemble.py` (후보 조립, 판정 없음)**: 슬롯 하나에 대해 ① `masters.api.get_slots_with_policy`(정책) ② `campaigns.api.candidate_facts_for_slot`(캠페인·광고그룹·소재·입찰) ③ `billing.api.balances`·`spend_today`(잔액·남은 일예산)를 **각각 한 번의 질의**로 읽어 `Candidate` 목록으로 조립한다. 총 질의 수는 후보 수와 무관하다.
+
+**`records.api.decide(media_id, slot_id, subject_id, now, rng) -> DecisionView`** (Step 2-3의 `POST /decisions`가 부른다)
+
+1. 슬롯이 해당 매체의 활성 슬롯인지 확인(아니면 `NotFound`).
+2. `assemble` → `engine.api.decide(..., policy=settings.ADS_SELECTION_POLICY)`.
+3. 결과를 `Decision`으로 **저장한 뒤에만** 값 객체를 돌려준다(설계 §4.4-12, 저장 실패는 예외로 전파되어 `decision_id`가 나가지 않는다).
+4. 이미지 URL은 `assets.api.asset_url(image_name)`으로 응답 단계에서 붙인다(결정에는 이름만 저장).
+
+**테스트**
+
+| 테스트 | 확인 |
+|---|---|
+| `test_decision_snapshot_survives_edits` | 입찰 새 버전·정책 새 버전·소재 제목 수정·캠페인 중단·종료 **이후에도 과거 `Decision` 내용이 그대로** |
+| `test_decision_is_append_only` | 수정·삭제 거부 |
+| `test_decision_records_both_versions_and_policy_name` | `bid_version`·`policy_version`·`selection_policy` |
+| `test_no_ad_is_recorded_as_decision` | 후보 없음도 한 건 저장, `chosen` 없음 |
+| `test_assemble_query_count_independent_of_candidates` | 후보 1개와 50개에서 질의 수 같음 |
+| `test_unit_aware_candidates` | 슬롯 단위와 다른 광고그룹은 후보가 되지 않음 |
+| `test_ended_and_stale_active_campaign_excluded` | 상태가 아직 `ACTIVE`인 만료 캠페인은 `engine`이 거름 |
+| `test_wallet_and_budget_gate_exposure` | 잔액 부족·일예산 소진 캠페인은 후보에서 빠지고, 충전/예산 증액 후 다시 노출 |
+| `test_decision_not_saved_when_storage_fails` | 저장 예외 시 결정이 응답으로 나가지 않음 |
+| `test_selection_policy_swap_by_setting_keeps_decision_shape` | 설정만 바꿔 다른 정책, `Decision` 열 구조 동일 |
+| `test_only_engine_decides` | 소스 검사: `records`에 적용 금액·하한 판정 코드가 없음(`engine.api` 호출만) |
+
+**완료 증거**: 테스트 통과, `check.sh` 통과.
+
+## 6.7 Step 1 통합 시나리오 (HTTP 없이 `api`만)
+
+`tests/test_step1_scenario.py` 하나가 아래를 순서대로 실행한다. **이것이 Step 1의 합격 증거**다.
+
+1. 관리자: 매체 1·슬롯 3(과금 단위 노출 둘, 클릭 하나) 등록, 정책 `A 10~50`, `B 10~20`, `C 40~100`.
+2. 광고주 두 명 가입(각 50,000 지급, 감사 로그 2건씩).
+3. 광고주 1: 캠페인(기간·일예산) → 광고그룹(슬롯 A·B·C 중 노출 단위) → 소재(실제 PNG) → 입찰 30. 광고주 2: 입찰 25 광고그룹.
+4. 슬롯 A에 결정 → 광고주 1 선택(적용 30), 슬롯 B → 적용 20, 슬롯 C → 광고주 1 제외. 같은 적용 금액 동점 상황에서 두 광고주가 고르게 뽑힘(시드 고정).
+5. 정책·입찰·소재 수정, 캠페인 중단 후 **첫 결정이 그대로**이고, 중단된 캠페인 이미지는 서빙 404.
+6. 조기 종료 → 모든 쓰기 `ended`, 이후 결정에서 제외.
+7. `check_ledger` 통과, 마지막으로 `scripts/check.sh` 전체 통과.
+
+## 6.8 Step 1 종료 점검표
+
+- [ ] 1-1~1-5 테스트 통과, `scripts/check.sh` 통과(`check --deploy` 경고 0, `pip-audit` 0, `bandit` 0)
+- [ ] `engine` 테스트가 Django 설정 없이 단독으로 통과, 경계 검사(R1·R2·`engine` 순수성) 통과
+- [ ] 통합 시나리오 통과, 두 광고주의 서로 다른 객체 접근이 모두 404
+- [ ] 상태를 쓰는 코드가 `campaigns/transitions.py`뿐, 적용 금액·종료 판정 코드가 `engine`뿐(소스 검사 테스트)
+- [ ] `threat-model.md` 갱신: **T4**(소유권, 1단계 테스트), **T19**(중단 소재 이미지 404, 1단계 테스트), **T23**(관리자 행위 감사: 정책·중단·조정), §5.2 표의 **원장 변조·이중 과금·결정 스냅샷**(1-3·1-5) 행 등 Step 1에 대응하는 행에 실제 테스트 이름을 채움(`test_threat_model_sync`가 강제)
+- [ ] C6 계약 리뷰 반영: 서비스 `api` 함수·값 객체가 `contracts/console.openapi.yaml`의 자원·오류 코드(`stale_version`·`ended`·`suspended`·`not_suspended`·`review_pending`·`unit_mismatch`·`unit_immutable`·`limit_exceeded`)와 일치하는지 대조표로 확인, 어긋나면 계약 또는 서비스를 고친다
+- [ ] 설계 문서의 열린 결정 중 Step 1에서 확정된 것(쿼터 기본값 등)을 §10으로 이동
+- [ ] 진행 상태 표(§10) 갱신
+
+## 6.9 Step 1 시작 전 확인 (남은 것)
+
+- **쿼터 기본값**(캠페인 20·광고그룹 100·소재 100·이미지 100MB)은 제안값이다. 설계 §7-5가 열려 있으므로 시연 규모에 맞게 조정해도 된다(설정값).
+- **주기 작업 실행 방식**(`end_expired_campaigns` 등, 설계 §7-9): 1-2에서는 함수와 관리 명령까지 만든다.
+- **관리자의 정지 소재 미리보기**: 중단된 캠페인 이미지는 C3 URL에서 404가 되므로, 관리자 모니터링 화면(Step 3-1)은 별도의 관리자 전용 경로가 필요하다. 이번 단계 범위가 아니며 3-1에서 정한다.
 
 ---
 
@@ -465,11 +796,18 @@ tests/test_assets_validation.py  tests/test_assets_storage.py  tests/test_assets
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | 승격 | 완료 (2026-10-07) | `intake/` → `docs/ads-server/`, 구현은 `apps/ads_server/` |
-| 0-0 위협 모델 | 완료 (2026-10-07) | [threat-model.md](threat-model.md): 위협 26건, 0-1~0-6 모두 대응 행 있음 |
+| 0-0 위협 모델 | 완료 (2026-10-07) | [threat-model.md](threat-model.md): 위협 26건(Step 0 보완에서 T27 추가), 0-1~0-6 모두 대응 행 있음 |
 | 0-1 골격·설정·User | 완료 (2026-10-07) | 테스트 26개, `runserver` 확인, WAL·`synchronous=FULL` 확인. `check --deploy` 경고 5건 기록(README) |
 | 0-2 계정·인증·세션 | 완료 (2026-10-07) | 테스트 59개(보안 태그 33개) 통과, 브라우저로 가입→로그인→로그아웃 확인. **Django 6.1 / axes 게이트 통과**(설계 §9 기록) |
 | 0-3 접근 통제 | 완료 (2026-10-07) | 테스트 79개 통과. URL 전수 점검이 보호 없는 URL·예상 밖 공개 뷰를 잡는 것을 의도적 변조로 확인 |
 | 0-4 HTTP 보안 | 완료 (2026-10-07) | 테스트 106개(보안 태그 80개) 통과, `check --deploy` 경고 0(W021만 사유를 적어 의도적으로 끔), 실제 응답 헤더·admin 화면 CSP 동작을 브라우저로 확인 |
-| 0-5 assets | 완료 (2026-10-07) | 테스트 144개(보안 태그 118개) 통과. 실제 이미지를 서비스 함수로 저장→서버에서 200/304/404 확인, 브라우저로 표시 확인. 업로드 전체 크기 가드(`MaxUploadSizeHandler`) 추가 |
+| 0-5 assets | 완료 (2026-10-07) | 테스트 144개(보안 태그 118개) 통과. 실제 이미지를 서비스 함수로 저장→서버에서 200/304/404 확인, 브라우저로 표시 확인. 업로드 전체 크기 가드 추가(2026-10-07 검토 후 `RequestBodyLimitMiddleware`로 이동, 413) |
 | 0-6 감사·점검 | 완료 (2026-10-07) | 테스트 177개 통과, `scripts/check.sh` 전체 통과(`check --deploy` 경고 0·마이그레이션·테스트·`pip-audit` 취약점 0·`bandit` 이슈 0). 경계 검사(R1·R2·`engine` 순수성·R3)가 가짜 위반 소스를 실제로 잡음을 검증. 브라우저로 5회 실패 잠금·잠금 중 올바른 비밀번호 거부·감사 로그 기록 확인 |
 | **Step 0 전체** | **완료 (2026-10-07)** | 아래 종료 점검표 모두 충족. 구현: `apps/ads_server/` |
+| Step 0 보완 | 완료 (2026-10-07) | 외부 검토 4건(감사 로그 덮어쓰기·과대 multipart 500·PNG ICC 잔존·관리자 본인 비밀번호 변경 감사 누락) 재현 후 수정, 회귀 테스트 추가. 의존성 직접 항목 패치 고정, `STATIC_ROOT` 설정 |
+| Step 1 상세 계획 | 작성 (2026-10-07) | §6. 확정 반영: `Candidate`/`Eligible`, 적용 금액·종료 판정 `engine` 한 곳, 정수 포인트, `ENDED` 확정 상태, 가입 지급 50,000 |
+| 1-1 `masters` | 대기 | |
+| 1-4 `engine` | 대기 | 1-1 다음(혼자 진행 시 권장 순서 1-1 → 1-4 → 1-2 → 1-3 → 1-5) |
+| 1-2 `campaigns` | 대기 | |
+| 1-3 `billing` | 대기 | |
+| 1-5 `records` | 대기 | |
