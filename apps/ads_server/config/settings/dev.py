@@ -13,6 +13,7 @@ ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 
 MEDIA_ROOT = env_str("MEDIA_ROOT", default=BASE_DIR / "media")
 ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", default="http://127.0.0.1:8001")
+ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"  # 중단·종료된 캠페인의 이미지는 404 (campaigns 가 판정, assets 는 모른다)
 ASSET_MAX_BYTES = env_int("ASSET_MAX_BYTES", 2 * 1024 * 1024)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "[::1]"])
 

@@ -7,9 +7,9 @@ from .http import parse_json, problem_response
 from .models import AppendOnlyError, AppendOnlyModel, Role, User
 from .net import client_ip
 from .signup_limit import SignupRateLimited, register_attempt
-from .validators import MAX_AMOUNT
+from .validators import MAX_AMOUNT, clean_text, parse_uuid
 
 __all__ = [
     "create_advertiser", "Role", "User", "client_ip", "SignupRateLimited", "register_attempt",
-    "owned_or_404", "owned_queryset", "parse_json", "problem_response", "errors", "record_audit", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError",
+    "owned_or_404", "owned_queryset", "parse_json", "problem_response", "errors", "record_audit", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError", "clean_text", "parse_uuid",
 ]

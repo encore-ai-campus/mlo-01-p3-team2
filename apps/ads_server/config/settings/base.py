@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "foundation.apps.FoundationConfig",
     "assets.apps.AssetsConfig",
     "masters.apps.MastersConfig",
+    "campaigns.apps.CampaignsConfig",
     "console.apps.ConsoleConfig",
 ]
 
@@ -142,6 +143,13 @@ ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크�
 ASSET_STORAGE = "assets.storage.LocalFileStorage"
 ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
 # 업로드 전체 크기 가드는 foundation.middleware.RequestBodyLimitMiddleware 가 맡는다(본문을 읽기 전에 413).
+
+# --- 광고주 한도 (설계 §7-5는 열림: 아래는 제안 기본값, 모두 설정값) ---
+MAX_CAMPAIGNS_PER_ADVERTISER = 20
+MAX_AD_GROUPS_PER_ADVERTISER = 100
+MAX_CREATIVES_PER_ADVERTISER = 100
+MAX_CREATIVES_PER_AD_GROUP = 1  # V1. 모델은 1:N 이라 늘릴 수 있다(설계 §10)
+MAX_UPLOAD_BYTES_PER_ADVERTISER = 100 * 1024 * 1024
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
 # 환경별 설정(dev/prod/test)이 ADMIN_URL_PATH 와 ACCESS_MAP 을 정한다.

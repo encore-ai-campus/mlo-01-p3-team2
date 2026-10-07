@@ -29,6 +29,7 @@ class SlotView:
     slot_id: uuid.UUID
     media_id: uuid.UUID
     media_name: str
+    media_is_active: bool
     name: str
     pricing_unit: str
     is_active: bool

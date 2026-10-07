@@ -33,6 +33,7 @@ ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 
 MEDIA_ROOT = env_str("MEDIA_ROOT", required=True)  # 코드·정적 파일 경로 밖. 웹서버가 직접 서빙하지 않는다.
 ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", required=True)  # 결정 응답의 image_url 에 쓰는 공개 주소
+ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"  # 중단·종료된 캠페인의 이미지는 404 (campaigns 가 판정, assets 는 모른다)
 ASSET_MAX_BYTES = env_int("ASSET_MAX_BYTES", 2 * 1024 * 1024)
 STATIC_ROOT = env_str("STATIC_ROOT", default=str(BASE_DIR / "staticfiles"))
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", required=True)

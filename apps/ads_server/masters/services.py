@@ -1,11 +1,8 @@
 """masters 의 규칙. 관리자 전용이며 모든 변경은 감사 로그에 남는다(위협 T23)."""
-import unicodedata
-import uuid
-
 from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Subquery
 
-from foundation.api import MAX_AMOUNT, Role, errors, record_audit
+from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit
 
 from .models import BidPolicy, Media, PricingUnit, Slot
 from .types import MediaView, PolicyView, SlotView
@@ -14,23 +11,6 @@ from .types import MediaView, PolicyView, SlotView
 def _require_admin(actor):
     if not (getattr(actor, "is_authenticated", False) and actor.is_active and actor.role == Role.ADMIN):
         raise errors.Forbidden("관리자만 할 수 있습니다.")
-
-
-def _uuid(value, what):
-    """UUID 로 바꾼다. 형식이 틀린 값은 '없는 것'과 같게 404 로 취급한다(존재 여부를 알리지 않는다)."""
-    if isinstance(value, uuid.UUID):
-        return value
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
-        raise errors.NotFound(f"{what}을(를) 찾을 수 없습니다.")
-
-
-def _text(value, label, pointer, max_len=100):
-    value = unicodedata.normalize("NFC", (value or "").strip()) if isinstance(value, str) else ""
-    if not value or len(value) > max_len or any(unicodedata.category(c).startswith("C") for c in value):
-        raise errors.InvalidRequest(errors=[{"pointer": pointer, "message": f"{label}은(는) 1~{max_len}자의 보이는 문자여야 합니다."}])
-    return value
 
 
 def _validate_policy(floor, base, cap):
@@ -53,7 +33,7 @@ def _policy_view(row):
 
 def _slot_view(slot, policy):
     return SlotView(
-        slot_id=slot.slot_id, media_id=slot.media_id, media_name=slot.media.name, name=slot.name,
+        slot_id=slot.slot_id, media_id=slot.media_id, media_name=slot.media.name, media_is_active=slot.media.is_active, name=slot.name,
         pricing_unit=slot.pricing_unit, is_active=slot.is_active, policy=_policy_view(policy),
     )
 
@@ -74,54 +54,55 @@ def _current_policies():
 
 def _get_slot(slot_id):
     try:
-        return Slot.objects.select_related("media").get(pk=_uuid(slot_id, "게재 위치"))
+        return Slot.objects.select_related("media").get(pk=parse_uuid(slot_id, "게재 위치"))
     except Slot.DoesNotExist:
         raise errors.NotFound("게재 위치를 찾을 수 없습니다.")
 
 
 def create_media(actor, name):
     _require_admin(actor)
-    name = _text(name, "매체 이름", "/name")
+    name = clean_text(name, "매체 이름", "/name")
     try:
         with transaction.atomic():
             media = Media.objects.create(name=name)
+            _audit(actor, "masters.media_created", ("masters.media", media.media_id), {"name": name})
     except IntegrityError:
         raise errors.Conflict("같은 이름의 매체가 이미 있습니다.")
-    _audit(actor, "masters.media_created", ("masters.media", media.media_id), {"name": name})
     return _media_view(media)
 
 
 def set_media_active(actor, media_id, active):
     _require_admin(actor)
-    media_id = _uuid(media_id, "매체")
-    if not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
-        raise errors.NotFound("매체를 찾을 수 없습니다.")
-    _audit(actor, "masters.media_active_changed", ("masters.media", media_id), {"active": bool(active)})
+    media_id = parse_uuid(media_id, "매체")
+    with transaction.atomic():
+        if not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
+            raise errors.NotFound("매체를 찾을 수 없습니다.")
+        _audit(actor, "masters.media_active_changed", ("masters.media", media_id), {"active": bool(active)})
 
 
 def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다."""
     _require_admin(actor)
-    name = _text(name, "게재 위치 이름", "/name")
-    reason = _text(reason, "사유", "/reason", 200)
+    name = clean_text(name, "게재 위치 이름", "/name")
+    reason = clean_text(reason, "사유", "/reason", 200)
     if pricing_unit not in PricingUnit.values:
         raise errors.InvalidRequest(errors=[{"pointer": "/pricing_unit", "message": f"{', '.join(PricingUnit.values)} 중 하나여야 합니다."}])
     _validate_policy(floor, base, cap)
     try:
         with transaction.atomic():
-            media = Media.objects.get(pk=_uuid(media_id, "매체"))
+            media = Media.objects.get(pk=parse_uuid(media_id, "매체"))
             slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit)
             policy = BidPolicy.objects.create(
                 slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap,
                 changed_by=actor.pk, reason=reason,
             )
+            _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
+                   {"name": name, "pricing_unit": pricing_unit, "floor": floor, "base": base, "cap": cap, "reason": reason})
     except Media.DoesNotExist:
         raise errors.NotFound("매체를 찾을 수 없습니다.")
     except IntegrityError:
         raise errors.Conflict("이 매체에 같은 이름의 게재 위치가 이미 있습니다.")
     slot.media = media
-    _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
-           {"name": name, "pricing_unit": pricing_unit, "floor": floor, "base": base, "cap": cap, "reason": reason})
     return _slot_view(slot, policy)
 
 
@@ -147,7 +128,7 @@ def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
 
 def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_version):
     _require_admin(actor)
-    reason = _text(reason, "사유", "/reason", 200)
+    reason = clean_text(reason, "사유", "/reason", 200)
     _validate_policy(floor, base, cap)
     with transaction.atomic():
         return _add_version(actor, slot_id, floor, base, cap, reason, expected_version)
@@ -156,7 +137,7 @@ def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_versio
 def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
     """같은 값을 여러 슬롯에 새 버전으로. `expected_versions` = {slot_id: 본 버전}. 하나라도 어긋나면 전부 취소."""
     _require_admin(actor)
-    reason = _text(reason, "사유", "/reason", 200)
+    reason = clean_text(reason, "사유", "/reason", 200)
     _validate_policy(floor, base, cap)
     if not expected_versions:
         raise errors.InvalidRequest(errors=[{"pointer": "/slots", "message": "슬롯을 하나 이상 고르세요."}])
@@ -169,15 +150,16 @@ def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
 
 def set_slot_active(actor, slot_id, active):
     _require_admin(actor)
-    slot_id = _uuid(slot_id, "게재 위치")
-    if not Slot.objects.filter(pk=slot_id).update(is_active=bool(active)):
-        raise errors.NotFound("게재 위치를 찾을 수 없습니다.")
-    _audit(actor, "masters.slot_active_changed", ("masters.slot", slot_id), {"active": bool(active)})
+    slot_id = parse_uuid(slot_id, "게재 위치")
+    with transaction.atomic():
+        if not Slot.objects.filter(pk=slot_id).update(is_active=bool(active)):
+            raise errors.NotFound("게재 위치를 찾을 수 없습니다.")
+        _audit(actor, "masters.slot_active_changed", ("masters.slot", slot_id), {"active": bool(active)})
 
 
 def get_slot(slot_id):
     try:
-        row = _current_policies().filter(slot_id=_uuid(slot_id, "게재 위치")).get()
+        row = _current_policies().filter(slot_id=parse_uuid(slot_id, "게재 위치")).get()
     except BidPolicy.DoesNotExist:
         raise errors.NotFound("게재 위치를 찾을 수 없습니다.")
     return _slot_view(row.slot, row)
@@ -188,7 +170,7 @@ def list_slots(active_only=True, media_id=None):
     if active_only:
         qs = qs.filter(slot__is_active=True, slot__media__is_active=True)
     if media_id is not None:
-        qs = qs.filter(slot__media_id=_uuid(media_id, "매체"))
+        qs = qs.filter(slot__media_id=parse_uuid(media_id, "매체"))
     return [_slot_view(row.slot, row) for row in qs.order_by("slot__media__name", "slot__name")]
 
 
@@ -197,7 +179,7 @@ def get_slots_with_policy(slot_ids):
     valid = []
     for slot_id in slot_ids:
         try:
-            valid.append(_uuid(slot_id, "게재 위치"))
+            valid.append(parse_uuid(slot_id, "게재 위치"))
         except errors.NotFound:
             pass  # 형식이 틀린 ID 는 없는 것과 같다
     rows = _current_policies().filter(slot_id__in=valid)
