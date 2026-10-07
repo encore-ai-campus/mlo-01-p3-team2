@@ -60,7 +60,7 @@ Step 4~5  Raw 수집 → Kafka (Step 2 이후)
 | `Pillow` | 이미지 판별·재인코딩 | 0-5 | |
 | `pip-audit` | 의존성 취약점 점검 | 0-6 | 개발용이지만 스크립트가 쓰므로 파일에 적는다 |
 | `bandit` | 정적 보안 점검 | 0-6 | 위와 같음 |
-| `PyYAML` | 계약 파일(`serving.openapi.yaml`) 로드 | 2-1 | 계약 테스트용 |
+| `PyYAML` | 계약 파일(`serving.openapi.yaml`) 로드 | 2-1 | **계약 확정**: `contracts/serving.openapi.yaml`(응답 규칙 충돌 해소: 매체 비활성 403·비활성 슬롯 201+`ad: null`·없는/타 매체 슬롯 404, `POST /decisions`에 404 추가, 필수 헤더 표시, 요청 제한·전환 정의·`title` 확정, C3 공유 파일 규칙). **파일 검증**(`openapi-spec-validator`·예시 전수 검증)과 **응답 검증**(`tests/contract_support.py`: 상태 코드·헤더·미디어 타입·본문, `format` 검사 연결)을 구분. C3은 실제 서버 응답으로 **provider 계약 테스트 첫 적용** | 검증기 통과, 검사기 자체 시험(잘못된 UUID·시각·URI·누락 헤더를 잡음), 변형 검사. **완료 (2026-10-07).** 매체 쪽 담당자와의 공유는 [contracts/README.md](contracts/README.md)를 건네는 것으로(사람의 일) |
 | `jsonschema` | 실제 응답을 계약 스키마에 대조(provider 계약 테스트) | 2-1 | OpenAPI 3.1 스키마는 JSON Schema 2020-12 |
 | `openapi-spec-validator` | 계약 파일이 올바른 OpenAPI 3.1인지 검증 | 2-1 | 검증 스크립트용 |
 
@@ -769,18 +769,18 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 
 ---
 
-# 7. Step 2: Serving API (개요)
+# 7. Step 2: Serving API (개요, 2-1 완료)
 
 | 단계 | 핵심 | 완료 증거(요지) |
 |---|---|---|
 | 2-1 | **계약 확정**: `contracts/serving.openapi.yaml`(초안 작성됨, 설계 §3). `openapi-spec-validator`로 파일 검증, **provider 계약 테스트 틀**(`PyYAML`+`jsonschema`로 실제 응답을 계약 스키마에 대조) | 검증기 통과, 매체 쪽 담당자와 공유(재시도·`reaction_id`·접수/처리 분리 약속 포함) |
-| 2-2 | 매체 인증(공유 키 `X-Media-Key`, 해시 저장·상수시간 비교·교체), 매체별 요청 제한. 인증은 입력 검증보다 먼저. **실패는 401, 비활성 매체는 403, 제한 초과는 429 + `Retry-After`** | 인증 실패·제한·키 교체 테스트 |
-| 2-3 | `POST /decisions`(**201 + `Location`**, 광고 없음도 201), `GET /decisions/{id}`(**본인 매체만, 아니면 404**), `GET /health`. **저장 뒤에만 `decision_id` 응답**. **DRD §10 D-1~D-3 반영**: ① 비활성 슬롯·비활성 매체도 그 매체의 슬롯이면 201 + `ad: null`로 결정을 기록하고(다른 매체의 슬롯·없는 슬롯만 404, `records.decide`의 현재 `NotFound` 동작과 그 테스트를 바꾼다) ② 매체 `context`를 결정에 JSON 열로 저장(크기 제한은 계약 그대로) ③ 응답의 `slot_name`은 serving 계층이 `masters`에서 붙인다(결정에 저장하지 않음) | 계약 테스트, 저장 실패 시 `decision_id`가 나가지 않음, 다른 매체의 결정은 404, **D-1~D-3 각각의 계약 테스트** |
-| 2-4 | `PUT /decisions/{id}/reactions/{reaction_id}`(inbox): 원문 보존 + **(매체, `reaction_id`) 유니크** + `RECEIVED`를 한 트랜잭션에, **저장 뒤 2xx**(**201 처음 / 200 같은 내용 재전송 / 409 같은 ID 다른 내용**), 잠금·장애 시 503 + `Retry-After` | 중복·충돌(409)·저장 실패 테스트, 원문 보존, 다른 매체가 같은 `reaction_id`를 써도 충돌 없음 |
-| 2-5 | 반응 처리(+ `GET .../reactions/{reaction_id}`로 결과 조회, 본인 매체만): 별도 트랜잭션, 규칙 체인(`known-decision`·`same-media`·`once-per-type`), `ChargePolicy` 과금, `ACCEPTED`/`REJECTED`, **`process_reactions` 재처리 명령** | 타 매체 거부, 유형별 1회, 거부 반응 보존, 처리 중 실패 후 재처리해도 이중 과금 없음 |
+| 2-2 | 매체 인증(공유 키 `X-Media-Key`, 해시 저장·상수시간 비교·교체), **매체(UUID)별·경로군별 토큰 버킷** 요청 제한(결정 150/초·버스트 300, 반응 450/초·버스트 600, 조회 150/초·버스트 300. 키 교체 후에도 같은 버킷). 인증은 입력 검증보다 먼저. **키 없음·무효는 401, 유효한 키지만 매체 비활성은 403, 제한 초과는 429 + `Retry-After`** | 인증 실패·제한·키 교체 테스트, 계약 테스트 |
+| 2-3 | `POST /decisions`(**201 + `Location`**, 광고 없음도 201), `GET /decisions/{id}`(**본인 매체만, 아니면 404**), `GET /health`. **저장 뒤에만 `decision_id` 응답**. **DRD §10 D-1~D-3 반영**: ① **활성 매체가 소유한 비활성 슬롯**은 201 + `ad: null`로 결정을 기록하고, **없는 슬롯·다른 매체의 슬롯은 404**, 매체 자체가 비활성이면 2-2의 403(`records.decide`의 현재 비활성 슬롯 `NotFound` 동작과 그 테스트를 바꾼다) ② 매체 `context`를 결정에 JSON 열로 저장(크기 제한은 계약 그대로) ③ 응답의 `slot_name`은 serving 계층이 `masters`에서 붙인다(결정에 저장하지 않음) | 계약 테스트(C1의 상태 코드 표 전부: 401·403·201 비활성 슬롯·404·정상·광고 없음), 저장 실패 시 `decision_id`가 나가지 않음, 다른 매체의 결정은 404, **D-1~D-3 각각의 계약 테스트** |
+| 2-4 | `PUT /decisions/{id}/reactions/{reaction_id}`(inbox): 원문 보존 + **(매체, `reaction_id`) 유니크** + `RECEIVED`를 한 트랜잭션에, **저장 뒤 2xx**(**201 처음 / 200 같은 내용 재전송 / 409 같은 ID 다른 내용**), 잠금·장애 시 503 + `Retry-After` | 중복·충돌(409)·저장 실패 테스트, 원문 보존, 다른 매체가 같은 `reaction_id`를 써도 충돌 없음 | **접수 2xx의 의미는 "inbox 저장 완료"로 고정**: 뒤의 처리 실패가 접수 성공을 뒤집지 않는다
+| 2-5 | 반응 처리(+ `GET .../reactions/{reaction_id}`로 결과 조회, 본인 매체만): 별도 트랜잭션, 규칙 체인(`known-decision`·`same-media`·`once-per-type`), `ChargePolicy` 과금, `ACCEPTED`/`REJECTED`, **`process_reactions` 재처리 명령** | 타 매체 거부, 유형별 1회, 거부 반응 보존, 처리 중 실패 후 재처리해도 이중 과금 없음 | **재시작·중복 처리·자정 이후 재처리에서도 원래 `received_at`과 과금 멱등 키(`reaction_ref`)를 유지**한다(예산 일은 처리 시각이 아니라 반응의 시각 기준으로 일관되게). `process_reactions`는 **단일 관리 프로세스가 1초 주기·배치 100**으로 남은 `RECEIVED`를 재처리한다
 | 2-6 | **동시성 검증**: 150개 동시 결정·150개 동시 반응 | 수신 확인한 건 전부 저장, 유실 0, 이중 과금 0, 잔액=원장 합계 |
 
-**Step 2 시작 전에 정할 것**: 계약 초안 리뷰(요청 제한 수치, `title` 최대 길이), 전환(CONVERSION)의 정의(설계 §7-3), `process_reactions` 실행 방식(설계 §7-9), 매체 쪽 재시도 구현 여부 확인.
+**Step 2의 확정값(2026-10-07, 설계 §10)**: 요청 제한 수치는 위 2-2(**150명 가정의 개발용 초기값**이며 처리량 측정 결과가 아니다. 2-6에서 조정), `title`은 1~200자(구현·C1·C6가 이미 일치), `CONVERSION`은 매체가 사전에 정의한 목표 완료를 보고(광고 서버는 결정 존재·매체 일치·유형별 1회·결정의 과금 단위로만 판정, 연동 전에는 시연용 매체 사건으로 검증), `process_reactions`는 inbox 커밋 뒤 별도 트랜잭션으로 한 번 시도하고 남은 것은 관리 프로세스가 재처리. 매체 쪽 재시도 구현 여부는 [contracts/README.md](contracts/README.md)를 전달해 확인(사람의 일).
 
 ---
 
@@ -831,3 +831,4 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | **Step 1 전체** | **완료 (2026-10-07)** | §6.8 종료 점검표 모두 충족. 구현: `masters`·`engine`·`campaigns`·`billing`·`records` |
 | DRD 정합 | 완료 (2026-10-07) | 입찰·정책 버전 행에 UUID(`bid_id`·`bid_policy_id`) 추가, 결정이 함께 기록. 기존 행은 마이그레이션이 채움(이전 스키마에서 만든 데이터로 검증하는 테스트 포함). 테스트 359개 |
 | Step 1 보완 | 완료 (2026-10-07) | 외부 검토 5건 + 입력 검증 3건 재현 후 수정. ① 이미지 교체 반복의 쿼터 우회(P1) → `CreativeImage` 보유 관계로 쿼터 ② 추가 전용 5개 모델의 위치 인자 upsert 우회 → 부모와 같은 명시적 시그니처 ③ 소수 과금 → 입력·정책 반환값 정수 검사, 잔액 상한 `MAX_AMOUNT`(서비스+DB) ④ 재계산과 과금의 경쟁 → 원장 읽기부터 교체까지 한 쓰기 트랜잭션 ⑤ 교체 직후 과거 이미지 404 → 같은 보유 관계로 서빙 판단 ⑥ 잘못된 URL(`https://[`·포트)·`datetime` 범위 오류를 입력 오류로. Bandit 대상에 Step 1 모듈 5개 추가. 테스트 376개. 위협 모델 갱신 |
+| 2-1 계약 확정 | 완료 (2026-10-07) | 계약 응답 규칙 충돌 해소(2-2의 403 ↔ 2-3의 201), C1 `POST /decisions` 404 추가, 필수 헤더 표시, 요청 제한·전환·title 확정, C3 공유 파일 규칙. 계약 파일 검증·응답 검증 틀(`tests/contract_support.py`, `format` 검사 연결) + C3 provider 계약 테스트. **Step 1 마이그레이션 보완**: 교체된 과거 이미지의 보유 관계를 과거 결정·감사 로그로 복구(records 0003). 테스트 +39 |
