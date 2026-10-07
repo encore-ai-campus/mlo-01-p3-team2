@@ -505,9 +505,9 @@ tests/test_engine_pricing.py  tests/test_engine_filters.py  tests/test_engine_po
 1. **타입**(설계 §4.3 필드 표 그대로): `Candidate`, `Eligible`(= `Candidate` + `applied_amount`), `AdRequest`(`subject_id`, `slot_id`, `now`), `Selection`(`chosen: Eligible | None`, `trace: dict`). 모두 불변. 금액은 `int`(`bool`·`float` 거부), 시각은 UTC 지정(naive 거부), 생성 시 검증.
 2. **`effect_of(bid, floor, cap) -> Effect(eligible, applied_amount, reason)`**: 설계 §4.2 표를 코드로. `reason`은 C6 `SlotEffect`와 같은 값(`within_range`·`capped_at_cap`·`below_floor`). 콘솔의 `effects`·`bid-preview`는 이 함수를 그대로 부른다(`no_policy`·`slot_inactive`는 `masters` 값으로 콘솔이 붙인다).
 3. **`is_expired(ends_at, now)`**: `ends_at`이 `None`이면 거짓, `ends_at ≤ now`이면 참(**종료 시각 포함**, C6의 "끝나는 시각(미포함)"과 같은 뜻). 선택 필터·`campaigns`의 전환 작업·수정 가드가 모두 이 함수를 쓴다.
-4. **필터 체인**: 순서 고정, 각 필터는 `(Eligible, request) -> 거절 사유 | None`. 순서: ① `status`(캠페인 `ACTIVE`, 광고그룹 `enabled`) ② `period`(`period_start ≤ now`, `not is_expired`) ③ `floor`(`below_floor`) ④ `budget`(`remaining_daily_budget ≥ applied_amount`) ⑤ `balance`(`wallet_balance ≥ applied_amount`). 적용 금액은 필터 앞에서 `effect_of`로 계산한다. 거절은 사유별 **개수만** `trace`에 남긴다(후보가 많아도 `trace`가 커지지 않게).
+4. **필터 체인**: 순서 고정, 각 필터는 `(Eligible, request) -> 거절 사유 | None`. 순서: ① `status`(캠페인 `ACTIVE`, 광고그룹 `enabled`) ② `period`(`period_start ≤ now`, `not is_expired`) ③ `floor`(`below_floor`) ④ `budget`(`remaining_daily_budget ≥ applied_amount`) ⑤ `balance`(`wallet_balance ≥ applied_amount`). 적용 금액은 필터 앞에서 `effect_of`로 계산한다. 거절은 사유별 **개수만** `DecisionResult.rejected`에 담는다(후보가 많아도 커지지 않게, `records`가 `Decision.rejected_counts`로 저장). 후보는 **처음 걸린 필터**의 사유로 한 번만 센다. 사유 값: `campaign_not_active`·`ad_group_disabled`·`not_started`·`expired`·`below_floor`·`budget_exhausted`·`insufficient_balance`.
 5. **`SelectionPolicy` 프로토콜과 `highest-bid/v1`**: 적용 금액 최대, **동점이면 `rng`로 무작위**, `trace`에 동점 후보 ID 목록과 뽑힌 값. 후보가 없으면 `chosen=None`. `request`는 읽지 않는다.
-6. **`decide(candidates, request, rng, policy="highest-bid/v1", filters=DEFAULT) -> DecisionResult`**: 가격 계산 → 필터 → 정책 선택. 알 수 없는 정책·필터 이름은 즉시 오류(조용히 기본값으로 바꾸지 않는다).
+6. **`decide(candidates, request, rng, policy="highest-bid/v1", filters=DEFAULT) -> DecisionResult(selection, considered, rejected)`**: 가격 계산 → 필터 → 정책 선택. 알 수 없는 정책·필터 이름은 즉시 오류(`UnknownName`, 조용히 기본값으로 바꾸지 않는다). 요청 슬롯과 다른 슬롯의 후보가 섞이면 오류. `floor` 필터 없이 `budget`·`balance`만 쓰면(하한 미만 후보가 적용 금액 없이 남음) 오류. 같은 시드면 **입력 순서와 무관하게** 같은 결과가 나오도록 동점 후보를 광고그룹 ID로 정렬한 뒤 뽑는다.
 
 **테스트**
 
@@ -519,7 +519,7 @@ tests/test_engine_pricing.py  tests/test_engine_filters.py  tests/test_engine_po
 | `test_types_reject_bad_values` | 소수·`bool`·음수·naive 시각 거부, 불변 |
 | `test_each_filter_rejects_with_reason` | 상태·광고그룹 꺼짐·시작 전·종료·하한·예산·잔액 각각 |
 | `test_budget_and_balance_boundary` | `remaining == applied`는 통과, 1 모자라면 거절 |
-| `test_filter_order_and_rejection_counts_in_trace` | 사유별 개수 |
+| `test_filter_order_first_failure_wins_and_counts_by_reason` | 처음 걸린 필터의 사유로 한 번만, 사유별 개수 |
 | `test_highest_bid_picks_max_applied_amount` | 상한에 닿은 두 입찰은 동점 |
 | `test_tie_break_reproducible_with_seed` | 같은 시드 → 같은 선택 |
 | `test_tie_break_is_uniform` | 3자 동점 3,000회 → 각 후보 비율이 허용 범위 안 |
@@ -807,7 +807,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | Step 0 보완 | 완료 (2026-10-07) | 외부 검토 4건(감사 로그 덮어쓰기·과대 multipart 500·PNG ICC 잔존·관리자 본인 비밀번호 변경 감사 누락) 재현 후 수정, 회귀 테스트 추가. 의존성 직접 항목 패치 고정, `STATIC_ROOT` 설정 |
 | Step 1 상세 계획 | 작성 (2026-10-07) | §6. 확정 반영: `Candidate`/`Eligible`, 적용 금액·종료 판정 `engine` 한 곳, 정수 포인트, `ENDED` 확정 상태, 가입 지급 50,000 |
 | 1-1 `masters` | 완료 (2026-10-07) | 테스트 27개 추가(전체 223개), `check.sh` 통과. 정책 낙관적 잠금은 `expected_version`을 일부러 꺼 보면 테스트가 실패함을 확인(동시 저장 `['ok','ok']`). 경계 검사가 R2 위반 2건(`foundation.errors`·`foundation.models` 직접 import)을 잡아 `foundation.api` 경유로 수정. 위협 모델 T28 추가 |
-| 1-4 `engine` | 대기 | 1-1 다음(혼자 진행 시 권장 순서 1-1 → 1-4 → 1-2 → 1-3 → 1-5) |
+| 1-4 `engine` | 완료 (2026-10-07) | 테스트 27개 추가(전체 250개). **Django·DB 없이 단독 통과**(`env -i … python -m unittest tests.test_engine_*`). 변형 검사: 동점 처리를 항상 첫 후보로 바꾸거나, `is_expired`·예산 비교의 경계를 어긋나게 하면 테스트가 실패함을 확인. 위협 모델 T29 추가 |
 | 1-2 `campaigns` | 대기 | |
 | 1-3 `billing` | 대기 | |
 | 1-5 `records` | 대기 | |
