@@ -2,7 +2,7 @@
 
 > Status: **정식 문서** (2026-10-08 `intake/`에서 `docs/ads-server/`로 승격). 광고 서버만 다룬다. `[제안]`·`[열림]` 항목은 확정되면 이 문서를 고친다.
 > 관련 문서: [ads-server-design.md](ads-server-design.md) (설계), [implementation-plan.md](implementation-plan.md) (구현 계획), [threat-model.md](threat-model.md) (위협 모델), [contracts/](contracts/) (OpenAPI 계약)
-> 기준일: 2026-10-08 · 기준 코드: `5eec532`(Step 2-2 매체 인증까지) · 구현 위치: `apps/ads_server/`
+> 기준일: 2026-10-08 · 기준 코드: Step 2 전체(C1 v1.1 포함, 2-11)까지 · 구현 위치: `apps/ads_server/`
 > **PK 규칙(§3 R-2, 2026-10-08)은 코드에 적용됐다**(2026-10-08, 모델·마이그레이션 재생성). 적용 전 모양과의 차이는 §4.8에 기록으로 남겼다.
 > 근거: 설계서 `docs/ads-server/ads-server-design.md`, 구현 계획 `implementation-plan.md`, 계약 `contracts/serving.openapi.yaml`(C1·C3), `contracts/console.openapi.yaml`(C6), 실제 모델 코드(`*/models.py`)
 > 표기: **[구현]** 코드에 있음 · **[계획]** 구현 계획에 있고 아직 코드 없음 · **[제안]** 이 문서가 처음 제안함(동의 필요) · **[열림]** 정하지 못함
@@ -754,7 +754,7 @@ stateDiagram-v2
 | 필드 | 필수 | 규칙 |
 |---|:---:|---|
 | `slot_id` | O | UUID. 그 매체의 슬롯이어야 한다 |
-| `subject_id` | O | **가명 UUID**. 직접 식별자 금지. 수집만 하고 선택에 쓰지 않는다 |
+| `subject_id` | 슬롯에 따라 | **가명 UUID**. 직접 식별자 금지. 수집만 하고 선택에 쓰지 않는다. **개인(`individual`) 슬롯은 필수, 일괄(`shared`) 슬롯은 보내지 않는다**(어기면 400 — 슬롯을 확인한 뒤에 검사하므로 404·403이 먼저) [구현 2-7] |
 | `context` | | 불투명 JSON, 4 KiB·깊이 4·속성 50개 이하, 직접 식별자 키 금지 |
 
 **응답** (`201 Created`, `Location: /api/media/v1/decisions/{decision_id}`)
@@ -764,15 +764,19 @@ stateDiagram-v2
   "decision_id": "3c2b1a00-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
   "slot_id": "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
   "slot_name": "로비 상단 배너",
+  "audience": "individual",
   "decided_at": "2026-10-07T12:00:00Z",
   "ad": {
     "creative_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
     "title": "파이썬 입문 강의",
     "image_url": "https://ads.example.com/assets/<sha256>.png",
-    "redirect_url": "https://example.com/landing"
+    "redirect_url": "https://example.com/landing",
+    "click_url": "https://ads.example.com/c/<서명 토큰>"
   }
 }
 ```
+
+- `audience`(슬롯 성격, [구현 2-7])와 `ad.click_url`([구현 2-8])은 v1.1에서 더해졌다. **클릭은 매체가 보고하지 않고 `click_url`로 이동시키면 광고 서버가 관측한다**(`GET /c/{token}` → 302 → `redirect_url`). 일괄 슬롯의 `click_url`은 끝에 `?s={subject_id}` 자리가 있고 매체가 클릭한 사람의 값으로 바꿔 넣는다.
 
 - 광고가 없으면 `"ad": null`이고 그래도 **201**이다(결정은 기록됨).
 - 응답에는 **입찰·금액·정책 정보가 없다**(매체가 알 필요 없는 내부 정보).
@@ -813,8 +817,10 @@ sequenceDiagram
 **요청** (`PUT /api/media/v1/decisions/{decision_id}/reactions/{reaction_id}`)
 
 ```json
-{"type": "CLICK", "occurred_at": "2026-10-07T12:00:03Z"}
+{"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:03Z", "subject_id": "0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0"}
 ```
+
+`type`은 노출(`IMPRESSION`)·전환(`CONVERSION`)이다(매체가 보낸 `CLICK`은 접수만 하고 거부). `subject_id`는 일괄 슬롯에서 필수, 개인 슬롯에서는 선택이며 보내면 결정의 사람과 같아야 한다 [구현 2-9].
 
 **응답** — 처음 접수 **201**, 같은 내용 재전송 **200**, 같은 ID 다른 내용 **409**
 
@@ -822,7 +828,8 @@ sequenceDiagram
 {
   "reaction_id": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
   "decision_id": "3c2b1a00-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
-  "type": "CLICK",
+  "subject_id": "0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0",
+  "type": "IMPRESSION",
   "occurred_at": "2026-10-07T12:00:03Z",
   "received_at": "2026-10-07T12:00:03.214Z",
   "status": "RECEIVED",
@@ -846,8 +853,10 @@ sequenceDiagram
         S-->>M: 503 + Retry-After (매체는 같은 reaction_id로 재시도)
     end
     P->>DB: RECEIVED 반응 읽기
-    P->>P: 규칙 체인 known-decision → same-media → ad-shown → once-per-type
-    alt 거부
+    P->>P: 규칙 체인 known-decision → same-media → ad-shown → click-source → subject → occurred-at → campaign-open → once-per-type → funnel-window → funnel-order
+    alt 앞 단계(노출·클릭)를 기다림
+        P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초, 5초 간격으로 다시 판정)
+    else 거부
         P->>DB: REJECTED + reason_code (지우지 않음)
     else 인정
         P->>B: charge_for_reaction(결정의 owner·campaign·applied_amount, reaction_ref)
@@ -863,6 +872,10 @@ sequenceDiagram
 | 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
 | 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
 | 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
+| 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
+| 클릭 | 결정적 `reaction_id`(서버 비밀 HMAC)로 (매체, `reaction_id`) UNIQUE | 같은 사람의 클릭은 한 건, 매체가 미리 선점할 수 없음 [구현 2-8] |
+
+판정 단위는 개인 슬롯이면 결정, 일괄 슬롯이면 (결정, 사람)이다. 순서(노출 → 클릭 → 전환)·기간·보류는 설계 §10 "반응 판정 세부", 매체용 요약은 [contracts/README.md](contracts/README.md).
 
 ### 5.4 C3 이미지 전달 [구현]
 
@@ -1104,6 +1117,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 버전 | 날짜 | 내용 |
 |---|---|---|
+| 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
 | 0.11 | 2026-10-08 | 데이터 흐름 단계화: §2.1을 V1·DB 전환·확장 표로 나눔(파이프라인 연결은 확정 구조가 아님을 명시), 저장소 분담(MySQL 업무 + outbox / MongoDB 이벤트 로그), C2 경계 = MongoDB `ad_events`, JSONL 통로 삭제·NDJSON은 manifest·검증 전용, §2.3 분석 계층 대응, C4는 집계 교체의 입구 |
 | 0.10 | 2026-10-08 | 2-9(반응 판정 확장) 반영: `records_reaction.person_id`·`checked_at`, 유일 제약 (결정, 사람, 유형), 결정 인덱스 `(slot_id, subject_id, decided_at)`, 새 규칙 |
 | 0.9 | 2026-10-08 | 2-7(슬롯 `audience`·결정 스냅샷)·2-8(클릭 관측: `records_reaction.source`·`subject_id`) 반영 |
