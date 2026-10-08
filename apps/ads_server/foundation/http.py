@@ -60,6 +60,24 @@ def _depth(value):
 json_depth = _depth  # 공개 이름: 다른 입력 검증(예: C1 context 의 깊이 제한)이 같은 기준을 쓴다
 
 
+def _has_unpaired_surrogate(value):
+    """키와 값 모두, 어느 깊이에서든. JSON 이스케이프(`\\ud800`)는 문법상 유효해 디코더가 받지만 UTF-8 로 저장·전송할 수 없다."""
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            try:
+                node.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+        elif isinstance(node, dict):
+            stack.extend(node.keys())
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return False
+
+
 def parse_json(request, max_bytes=DEFAULT_MAX_BYTES, max_depth=DEFAULT_MAX_DEPTH):
     """요청 본문을 JSON 객체(dict)로 읽는다. 실패하면 ApiError(4xx)."""
     if not _JSON_CT.match(request.META.get("CONTENT_TYPE", "")):
@@ -88,6 +106,8 @@ def parse_json(request, max_bytes=DEFAULT_MAX_BYTES, max_depth=DEFAULT_MAX_DEPTH
         raise InvalidRequest("JSON 형식이 올바르지 않습니다.")
     if not isinstance(value, dict):
         raise InvalidRequest("최상위는 JSON 객체여야 합니다.")
+    if _has_unpaired_surrogate(value):
+        raise InvalidRequest("유효하지 않은 유니코드(짝 없는 서로게이트)가 있습니다.")
     if _depth(value) > max_depth:
         raise InvalidRequest(f"중첩 깊이는 최대 {max_depth} 입니다.")
     return value

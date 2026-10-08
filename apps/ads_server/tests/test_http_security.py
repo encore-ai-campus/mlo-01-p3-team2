@@ -142,6 +142,13 @@ class ParseJsonTests(SimpleTestCase):
         for body in ('{"a": NaN}', '{"a": Infinity}', '{"a": -Infinity}', '{"a": 1e999999}'):
             self.assertRejects(errors.InvalidRequest, body)
 
+    def test_parse_json_rejects_unpaired_surrogates_but_keeps_valid_pairs(self):
+        """`\\ud800` 같은 짝 없는 서로게이트는 JSON 문법상 유효하지만 UTF-8 로 쓸 수 없다 → 키·값·중첩 어디서든 400(500 이 되지 않는다)."""
+        for body in ('{"a": "\\ud800"}', '{"a": "\\udfff"}', '{"\\ud800": 1}', '{"a": [{"b": ["x\\udc00"]}]}', '{"a": {"\\ud83d": 1}}'):
+            with self.assertRaises(errors.InvalidRequest, msg=body):
+                parse_json(json_request(body))
+        self.assertEqual(parse_json(json_request('{"a": "\\ud83d\\ude00", "😀": ["😀"]}')), {"a": "😀", "😀": ["😀"]})
+
     def test_parse_json_depth_limit(self):
         deep = '{"a": {"b": {"c": {"d": 1}}}}'  # 깊이 4
         self.assertRejects(errors.InvalidRequest, deep, max_depth=3)

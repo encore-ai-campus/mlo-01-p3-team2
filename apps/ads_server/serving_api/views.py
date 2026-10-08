@@ -3,15 +3,16 @@
 `slot_name` 은 표시용이라 결정에 저장하지 않고 응답을 만들 때 `masters` 에서 붙인다(DRD D-3).
 """
 from django.contrib.auth.decorators import login_not_required
+from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_http_methods
 
-from foundation.api import parse_json
+from foundation.api import errors, parse_json
 from masters import api as masters
 from records import api as records
 
 from .auth import media_endpoint
-from .requests import parse_decision_request
+from .requests import UUID_PATTERN, parse_decision_request
 
 BASE = "/api/media/v1"
 
@@ -43,8 +44,10 @@ def health(request):
 @media_endpoint("decisions")
 def create_decision(request):
     fields = parse_decision_request(parse_json(request))
-    decision = records.decide(request.media.media_id, fields.slot_id, subject_id=fields.subject_id, context=fields.context)
-    response = JsonResponse(_decision_body(decision), status=201)  # 저장한 뒤에만 여기에 온다
+    with transaction.atomic():  # 응답에 필요한 조회까지 한 트랜잭션: 어느 단계가 실패해도 503 은 "저장하지 않았다"는 뜻이다(계약 Unavailable)
+        decision = records.decide(request.media.media_id, fields.slot_id, subject_id=fields.subject_id, context=fields.context)
+        body = _decision_body(decision)
+    response = JsonResponse(body, status=201)  # 커밋된 뒤에만 여기에 온다
     response["Location"] = f"{BASE}/decisions/{decision.decision_id}"
     return response
 
@@ -52,4 +55,6 @@ def create_decision(request):
 @require_http_methods(["GET"])
 @media_endpoint("reads")
 def get_decision(request, decision_id):
+    if not UUID_PATTERN.fullmatch(decision_id):  # 계약 `Uuid` 형식만 받는다. 아닌 표기는 '없는 것'과 같다(records 와 같은 404)
+        raise errors.NotFound("결정을 찾을 수 없습니다.")
     return JsonResponse(_decision_body(records.get_decision(request.media.media_id, decision_id)))

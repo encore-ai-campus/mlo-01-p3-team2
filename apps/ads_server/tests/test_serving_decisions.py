@@ -4,7 +4,7 @@ import uuid
 from unittest import mock
 
 from django.db import OperationalError
-from django.test import Client, TestCase, override_settings, tag
+from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from masters import api as masters
 from records.models import Decision
@@ -16,7 +16,7 @@ BASE = "/api/media/v1"
 SUBJECT = str(uuid.uuid4())
 
 
-class DecisionApiBase(ProviderContractMixin, TestCase):
+class DecisionApiMixin(ProviderContractMixin):
     contract = Contract("serving")
 
     def setUp(self):
@@ -43,6 +43,10 @@ class DecisionApiBase(ProviderContractMixin, TestCase):
     def get(self, path, key="USE"):
         headers = {"HTTP_X_MEDIA_KEY": self.key if key == "USE" else key} if key is not None else {}
         return self.client.get(f"{BASE}{path}", **headers)
+
+
+class DecisionApiBase(DecisionApiMixin, TestCase):
+    pass
 
 
 @tag("security")
@@ -115,6 +119,15 @@ class CreateDecisionTests(DecisionApiBase):
         self.assertEqual(Decision.objects.count(), 0)
         self.assertEqual(self.post().status_code, 201)  # 복구되면 다음 요청은 정상
 
+    def test_a_failure_after_the_insert_still_means_nothing_was_saved(self):
+        """응답을 만드는 중(슬롯 이름 조회)에 저장소가 실패하면 503 이고 결정도 남지 않는다 — 503 은 '저장하지 않았다'는 뜻이다."""
+        with mock.patch("serving_api.views.masters.slot_names", side_effect=OperationalError("database is locked")):
+            response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertContract(self.contract, "/decisions", "post", response)
+        self.assertNotIn("Location", response.headers)
+        self.assertEqual(Decision.objects.count(), 0)
+
     def test_each_request_makes_a_new_decision(self):
         first, second = self.post().json(), self.post().json()
         self.assertNotEqual(first["decision_id"], second["decision_id"])
@@ -122,6 +135,19 @@ class CreateDecisionTests(DecisionApiBase):
 
     def test_wrong_method_is_405(self):
         self.assertEqual(self.client.get(f"{BASE}/decisions", HTTP_X_MEDIA_KEY=self.key).status_code, 405)
+
+
+@tag("security")
+class CommittedDecisionTests(DecisionApiMixin, TransactionTestCase):
+    """savepoint 가 아니라 **실제 커밋**으로: 응답 단계의 실패가 이미 커밋된 결정을 남기지 않는다."""
+
+    def test_a_failure_while_building_the_response_leaves_no_committed_decision(self):
+        with mock.patch("serving_api.views.masters.slot_names", side_effect=OperationalError("database is locked")):
+            response = self.post()
+        self.assertEqual((response.status_code, "Location" in response.headers), (503, False))
+        self.assertEqual(Decision.objects.count(), 0)
+        ok = self.post()
+        self.assertEqual((ok.status_code, Decision.objects.count()), (201, 1))  # 복구되면 정상
 
 
 @tag("security")
@@ -172,6 +198,25 @@ class DecisionContextTests(DecisionApiBase):
             self.assertContract(self.contract, "/decisions", "post", response)
         self.assertEqual(Decision.objects.count(), 0)
         self.assertEqual(self.request({"username_hint": "ok", "mail": "ok"}).status_code, 201)  # 정확히 같은 키만 막는다
+
+    def test_unpaired_surrogates_are_400_not_500_in_keys_values_and_nested_values(self):
+        """JSON 이스케이프(`\\ud800`)는 문법상 유효해 디코더가 받는다. UTF-8 로 저장할 수 없으므로 경계에서 400 으로 거절한다."""
+        for label, raw in {
+            "high value": '{"s": "\\ud800"}', "low value": '{"s": "\\udfff"}', "key": '{"\\ud800": 1}',
+            "nested value": '{"a": [{"b": "x\\udc00y"}]}', "nested key": '{"a": {"\\ud83d": 1}}', "reversed pair": '{"s": "\\ude00\\ud83d"}',
+        }.items():
+            body = '{"slot_id": "%s", "subject_id": "%s", "context": %s}' % (self.w.slot.slot_id, SUBJECT, raw)
+            response = self.post(raw=body)
+            self.assertEqual(response.status_code, 400, label)
+            self.assertEqual(response.json()["code"], "invalid_request", label)
+            self.assertContract(self.contract, "/decisions", "post", response)
+        self.assertEqual(Decision.objects.count(), 0)
+
+    def test_valid_surrogate_pairs_and_emoji_are_kept(self):
+        body = '{"slot_id": "%s", "subject_id": "%s", "context": {"e": "\\ud83d\\ude00 😀", "😀": 1}}' % (self.w.slot.slot_id, SUBJECT)
+        response = self.post(raw=body)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Decision.objects.get().context, {"e": "😀 😀", "😀": 1})
 
     def test_context_must_be_an_object(self):
         for bad in ([], "x", 1, None, True):
@@ -240,6 +285,19 @@ class GetDecisionTests(DecisionApiBase):
             self.assertContract(self.contract, "/decisions/{decision_id}", "get", response)
             details.add(response.json()["detail"])
         self.assertEqual(len(details), 1)
+
+    def test_only_the_contract_uuid_format_is_accepted_on_reads(self):
+        """계약 `Uuid` 는 하이픈 포함 36자다. 32자리·중괄호·urn 표기는 같은 결정이어도 '없는 것'과 같은 404 다."""
+        created = self.post().json()
+        did = created["decision_id"]
+        details = {self.get(f"/decisions/{uuid.uuid4()}").json()["detail"]}
+        for label, form in {"no hyphens": did.replace("-", ""), "braces": "{" + did + "}", "urn": "urn:uuid:" + did}.items():
+            response = self.get(f"/decisions/{form}")
+            self.assertEqual(response.status_code, 404, label)
+            self.assertContract(self.contract, "/decisions/{decision_id}", "get", response)
+            details.add(response.json()["detail"])
+        self.assertEqual(len(details), 1)  # 어떤 이유로 못 찾았는지 알리지 않는다
+        self.assertEqual(self.get(f"/decisions/{did}").status_code, 200)
 
     def test_auth_applies_to_reads_too(self):
         created = self.post().json()

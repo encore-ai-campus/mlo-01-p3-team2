@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from foundation.api import errors, json_depth
 
-_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")  # 계약 `Uuid`(하이픈 36자만)
+UUID_PATTERN = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")  # 계약 `Uuid`(하이픈 36자만)
 CONTEXT_MAX_BYTES, CONTEXT_MAX_DEPTH, CONTEXT_MAX_PROPERTIES = 4096, 4, 50
 FORBIDDEN_CONTEXT_KEYS = frozenset({"login_id", "username", "password", "password_hash", "nickname", "email"})  # 직접 식별자(계약 `Context`)
 _FIELDS = frozenset({"slot_id", "subject_id", "context"})
@@ -27,7 +27,7 @@ def _uuid_field(body, name, problems):
     value = body.get(name)
     if name not in body:
         problems.append(_error(f"/{name}", "필수입니다."))
-    elif not isinstance(value, str) or not _UUID.fullmatch(value):
+    elif not isinstance(value, str) or not UUID_PATTERN.fullmatch(value):
         problems.append(_error(f"/{name}", "UUID(하이픈 포함 36자) 문자열이어야 합니다."))
     else:
         return uuid.UUID(value)
