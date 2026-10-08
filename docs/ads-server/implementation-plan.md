@@ -35,8 +35,10 @@ Step 1  도메인 코어 (0-3, 0-5 이후)
 
 Step 2  Serving API (1-5 이후)   2-1 ─▶ 2-2 ─▶ 2-3 ─▶ 2-4 ─▶ 2-5 ─▶ 2-6
         C1 v1.1 (2-6 이후, Step 3 전)   2-7 ─▶ 2-8 ─▶ 2-9 ─▶ 2-10 ─▶ 2-11
-Step 3  화면 (Step 1 이후. 3-1 관리자와 3-2 광고주는 서로 독립)
-Step 4~5  Raw 수집 → Kafka (Step 2 이후)
+Step DB DB 전환 (2-11 직후, Step 3 전)   DB-1 MySQL ─▶ DB-2 MongoDB 연결
+Step 3  화면 (Step DB 이후. 3-1 관리자와 3-2 광고주는 서로 독립)
+Step 4  이벤트 내보내기 (Step DB 이후)   4-1 outbox → 중계 → MongoDB ─▶ 4-2 NDJSON manifest·검증
+Step 5  확장 (조건부: 조회 시간·부하 지표가 한계일 때. 지금은 기록만)
 ```
 
 | 병렬로 나눠 맡을 수 있는 지점 | 조건 |
@@ -819,8 +821,10 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 |---|---|
 | Step 3-1 | 관리자(Django admin): 입찰 정책 새 버전 입력과 **일괄 입력 동작**, 매체·슬롯, 광고 모니터링(썸네일·이동 주소 도메인), 중단/해제(사유), **재검토 대기 목록(해제/반려)**, 광고주 비활성화·비밀번호 초기화, 포인트 조정, 감사 로그 열람 |
 | Step 3-2 | 광고주 콘솔: 대시보드(포인트 위젯), 캠페인·광고그룹 목록, 광고 만들기(단계형), **정지 사유·재검토 요청 버튼**, 포인트 내역, 내 정보. **콘솔 뷰에 비즈니스 규칙을 두지 않는다**(설계 §6.6). **규칙의 원본은 `contracts/console.openapi.yaml`(C6 초안)** — 서비스가 이 규칙을 지키고 화면은 그대로 따른다 |
-| Step 4-1 | outbox + `EventSink`(JSONL), 이벤트 스키마(C2) 확정 |
-| Step 5 | Kafka sink + relay, C4 Insight 입력 방식 결정과 최소 수신, 재처리·백필 |
+| Step DB | **DB 전환(2-11 직후, Step 3 전)**. DB-1: MySQL 이전 — 설정·마이그레이션, SQLite 전용 동작(조건부 유일 제약 등) 재설계, 동시성 재검증(부하 시험 재실행), **테스트를 MySQL에서**. DB-2: MongoDB 연결(레플리카셋)·`ad_events` 컬렉션·색인(아직 쓰지 않음). 결정 근거는 설계 §10 "저장소 단계" |
+| Step 4-1 | outbox(MySQL, 업무 데이터와 같은 트랜잭션, 열은 Debezium outbox 라우터 기본 모양과 맞춤) + 중계 → MongoDB `ad_events`(`_id = event_id` 멱등: 같은 내용 통과·다른 내용 충돌로 멈춤), 이벤트 스키마(C2) 확정. 파이프라인 쪽 경계는 이 컬렉션(MySQL 직접 읽기 없음) |
+| Step 4-2 | NDJSON manifest·검증 도구(정합성 점검 결과, 재처리·백필 대상 목록. manifest = SHA-256·행 수·`schema_version`·`source_kind`·checkpoint, 임시 파일 → 교체) |
+| Step 5(확장) | 조건부·기록만: Debezium outbox 라우터 → Kafka(중계 대체), Spark → Delta 메달리온(설계 §10 "분석 계층 대응"), 스키마 저장소, C4 수신(`records.api` 집계 안쪽 교체) |
 
 ## 8.1 Step 3 상세 계획 (2026-10-08 작성, 착수 전 결정 6건은 아래 [결정 대기])
 
