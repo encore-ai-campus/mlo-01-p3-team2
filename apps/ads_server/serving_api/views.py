@@ -38,7 +38,7 @@ def _decision_body(decision):
     return {
         "decision_id": str(decision.decision_id), "slot_id": str(decision.slot_id),
         "slot_name": masters.slot_names([decision.slot_id]).get(decision.slot_id, ""),
-        "decided_at": _utc(decision.decided_at), "ad": ad,
+        "audience": decision.audience, "decided_at": _utc(decision.decided_at), "ad": ad,
     }
 
 

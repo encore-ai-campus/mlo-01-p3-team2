@@ -14,6 +14,16 @@ class PricingUnit(models.TextChoices):
     CONVERSION = "CONVERSION", "전환"
 
 
+class Audience(models.TextChoices):
+    """슬롯 성격(설계 §10 "일괄 슬롯"). 결정 하나를 **한 사람**이 보는가, **여러 사람**이 같은 광고를 보는가. 타기팅이 아니다."""
+
+    INDIVIDUAL = "individual", "개인"
+    SHARED = "shared", "일괄"
+
+
+MAX_VIEWERS = 100_000  # `shared` 슬롯의 결정당 인정 인원 상한(max_viewers)의 설정 가능한 최댓값. 오입력(자릿수 실수) 방어
+
+
 class Media(models.Model):
     media_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     name = models.CharField(max_length=100, unique=True)
@@ -32,19 +42,31 @@ class Slot(models.Model):
     media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="slots")
     name = models.CharField(max_length=100)
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
+    audience = models.CharField(max_length=20, choices=Audience.choices)  # 만든 뒤 바꿀 수 없다. 기본값을 두지 않는다: 만드는 쪽이 정한다
+    max_viewers = models.PositiveIntegerField(null=True, blank=True)  # `shared` 일 때만: 결정 하나에서 인정하는 서로 다른 사람 수 상한
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "masters_slot"
-        constraints = [models.UniqueConstraint(fields=["media", "name"], name="masters_slot_name_per_media")]
+        constraints = [
+            models.UniqueConstraint(fields=["media", "name"], name="masters_slot_name_per_media"),
+            models.CheckConstraint(condition=Q(audience__in=Audience.values), name="masters_slot_audience_valid"),
+            models.CheckConstraint(  # shared ⇔ max_viewers 가 있고 1 이상
+                condition=(Q(audience=Audience.INDIVIDUAL, max_viewers__isnull=True)
+                           | Q(audience=Audience.SHARED, max_viewers__isnull=False, max_viewers__gte=1, max_viewers__lte=MAX_VIEWERS)),  # NULL 은 CHECK 를 통과하므로 명시한다
+                name="masters_slot_max_viewers_shared_only",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
-        """과금 단위는 만든 뒤 바꿀 수 없다(입찰 이력의 의미가 섞이지 않게, 설계 §4.1)."""
+        """과금 단위와 슬롯 성격은 만든 뒤 바꿀 수 없다(입찰 이력·집계 기준의 의미가 섞이지 않게, 설계 §4.1·§10)."""
         if not self._state.adding:
-            current = type(self).objects.filter(pk=self.pk).values_list("pricing_unit", flat=True).first()
-            if current is not None and current != self.pricing_unit:
+            current = type(self).objects.filter(pk=self.pk).values("pricing_unit", "audience").first()
+            if current is not None and current["pricing_unit"] != self.pricing_unit:
                 raise ValueError("슬롯의 과금 단위는 바꿀 수 없다.")
+            if current is not None and current["audience"] != self.audience:
+                raise ValueError("슬롯의 성격(audience)은 바꿀 수 없다.")
         super().save(*args, **kwargs)
 
     def __str__(self):

@@ -13,7 +13,7 @@ from foundation.api import record_audit
 from foundation.models import AppendOnlyError, AuditLog
 from masters.models import BidPolicy
 from records.models import Decision
-from tests.factories import World
+from tests.factories import SUBJECT, World
 
 OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy"}
 
@@ -29,7 +29,7 @@ def clone_with_same_pk(row, field, value):
 class AllAppendOnlyModelsTests(TestCase):
     def rows(self):
         w = World()
-        decision = __import__("records.api", fromlist=["decide"]).decide(w.slot.media_id, w.slot.slot_id)
+        decision = __import__("records.api", fromlist=["decide"]).decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT)
         return {
             "AuditLog": (AuditLog.objects.first(), "overwritten"),
             "BidPolicy": (BidPolicy.objects.first(), "overwritten"),

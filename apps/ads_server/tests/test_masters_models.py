@@ -11,7 +11,7 @@ USER_ID = uuid.uuid4()
 
 def make_slot(media=None, name="메인 배너", unit="IMPRESSION"):
     media = media or Media.objects.create(name=f"매체-{uuid.uuid4().hex[:6]}")
-    slot = Slot.objects.create(media=media, name=name, pricing_unit=unit)
+    slot = Slot.objects.create(media=media, name=name, pricing_unit=unit, audience="individual")
     BidPolicy.objects.create(slot=slot, policy_version=1, floor_amount=10, base_amount=20, cap_amount=50, changed_by=USER_ID, reason="초기")
     return slot
 
@@ -94,7 +94,7 @@ class SlotModelTests(TestCase):
         make_slot(media_a, "상단")
         make_slot(media_b, "상단")  # 다른 매체에서는 같은 이름 가능
         with self.assertRaises(IntegrityError), transaction.atomic():
-            Slot.objects.create(media=media_a, name="상단", pricing_unit="CLICK")
+            Slot.objects.create(media=media_a, name="상단", pricing_unit="CLICK", audience="individual")
 
     def test_media_name_unique(self):
         Media.objects.create(name="같은 이름")

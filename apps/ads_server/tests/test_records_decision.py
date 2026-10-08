@@ -15,7 +15,7 @@ from foundation.models import AppendOnlyError
 from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
-from tests.factories import DAY, NOW, World, make_slot, png_file
+from tests.factories import DAY, NOW, SUBJECT, World, make_slot, png_file
 
 UNIT = "IMPRESSION"
 
@@ -23,6 +23,7 @@ UNIT = "IMPRESSION"
 def decide(w, **kw):
     kw.setdefault("now", NOW)
     kw.setdefault("rng", Random(1))
+    kw.setdefault("subject_id", SUBJECT)
     return records.decide(w.slot.media_id, w.slot.slot_id, **kw)
 
 
@@ -62,7 +63,7 @@ class DecisionSnapshotTests(TestCase):
             Decision.objects.filter(pk=row.pk).update(applied_amount=1)
         with self.assertRaises(AppendOnlyError):
             Decision.objects.all().delete()
-        clone = Decision(pk=row.pk, media_id=row.media_id, slot_id=row.slot_id, selection_policy="x", candidate_count=0)
+        clone = Decision(pk=row.pk, media_id=row.media_id, slot_id=row.slot_id, subject_id=SUBJECT, audience="individual", selection_policy="x", candidate_count=0)
         with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             clone.save()
         with self.assertRaises(AppendOnlyError):
@@ -70,7 +71,7 @@ class DecisionSnapshotTests(TestCase):
         self.assertEqual(Decision.objects.get(pk=row.pk).applied_amount, 30)
 
     def test_chosen_columns_are_all_or_none_in_db(self):
-        base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), selection_policy="p", candidate_count=0)
+        base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="p", candidate_count=0)
         with self.assertRaises(IntegrityError), transaction.atomic():
             Decision.objects.create(campaign_id=uuid.uuid4(), **base)  # 일부만 채움
         Decision.objects.create(**base)  # 광고 없음

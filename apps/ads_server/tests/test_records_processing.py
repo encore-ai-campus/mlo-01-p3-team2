@@ -22,14 +22,14 @@ from records import api as records
 from records.models import Decision, Reaction
 from records.rules import UnknownRule
 from serving_api.throttle import buckets
-from tests.factories import DAY, NOW, World
+from tests.factories import DAY, NOW, SUBJECT, World
 
 
 class ProcessingBase(TestCase):
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
-        self.decision = records.decide(self.media, self.w.slot.slot_id, now=NOW, rng=Random(1))  # 입찰 30, 노출 과금 단위
+        self.decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))  # 입찰 30, 노출 과금 단위
         self.assertIsNotNone(self.decision.chosen)
 
     def receive(self, rtype="IMPRESSION", decision_id=None, media_id=None, at=NOW, reaction_id=None):
@@ -93,7 +93,7 @@ class RuleChainTests(ProcessingBase):
 
     def test_a_decision_without_an_ad_cannot_have_reactions(self):
         empty = World(with_creative=False)
-        decision = records.decide(empty.slot.media_id, empty.slot.slot_id, now=NOW, rng=Random(1))
+        decision = records.decide(empty.slot.media_id, empty.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         self.assertIsNone(decision.chosen)
         view = self.receive(media_id=empty.slot.media_id, decision_id=decision.decision_id)
         self.assertEqual(self.process(view), "REJECTED")
@@ -347,7 +347,7 @@ class ConcurrentProcessingTests(TransactionTestCase):
         media = w.slot.media_id
         views = []
         for _ in range(6):  # 서로 다른 결정 6개 × 노출 하나씩
-            d = records.decide(media, w.slot.slot_id, now=NOW, rng=Random(1))
+            d = records.decide(media, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
             views.append(records.receive_reaction(media, d.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)[0])
         barrier, errors = threading.Barrier(2), []
 

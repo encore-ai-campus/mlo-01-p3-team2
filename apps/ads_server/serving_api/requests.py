@@ -16,7 +16,7 @@ _FIELDS = frozenset({"slot_id", "subject_id", "context"})
 @dataclass(frozen=True)
 class DecisionRequest:
     slot_id: uuid.UUID
-    subject_id: str  # 가명 UUID(소문자 표기). 수집만 한다
+    subject_id: str | None  # 가명 UUID(소문자 표기). 수집만 한다. 있어야 하는지는 슬롯 성격이 정한다(`records.decide`)
     context: dict
 
 
@@ -67,11 +67,11 @@ def validate_context(context):
 def parse_decision_request(body):
     problems = [_error(f"/{key}", "알 수 없는 속성입니다.") for key in body if key not in _FIELDS]
     slot_id = _uuid_field(body, "slot_id", problems)
-    subject = _uuid_field(body, "subject_id", problems)
+    subject = _uuid_field(body, "subject_id", problems) if "subject_id" in body else None  # 필수 여부는 슬롯 성격에 달려 있어 서비스가 판단한다
     if problems:
         raise errors.InvalidRequest(errors=problems)
     context = validate_context(body["context"]) if "context" in body else {}
-    return DecisionRequest(slot_id=slot_id, subject_id=str(subject), context=context)
+    return DecisionRequest(slot_id=slot_id, subject_id=None if subject is None else str(subject), context=context)
 
 
 # ---------------------------------------------------------------- 반응 (계약 `ReactionRequest`)

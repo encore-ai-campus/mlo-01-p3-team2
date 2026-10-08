@@ -19,6 +19,7 @@ def make_advertiser(username=None):
 
 NOW = datetime(2026, 10, 7, 12, 0, 0, tzinfo=timezone.utc)
 DAY = timedelta(days=1)
+SUBJECT = "0197a5c0-0000-7000-8000-000000000001"  # 개인(individual) 슬롯의 결정에 쓰는 가명 UUID
 
 
 def png_file(color=(200, 30, 30)):

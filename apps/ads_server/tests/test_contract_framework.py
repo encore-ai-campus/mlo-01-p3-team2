@@ -14,6 +14,7 @@ DECISION = {
     "decision_id": "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
     "slot_id": "5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10",
     "slot_name": "lobby-banner",
+    "audience": "individual",
     "decided_at": "2026-10-07T03:21:45Z",
     "ad": {
         "creative_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "title": "가을 학습 스터디 모집",
@@ -86,7 +87,10 @@ class ContractCheckerTests(SimpleTestCase):
         missing = {k: v for k, v in DECISION.items() if k != "slot_name"}
         wrong_type = {**DECISION, "slot_name": 5}
         no_ad_key = {k: v for k, v in DECISION.items() if k != "ad"}
-        for label, body in {"extra property": extra, "missing slot_name": missing, "wrong type": wrong_type, "missing ad": no_ad_key}.items():
+        no_audience = {k: v for k, v in DECISION.items() if k != "audience"}  # v1.1: 응답이 슬롯 성격을 빠뜨리면 계약 위반
+        bad_audience = {**DECISION, "audience": "everyone"}
+        for label, body in {"extra property": extra, "missing slot_name": missing, "wrong type": wrong_type, "missing ad": no_ad_key,
+                            "missing audience": no_audience, "unknown audience": bad_audience}.items():
             self.assertTrue(self.problems(ok_201(body=body)), label)
 
     def test_retry_after_must_be_present_and_an_integer_on_429_and_503(self):

@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from foundation.api import AppendOnlyModel
+from masters.api import Audience
 
 
 class Decision(AppendOnlyModel):
@@ -13,7 +14,8 @@ class Decision(AppendOnlyModel):
     # 요청 쪽 사실
     media_id = models.UUIDField(db_index=True)
     slot_id = models.UUIDField()
-    subject_id = models.CharField(max_length=200, null=True, blank=True)  # V1 은 수집만 한다(설계 §3)
+    subject_id = models.CharField(max_length=200, null=True, blank=True)  # V1 은 수집만 한다(설계 §3). `shared` 슬롯의 결정에는 없다
+    audience = models.CharField(max_length=20)  # 슬롯 성격의 스냅샷(`individual`·`shared`). 슬롯은 바뀌지 않지만 결정은 자기 사실을 들고 있다
     context = models.JSONField(default=dict, blank=True)  # 매체 부가 정보. 저장만 하고 해석하지 않는다(계약 C1, DRD D-2)
     decided_at = models.DateTimeField(default=timezone.now, db_index=True)
     # 선택된 광고의 스냅샷. 광고 없음이면 전부 NULL(그래도 한 건으로 남긴다)
@@ -48,6 +50,10 @@ class Decision(AppendOnlyModel):
                         policy_version__isnull=False, bid_id__isnull=False, bid_policy_id__isnull=False, snapshot__isnull=False)
                 ),
                 name="records_decision_chosen_all_or_none",
+            ),
+            models.CheckConstraint(  # 개인 슬롯의 결정은 사람이 있고, 일괄 슬롯의 결정은 사람이 없다(계약 C1 `subject_id`)
+                condition=(Q(audience=Audience.INDIVIDUAL, subject_id__isnull=False) | Q(audience=Audience.SHARED, subject_id__isnull=True)),
+                name="records_decision_subject_by_audience",
             ),
         ]
         indexes = [models.Index(fields=["media_id", "decided_at"])]

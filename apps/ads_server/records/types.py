@@ -29,6 +29,7 @@ class DecisionView:
     media_id: uuid.UUID
     slot_id: uuid.UUID
     subject_id: str | None
+    audience: str  # 슬롯 성격 스냅샷: `individual` | `shared`
     decided_at: datetime
     chosen: ChosenView | None  # 광고 없음이면 None
     selection_policy: str

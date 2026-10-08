@@ -14,7 +14,7 @@ from billing import api as billing
 from billing.models import CampaignSpend, LedgerEntry
 from records import api as records
 from records.models import Reaction
-from tests.factories import NOW, World
+from tests.factories import NOW, SUBJECT, World
 
 _spec = importlib.util.spec_from_file_location("load_test", Path(__file__).resolve().parent.parent / "scripts" / "load_test.py")
 load_test = importlib.util.module_from_spec(_spec)
@@ -37,7 +37,7 @@ class InvariantCheckerTests(TestCase):
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
-        self.decision = records.decide(self.media, self.w.slot.slot_id, now=NOW, rng=Random(1))
+        self.decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         self.view, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
         records.process_reaction(self.view.inbox_id, now=NOW)  # 인정·과금 30
 
@@ -80,7 +80,7 @@ class InvariantCheckerTests(TestCase):
 
     def test_a_legitimate_shortfall_is_not_flagged(self):
         """잔액이 모자라 덜 받은 과금(부족분)은 정상이다: 받은 금액 + 부족분 = 적용 금액이고 잔액은 0 이 된다."""
-        second = records.decide(self.media, self.w.slot.slot_id, now=NOW, rng=Random(3))  # 잔액이 충분할 때 만든 결정
+        second = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(3))  # 잔액이 충분할 때 만든 결정
         billing.adjust(self.w.admin, self.w.adv.pk, -49_955, "잔액을 15 로", now=NOW)
         view, _ = records.receive_reaction(self.media, second.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
         records.process_reaction(view.inbox_id, now=NOW)
@@ -113,7 +113,7 @@ class InvariantCheckerTests(TestCase):
 
     def test_a_reaction_linked_to_another_valid_decision_is_found(self):
         """수신 확인한 (매체, 반응 ID, 결정 ID, 유형)이 저장된 행과 다르면 잡는다 — 같은 광고주의 다른 유효한 결정이라도."""
-        other_decision = records.decide(self.media, self.w.slot.slot_id, now=NOW, rng=Random(2))
+        other_decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(2))
         sql("UPDATE records_reaction SET decision_id = %s", other_decision.decision_id.hex)
         self.assertTrue(any("다른 결정" in p for p in self.problems()), self.problems())
 

@@ -30,10 +30,17 @@ def _view(d):
             image_url=asset_url(s["image_name"]),
         )
     return DecisionView(
-        decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, subject_id=d.subject_id, decided_at=d.decided_at,
+        decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, subject_id=d.subject_id, audience=d.audience, decided_at=d.decided_at,
         chosen=chosen, selection_policy=d.selection_policy, trace=d.trace, candidate_count=d.candidate_count,
         rejected_counts=d.rejected_counts,
     )
+
+
+def _check_subject(slot, subject_id):
+    if slot.audience == masters.Audience.INDIVIDUAL and subject_id is None:
+        raise errors.InvalidRequest(errors=[{"pointer": "/subject_id", "message": "개인(individual) 슬롯은 subject_id 가 필수입니다."}])
+    if slot.audience == masters.Audience.SHARED and subject_id is not None:
+        raise errors.InvalidRequest(errors=[{"pointer": "/subject_id", "message": "일괄(shared) 슬롯은 subject_id 를 보내지 않습니다."}])
 
 
 def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None):
@@ -43,6 +50,9 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
 
     계약 C1의 응답 규칙(DRD D-1): **없는 슬롯·다른 매체의 슬롯은 404**(구분해 알리지 않는다), **매체가 비활성이면 403**(결정 없음),
     **활성 매체의 비활성 슬롯은 광고 없음으로 기록**한다. `context` 는 호출한 쪽(경계)이 검증한 값을 그대로 저장한다.
+
+    `subject_id` 는 슬롯 성격에 따른다(계약 C1 v1.1): `individual` 은 **필수**, `shared` 는 **보내면 안 된다**(어기면 400).
+    이 검사는 슬롯을 찾은 **뒤**에 한다 — 없는·남의 슬롯(404)과 비활성 매체(403)가 먼저다.
     """
     now = _now(now)
     media_id, slot_id = parse_uuid(media_id, "매체"), parse_uuid(slot_id, "게재 위치")
@@ -54,6 +64,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
         raise errors.NotFound("게재 위치를 찾을 수 없습니다.")  # 다른 매체의 슬롯은 없는 것과 같다
     if not slot.media_is_active:
         raise errors.Forbidden("이 매체는 비활성입니다.")
+    _check_subject(slot, subject_id)
     candidates, facts_by_creative = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
     result = engine_decide(
         candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 동점 광고를 고르게 노출하려는 추첨이다. 보안 값(키·토큰)을 만들지 않는다
@@ -73,7 +84,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
         )
     with transaction.atomic():
         decision = Decision.objects.create(
-            media_id=media_id, slot_id=slot_id, subject_id=subject_id, context=context or {}, decided_at=now,
+            media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
             selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
             trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
         )

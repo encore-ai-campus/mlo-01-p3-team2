@@ -12,7 +12,7 @@ from foundation.errors import Forbidden, InvalidRequest, StaleVersion
 from foundation.models import AuditLog
 from masters import api as masters
 from tests import image_factory
-from tests.factories import DAY, NOW, World, make_admin, make_advertiser, make_slot, png_file
+from tests.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, make_slot, png_file
 
 
 class CampaignServiceTests(TestCase):
@@ -254,7 +254,7 @@ class ImageHoldingTests(TestCase):
         from records import api as records
 
         w = World()
-        decision = records.decide(w.slot.media_id, w.slot.slot_id, now=NOW)
+        decision = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW)
         old_url_name = decision.chosen.image_name
         api.replace_creative_image(w.adv, w.creative.creative_id, png_file((1, 200, 3)), now=NOW)
         new_name = api.get_creative(w.adv, w.creative.creative_id).image_name
