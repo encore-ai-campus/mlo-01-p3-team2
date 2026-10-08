@@ -573,7 +573,7 @@ components:
         subject_id:
           description: |
             노출 대상의 **가명 UUID**. 직접 식별자는 안 된다. 수집만 하고 해석하지 않는다.
-            `individual` 슬롯은 **필수**, `shared` 슬롯은 **보내지 않는다**(둘 다 어기면 400). 슬롯이 없거나 다른 매체의 것이면(404) 이 검사보다 먼저 404다.
+            `individual` 슬롯은 **필수**, `shared` 슬롯은 **보내지 않는다**(둘 다 어기면 400). 검사 순서는 **슬롯 404(없거나 다른 매체의 것) → 매체 비활성 403 → 이 검사(400)**다(틀린 `subject_id`로 슬롯의 존재를 추측할 수 없다).
           $ref: "#/components/schemas/Uuid"
         context:
           $ref: "#/components/schemas/Context"
