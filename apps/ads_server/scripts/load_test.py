@@ -187,7 +187,10 @@ def call(port, method, path, key, body=None, retry=True, give_up_after=90):
         status, data, headers = 0, None, {}
         try:
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
-            conn.request(method, path, body=None if body is None else json.dumps(body), headers={"X-Media-Key": key, "Content-Type": "application/json"})
+            headers_out = {"Content-Type": "application/json"}
+            if key is not None:  # 클릭 주소(`/c/`)는 인증이 없다
+                headers_out["X-Media-Key"] = key
+            conn.request(method, path, body=None if body is None else json.dumps(body), headers=headers_out)
             response = conn.getresponse()
             raw = response.read()
             status, headers = response.status, {k.lower(): v for k, v in response.getheaders()}
@@ -272,6 +275,7 @@ def seed(advertisers=5, premade=0):
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
     slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 10, 20, 50, "초기")
+    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)
     wallets = []
@@ -284,8 +288,14 @@ def seed(advertisers=5, premade=0):
         Image.new("RGB", (32, 32), (20 * i, 80, 200)).save(image, "PNG")
         image.seek(0)
         campaigns.create_creative(adv, group.ad_group_id, f"제목{i}", "https://example.com/landing", image)
+        if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 40)
+            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", "IMPRESSION", [shared.slot_id], bid_amount=40)
+            image2 = io.BytesIO()
+            Image.new("RGB", (32, 32), (200, 80, 20)).save(image2, "PNG")
+            image2.seek(0)
+            campaigns.create_creative(adv, shared_group.ad_group_id, "일괄 제목", "https://example.com/board", image2)
         wallets.append(adv)
-    return {"media_id": media.media_id, "slot_id": slot.slot_id, "key": key, "advertisers": wallets}
+    return {"media_id": media.media_id, "slot_id": slot.slot_id, "shared_slot_id": shared.slot_id, "key": key, "advertisers": wallets}
 
 
 def make_decisions(ctx, count):
@@ -322,14 +332,25 @@ class Harness:
                  f"{summary['last_attempt_ms']['p99']}/{summary['last_attempt_ms']['max']} ms")
         return summary
 
-    def post_decision(self, retry=True):
-        body = {"slot_id": str(self.ctx["slot_id"]), "subject_id": str(uuid.uuid4()), "context": {"scene": "load"}}
+    def post_decision(self, retry=True, shared=False):
+        body = {"slot_id": str(self.ctx["shared_slot_id" if shared else "slot_id"]), "context": {"scene": "load"}}
+        if not shared:
+            body["subject_id"] = str(uuid.uuid4())  # 일괄 슬롯의 결정에는 사람이 없다
         return call(self.port, "POST", "/api/media/v1/decisions", self.key, body, retry=retry)
 
-    def put_reaction(self, decision_id, rtype="IMPRESSION", reaction_id=None, retry=True, occurred_at=None):
+    def follow_click(self, click_url, viewer=None):
+        """사용자 브라우저처럼 `click_url` 을 연다(인증 없음, 리다이렉트는 따라가지 않는다). 일괄 슬롯은 `{subject_id}` 자리에 사람을 넣는다."""
+        path = click_url.split("://", 1)[1].split("/", 1)[1]
+        path = "/" + path.replace("{subject_id}", viewer or "")
+        return call(self.port, "GET", path, None)
+
+    def put_reaction(self, decision_id, rtype="IMPRESSION", reaction_id=None, retry=True, occurred_at=None, subject_id=None):
         """`occurred_at` 을 주면 그대로 쓴다. **같은 reaction_id 의 재전송은 같은 본문**이어야 하므로(다르면 409) 호출하는 쪽이 한 번 만들어 넘긴다."""
         rid = reaction_id or str(uuid.uuid4())
-        outcome = call(self.port, "PUT", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key, {"type": rtype, "occurred_at": occurred_at or now_utc()}, retry=retry)
+        body = {"type": rtype, "occurred_at": occurred_at or now_utc()}
+        if subject_id is not None:
+            body["subject_id"] = subject_id
+        outcome = call(self.port, "PUT", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key, body, retry=retry)
         if outcome.acked:
             self.acked_reactions[(str(self.ctx["media_id"]), rid)] = (str(decision_id), rtype)
         return outcome
@@ -423,6 +444,108 @@ class Harness:
         self.check("행은 하나", Reaction.objects.filter(reaction_id=rid).count() == 1)
         self.verify("재전송 폭주")
 
+    # ------------------------------------------------------------ H. 클릭 경유 전체 퍼널(개인 슬롯)
+    def click_funnel(self):
+        self.log(f"H. 개인 슬롯 전체 퍼널 {self.n}건 동시: 결정 → 노출 → 클릭(click_url, 인증 없음) → 전환")
+        from records.models import Reaction
+
+        def one(i):
+            decision = self.post_decision()
+            did = decision.body["decision_id"]
+            self.acked_decisions.add(did)
+            impression = self.put_reaction(did, "IMPRESSION")
+            click = self.follow_click(decision.body["ad"]["click_url"])
+            conversion = self.put_reaction(did, "CONVERSION")
+            return did, impression, click, conversion
+
+        results, wall = run_concurrent(self.n, one)
+        self.phase("H 클릭 경유 퍼널", [r[2] for r in results], wall)
+        self.check("클릭은 모두 302 이고 이동 주소는 결정에 저장된 값이다",
+                   all(r[2].status == 302 and r[2].headers.get("location") == "https://example.com/landing" for r in results), str(sorted({r[2].status for r in results})))
+        self.check("클릭 응답은 no-store·no-referrer 이고 쿠키가 없다",
+                   all(r[2].headers.get("cache-control") == "no-store" and r[2].headers.get("referrer-policy") == "no-referrer" and "set-cookie" not in r[2].headers for r in results))
+        self.drain()
+        ids = [r[0] for r in results]
+        by_decision = {}
+        for row in Reaction.objects.filter(decision_id__in=ids):
+            by_decision.setdefault(str(row.decision_id), {})[row.type] = row.status
+        self.check("결정마다 노출·클릭·전환이 모두 인정됐다", all(v == {"IMPRESSION": "ACCEPTED", "CLICK": "ACCEPTED", "CONVERSION": "ACCEPTED"} for v in by_decision.values()) and len(by_decision) == self.n,
+                   str({tuple(sorted(v.values())) for v in by_decision.values()}))
+        self.check("서버가 관측한 클릭이 결정마다 정확히 하나", Reaction.objects.filter(decision_id__in=ids, source="server").count() == self.n)
+        self.verify("클릭 경유 퍼널")
+
+    # ------------------------------------------------------------ J. 일괄 슬롯: 사람별 퍼널, 노출 없는 임의 s 의 클릭
+    def shared_slot_funnel(self):
+        viewers = [str(uuid.uuid4()) for _ in range(self.n)]
+        forged = [str(uuid.uuid4()) for _ in range(5)]
+        self.log(f"J. 일괄 슬롯: 결정 1개를 시청자 {len(viewers)}명이 각자 보고(노출·클릭·전환), 노출 없는 임의 s 클릭 {len(forged)}건")
+        from records.models import Reaction
+
+        decision = self.post_decision(shared=True)
+        did = decision.body["decision_id"]
+        self.check("일괄 슬롯 결정은 사람 없이 201 이고 audience=shared", decision.status == 201 and decision.body["audience"] == "shared")
+        self.acked_decisions.add(did)
+        template = decision.body["ad"]["click_url"]
+
+        def one(i):
+            person = viewers[i]
+            return (
+                self.put_reaction(did, "IMPRESSION", subject_id=person), self.follow_click(template, person), self.put_reaction(did, "CONVERSION", subject_id=person),
+            )
+
+        results, wall = run_concurrent(len(viewers), one)
+        self.phase("J 일괄 슬롯 시청자", [r[1] for r in results], wall)
+        fake = [self.follow_click(template, person) for person in forged]
+        self.check("임의 s 의 클릭도 사용자에게는 302 (이동은 판정과 무관)", all(c.status == 302 for c in fake))
+        self.drain()
+        accepted = {}
+        for row in Reaction.objects.filter(decision_id=did, status="ACCEPTED"):
+            accepted.setdefault(row.person_id, set()).add(row.type)
+        self.check("시청자마다 노출·클릭·전환이 인정됐다", set(accepted) == set(viewers) and all(t == {"IMPRESSION", "CLICK", "CONVERSION"} for t in accepted.values()),
+                   f"{len(accepted)}명")
+        pending = list(Reaction.objects.filter(decision_id=did, subject_id__in=forged))
+        self.check("노출 없는 임의 s 의 클릭은 인정되지 않고 보류로 남는다", len(pending) == len(forged) and all(r.status == "RECEIVED" for r in pending),
+                   str({r.status for r in pending}))
+        self.verify("일괄 슬롯")
+
+    # ------------------------------------------------------------ I. 보류 해소 지연: 처리 프로세스가 돌아야 풀린다
+    def hold_resolution(self, count=10):
+        count = min(count, self.n)
+        self.log(f"I. 클릭이 노출보다 먼저 온 {count}건: 처리 프로세스가 없으면 보류로 남고, 뜨면 재확인 간격 안에 인정된다")
+        from django.conf import settings
+
+        from records.models import Reaction
+
+        def one(i):
+            decision = self.post_decision()
+            did = decision.body["decision_id"]
+            self.acked_decisions.add(did)
+            click = self.follow_click(decision.body["ad"]["click_url"])  # 노출보다 먼저
+            impression = self.put_reaction(did, "IMPRESSION")
+            return did, click, impression
+
+        results, _ = run_concurrent(count, one)
+        ids = [r[0] for r in results]
+        time.sleep(1.0)
+        held = Reaction.objects.filter(decision_id__in=ids, source="server", status="RECEIVED").count()
+        self.check("처리 프로세스가 없으면 클릭은 보류로 남는다(노출이 인정돼도 즉시 깨우지 않는다)", held == count, f"{held}/{count}")
+        log_file = open(self.tmp / "hold.log", "w")
+        started = time.perf_counter()
+        proc = subprocess.Popen([sys.executable, "manage.py", "process_reactions", "--interval", "0.5"], cwd=BASE_DIR, env=os.environ, stdout=log_file, stderr=log_file)
+        limit = settings.REACTION_HOLD_RECHECK_SECONDS + 10
+        try:
+            while time.perf_counter() - started < limit and Reaction.objects.filter(decision_id__in=ids, source="server", status="ACCEPTED").count() < count:
+                time.sleep(0.25)
+        finally:
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=30)
+            log_file.close()
+        elapsed = round(time.perf_counter() - started, 1)
+        done = Reaction.objects.filter(decision_id__in=ids, source="server", status="ACCEPTED").count()
+        self.hold_seconds = elapsed
+        self.check(f"처리 프로세스가 뜨면 보류가 재확인 간격({settings.REACTION_HOLD_RECHECK_SECONDS}초) 안팎에 풀린다", done == count, f"{done}/{count}, {elapsed}초")
+        self.verify("보류 해소")
+
     # ------------------------------------------------------------ E. 지속 유입 중 SIGTERM·동시 처리 프로세스·재기동
     def sigterm_under_inflow(self, inflow_seconds=6.0):
         from django.conf import settings
@@ -486,7 +609,7 @@ class Harness:
         self.verify("SIGTERM 직후(재기동 전)", expect_drained=False)
         self.log("   재기동(process_reactions --once): " + self.drain())
         left_after = list(Reaction.objects.filter(status="RECEIVED").values_list("type", flat=True))
-        self.check("재기동 뒤 남김없이 처리(앞 단계를 기다리는 전환 보류만 남는다)", set(left_after) <= {"CONVERSION"}, str({t: left_after.count(t) for t in set(left_after)}))
+        self.check("재기동 뒤 남김없이 처리(앞 단계를 기다리는 클릭·전환 보류만 남는다)", set(left_after) <= {"CLICK", "CONVERSION"}, str({t: left_after.count(t) for t in set(left_after)}))
         self.verify("재기동 뒤")
         self.exits = exits
 
@@ -599,6 +722,12 @@ def main(argv=None):
         harness.rest()
         harness.resend_storm()
         harness.rest()
+        harness.click_funnel()
+        harness.rest()
+        harness.shared_slot_funnel()
+        harness.rest()
+        harness.hold_resolution()
+        harness.rest()
         harness.sigterm_under_inflow(inflow_seconds=3.0 if args.small else 6.0)
         harness.rest(4)
         harness.rate_limit_burst()
@@ -616,7 +745,7 @@ def main(argv=None):
         log(f"\n저장된 행: {totals}")
         log("결과: " + ("모든 불변식 충족" if ok else "실패 항목 있음 — " + ", ".join(c["check"] for c in harness.checks if not c["ok"])))
         if args.json:
-            Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
+            Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "hold_resolution_s": getattr(harness, "hold_seconds", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
         if not args.keep:
             shutil.rmtree(tmp, ignore_errors=True)
     return 0 if ok else 1
