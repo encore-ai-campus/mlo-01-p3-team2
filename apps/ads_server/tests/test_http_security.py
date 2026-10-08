@@ -1,6 +1,7 @@
 import io
 import re
 import sys
+import os
 import subprocess
 from pathlib import Path
 
@@ -261,7 +262,9 @@ class DeployCheckTests(SimpleTestCase):
         r = subprocess.run(
             [sys.executable, "-m", "django", "check", "--deploy", "--fail-level", "WARNING"],
             cwd=BASE_DIR, capture_output=True, text=True,
-            env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV},
+            # MySQL 에서는 모델 검사가 서버 정보를 읽으려고 실제로 연결한다. 접속 값만 시험 DB 것을 넘긴다.
+            env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV,
+                 **{k: v for k, v in os.environ.items() if k.startswith("DB_")}},
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("WARNINGS", r.stdout + r.stderr)

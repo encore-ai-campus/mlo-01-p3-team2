@@ -5,7 +5,7 @@
     python scripts/load_test.py --small    # 20 동시(몇 초)
     python scripts/load_test.py --json out.json
 
-환경: 임시 폴더의 **파일 SQLite**(WAL, synchronous=FULL, IMMEDIATE — 운영과 같은 설정), 실제 미들웨어를 거치는 스레드형 WSGI 서버
+환경: **MySQL 8.4**(실행마다 새 `ads_load_*` 데이터베이스를 만들고 끝나면 지운다), 실제 미들웨어를 거치는 스레드형 WSGI 서버
 (파이썬 표준 `wsgiref` — 운영용 서버가 아니다), 별도 프로세스로 뜨는 `process_reactions`. 클라이언트는 계약의 재시도 규칙을 따른다
 (429·503·연결 실패는 `Retry-After` 를 지켜 같은 요청을 다시 보낸다). 개발 DB 는 건드리지 않는다.
 
@@ -700,15 +700,20 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=150, help="동시 요청 수(기본 150)")
     parser.add_argument("--small", action="store_true", help="20 동시, 짧은 유입(몇 초)")
     parser.add_argument("--json", help="결과를 JSON 으로 저장할 경로")
-    parser.add_argument("--keep", action="store_true", help="임시 폴더(DB 포함)를 지우지 않는다")
+    parser.add_argument("--keep", action="store_true", help="임시 폴더와 데이터베이스를 지우지 않는다")
     args = parser.parse_args(argv)
     count = 20 if args.small else args.concurrency
 
     tmp = Path(tempfile.mkdtemp(prefix="ads-load-"))
-    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DATABASE_PATH=str(tmp / "db.sqlite3"), MEDIA_ROOT=str(tmp / "media"))
-    os.environ.pop("DJANGO_DEBUG", None)
     sys.path.insert(0, str(BASE_DIR))
+    sys.path.insert(0, str(BASE_DIR / "scripts"))
     os.chdir(BASE_DIR)
+    import mysql_admin
+
+    db_name = f"ads_load_{uuid.uuid4().hex[:8]}"
+    mysql_admin.create_database(db_name)  # 접속 값이 없거나 연결이 안 되면 여기서 이유를 말하고 멈춘다
+    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MEDIA_ROOT=str(tmp / "media"))
+    os.environ.pop("DJANGO_DEBUG", None)
 
     import django
 
@@ -717,7 +722,7 @@ def main(argv=None):
     from django.core.wsgi import get_wsgi_application
 
     log = print
-    log(f"임시 폴더 {tmp} (파일 SQLite, WAL, synchronous=FULL, IMMEDIATE), 동시 {count}")
+    log(f"임시 폴더 {tmp}, 데이터베이스 {db_name} (MySQL 8.4), 동시 {count}")
     call_command("migrate", verbosity=0)
     ctx = seed()
     server = ThreadedServer(("127.0.0.1", 0), QuietHandler)
@@ -759,6 +764,10 @@ def main(argv=None):
         if args.json:
             Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "hold_resolution_s": getattr(harness, "hold_seconds", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
         if not args.keep:
+            from django.db import connections
+
+            connections.close_all()
+            mysql_admin.drop_database(db_name)
             shutil.rmtree(tmp, ignore_errors=True)
     return 0 if ok else 1
 

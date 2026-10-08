@@ -5,7 +5,7 @@ from config.access_map import build_access_map, validate_admin_path
 
 from ._env import env_bool, env_int, env_list, env_str
 from .base import *  # noqa: F401,F403
-from .base import INSECURE_DEV_KEY, sqlite_config
+from .base import INSECURE_DEV_KEY, mysql_config
 
 SECRET_KEY = env_str("SECRET_KEY", required=True)
 if SECRET_KEY == INSECURE_DEV_KEY or len(SECRET_KEY) < 50:
@@ -40,4 +40,10 @@ ASSET_MAX_BYTES = env_int("ASSET_MAX_BYTES", 2 * 1024 * 1024)
 STATIC_ROOT = env_str("STATIC_ROOT", default=str(BASE_DIR / "staticfiles"))
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", required=True)
 
-DATABASES = {"default": sqlite_config(env_str("DATABASE_PATH", required=True))}
+DATABASES = {"default": mysql_config(
+    env_str("DB_NAME", required=True),
+    env_str("DB_USER", required=True),
+    env_str("DB_PASSWORD", required=True),
+    env_str("DB_HOST", required=True),
+    env_int("DB_PORT", 3306),
+)}

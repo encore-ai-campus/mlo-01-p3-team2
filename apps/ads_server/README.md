@@ -8,16 +8,42 @@ Django 광고 서버. 설계·계획·계약은 [docs/ads-server/](../../docs/ad
 mamba activate claude
 cd apps/ads_server
 pip install -r requirements.txt
-cp .env.example .env        # 값을 채운다. .env 는 커밋하지 않는다
+cp .env.example .env        # 값을 채운다(DB_USER·DB_PASSWORD 필수). .env 는 커밋하지 않는다
+# MySQL 8.4 가 떠 있어야 한다 — 아래 "MySQL 시험 환경"
 python manage.py migrate
 python manage.py runserver 127.0.0.1:8001
 ```
 
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
 - 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod.
-- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DATABASE_PATH`가 없으면 기동하지 않는다.
+- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`가 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
 - dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
+
+## MySQL 시험 환경
+
+DB 는 **MySQL 8.4**다(Step DB). 시험·부하·`check.sh`는 개발 PC의 8.4 컨테이너를 쓴다(공유 인프라 서버에서는 돌리지 않는다). 컨테이너 정의는 `intake/db-standalone/`(인프라 제공, Ubuntu 24.04 + MySQL 8.4 + MongoDB 8.0 Standalone):
+
+```bash
+cd intake/db-standalone && cp .env.example .env     # MYSQL_ROOT_PASSWORD·MONGO_ROOT_PASSWORD 를 채운다
+docker compose up -d --build --wait
+```
+
+앱 쪽 준비(한 번):
+
+```bash
+brew install mysql-client pkg-config                # mysqlclient 를 빌드하는 데 필요
+pip install -r requirements.txt
+cp .env.example .env                                # DB_USER·DB_PASSWORD 에 컨테이너 root 값(로컬 시험 전용)
+python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제 권한 점검. 안 되면 이유를 말하고 멈춘다
+```
+
+- 데이터베이스는 **정렬을 지정해** 만든다. 8.4 기본(`utf8mb4_0900_ai_ci`)은 대소문자·악센트를 구분하지 않아 유일 제약과 비교가 달라진다:
+  `CREATE DATABASE ads_server CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_cs;`
+  (시험이 만드는 `test_ads_server`와 부하 시험의 `ads_load_*`는 코드가 같은 정렬로 만든다.)
+- 시험은 `test_<DB_NAME>` 을 만들고 끝나면 지운다 → 접속 계정에 CREATE/DROP 권한이 필요하다. 시험 설정은 DB 접속 값(`DB_*`)만 환경에서 읽는다.
+- `check --deploy`와 `makemigrations --check`는 이제 **DB 연결이 필요하다**(MySQL 에서는 모델 검사가 서버 정보를 읽는다).
+- 이 컨테이너와 인프라 서버의 차이: 컨테이너는 GTID가 꺼져 있고 서버 기본 정렬이 `_ai_ci`다(인프라의 `infra.cnf` 핵심은 DB-1d의 인프라 서버 통합 확인에서 맞춘다).
 
 ## 테스트와 점검
 

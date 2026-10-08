@@ -201,28 +201,30 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영 웹서버가 서빙한다(prod 는 환경변수로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SQLITE_BUSY_TIMEOUT_SECONDS = 5
+def mysql_config(name, user, password, host, port):
+    """MySQL 8.4 접속 설정 (계획 §7.3 S5·S7). 값은 호출한 쪽이 환경변수에서 읽어 넘긴다.
 
-
-def sqlite_config(name, wal=True):
-    """SQLite 설정 (설계 §6.5).
-
-    - WAL: 읽기와 쓰기가 서로 막지 않는다.
-    - synchronous=FULL: 커밋이 디스크에 내려간 뒤에 확인한다. NORMAL 이면 정전 시 마지막 커밋을 잃을 수 있다.
-    - timeout: 잠금 대기(busy_timeout). 넘으면 'database is locked' → 수신 단계는 503 으로 변환(Step 2).
-    - transaction_mode=IMMEDIATE: 쓰기 트랜잭션을 시작할 때 잠금을 잡아 중간 교착을 피한다.
+    - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다(SQLite 에서는 없던 검사).
+    - READ COMMITTED: 같은 유일 키를 노리는 동시 쓰기의 간격 잠금·교착을 줄인다(DB-1c 에서 측정으로 확정).
+    - 데이터 정렬 utf8mb4_0900_as_cs: 8.4 기본(`_ai_ci`)은 대소문자·악센트를 구분하지 않아 유일 제약과 비교가 SQLite 와 달라진다.
+      DB 를 만들 때 같은 값을 쓴다(README).
+    - CONN_MAX_AGE=0: 요청마다 연결을 닫는다. 영속 연결·풀은 부하 측정(DB-1d) 뒤에 정한다.
     """
-    init = "PRAGMA synchronous=FULL;"
-    if wal:
-        init = "PRAGMA journal_mode=WAL; " + init
     return {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": str(name),
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": name,
+        "USER": user,
+        "PASSWORD": password,
+        "HOST": host,
+        "PORT": str(port),
+        "CONN_MAX_AGE": 0,
         "OPTIONS": {
-            "timeout": SQLITE_BUSY_TIMEOUT_SECONDS,
-            "transaction_mode": "IMMEDIATE",
-            "init_command": init,
+            "charset": "utf8mb4",
+            "init_command": "SET SESSION sql_mode='STRICT_ALL_TABLES'",
+            "isolation_level": "read committed",
+            "connect_timeout": 5,
         },
+        "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_0900_as_cs"},
     }
 
 

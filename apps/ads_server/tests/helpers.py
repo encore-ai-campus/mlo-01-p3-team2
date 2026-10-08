@@ -18,10 +18,13 @@ def run_python(code, settings_module, env=None):
     )
 
 
+# 접속 값 자리표시자: 설정 로딩만 시험하므로 실제로 연결하지 않는다(설정은 연결을 만들지 않는다).
+DB_ENV = {"DB_NAME": "ads_x", "DB_USER": "u", "DB_PASSWORD": "p", "DB_HOST": "db.example.com"}
+
 PROD_ENV = {
     "SECRET_KEY": "Zk3-Qm8vXr1TnB6yLp0aWd9sHc4eUj7fGi2oNx5uKb-Ye_Va8Rt1Mq",  # 50자 이상·문자 다양(Django W009)
     "ALLOWED_HOSTS": "ads.example.com",
-    "DATABASE_PATH": "/tmp/ads-test.sqlite3",
+    **DB_ENV,
     "ADMIN_URL_PATH": "ops-9f3a/",
     "MEDIA_ROOT": "/tmp/ads-test-media",
     "ASSET_PUBLIC_BASE_URL": "https://ads.example.com",

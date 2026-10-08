@@ -5,8 +5,8 @@
 #   OFFLINE_OK=1 scripts/check.sh pip-audit 이 네트워크 문제로 못 돌면 건너뛴다(기본은 실패로 취급)
 #   PYTHON=/path/to/python        사용할 파이썬(기본: python)
 #
-# 단계: check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
-#       → 부하 시험(소규모: 파일 SQLite·실제 HTTP·별도 처리 프로세스, 불변식) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
+# 단계: MySQL 접속(없으면 명확히 실패 — 시험을 건너뛰지 않는다) → check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
+#       → 부하 시험(소규모: MySQL·실제 HTTP·별도 처리 프로세스, 불변식) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
 #       150 동시 전체 시험은 `python scripts/load_test.py`(약 40초, docs/ads-server/load-test.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -22,8 +22,11 @@ run() {
 
 check_deploy() {
   local key; key="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(60))')"
+  eval "$("$PY" scripts/mysql_admin.py --print-env)"  # .env 의 DB_* (실제 환경변수가 우선)
+  # MySQL 에서는 모델 검사가 서버 정보를 읽으려고 실제로 연결한다 → 시험 DB 접속 값(DB_*)을 그대로 넘긴다.
   env -i PATH="$PATH" DJANGO_SETTINGS_MODULE=config.settings.prod SECRET_KEY="$key" \
-    ALLOWED_HOSTS=ads.example.com DATABASE_PATH=/tmp/ads-check.sqlite3 ADMIN_URL_PATH=ops-check/ \
+    ALLOWED_HOSTS=ads.example.com ADMIN_URL_PATH=ops-check/ \
+    DB_NAME="${DB_NAME:-ads_server}" DB_USER="${DB_USER:-}" DB_PASSWORD="${DB_PASSWORD:-}" DB_HOST="${DB_HOST:-127.0.0.1}" DB_PORT="${DB_PORT:-3306}" \
     MEDIA_ROOT=/tmp/ads-check-media ASSET_PUBLIC_BASE_URL=https://ads.example.com \
     "$PY" -m django check --deploy --fail-level WARNING
 }
@@ -43,6 +46,7 @@ audit_dependencies() {
   return 1
 }
 
+run "MySQL 접속 (시험 DB, 없으면 여기서 멈춘다)" "$PY" scripts/mysql_admin.py
 run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test
