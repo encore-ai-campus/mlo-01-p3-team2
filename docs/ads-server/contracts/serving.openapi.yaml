@@ -49,7 +49,7 @@ info:
 
     위 수치는 동시 사용자 150명 가정을 바탕으로 한 **개발용 초기값**이다. 부하 측정(설계 §6.5, 계획 2-6) 뒤에 조정할 수 있고, 바뀌면 이 표를 고친다.
 
-    ## v1.1 추가 (확정 2026-10-08, 구현 예정)
+    ## v1.1 추가 (확정 2026-10-08, 구현 중: 2-7 `audience`·2-8 `click_url`과 `/c/{token}` 구현됨)
 
     설계 문서 §10 "반응 퍼널 규칙"·"일괄 슬롯"·"클릭 출처"의 계약 부분이다. 모두 기존 계약에 **더하기만** 하는 변경이다.
     아래 스키마에서 `[v1.1]`로 표시한 필드는 **구현과 함께 `required`에 들어간다**(그 전까지 서버는 보내지 않는다).
@@ -186,6 +186,21 @@ paths:
                       title: 가을 학습 스터디 모집
                       image_url: https://ads.internal.example/assets/3f5a0c1e9b7d4a62c8e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9.png
                       redirect_url: https://example.com/study
+                      click_url: https://ads.internal.example/c/eyJkIjoiN2QzZTVmNjAtMWEyYi00YzNkLThlNGYtNWE2YjdjOGQ5ZTBmIn0:1vAbCd:Zk3xQ
+                sharedWithAd:
+                  summary: 일괄(shared) 슬롯 — 광고 있음. `click_url`의 `{subject_id}`를 클릭한 사람의 값으로 바꿔 넣는다
+                  value:
+                    decision_id: 3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f
+                    slot_id: 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+                    slot_name: lobby-board
+                    audience: shared
+                    decided_at: "2026-10-07T03:23:00Z"
+                    ad:
+                      creative_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+                      title: 가을 학습 스터디 모집
+                      image_url: https://ads.internal.example/assets/3f5a0c1e9b7d4a62c8e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9.png
+                      redirect_url: https://example.com/study
+                      click_url: https://ads.internal.example/c/eyJkIjoiM2M0ZDVlNmYifQ:1vAbCd:Zk3xQ?s={subject_id}
                 noAd:
                   summary: 광고 없음
                   value:
@@ -460,7 +475,7 @@ paths:
     get:
       tags: [clicks]
       operationId: followClick
-      summary: 광고 클릭을 기록하고 광고주 페이지로 보낸다 [v1.1, 구현 예정]
+      summary: 광고 클릭을 기록하고 광고주 페이지로 보낸다 [v1.1, 2-8 구현]
       description: |
         최종 사용자 브라우저가 연다. **인증이 없고 쿠키를 쓰지 않는다.**
 
@@ -494,6 +509,8 @@ paths:
               $ref: "#/components/headers/RequestId"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 
 components:
   securitySchemes:
@@ -580,7 +597,7 @@ components:
 
     Ad:
       type: object
-      required: [creative_id, title, image_url, redirect_url]
+      required: [creative_id, title, image_url, redirect_url, click_url]
       additionalProperties: false
       description: 보여줄 광고. 모든 문자열은 신뢰할 수 없는 값이다(이스케이프).
       properties:
@@ -602,11 +619,12 @@ components:
           description: 광고주 페이지 주소. `https`만 허용된다. 이동할 곳을 보여 주는 정보이며, **이동 자체는 `click_url`로** 한다 [v1.1]. 새 창(`noopener`)으로 연다.
         click_url:
           type: string
-          format: uri-reference
+          pattern: "^https?://\\S+$"
           maxLength: 1024
           description: |
-            [v1.1] 클릭 시 이동시킬 주소(`GET /c/{token}`). 광고 서버가 클릭을 기록하고 `redirect_url`로 302 보낸다.
+            클릭 시 이동시킬 주소(`GET /c/{token}`) [v1.1, 2-8에서 필수로 올림]. 광고 서버가 클릭을 기록하고 `redirect_url`로 302 보낸다.
             `shared` 슬롯이면 `{subject_id}` 자리가 있고 매체가 클릭한 사람의 `subject_id`로 바꿔 넣는다. 새 창(`noopener`)으로 연다.
+            `{subject_id}`가 들어 있어 **일반 URI 문법(RFC 3986)에는 맞지 않을 수 있는 URI 템플릿**이라 `format: uri`를 걸지 않는다.
 
     Decision:
       type: object

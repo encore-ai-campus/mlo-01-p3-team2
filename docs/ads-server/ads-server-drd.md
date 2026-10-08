@@ -576,7 +576,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
-| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 결정·유형의 `ACCEPTED`는 하나뿐**(부분 UNIQUE). 수신은 짧은 INSERT 한 번(재전송은 쓰기 없이 조회만), 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 결정 존재 여부는 수신 때 묻지 않는다 | 2-4·2-5 [구현] |
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(반응한 사람, 서버 관측 클릭에 채움. 매체 보고의 이 필드는 2-9) [2-8], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 결정·유형의 `ACCEPTED`는 하나뿐**(부분 UNIQUE). 수신은 짧은 INSERT 한 번(재전송은 쓰기 없이 조회만), 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 결정 존재 여부는 수신 때 묻지 않는다 | 2-4·2-5 [구현] |
 | P3 outbox | 이벤트 ID(UUIDv7, PK), 이벤트 이름·버전, 페이로드 JSON, 생성 시각, **전달 시각(`sent_at`)** | 결정·반응·과금과 **같은 트랜잭션**에 쓴다. 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 PK 규칙 |
 
 ### 4.4 무결성 규칙 — 어디서 지키나
@@ -1064,6 +1064,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 버전 | 날짜 | 내용 |
 |---|---|---|
+| 0.9 | 2026-10-08 | 2-7(슬롯 `audience`·결정 스냅샷)·2-8(클릭 관측: `records_reaction.source`·`subject_id`) 반영 |
 | 0.8 | 2026-10-08 | 2-5(반응 처리) 반영: 규칙 `ad-shown` 추가, `records_reaction`에 `applied_rule`·`processed_at`·`attempts`와 부분 UNIQUE, `process_reactions` [구현] |
 | 0.7 | 2026-10-08 | 2-4(반응 수신) 반영: `records_reaction`(수신함) [구현], 접수 규칙(201/200/409, 커밋 뒤 2xx) |
 | 0.6 | 2026-10-08 | 2-3(결정 API) 구현 반영: D-1~D-3 해결, `records_decision.context` 열, C1 결정 엔드포인트 [구현] |
