@@ -336,13 +336,22 @@ class ReactionInboxConstraintTests(TestCase):
 
     def test_only_one_reaction_per_type_can_be_accepted_per_person_of_a_decision(self):
         decision, person = uuid.uuid4(), "0197a5c0-0000-7000-8000-000000000001"
-        accepted = dict(decision_id=decision, status="ACCEPTED", processed_at=NOW, person_id=person)
-        self.row(**accepted).save()
+        def accepted(person_id=person, rtype="CLICK"):
+            return dict(decision_id=decision, type=rtype, status="ACCEPTED", processed_at=NOW, person_id=person_id, accepted_key=f"{decision}:{person_id}:{rtype}")
+
+        self.row(**accepted()).save()
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self.row(**accepted).save()  # 같은 결정·사람·유형의 두 번째 인정
-        self.row(**{**accepted, "type": "IMPRESSION"}).save()  # 다른 유형은 된다
-        self.row(**{**accepted, "person_id": "0197a5c0-0000-7000-8000-000000000002"}).save()  # 일괄 슬롯: 다른 사람의 같은 유형은 된다
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()  # 인정된 행에는 판정 단위의 사람이 있어야 한다(NULL 은 유일 제약을 피한다)
+            self.row(**accepted()).save()  # 같은 결정·사람·유형의 두 번째 인정
+        self.row(**accepted(rtype="IMPRESSION")).save()  # 다른 유형은 된다
+        self.row(**accepted(person_id="0197a5c0-0000-7000-8000-000000000002")).save()  # 일괄 슬롯: 다른 사람의 같은 유형은 된다
+        for label, bad in {
+            "accepted without a key (NULL slips past a unique constraint)": dict(decision_id=decision, status="ACCEPTED", processed_at=NOW, person_id=person),
+            "a key on a row that is not accepted": dict(decision_id=decision, accepted_key="x"),
+            "a rejected row with a key": dict(decision_id=decision, status="REJECTED", reason_code="r", applied_rule="x", processed_at=NOW, accepted_key="y"),
+        }.items():
+            with self.subTest(label), self.assertRaises(IntegrityError), transaction.atomic():
+                self.row(**bad).save()
+        for _ in range(3):  # 인정되지 않은 행(키 없음)은 몇 개든 된다 — NULL 은 서로 다른 값이다
+            self.row(decision_id=decision, status="RECEIVED").save()
         for _ in range(2):  # 거부는 몇 개든 된다
             self.row(decision_id=decision, status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW).save()

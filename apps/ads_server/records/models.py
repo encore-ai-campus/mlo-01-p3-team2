@@ -96,7 +96,8 @@ class Reaction(models.Model):
     raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체). 서버가 관측한 클릭은 서버가 만든 사실이다
     source = models.CharField(max_length=10, choices=ReactionSource.choices, default=ReactionSource.MEDIA)  # 누가 알려 준 반응인가
     subject_id = models.CharField(max_length=200, null=True, blank=True)  # **보고된** 사람(가명 UUID, 소문자). 매체 보고의 선택 필드, 서버가 관측한 클릭에는 사람. 판정에 쓰는 값은 아래 person_id
-    person_id = models.CharField(max_length=200, null=True, blank=True)  # **판정 단위의 사람**: 인정할 때 확정해 저장한다(개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람). 인정된 행에는 항상 있다
+    person_id = models.CharField(max_length=200, null=True, blank=True)  # **판정 단위의 사람**: 인정할 때 확정해 저장한다(개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람)
+    accepted_key = models.CharField(max_length=255, null=True, blank=True)  # `<결정>:<사람>:<유형>` — **인정된 행에만** 있고 그 밖에는 NULL. 아래 유일 제약이 (결정, 사람, 유형)당 인정 1건을 지킨다
     checked_at = models.DateTimeField(null=True, blank=True)  # 전제를 기다리며 보류한 마지막 판정 시각. 보류분을 돌려가며 처리해 대기열이 막히지 않게 한다
     status = models.CharField(max_length=20, choices=ReactionStatus.choices, default=ReactionStatus.RECEIVED)
     reason_code = models.CharField(max_length=40, null=True, blank=True)  # REJECTED 일 때만
@@ -124,11 +125,14 @@ class Reaction(models.Model):
                 name="records_reaction_processed_state",
             ),
             # 안전망: (결정, 사람)당 유형별로 인정된 반응은 하나뿐이다(규칙 `once-per-type` 이 먼저 거르고, 동시 처리가 새도 DB 가 막는다).
-            # 개인 슬롯의 사람은 결정의 사람이라 결정당 하나, 일괄 슬롯은 보는 사람마다 하나다
-            models.UniqueConstraint(
-                fields=["decision_id", "person_id", "type"], condition=Q(status="ACCEPTED"), name="records_reaction_one_accepted_per_person_type",
+            # 개인 슬롯의 사람은 결정의 사람이라 결정당 하나, 일괄 슬롯은 보는 사람마다 하나다.
+            # **조건 없는 유일 제약**이다: 인정된 행만 `accepted_key` 를 갖고 나머지는 NULL(NULL 끼리는 서로 다른 값이다). 조건부 유일 제약을 지원하지 않는
+            # MySQL·MariaDB 에서도 그대로 성립한다(설계 §10 "MySQL 전환 점검").
+            models.UniqueConstraint(fields=["accepted_key"], name="records_reaction_one_accepted_per_person_type"),
+            # 인정된 행에는 키가 반드시 있고(없으면 위 제약을 빠져나간다), 인정되지 않은 행에는 없다
+            models.CheckConstraint(
+                condition=(Q(status="ACCEPTED", accepted_key__isnull=False) | (~Q(status="ACCEPTED") & Q(accepted_key__isnull=True))),
+                name="records_reaction_accepted_key_iff_accepted",
             ),
-            # NULL 은 유일 제약에서 서로 다르게 취급되므로, 인정된 행에는 판정 단위의 사람이 반드시 있어야 위 제약이 의미를 갖는다
-            models.CheckConstraint(condition=~Q(status="ACCEPTED") | Q(person_id__isnull=False), name="records_reaction_accepted_has_person"),
         ]
         indexes = [models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx")]

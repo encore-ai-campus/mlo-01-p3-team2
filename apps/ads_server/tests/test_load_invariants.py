@@ -59,7 +59,7 @@ class InvariantCheckerTests(InvariantBase):
         self.assertTrue(any("과금이 없다" in p for p in self.problems()))
 
     def test_a_charge_without_an_accepted_reaction_is_found(self):
-        sql("UPDATE records_reaction SET status = 'RECEIVED', processed_at = NULL, reason_code = NULL, applied_rule = NULL")
+        sql("UPDATE records_reaction SET status = 'RECEIVED', processed_at = NULL, reason_code = NULL, applied_rule = NULL, accepted_key = NULL")
         self.assertTrue(any("인정되지 않은 반응에 대한 과금" in p for p in self.problems(expect_drained=False)))
 
     def test_a_double_charge_is_found(self):
@@ -141,8 +141,9 @@ class InvariantCheckerTests(InvariantBase):
 
     def test_two_accepted_reactions_of_the_same_type_are_found(self):
         second, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
-        sql("DROP INDEX records_reaction_one_accepted_per_person_type")
-        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s, person_id = %s WHERE inbox_id = %s" % ("'2026-10-07 12:00:00'", "'" + SUBJECT + "'", "'" + second.inbox_id.hex + "'"))
+        # 유일 제약이 막는 상태를 만들려면 서로 다른 인정 키가 필요하다(제약이 없는 저장소를 가정한 사고 모사)
+        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s, person_id = %s, accepted_key = %s WHERE inbox_id = %s" % (
+            "'2026-10-07 12:00:00'", "'" + SUBJECT + "'", "'other-key'", "'" + second.inbox_id.hex + "'"))
         self.assertTrue(any("두 번 이상 인정" in p for p in self.problems()))
 
 
@@ -156,6 +157,8 @@ class FunnelInvariantTests(InvariantBase):
             raw={}, status="ACCEPTED", processed_at=NOW, person_id=SUBJECT, source="server" if rtype == "CLICK" else "media",
         )
         values.update(kw)
+        if values["status"] == "ACCEPTED" and "accepted_key" not in values:
+            values["accepted_key"] = f"{values['decision_id']}:{values['person_id']}:{rtype}"
         return Reaction.objects.create(**values)
 
     def test_a_correct_funnel_passes(self):
@@ -183,10 +186,9 @@ class FunnelInvariantTests(InvariantBase):
         self.assertTrue(any("클릭 기간" in p for p in self.problems()))
 
     def test_the_same_person_and_type_accepted_twice_is_found_but_other_people_may_repeat(self):
-        sql("DROP INDEX records_reaction_one_accepted_per_person_type")
         self.put("IMPRESSION", person_id="0197a5c0-0000-7000-8000-0000000000a1")  # 다른 사람(일괄 슬롯의 다른 시청자)은 괜찮다
         self.assertEqual([p for p in self.problems() if "두 번 이상" in p], [])
-        self.put("IMPRESSION")  # 같은 사람의 같은 유형
+        self.put("IMPRESSION", accepted_key="forged-second-key")  # 같은 사람의 같은 유형(유일 제약이 없는 저장소를 가정해 키만 다르게)
         self.assertTrue(any("두 번 이상 인정" in p for p in self.problems()))
 
     def test_waiting_for_a_prerequisite_is_normal_only_within_the_hold_time(self):

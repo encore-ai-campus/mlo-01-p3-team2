@@ -131,6 +131,7 @@ class SubjectTests(FunnelBase):
     def test_an_accepted_reaction_always_carries_the_judged_person(self):
         row = self.accept_impression()
         self.assertEqual(row.person_id, SUBJECT)  # 보고에 사람이 없어도 개인 슬롯은 결정의 사람
+        self.assertEqual(row.accepted_key, f"{self.decision.decision_id}:{SUBJECT}:IMPRESSION")  # 유일 제약이 지키는 (결정, 사람, 유형) 키
         _slot, decision = self.shared()
         self.assertEqual(self.accept_impression(decision, subject=A).person_id, A)
 

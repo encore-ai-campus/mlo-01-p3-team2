@@ -36,8 +36,11 @@ def reaction_ref(media_id, reaction_id):
 
 def _finish(row, status, now, reason=None, rule=None, person=None):
     """상태를 바꾸는 **유일한 곳**. 아직 `RECEIVED` 인 행만 바꾼다(끝난 반응은 다시 바뀌지 않는다). 인정할 때는 판정 단위의 사람도 함께 확정한다."""
+    if status == ReactionStatus.ACCEPTED and person is None:
+        raise RuntimeError(f"판정 단위의 사람이 없는 반응을 인정하려 했다: {row.pk}")
+    accepted_key = f"{row.decision_id}:{person}:{row.type}" if status == ReactionStatus.ACCEPTED else None  # (결정, 사람, 유형)당 인정 1건을 DB 가 지킨다
     changed = Reaction.objects.filter(pk=row.pk, status=ReactionStatus.RECEIVED).update(
-        status=status, reason_code=reason, applied_rule=rule, processed_at=now, person_id=person,
+        status=status, reason_code=reason, applied_rule=rule, processed_at=now, person_id=person, accepted_key=accepted_key,
     )
     if changed != 1:
         raise RuntimeError(f"이미 처리된 반응의 상태를 바꾸려 했다: {row.pk}")
