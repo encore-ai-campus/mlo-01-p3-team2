@@ -103,9 +103,9 @@ class ServingContractRuleTests(SimpleTestCase):
                     self.assertEqual(list(content), ["application/problem+json"], f"{method} {path} {status}")
                     self.assertEqual(content["application/problem+json"]["schema"], {"$ref": "#/components/schemas/Problem"})
 
-    def test_media_key_security_everywhere_except_health_and_assets(self):
+    def test_media_key_security_everywhere_except_health_assets_and_clicks(self):
         for path, method, op in self.contract.operations():
-            if path in ("/health",) or path.startswith("/assets"):
+            if path in ("/health",) or path.startswith(("/assets", "/c/")):  # 최종 사용자 브라우저가 여는 주소(C3·클릭)
                 self.assertEqual(op.get("security"), [], f"{method} {path}")
             else:
                 self.assertNotIn("security", op, f"{method} {path}")  # 전역 MediaKey 를 따른다
