@@ -49,7 +49,7 @@ info:
 
     위 수치는 동시 사용자 150명 가정을 바탕으로 한 **개발용 초기값**이다. 부하 측정(설계 §6.5, 계획 2-6) 뒤에 조정할 수 있고, 바뀌면 이 표를 고친다.
 
-    ## v1.1 추가 (확정 2026-10-08, 구현 중: 2-7 `audience`·2-8 `click_url`과 `/c/{token}` 구현됨)
+    ## v1.1 추가 (확정 2026-10-08, 구현 중: 2-7 `audience`·2-8 `click_url`과 `/c/{token}`·2-9 퍼널 규칙과 반응 `subject_id` 구현됨)
 
     설계 문서 §10 "반응 퍼널 규칙"·"일괄 슬롯"·"클릭 출처"의 계약 부분이다. 모두 기존 계약에 **더하기만** 하는 변경이다.
     아래 스키마에서 `[v1.1]`로 표시한 필드는 **구현과 함께 `required`에 들어간다**(그 전까지 서버는 보내지 않는다).
@@ -306,6 +306,7 @@ paths:
                   value:
                     reaction_id: c0ffee00-1111-4222-8333-444455556666
                     decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
+                    subject_id: null
                     type: IMPRESSION
                     occurred_at: "2026-10-07T03:21:46Z"
                     received_at: "2026-10-07T03:21:46Z"
@@ -358,6 +359,7 @@ paths:
                   value:
                     reaction_id: c0ffee00-1111-4222-8333-444455556666
                     decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
+                    subject_id: null
                     type: IMPRESSION
                     occurred_at: "2026-10-07T03:21:46Z"
                     received_at: "2026-10-07T03:21:46Z"
@@ -686,7 +688,7 @@ components:
 
     Reaction:
       type: object
-      required: [reaction_id, decision_id, type, occurred_at, received_at, status, reason_code]
+      required: [reaction_id, decision_id, subject_id, type, occurred_at, received_at, status, reason_code]
       additionalProperties: false
       properties:
         reaction_id:
@@ -694,7 +696,7 @@ components:
         decision_id:
           $ref: "#/components/schemas/Uuid"
         subject_id:
-          description: "[v1.1] 보고에 실린 `subject_id`. 없으면 `null`."
+          description: "보고에 실린 `subject_id`(소문자). 없으면 `null` [v1.1, 2-9에서 필수로 올림]."
           oneOf:
             - $ref: "#/components/schemas/Uuid"
             - type: "null"
