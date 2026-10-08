@@ -1,6 +1,4 @@
 """결정 유스케이스(설계 §4.3~4.4). 후보 조립 → engine → **저장한 뒤에만** 돌려준다(§4.4-12)."""
-import hashlib
-import hmac
 import logging
 import random
 import uuid
@@ -8,6 +6,7 @@ import uuid
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from assets.api import asset_url
 from engine.api import AdRequest, decide as engine_decide
@@ -160,11 +159,11 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
 def click_reaction_id(decision_id, subject_id):
     """(결정, 사람)에서 결정적으로 만든 `reaction_id`. 같은 사람의 두 번째 클릭이 같은 ID 라 `UNIQUE(media_id, reaction_id)` 가 1건만 남긴다.
 
-    **서버 비밀(`SECRET_KEY`)로 만든 HMAC** 이다. 소스에 있는 공개 값(이름공간)으로 계산되면 매체가 같은 ID 로 아무 반응이나 먼저 접수시켜
+    **서버 비밀(`SECRET_KEY`)로 만든 HMAC**(Django `salted_hmac`, 용도 문자열로 키를 분리) 이다. 소스에 있는 공개 값(이름공간)으로 계산되면 매체가 같은 ID 로 아무 반응이나 먼저 접수시켜
     진짜 클릭을 "중복"으로 지울 수 있다(같은 유일 제약을 쓰므로). 비밀을 모르면 계산할 수 없다. 비밀이 바뀌면 ID가 달라져 사람마다 클릭이
     한 번 더 기록될 수 있다(토큰도 함께 무효가 되므로 감수한다).
     """
-    digest = hmac.new(settings.SECRET_KEY.encode(), f"ads_server.click.reaction/{decision_id}/{subject_id}".encode(), hashlib.sha256).digest()
+    digest = salted_hmac("ads_server.click.reaction", f"{decision_id}/{subject_id}", algorithm="sha256").digest()
     return uuid.UUID(bytes=digest[:16], version=8)  # RFC 9562 의 사용자 정의 UUID(v8)
 
 
