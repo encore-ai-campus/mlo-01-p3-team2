@@ -1,4 +1,4 @@
-"""2-7 슬롯 성격(`audience`: individual·shared, `max_viewers`) — 모델·서비스·결정 서비스·결정 API를 한 곳에서 시험한다.
+"""2-7 슬롯 성격(`audience`: individual·shared) — 모델·서비스·결정 서비스·결정 API를 한 곳에서 시험한다.
 
 규칙의 원본은 설계 §10 "일괄 슬롯"과 계약 C1 v1.1이다: 성격은 만든 뒤 바뀌지 않고, 개인 슬롯의 결정에는 사람이 있고 일괄 슬롯의 결정에는 없다.
 """
@@ -11,16 +11,16 @@ from django.test import TestCase, tag
 from foundation.errors import Forbidden, InvalidRequest, NotFound
 from foundation.models import AuditLog
 from masters import api as masters
-from masters.models import MAX_VIEWERS, Media, Slot
+from masters.models import Media, Slot
 from records import api as records
 from records.models import Decision
 from tests.factories import NOW, SUBJECT, World, make_admin, png_file
 from tests.test_serving_decisions import DecisionApiMixin
 
 
-def shared_slot(admin, max_viewers=30):
+def shared_slot(admin):
     media = masters.create_media(admin, f"일괄 매체-{uuid.uuid4().hex[:6]}")
-    return masters.create_slot(admin, media.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", max_viewers=max_viewers)
+    return masters.create_slot(admin, media.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
 
 
 @tag("security")
@@ -31,7 +31,7 @@ class SlotModelTests(TestCase):
 
     def test_audience_cannot_be_changed_after_creation(self):
         slot = self.raw(audience="individual")
-        slot.audience, slot.max_viewers = "shared", 10
+        slot.audience = "shared"
         with self.assertRaises(ValueError):
             slot.save()
         self.assertEqual(Slot.objects.get(pk=slot.pk).audience, "individual")
@@ -39,18 +39,10 @@ class SlotModelTests(TestCase):
         slot.is_active = False  # 다른 필드는 바꿀 수 있다
         slot.save()
 
-    def test_db_enforces_max_viewers_only_for_shared(self):
+    def test_db_accepts_only_known_audiences_and_has_no_default(self):
         self.raw(audience="individual")
-        self.raw(audience="shared", max_viewers=1)
-        self.raw(audience="shared", max_viewers=MAX_VIEWERS)
-        for bad in (
-            dict(audience="individual", max_viewers=5),  # 개인에는 상한이 없다
-            dict(audience="shared"),  # 일괄은 상한이 필수
-            dict(audience="shared", max_viewers=0),
-            dict(audience="shared", max_viewers=MAX_VIEWERS + 1),
-            dict(audience="everyone"),  # 모르는 성격
-            dict(audience=""),  # 기본값이 없다 — 만드는 쪽이 정한다
-        ):
+        self.raw(audience="shared")
+        for bad in (dict(audience="everyone"), dict(audience="")):  # 모르는 성격, 기본값 없음 — 만드는 쪽이 정한다
             with self.subTest(bad), self.assertRaises(IntegrityError), transaction.atomic():
                 self.raw(**bad)
 
@@ -64,40 +56,36 @@ class SlotServiceTests(TestCase):
     def create(self, name="슬롯", **kw):
         return masters.create_slot(self.admin, self.media.media_id, name, "IMPRESSION", 10, 20, 50, "초기", **kw)
 
-    def test_default_is_individual_without_a_viewer_limit(self):
+    def test_default_is_individual(self):
         slot = self.create()
-        self.assertEqual((slot.audience, slot.max_viewers), ("individual", None))
+        self.assertEqual(slot.audience, "individual")
         self.assertEqual(Slot.objects.get(pk=slot.slot_id).audience, "individual")
 
-    def test_shared_slot_keeps_its_viewer_limit_and_is_exposed_through_every_read(self):
-        slot = self.create("전광판", audience="shared", max_viewers=30)
-        self.assertEqual((slot.audience, slot.max_viewers), ("shared", 30))
-        self.assertEqual(masters.get_slot(slot.slot_id).max_viewers, 30)
+    def test_shared_slot_is_exposed_through_every_read(self):
+        slot = self.create("전광판", audience="shared")
+        self.assertEqual(slot.audience, "shared")
+        self.assertEqual(masters.get_slot(slot.slot_id).audience, "shared")
         self.assertEqual({s.slot_id: s.audience for s in masters.list_slots(media_id=self.media.media_id)}, {slot.slot_id: "shared"})
         self.assertEqual(masters.get_slots_with_policy([slot.slot_id])[slot.slot_id].audience, "shared")
 
-    def test_invalid_combinations_are_400_and_nothing_is_saved(self):
-        cases = {
-            "unknown audience": (dict(audience="everyone"), "/audience"),
-            "individual with limit": (dict(audience="individual", max_viewers=5), "/max_viewers"),
-            "shared without limit": (dict(audience="shared"), "/max_viewers"),
-            "shared zero": (dict(audience="shared", max_viewers=0), "/max_viewers"),
-            "shared negative": (dict(audience="shared", max_viewers=-1), "/max_viewers"),
-            "shared too many": (dict(audience="shared", max_viewers=MAX_VIEWERS + 1), "/max_viewers"),
-            "shared bool": (dict(audience="shared", max_viewers=True), "/max_viewers"),
-            "shared float": (dict(audience="shared", max_viewers=2.5), "/max_viewers"),
-            "shared text": (dict(audience="shared", max_viewers="30"), "/max_viewers"),
-        }
-        for label, (kw, pointer) in cases.items():
-            with self.subTest(label), self.assertRaises(InvalidRequest) as caught:
-                self.create(**kw)
-            self.assertEqual(caught.exception.errors[0]["pointer"], pointer)
+    def test_unknown_audience_is_400_and_nothing_is_saved(self):
+        for bad in ("everyone", "", None, 1):
+            with self.subTest(bad), self.assertRaises(InvalidRequest) as caught:
+                self.create(audience=bad)
+            self.assertEqual(caught.exception.errors[0]["pointer"], "/audience")
         self.assertFalse(Slot.objects.exists())
 
+    def test_slot_has_no_per_slot_viewer_limit(self):
+        """설계 §10 "일괄 슬롯 노출 방어": 슬롯별 인원 상한은 두지 않는다 — 슬롯 열은 아래뿐이고 생성 함수는 모르는 인자를 받지 않는다."""
+        self.assertEqual({f.name for f in Slot._meta.get_fields() if f.concrete},
+                         {"slot_id", "media", "name", "pricing_unit", "audience", "is_active", "created_at"})
+        with self.assertRaises(TypeError):
+            self.create(audience="shared", limit=5)
+
     def test_creation_is_audited_with_the_audience(self):
-        slot = self.create(audience="shared", max_viewers=7)
+        slot = self.create(audience="shared")
         entry = AuditLog.objects.filter(action="masters.slot_created", target_id=str(slot.slot_id)).get()
-        self.assertEqual((entry.detail["audience"], entry.detail["max_viewers"]), ("shared", 7))
+        self.assertEqual(entry.detail["audience"], "shared")
 
 
 @tag("security")
@@ -148,7 +136,7 @@ class DecisionByAudienceTests(TestCase):
     def test_shared_slot_decides_like_any_other_slot(self):
         """일괄 슬롯도 같은 선택·과금 근거 스냅샷을 만든다 — 성격은 사람 유무만 바꾼다."""
         w = World()
-        slot = masters.create_slot(w.admin, w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", max_viewers=5)
+        slot = masters.create_slot(w.admin, w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
         group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
         w.api.create_creative(w.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((5, 5, 5)), now=NOW)
         decision = self.decide(slot)

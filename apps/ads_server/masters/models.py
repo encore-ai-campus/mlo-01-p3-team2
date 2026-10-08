@@ -21,9 +21,6 @@ class Audience(models.TextChoices):
     SHARED = "shared", "일괄"
 
 
-MAX_VIEWERS = 100_000  # `shared` 슬롯의 결정당 인정 인원 상한(max_viewers)의 설정 가능한 최댓값. 오입력(자릿수 실수) 방어
-
-
 class Media(models.Model):
     media_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     name = models.CharField(max_length=100, unique=True)
@@ -43,7 +40,6 @@ class Slot(models.Model):
     name = models.CharField(max_length=100)
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     audience = models.CharField(max_length=20, choices=Audience.choices)  # 만든 뒤 바꿀 수 없다. 기본값을 두지 않는다: 만드는 쪽이 정한다
-    max_viewers = models.PositiveIntegerField(null=True, blank=True)  # `shared` 일 때만: 결정 하나에서 인정하는 서로 다른 사람 수 상한
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -52,11 +48,6 @@ class Slot(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["media", "name"], name="masters_slot_name_per_media"),
             models.CheckConstraint(condition=Q(audience__in=Audience.values), name="masters_slot_audience_valid"),
-            models.CheckConstraint(  # shared ⇔ max_viewers 가 있고 1 이상
-                condition=(Q(audience=Audience.INDIVIDUAL, max_viewers__isnull=True)
-                           | Q(audience=Audience.SHARED, max_viewers__isnull=False, max_viewers__gte=1, max_viewers__lte=MAX_VIEWERS)),  # NULL 은 CHECK 를 통과하므로 명시한다
-                name="masters_slot_max_viewers_shared_only",
-            ),
         ]
 
     def save(self, *args, **kwargs):

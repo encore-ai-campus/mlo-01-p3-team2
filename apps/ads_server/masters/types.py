@@ -65,6 +65,5 @@ class SlotView:
     name: str
     pricing_unit: str
     audience: str  # `individual` | `shared`
-    max_viewers: int | None  # `shared` 일 때만
     is_active: bool
     policy: PolicyView  # 현재 정책. 슬롯은 항상 정책을 가진다(create_slot 이 함께 만든다)

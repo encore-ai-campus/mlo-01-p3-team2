@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit
 
-from .models import MAX_VIEWERS, Audience, BidPolicy, Media, MediaKey, PricingUnit, Slot
+from .models import Audience, BidPolicy, Media, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
 
 
@@ -42,8 +42,7 @@ def _policy_view(row):
 def _slot_view(slot, policy):
     return SlotView(
         slot_id=slot.slot_id, media_id=slot.media_id, media_name=slot.media.name, media_is_active=slot.media.is_active, name=slot.name,
-        pricing_unit=slot.pricing_unit, audience=slot.audience, max_viewers=slot.max_viewers, is_active=slot.is_active,
-        policy=_policy_view(policy),
+        pricing_unit=slot.pricing_unit, audience=slot.audience, is_active=slot.is_active, policy=_policy_view(policy),
     )
 
 
@@ -89,39 +88,33 @@ def set_media_active(actor, media_id, active):
         _audit(actor, "masters.media_active_changed", ("masters.media", media_id), {"active": bool(active)})
 
 
-def _validate_audience(audience, max_viewers):
-    """`individual` 은 `max_viewers` 가 없고, `shared` 는 1 이상 `MAX_VIEWERS` 이하의 정수가 필수다."""
+def _validate_audience(audience):
     if audience not in Audience.values:
         raise errors.InvalidRequest(errors=[{"pointer": "/audience", "message": f"{', '.join(Audience.values)} 중 하나여야 합니다."}])
-    if audience == Audience.INDIVIDUAL:
-        if max_viewers is not None:
-            raise errors.InvalidRequest(errors=[{"pointer": "/max_viewers", "message": "개인(individual) 슬롯에는 지정하지 않습니다."}])
-    elif isinstance(max_viewers, bool) or not isinstance(max_viewers, int) or not 1 <= max_viewers <= MAX_VIEWERS:
-        raise errors.InvalidRequest(errors=[{"pointer": "/max_viewers", "message": f"일괄(shared) 슬롯은 1 이상 {MAX_VIEWERS} 이하의 정수가 필요합니다."}])
 
 
-def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, audience=Audience.INDIVIDUAL, max_viewers=None):
+def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, audience=Audience.INDIVIDUAL):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
 
-    `audience`(개인/일괄)와 `max_viewers`(일괄일 때만)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
+    `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
     """
     _require_admin(actor)
     name = clean_text(name, "게재 위치 이름", "/name")
     reason = clean_text(reason, "사유", "/reason", 200)
     if pricing_unit not in PricingUnit.values:
         raise errors.InvalidRequest(errors=[{"pointer": "/pricing_unit", "message": f"{', '.join(PricingUnit.values)} 중 하나여야 합니다."}])
-    _validate_audience(audience, max_viewers)
+    _validate_audience(audience)
     _validate_policy(floor, base, cap)
     try:
         with transaction.atomic():
             media = Media.objects.get(pk=parse_uuid(media_id, "매체"))
-            slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit, audience=audience, max_viewers=max_viewers)
+            slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit, audience=audience)
             policy = BidPolicy.objects.create(
                 slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap,
                 changed_by=actor.pk, reason=reason,
             )
             _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
-                   {"name": name, "pricing_unit": pricing_unit, "audience": audience, "max_viewers": max_viewers, "floor": floor, "base": base, "cap": cap, "reason": reason})
+                   {"name": name, "pricing_unit": pricing_unit, "audience": audience, "floor": floor, "base": base, "cap": cap, "reason": reason})
     except Media.DoesNotExist:
         raise errors.NotFound("매체를 찾을 수 없습니다.")
     except IntegrityError:

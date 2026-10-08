@@ -25,7 +25,7 @@ class MediaAdmin(ReadOnlyAdmin):
 
 @admin.register(Slot)
 class SlotAdmin(ReadOnlyAdmin):
-    list_display = ("name", "media", "pricing_unit", "audience", "max_viewers", "is_active")
+    list_display = ("name", "media", "pricing_unit", "audience", "is_active")
     list_filter = ("pricing_unit", "audience", "is_active")
 
 
