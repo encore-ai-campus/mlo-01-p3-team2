@@ -457,8 +457,10 @@ components:
     DateTimeUtc:
       type: string
       format: date-time
-      pattern: "Z$"
-      description: RFC 3339, UTC(`Z`)만 허용한다.
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$"
+      description: |
+        RFC 3339, UTC(`Z`)만 허용한다. 이 API의 프로파일: **ASCII 숫자, 대문자 `T`와 `Z`, 소수 초는 1~6자리(마이크로초)까지**.
+        7자리 이상은 절삭하지 않고 거절한다(400). 값 `…46Z`와 `…46.000000Z`는 같은 시각이다.
 
     Context:
       type: object
