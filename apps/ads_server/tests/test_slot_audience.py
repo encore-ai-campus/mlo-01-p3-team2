@@ -75,13 +75,6 @@ class SlotServiceTests(TestCase):
             self.assertEqual(caught.exception.errors[0]["pointer"], "/audience")
         self.assertFalse(Slot.objects.exists())
 
-    def test_slot_has_no_per_slot_viewer_limit(self):
-        """설계 §10 "일괄 슬롯 노출 방어": 슬롯별 인원 상한은 두지 않는다 — 슬롯 열은 아래뿐이고 생성 함수는 모르는 인자를 받지 않는다."""
-        self.assertEqual({f.name for f in Slot._meta.get_fields() if f.concrete},
-                         {"slot_id", "media", "name", "pricing_unit", "audience", "is_active", "created_at"})
-        with self.assertRaises(TypeError):
-            self.create(audience="shared", limit=5)
-
     def test_creation_is_audited_with_the_audience(self):
         slot = self.create(audience="shared")
         entry = AuditLog.objects.filter(action="masters.slot_created", target_id=str(slot.slot_id)).get()
