@@ -51,3 +51,46 @@ class Decision(AppendOnlyModel):
             ),
         ]
         indexes = [models.Index(fields=["media_id", "decided_at"])]
+
+
+class ReactionType(models.TextChoices):
+    IMPRESSION = "IMPRESSION", "노출"
+    CLICK = "CLICK", "클릭"
+    CONVERSION = "CONVERSION", "전환"
+
+
+class ReactionStatus(models.TextChoices):
+    RECEIVED = "RECEIVED", "접수(처리 대기)"
+    ACCEPTED = "ACCEPTED", "인정"
+    REJECTED = "REJECTED", "거부"
+
+
+class Reaction(models.Model):
+    """반응 수신함(inbox, 설계 §4.4, DRD P2). 매체가 보고한 노출·클릭·전환을 **받은 그대로** 저장한다.
+
+    **2xx 응답 = 이 행이 커밋됐다**는 뜻이다. 과금 판정(`ACCEPTED`/`REJECTED`)은 이후 별도 트랜잭션이 상태만 바꾼다(2-5).
+    접수한 반응은 거부돼도 지우지 않는다. 결정은 FK 가 아니다: 없는 결정·남의 결정에 대한 보고도 일단 받고 나중에 거부한다.
+    """
+
+    inbox_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    media_id = models.UUIDField()
+    reaction_id = models.UUIDField()  # 매체가 만든 ID. 유일성의 범위는 매체 안이다
+    decision_id = models.UUIDField()
+    type = models.CharField(max_length=20, choices=ReactionType.choices)
+    occurred_at = models.DateTimeField()  # 매체가 감지한 시각. 참고용
+    received_at = models.DateTimeField(default=timezone.now)  # 서버 수신 시각. 분석의 기준
+    raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체)
+    status = models.CharField(max_length=20, choices=ReactionStatus.choices, default=ReactionStatus.RECEIVED)
+    reason_code = models.CharField(max_length=40, null=True, blank=True)  # REJECTED 일 때만
+
+    class Meta:
+        db_table = "records_reaction"
+        constraints = [
+            models.UniqueConstraint(fields=["media_id", "reaction_id"], name="records_reaction_once_per_media"),
+            models.CheckConstraint(condition=Q(type__in=ReactionType.values), name="records_reaction_type_valid"),
+            models.CheckConstraint(condition=Q(status__in=ReactionStatus.values), name="records_reaction_status_valid"),
+            models.CheckConstraint(
+                condition=(Q(status="REJECTED", reason_code__isnull=False) | (~Q(status="REJECTED") & Q(reason_code__isnull=True))),
+                name="records_reaction_reason_only_when_rejected",
+            ),
+        ]

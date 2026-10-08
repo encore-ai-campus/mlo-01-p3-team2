@@ -3,6 +3,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from foundation.api import errors, json_depth
 
@@ -71,3 +72,53 @@ def parse_decision_request(body):
         raise errors.InvalidRequest(errors=problems)
     context = validate_context(body["context"]) if "context" in body else {}
     return DecisionRequest(slot_id=slot_id, subject_id=str(subject), context=context)
+
+
+# ---------------------------------------------------------------- 반응 (계약 `ReactionRequest`)
+
+REACTION_TYPES = ("IMPRESSION", "CLICK", "CONVERSION")
+_UTC_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z")  # 계약 `DateTimeUtc`: RFC 3339, UTC(`Z`)만
+_REACTION_FIELDS = frozenset({"type", "occurred_at"})
+
+
+@dataclass(frozen=True)
+class ReactionRequest:
+    type: str
+    occurred_at: datetime
+
+
+def parse_utc_time(value):
+    """RFC 3339 UTC(`...Z`) 문자열을 시각으로. 형식이 틀리거나 없는 날짜면 `None`(소수 초는 마이크로초까지 쓴다)."""
+    match = _UTC_TIME.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        return None
+    year, month, day, hour, minute, second, fraction = match.groups()
+    try:
+        return datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), int((fraction or "").ljust(6, "0")[:6]), tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def path_uuid(value, name):
+    """경로의 UUID(계약 형식만). 틀리면 400 — 반응 PUT 은 404 를 선언하지 않는다."""
+    if not UUID_PATTERN.fullmatch(value):
+        raise errors.InvalidRequest(errors=[_error(f"path:{name}", "UUID(하이픈 포함 36자)여야 합니다.")])
+    return uuid.UUID(value)
+
+
+def parse_reaction_request(body):
+    problems = [_error(f"/{key}", "알 수 없는 속성입니다.") for key in body if key not in _REACTION_FIELDS]
+    if "type" not in body:
+        problems.append(_error("/type", "필수입니다."))
+    elif body["type"] not in REACTION_TYPES:
+        problems.append(_error("/type", f"{', '.join(REACTION_TYPES)} 중 하나여야 합니다."))
+    occurred = None
+    if "occurred_at" not in body:
+        problems.append(_error("/occurred_at", "필수입니다."))
+    else:
+        occurred = parse_utc_time(body["occurred_at"])
+        if occurred is None:
+            problems.append(_error("/occurred_at", "RFC 3339 UTC 시각(예: 2026-10-07T03:21:46Z)이어야 합니다."))
+    if problems:
+        raise errors.InvalidRequest(errors=problems)
+    return ReactionRequest(type=body["type"], occurred_at=occurred)

@@ -12,13 +12,21 @@ from masters import api as masters
 from records import api as records
 
 from .auth import media_endpoint
-from .requests import UUID_PATTERN, parse_decision_request
+from .requests import UUID_PATTERN, parse_decision_request, parse_reaction_request, path_uuid
 
 BASE = "/api/media/v1"
 
 
 def _utc(moment):
     return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")  # 계약: RFC 3339 UTC(`Z`)
+
+
+def _reaction_body(reaction):
+    return {
+        "reaction_id": str(reaction.reaction_id), "decision_id": str(reaction.decision_id), "type": reaction.type,
+        "occurred_at": _utc(reaction.occurred_at), "received_at": _utc(reaction.received_at),
+        "status": reaction.status, "reason_code": reaction.reason_code,
+    }
 
 
 def _decision_body(decision):
@@ -58,3 +66,29 @@ def get_decision(request, decision_id):
     if not UUID_PATTERN.fullmatch(decision_id):  # 계약 `Uuid` 형식만 받는다. 아닌 표기는 '없는 것'과 같다(records 와 같은 404)
         raise errors.NotFound("결정을 찾을 수 없습니다.")
     return JsonResponse(_decision_body(records.get_decision(request.media.media_id, decision_id)))
+
+
+@media_endpoint("reactions")
+def put_reaction(request, decision_id, reaction_id):
+    decision_id, reaction_id = path_uuid(decision_id, "decision_id"), path_uuid(reaction_id, "reaction_id")
+    body = parse_json(request)
+    fields = parse_reaction_request(body)
+    with transaction.atomic():  # 커밋된 뒤에만 2xx 를 보낸다: 2xx 는 "수신함에 저장했다"는 확인이다(커밋이 실패해도 503)
+        reaction, created = records.receive_reaction(
+            request.media.media_id, decision_id, reaction_id, fields.type, fields.occurred_at, raw=body,
+        )
+        payload = _reaction_body(reaction)
+    return JsonResponse(payload, status=201 if created else 200)
+
+
+@media_endpoint("reads")
+def get_reaction(request, decision_id, reaction_id):
+    if not (UUID_PATTERN.fullmatch(decision_id) and UUID_PATTERN.fullmatch(reaction_id)):
+        raise errors.NotFound("반응을 찾을 수 없습니다.")
+    return JsonResponse(_reaction_body(records.get_reaction(request.media.media_id, decision_id, reaction_id)))
+
+
+@login_not_required  # 인증은 아래 두 뷰의 `media_endpoint` 가 한다(경로군이 PUT 은 reactions, GET 은 reads 로 다르다)
+@require_http_methods(["GET", "PUT"])
+def reaction(request, decision_id, reaction_id):
+    return (put_reaction if request.method == "PUT" else get_reaction)(request, decision_id, reaction_id)

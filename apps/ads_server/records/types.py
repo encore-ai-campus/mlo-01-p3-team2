@@ -35,3 +35,14 @@ class DecisionView:
     trace: dict
     candidate_count: int
     rejected_counts: dict
+
+
+@dataclass(frozen=True)
+class ReactionView:
+    reaction_id: uuid.UUID
+    decision_id: uuid.UUID
+    type: str
+    occurred_at: datetime
+    received_at: datetime
+    status: str
+    reason_code: str | None

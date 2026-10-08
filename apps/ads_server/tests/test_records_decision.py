@@ -14,7 +14,7 @@ from foundation.errors import Forbidden, NotFound
 from foundation.models import AppendOnlyError
 from masters import api as masters
 from records import api as records
-from records.models import Decision
+from records.models import Decision, Reaction
 from tests.factories import DAY, NOW, World, make_slot, png_file
 
 UNIT = "IMPRESSION"
@@ -301,3 +301,30 @@ class VersionRowIdentityTests(TestCase):
         self.assertEqual(masters.get_slot(w.slot.slot_id).policy.bid_policy_id, p2.bid_policy_id)
         facts = campaigns.candidate_facts_for_slot(w.slot.slot_id)
         self.assertEqual(facts[0].bid_id, v2.bid_id)  # 후보 사실도 최신 버전 행을 가리킨다
+
+
+@tag("security")
+class ReactionInboxConstraintTests(TestCase):
+    """수신함의 무결성은 DB 도 지킨다(서비스가 틀려도 잘못된 행이 들어가지 않는다)."""
+
+    def row(self, **kw):
+        values = dict(media_id=uuid.uuid4(), reaction_id=uuid.uuid4(), decision_id=uuid.uuid4(), type="CLICK", occurred_at=NOW, raw={})
+        values.update(kw)
+        return Reaction(**values)
+
+    def test_db_rejects_duplicates_per_media_and_invalid_codes(self):
+        base = self.row()
+        base.save()
+        cases = {
+            "same media and reaction id": self.row(media_id=base.media_id, reaction_id=base.reaction_id),
+            "bad type": self.row(type="VIEW"),
+            "bad status": self.row(status="DONE"),
+            "reason without rejection": self.row(status="ACCEPTED", reason_code="x"),
+            "rejection without reason": self.row(status="REJECTED"),
+        }
+        for label, row in cases.items():
+            with self.assertRaises(IntegrityError, msg=label), transaction.atomic():
+                row.save()
+        self.row(reaction_id=base.reaction_id).save()  # 다른 매체는 같은 reaction_id 를 쓸 수 있다
+        self.row(status="REJECTED", reason_code="unknown_decision").save()
+        self.assertEqual(Reaction.objects.count(), 3)
