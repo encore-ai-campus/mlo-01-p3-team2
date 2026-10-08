@@ -47,8 +47,11 @@ RETRYABLE = (0, 429, 503)
 def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=True):
     """저장소가 약속을 지켰는지 확인한다. 어긋난 곳의 설명 목록(지키면 빈 목록).
 
-    acked_decisions: 수신 확인(201)한 결정 ID 들. acked_reactions: {reaction_id: decision_id} (수신 확인한 반응).
+    acked_decisions: 수신 확인(201)한 결정 ID 들.
+    acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
+    from django.conf import settings
+
     from billing import api as billing
     from billing.budget_day import budget_day_of
     from billing.models import CampaignSpend, LedgerEntry
@@ -66,10 +69,22 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         by_reaction_id.setdefault((str(r.media_id), str(r.reaction_id)), []).append(r)
     if any(len(rows) > 1 for rows in by_reaction_id.values()):
         problems.append("같은 (매체, reaction_id) 가 둘 이상 저장돼 있다")
-    stored_ids = {rid for (_media, rid) in by_reaction_id}
-    lost = {str(i) for i in (acked_reactions or {})} - stored_ids
+    lost = relinked = retyped = 0
+    for (media_id, reaction_id), (decision_id, reaction_type) in (acked_reactions or {}).items():
+        rows = by_reaction_id.get((str(media_id), str(reaction_id)))
+        if not rows:
+            lost += 1
+            continue
+        if str(rows[0].decision_id) != str(decision_id):
+            relinked += 1
+        if rows[0].type != reaction_type:
+            retyped += 1
     if lost:
-        problems.append(f"수신 확인한 반응 {len(lost)}건이 저장돼 있지 않다(유실)")
+        problems.append(f"수신 확인한 반응 {lost}건이 저장돼 있지 않다(유실)")
+    if relinked:
+        problems.append(f"수신 확인한 반응 {relinked}건이 확인한 것과 다른 결정에 연결돼 있다")
+    if retyped:
+        problems.append(f"수신 확인한 반응 {retyped}건의 유형이 확인한 것과 다르다")
 
     accepted = [r for r in reactions if r.status == "ACCEPTED"]
     seen = {}
@@ -85,10 +100,29 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
             problems.append(f"근거 없는 결정에 대한 반응이 인정됐다: {r.reaction_id}")
         elif r.type == decision.pricing_unit:
             expected_refs.add(f"{r.media_id}:{r.reaction_id}")
-    charges = list(LedgerEntry.objects.filter(entry_type="CHARGE"))
+    charges = list(LedgerEntry.objects.filter(entry_type="CHARGE").select_related("wallet"))
     refs = [c.reaction_ref for c in charges]
     if len(refs) != len(set(refs)):
         problems.append("같은 반응이 두 번 과금됐다(이중 과금)")
+    by_ref = {f"{r.media_id}:{r.reaction_id}": r for r in accepted}
+    wrong = {"owner": 0, "campaign": 0, "amount": 0, "shortfall": 0, "time": 0, "policy": 0}
+    for charge in charges:  # 각 과금을 **결정에 기록된 근거**와 대조한다(원장 안의 수치만 맞는 것으로는 부족하다)
+        reaction = by_ref.get(charge.reaction_ref)
+        decision = decisions.get(str(reaction.decision_id)) if reaction else None
+        if decision is None:
+            continue  # 아래의 '인정되지 않은 반응에 대한 과금'이 잡는다
+        wrong["owner"] += charge.wallet.owner_id != decision.owner_id
+        wrong["campaign"] += charge.campaign_id != decision.campaign_id
+        wrong["amount"] += not (charge.amount <= 0 and -charge.amount + charge.shortfall == decision.applied_amount)  # 받은 금액 + 부족분 = 적용 금액
+        wrong["shortfall"] += bool(charge.shortfall) and charge.balance_after != 0  # 부족분은 잔액을 다 받았을 때만 생긴다
+        wrong["time"] += charge.created_at != reaction.received_at
+        wrong["policy"] += charge.charge_policy != settings.BILLING_CHARGE_POLICY
+    labels = {
+        "owner": "과금 대상 광고주가 결정의 광고주와 다르다", "campaign": "과금의 캠페인이 결정의 캠페인과 다르다",
+        "amount": "과금액(+부족분)이 결정의 적용 금액과 다르다", "shortfall": "잔액이 남았는데 부족분이 기록됐다",
+        "time": "과금 시각이 반응의 접수 시각과 다르다", "policy": "과금 정책 이름이 설정과 다르다",
+    }
+    problems += [f"{labels[key]}: {count}건" for key, count in wrong.items() if count]
     missing, orphans = expected_refs - set(refs), set(refs) - expected_refs
     if missing:
         problems.append(f"인정된 반응 {len(missing)}건에 과금이 없다")
@@ -269,11 +303,12 @@ class Harness:
         body = {"slot_id": str(self.ctx["slot_id"]), "subject_id": str(uuid.uuid4()), "context": {"scene": "load"}}
         return call(self.port, "POST", "/api/media/v1/decisions", self.key, body, retry=retry)
 
-    def put_reaction(self, decision_id, rtype="IMPRESSION", reaction_id=None, retry=True):
+    def put_reaction(self, decision_id, rtype="IMPRESSION", reaction_id=None, retry=True, occurred_at=None):
+        """`occurred_at` 을 주면 그대로 쓴다. **같은 reaction_id 의 재전송은 같은 본문**이어야 하므로(다르면 409) 호출하는 쪽이 한 번 만들어 넘긴다."""
         rid = reaction_id or str(uuid.uuid4())
-        outcome = call(self.port, "PUT", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key, {"type": rtype, "occurred_at": now_utc()}, retry=retry)
+        outcome = call(self.port, "PUT", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key, {"type": rtype, "occurred_at": occurred_at or now_utc()}, retry=retry)
         if outcome.acked:
-            self.acked_reactions[rid] = decision_id
+            self.acked_reactions[(str(self.ctx["media_id"]), rid)] = (str(decision_id), rtype)
         return outcome
 
     def get_reaction(self, decision_id, rid):
@@ -348,8 +383,8 @@ class Harness:
         self.log(f"D. 같은 reaction_id 를 {self.n}개 동시에 재전송")
         (decision,) = make_decisions(self.ctx, 1)
         self.acked_decisions.add(decision)
-        rid = str(uuid.uuid4())
-        outcomes, wall = run_concurrent(self.n, lambda i: self.put_reaction(decision, "CLICK", reaction_id=rid))
+        rid, occurred_at = str(uuid.uuid4()), now_utc()  # 논리 반응 하나: ID 와 본문(시각)을 스레드 시작 전에 한 번만 만든다
+        outcomes, wall = run_concurrent(self.n, lambda i: self.put_reaction(decision, "CLICK", reaction_id=rid, occurred_at=occurred_at))
         self.phase("D 재전송 폭주", outcomes, wall)
         counts = {s: sum(1 for o in outcomes if o.status == s) for s in (200, 201)}
         self.check("201 하나, 나머지는 200", counts == {200: self.n - 1, 201: 1}, str(counts))

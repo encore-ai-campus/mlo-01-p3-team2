@@ -355,12 +355,12 @@ class ConcurrentProcessingTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=10)
                 for _ in range(300):
-                    try:
+                    try:  # 처리뿐 아니라 대기열 조회도 테스트 DB(인메모리 공유 캐시)의 테이블 잠금을 받을 수 있다 → 같은 재시도 범위
                         records.process_pending(limit=100, now=NOW)
+                        if not Reaction.objects.filter(status="RECEIVED").exists():
+                            return
                     except OperationalError:
-                        time.sleep(0.003)
-                    if not Reaction.objects.filter(status="RECEIVED").exists():
-                        return
+                        pass
                     time.sleep(0.003)
             except Exception as error:  # noqa: BLE001
                 errors.append(repr(error))
