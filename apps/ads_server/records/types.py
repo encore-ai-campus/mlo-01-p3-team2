@@ -39,6 +39,7 @@ class DecisionView:
 
 @dataclass(frozen=True)
 class ReactionView:
+    inbox_id: uuid.UUID  # 서버 쪽 식별자(응답에 싣지 않는다. 처리 단계가 쓴다)
     reaction_id: uuid.UUID
     decision_id: uuid.UUID
     type: str

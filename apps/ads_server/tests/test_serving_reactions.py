@@ -26,6 +26,7 @@ class ReactionApiMixin(ProviderContractMixin):
     def setUp(self):
         buckets.reset()
         self.addCleanup(buckets.reset)
+        self.enterContext(override_settings(REACTION_PROCESS_ON_RECEIPT=False))  # 이 파일은 접수만 본다(처리는 test_records_processing.py)
         self.w = World()
         self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
         self.media_id = self.w.slot.media_id
@@ -408,7 +409,7 @@ class GetReactionTests(ReactionApiBase):
     def test_the_reported_status_follows_the_row(self):
         rid = uuid.uuid4()
         self.put(rid)
-        Reaction.objects.filter(reaction_id=rid).update(status="REJECTED", reason_code="duplicate_type")
+        Reaction.objects.filter(reaction_id=rid).update(status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW)
         body = self.get(rid).json()
         self.assertEqual((body["status"], body["reason_code"]), ("REJECTED", "duplicate_type"))
         self.assertContract(self.contract, PATH, "get", self.get(rid))

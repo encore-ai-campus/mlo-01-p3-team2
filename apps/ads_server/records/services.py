@@ -93,7 +93,7 @@ def get_decision(media_id, decision_id):
 
 def _reaction_view(r):
     return ReactionView(
-        reaction_id=r.reaction_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at, received_at=r.received_at,
+        inbox_id=r.inbox_id, reaction_id=r.reaction_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at, received_at=r.received_at,
         status=r.status, reason_code=r.reason_code,
     )
 

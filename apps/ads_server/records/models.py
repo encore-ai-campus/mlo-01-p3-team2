@@ -82,6 +82,9 @@ class Reaction(models.Model):
     raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체)
     status = models.CharField(max_length=20, choices=ReactionStatus.choices, default=ReactionStatus.RECEIVED)
     reason_code = models.CharField(max_length=40, null=True, blank=True)  # REJECTED 일 때만
+    applied_rule = models.CharField(max_length=64, null=True, blank=True)  # 거부한 규칙의 이름(REJECTED 일 때만)
+    processed_at = models.DateTimeField(null=True, blank=True)  # 처리(인정·거부)한 시각. RECEIVED 면 없다
+    attempts = models.PositiveSmallIntegerField(default=0)  # 처리에 실패한 횟수(반복 실패하는 반응이 대기열을 막지 않게)
 
     class Meta:
         db_table = "records_reaction"
@@ -93,4 +96,15 @@ class Reaction(models.Model):
                 condition=(Q(status="REJECTED", reason_code__isnull=False) | (~Q(status="REJECTED") & Q(reason_code__isnull=True))),
                 name="records_reaction_reason_only_when_rejected",
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status="RECEIVED", processed_at__isnull=True, applied_rule__isnull=True)
+                    | Q(status="ACCEPTED", processed_at__isnull=False, applied_rule__isnull=True)
+                    | Q(status="REJECTED", processed_at__isnull=False, applied_rule__isnull=False)
+                ),
+                name="records_reaction_processed_state",
+            ),
+            # 안전망: 결정당 유형별로 인정된 반응은 하나뿐이다(규칙 `once-per-type` 이 먼저 거르고, 동시 처리가 새도 DB 가 막는다)
+            models.UniqueConstraint(fields=["decision_id", "type"], condition=Q(status="ACCEPTED"), name="records_reaction_one_accepted_per_type"),
         ]
+        indexes = [models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx")]

@@ -320,11 +320,24 @@ class ReactionInboxConstraintTests(TestCase):
             "bad type": self.row(type="VIEW"),
             "bad status": self.row(status="DONE"),
             "reason without rejection": self.row(status="ACCEPTED", reason_code="x"),
-            "rejection without reason": self.row(status="REJECTED"),
+            "rejection without reason": self.row(status="REJECTED", processed_at=NOW, applied_rule="once-per-type"),
+            "processed without a time": self.row(status="ACCEPTED"),
+            "received but already processed": self.row(processed_at=NOW),
+            "rejected without a rule": self.row(status="REJECTED", reason_code="x", processed_at=NOW),
+            "accepted with a rule": self.row(status="ACCEPTED", processed_at=NOW, applied_rule="x"),
         }
         for label, row in cases.items():
             with self.assertRaises(IntegrityError, msg=label), transaction.atomic():
                 row.save()
         self.row(reaction_id=base.reaction_id).save()  # 다른 매체는 같은 reaction_id 를 쓸 수 있다
-        self.row(status="REJECTED", reason_code="unknown_decision").save()
+        self.row(status="REJECTED", reason_code="unknown_decision", applied_rule="known-decision", processed_at=NOW).save()
         self.assertEqual(Reaction.objects.count(), 3)
+
+    def test_only_one_reaction_per_type_can_be_accepted_per_decision(self):
+        decision = uuid.uuid4()
+        self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()  # 같은 결정·유형의 두 번째 인정
+        self.row(decision_id=decision, type="IMPRESSION", status="ACCEPTED", processed_at=NOW).save()  # 다른 유형은 된다
+        for _ in range(2):  # 거부는 몇 개든 된다
+            self.row(decision_id=decision, status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW).save()

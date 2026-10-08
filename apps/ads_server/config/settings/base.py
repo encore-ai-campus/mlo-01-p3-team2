@@ -152,6 +152,11 @@ SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod �
 BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
 BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
 
+# --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
+REACTION_RULES = ("known-decision", "same-media", "ad-shown", "once-per-type")
+REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해 본다(실패해도 접수 응답은 그대로). 끄면 process_reactions 가 전부 처리한다
+REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
+
 # --- 광고 선택 (설계 §4.3). 구현 선택은 config 한 곳(R4): 알고리즘·필터를 바꿔도 Decision 구조는 그대로다 ---
 ADS_SELECTION_POLICY = "highest-bid/v1"
 ADS_ENGINE_FILTERS = ("status", "period", "floor", "budget", "balance")  # 순서가 곧 판정 순서

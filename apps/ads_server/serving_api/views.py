@@ -79,6 +79,8 @@ def put_reaction(request, decision_id, reaction_id):
             request.media.media_id, decision_id, reaction_id, fields.type, fields.occurred_at, raw=body,
         )
         payload = _reaction_body(reaction)
+    if created:
+        records.process_after_receipt(reaction.inbox_id)  # 커밋 뒤 한 번 바로 처리해 본다. 접수 응답(위 스냅샷)은 어떤 경우에도 바뀌지 않는다
     return JsonResponse(payload, status=201 if created else 200)
 
 
