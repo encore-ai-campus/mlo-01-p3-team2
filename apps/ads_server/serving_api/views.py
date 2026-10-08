@@ -17,14 +17,15 @@ from .requests import UUID_PATTERN, parse_decision_request, parse_reaction_reque
 BASE = "/api/media/v1"
 
 
-def _utc(moment):
-    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")  # 계약: RFC 3339 UTC(`Z`)
+def _utc(moment, timespec="milliseconds"):
+    return moment.isoformat(timespec=timespec).replace("+00:00", "Z")  # 계약: RFC 3339 UTC(`Z`)
 
 
 def _reaction_body(reaction):
     return {
         "reaction_id": str(reaction.reaction_id), "decision_id": str(reaction.decision_id), "type": reaction.type,
-        "occurred_at": _utc(reaction.occurred_at), "received_at": _utc(reaction.received_at),
+        "occurred_at": _utc(reaction.occurred_at, "auto"),  # 매체가 보낸 정밀도를 잃지 않는다
+        "received_at": _utc(reaction.received_at),
         "status": reaction.status, "reason_code": reaction.reason_code,
     }
 

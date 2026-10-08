@@ -77,7 +77,8 @@ def parse_decision_request(body):
 # ---------------------------------------------------------------- 반응 (계약 `ReactionRequest`)
 
 REACTION_TYPES = ("IMPRESSION", "CLICK", "CONVERSION")
-_UTC_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z")  # 계약 `DateTimeUtc`: RFC 3339, UTC(`Z`)만
+# 계약 `DateTimeUtc`와 같은 문법: ASCII 숫자, 대문자 `T`·`Z`, 소수 초 1~6자리(마이크로초 — 저장·비교가 잃는 것 없이 다루는 한계)
+_UTC_TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?Z")
 _REACTION_FIELDS = frozenset({"type", "occurred_at"})
 
 
@@ -88,13 +89,13 @@ class ReactionRequest:
 
 
 def parse_utc_time(value):
-    """RFC 3339 UTC(`...Z`) 문자열을 시각으로. 형식이 틀리거나 없는 날짜면 `None`(소수 초는 마이크로초까지 쓴다)."""
+    """RFC 3339 UTC(`...Z`) 문자열을 시각으로. 형식이 틀리거나 없는 날짜면 `None`. 소수 초는 6자리까지만 받는다(절삭하지 않는다)."""
     match = _UTC_TIME.fullmatch(value) if isinstance(value, str) else None
     if match is None:
         return None
     year, month, day, hour, minute, second, fraction = match.groups()
     try:
-        return datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), int((fraction or "").ljust(6, "0")[:6]), tzinfo=UTC)
+        return datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), int((fraction or "").ljust(6, "0")), tzinfo=UTC)
     except ValueError:
         return None
 

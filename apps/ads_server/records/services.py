@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from assets.api import asset_url
 from engine.api import AdRequest, decide as engine_decide
-from foundation.api import errors, parse_uuid
+from foundation.api import errors, is_unique_violation, parse_uuid
 from masters import api as masters
 
 from .assemble import assemble
@@ -127,9 +127,11 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
                 media_id=media_id, reaction_id=reaction_id, decision_id=decision_id, type=reaction_type, occurred_at=occurred_at,
                 received_at=now, raw=raw,
             )
-    except IntegrityError:
+    except IntegrityError as error:
+        if not is_unique_violation(error):  # 유일 제약이 아닌 이유(CHECK 등)는, 같은 키의 행이 있어도 숨기지 않는다
+            raise
         row = existing()
-        if row is None:  # 유일 제약이 아닌 이유(검사 제약 등)는 숨기지 않는다
+        if row is None:
             raise
         return same_or_conflict(row)
     return _reaction_view(row), True

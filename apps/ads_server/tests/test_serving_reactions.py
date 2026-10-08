@@ -62,7 +62,7 @@ class PutReactionTests(ReactionApiBase):
         self.assertContract(self.contract, PATH, "put", response)
         self.assertEqual(response.json(), {
             "reaction_id": str(rid), "decision_id": str(self.decision_id), "type": "IMPRESSION",
-            "occurred_at": "2026-10-07T03:21:46.000Z", "received_at": "2026-10-07T12:00:00.000Z", "status": "RECEIVED", "reason_code": None,
+            "occurred_at": "2026-10-07T03:21:46Z", "received_at": "2026-10-07T12:00:00.000Z", "status": "RECEIVED", "reason_code": None,
         })
         row = Reaction.objects.get()  # 응답이 나간 시점에 이미 저장돼 있다
         self.assertEqual((row.media_id, row.reaction_id, row.decision_id, row.status), (self.media_id, rid, self.decision_id, "RECEIVED"))
@@ -184,6 +184,61 @@ class PutReactionTests(ReactionApiBase):
 
 
 @tag("security")
+class DetectionTimeTests(ReactionApiBase):
+    """`occurred_at` 의 정밀도·표기 규칙: 허용하는 입력은 **잃는 것 없이** 저장·비교하고, 구현과 계약이 같은 입력을 받는다."""
+
+    def report(self, rid, when, kind="CLICK"):
+        return self.put(rid, body={"type": kind, "occurred_at": when})
+
+    def test_times_that_differ_in_the_last_allowed_digit_are_a_conflict(self):
+        rid = uuid.uuid4()
+        self.assertEqual(self.report(rid, "2026-10-07T03:21:46.123456Z").status_code, 201)
+        response = self.report(rid, "2026-10-07T03:21:46.123457Z")
+        self.assertEqual(response.status_code, 409)
+        self.assertContract(self.contract, PATH, "put", response)
+
+    def test_more_than_microsecond_digits_are_rejected_instead_of_truncated(self):
+        for when in ("2026-10-07T03:21:46.1234561Z", "2026-10-07T03:21:46.1234569Z", "2026-10-07T03:21:46.1234567890Z"):
+            response = self.report(uuid.uuid4(), when)
+            self.assertEqual(response.status_code, 400, when)
+            self.assertEqual(response.json()["errors"][0]["pointer"], "/occurred_at")
+            self.assertContract(self.contract, PATH, "put", response)
+        self.assertEqual(Reaction.objects.count(), 0)
+
+    def test_the_same_instant_with_trailing_zeros_is_a_resend_not_a_conflict(self):
+        for first, again in (
+            ("2026-10-07T03:21:46Z", "2026-10-07T03:21:46.000000Z"), ("2026-10-07T03:21:46.5Z", "2026-10-07T03:21:46.500000Z"),
+            ("2026-10-07T03:21:46.123Z", "2026-10-07T03:21:46.123000Z"),
+        ):
+            rid = uuid.uuid4()
+            self.assertEqual(self.report(rid, first).status_code, 201, first)
+            self.assertEqual(self.report(rid, again).status_code, 200, again)
+
+    def test_the_stored_time_is_echoed_without_losing_digits(self):
+        rid = uuid.uuid4()
+        self.report(rid, "2026-10-07T03:21:46.123456Z")
+        self.assertEqual(self.get(rid).json()["occurred_at"], "2026-10-07T03:21:46.123456Z")
+
+    def test_implementation_and_contract_accept_exactly_the_same_times(self):
+        """같은 입력을 계약 스키마(`ReactionRequest`, `format` 검사 포함)와 실제 API 에 넣어 판정이 일치하는지 본다 — 응답 대조만으로는 잡히지 않는다."""
+        candidates = [
+            "2026-10-07T03:21:46Z", "2026-10-07T03:21:46.1Z", "2026-10-07T03:21:46.123456Z", "2026-10-07T03:21:46.1234567Z",
+            "2026-10-07T03:21:46.1234567890Z", "2026-10-07t03:21:46Z", "2026-10-07T03:21:46z", "2026-10-07 03:21:46Z",
+            "2026-10-07T03:21:46+00:00", "2026-10-07T12:21:46+09:00", "2026-10-07T03:21:46", "2026-10-07T03:21:46.Z",
+            "２０２６-１０-０７T０３:２１:４６Z", "٢٠٢٦-١٠-٠٧T٠٣:٢١:٤٦Z", "2026-10-07T03:21:46.１２３Z", "2026-13-07T03:21:46Z", "2026-02-30T03:21:46Z",
+            "2026-10-07T24:00:00Z", "2026-10-07T23:59:60Z", "2026-10-07T03:21Z", "20261007T032146Z", "", " 2026-10-07T03:21:46Z",
+        ]  # 끝 개행은 뺀다: 파이썬 `re` 의 `$` 는 끝 개행 앞에도 맞지만 JSON Schema(ECMA-262)의 `$` 는 아니라서, 검사기 쪽 차이일 뿐이다
+        mismatches = []
+        for when in candidates:
+            body = {"type": "CLICK", "occurred_at": when}
+            by_contract = not self.contract.named_schema_errors("ReactionRequest", body)
+            by_api = self.put(body=body).status_code == 201
+            if by_api != by_contract:
+                mismatches.append(f"{when!r}: API {by_api}, 계약 {by_contract}")
+        self.assertEqual(mismatches, [])
+
+
+@tag("security")
 class StorageFailureTests(ReactionApiBase):
     def test_insert_failure_is_503_and_a_retry_with_the_same_id_is_then_a_first_receipt(self):
         rid = uuid.uuid4()
@@ -221,6 +276,29 @@ class StorageFailureTests(ReactionApiBase):
             different = self.put(rid, body={"type": "CLICK", "occurred_at": WHEN})
         self.assertEqual(different.status_code, 409)
         self.assertEqual(Reaction.objects.count(), 1)
+
+    def test_a_check_violation_is_not_taken_for_a_duplicate_even_when_the_row_exists(self):
+        """같은 키의 행이 이미 있어도, 이번 INSERT 가 실패한 이유가 유일 제약이 아니면(CHECK 등) 200 으로 덮지 않고 올린다."""
+        from django.db import IntegrityError
+        from records.services import receive_reaction
+
+        rid, decision = uuid.uuid4(), uuid.uuid4()
+        args = (self.media_id, decision, rid, "CLICK", NOW, {"type": "CLICK"})
+        receive_reaction(*args, now=NOW)
+        real_filter, calls = Reaction._default_manager.filter, []
+
+        def blind_first_lookup(*a, **k):
+            qs = real_filter(*a, **k)
+            if not calls:
+                calls.append(1)
+                return mock.Mock(first=mock.Mock(return_value=None))
+            return qs
+
+        status_field = Reaction._meta.get_field("status")
+        with mock.patch.object(status_field, "default", "DONE"), mock.patch.object(Reaction._default_manager, "filter", blind_first_lookup):
+            with self.assertRaises(IntegrityError):
+                receive_reaction(*args, now=NOW)
+        self.assertEqual(Reaction.objects.filter(reaction_id=rid).count(), 1)
 
     def test_a_non_unique_integrity_error_is_not_hidden(self):
         """유일 제약이 아닌 무결성 오류(예: 검사 제약)는 '중복'으로 오인해 2xx 를 내지 않는다."""
