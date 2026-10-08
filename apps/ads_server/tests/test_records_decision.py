@@ -334,11 +334,15 @@ class ReactionInboxConstraintTests(TestCase):
         self.row(status="REJECTED", reason_code="unknown_decision", applied_rule="known-decision", processed_at=NOW).save()
         self.assertEqual(Reaction.objects.count(), 3)
 
-    def test_only_one_reaction_per_type_can_be_accepted_per_decision(self):
-        decision = uuid.uuid4()
-        self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()
+    def test_only_one_reaction_per_type_can_be_accepted_per_person_of_a_decision(self):
+        decision, person = uuid.uuid4(), "0197a5c0-0000-7000-8000-000000000001"
+        accepted = dict(decision_id=decision, status="ACCEPTED", processed_at=NOW, person_id=person)
+        self.row(**accepted).save()
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()  # 같은 결정·유형의 두 번째 인정
-        self.row(decision_id=decision, type="IMPRESSION", status="ACCEPTED", processed_at=NOW).save()  # 다른 유형은 된다
+            self.row(**accepted).save()  # 같은 결정·사람·유형의 두 번째 인정
+        self.row(**{**accepted, "type": "IMPRESSION"}).save()  # 다른 유형은 된다
+        self.row(**{**accepted, "person_id": "0197a5c0-0000-7000-8000-000000000002"}).save()  # 일괄 슬롯: 다른 사람의 같은 유형은 된다
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.row(decision_id=decision, status="ACCEPTED", processed_at=NOW).save()  # 인정된 행에는 판정 단위의 사람이 있어야 한다(NULL 은 유일 제약을 피한다)
         for _ in range(2):  # 거부는 몇 개든 된다
             self.row(decision_id=decision, status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW).save()

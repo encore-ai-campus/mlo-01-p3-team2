@@ -42,6 +42,15 @@ class ProcessingBase(TestCase):
     def process(self, view, now=NOW):
         return records.process_reaction(view.inbox_id, now=now)
 
+    def new_decision(self, subject):
+        return records.decide(self.media, self.w.slot.slot_id, subject_id=subject, now=NOW, rng=Random(1))
+
+    def click(self, decision_id=None, at=NOW, viewer=None):
+        """서버가 관측한 클릭(`GET /c/{token}`)을 수신함에 넣는다. 처리는 호출하는 쪽이 한다."""
+        with override_settings(REACTION_PROCESS_ON_RECEIPT=False):
+            records.observe_click(decision_id or self.decision.decision_id, viewer, now=at)
+        return Reaction.objects.filter(decision_id=decision_id or self.decision.decision_id, source="server").order_by("-received_at").first()
+
     def row(self, view):
         return Reaction.objects.get(pk=view.inbox_id)
 
@@ -73,9 +82,10 @@ class RuleChainTests(ProcessingBase):
         self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").amount, -30)
 
     def test_a_type_other_than_the_billing_unit_is_accepted_but_not_charged(self):
-        for rtype in ("CLICK", "CONVERSION"):
-            self.assertEqual(self.process(self.receive(rtype)), "ACCEPTED", rtype)
-        self.assertEqual((self.charges(), self.balance(), CampaignSpend.objects.count()), (0, 50_000, 0))
+        self.assertEqual(self.process(self.receive("IMPRESSION")), "ACCEPTED")  # 과금 단위(노출)는 과금된다
+        self.assertEqual(self.process(self.click()), "ACCEPTED")
+        self.assertEqual(self.process(self.receive("CONVERSION")), "ACCEPTED")
+        self.assertEqual((self.charges(), self.balance(), CampaignSpend.objects.count()), (1, 50_000 - 30, 1))  # 클릭·전환은 인정만 되고 과금은 노출 한 번뿐
 
     def test_unknown_decision_is_rejected_and_kept(self):
         view = self.receive(decision_id=uuid.uuid4())
@@ -101,15 +111,16 @@ class RuleChainTests(ProcessingBase):
 
     def test_the_second_report_of_the_same_type_is_a_duplicate_but_other_types_are_fine(self):
         first, second = self.receive("IMPRESSION"), self.receive("IMPRESSION")
-        click = self.receive("CLICK")
-        self.assertEqual([self.process(v) for v in (first, second, click)], ["ACCEPTED", "REJECTED", "ACCEPTED"])
+        self.process(first)
+        click = self.click()
+        self.assertEqual([self.process(v) for v in (second, click)], ["REJECTED", "ACCEPTED"])
         self.assertEqual((self.row(second).reason_code, self.row(second).applied_rule), ("duplicate_type", "once-per-type"))
         self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 30))  # 중복은 과금되지 않는다
 
     def test_a_rejected_duplicate_does_not_block_a_later_valid_type(self):
         self.process(self.receive("IMPRESSION"))
         self.process(self.receive("IMPRESSION"))
-        self.assertEqual(self.process(self.receive("CLICK")), "ACCEPTED")
+        self.assertEqual(self.process(self.click()), "ACCEPTED")
 
     def test_rules_come_from_settings_and_unknown_names_fail_loudly(self):
         view = self.receive(decision_id=uuid.uuid4())
@@ -208,8 +219,9 @@ class QueueTests(ProcessingBase):
         self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "REJECTED", "RECEIVED", "RECEIVED", "RECEIVED"])  # 첫 건만 인정, 나머지는 중복
 
     def test_one_failure_does_not_block_the_others_and_stuck_ones_are_reported(self):
-        bad = self.receive("CLICK", at=NOW)
-        good = [self.receive("IMPRESSION", at=NOW + timedelta(seconds=1)), self.receive("CONVERSION", at=NOW + timedelta(seconds=2))]
+        bad = self.receive("IMPRESSION", at=NOW)
+        others = [self.new_decision("0197a5c0-0000-7000-8000-00000000000%d" % i).decision_id for i in (1, 2)]
+        good = [self.receive("IMPRESSION", decision_id=d, at=NOW + timedelta(seconds=i + 1)) for i, d in enumerate(others)]
         real = records.process_reaction
 
         def flaky(inbox_id, now=None):
@@ -224,7 +236,7 @@ class QueueTests(ProcessingBase):
         # 실패한 반응은 횟수가 쌓이다가 한도에서 자동 처리 대상에서 빠진다(거부·삭제하지 않는다)
         with override_settings(REACTION_MAX_ATTEMPTS=3):
             Reaction.objects.filter(pk=bad.inbox_id).update(attempts=3)
-            self.assertEqual(records.process_pending(now=NOW), {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0})
+            self.assertEqual(records.process_pending(now=NOW), {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0})
             self.assertEqual(records.stuck_count(), 1)
             self.assertEqual(self.row(bad).status, "RECEIVED")
             self.assertEqual(records.reset_stuck(), 1)
@@ -238,12 +250,13 @@ class QueueTests(ProcessingBase):
         self.assertEqual(self.row(view).attempts, 1)
 
     def test_command_once_drains_and_reports(self):
-        [self.receive("IMPRESSION"), self.receive("IMPRESSION"), self.receive("CLICK")]
+        [self.receive("IMPRESSION"), self.receive("IMPRESSION"), self.receive("CLICK")]  # 중복 노출 하나, 매체가 보고한 클릭 하나는 거부된다
         out = io.StringIO()
         call_command("process_reactions", "--once", "--batch", "2", stdout=out)
         self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 0)  # 배치(2)보다 많아도 한 번의 실행이 다 비운다
-        self.assertIn("'accepted': 2", out.getvalue())
-        self.assertIn("'rejected': 1", out.getvalue())
+        self.assertIn("'accepted': 1", out.getvalue())
+        self.assertIn("'rejected': 2", out.getvalue())
+        self.assertIn("'pending': 0", out.getvalue())
         self.assertIn("stuck=0", out.getvalue())
 
     def test_command_loop_polls_until_interrupted(self):
@@ -314,7 +327,8 @@ class CommandSafetyTests(ProcessingBase):
             self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 3)  # 남은 것은 RECEIVED 로 두고 재기동 뒤 이어서 처리
 
     def test_a_restart_resumes_what_the_stopped_run_left(self):
-        views = [self.receive(kind, at=NOW + timedelta(seconds=i)) for i, kind in enumerate(("IMPRESSION", "CLICK", "CONVERSION"))]
+        decisions = [self.decision.decision_id] + [self.new_decision("0197a5c0-0000-7000-8000-00000000000%d" % i).decision_id for i in (1, 2)]
+        views = [self.receive("IMPRESSION", decision_id=d, at=NOW + timedelta(seconds=i)) for i, d in enumerate(decisions)]
         handlers, real = {}, records.process_reaction
 
         def capture(signum, handler):
@@ -332,7 +346,7 @@ class CommandSafetyTests(ProcessingBase):
         self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "RECEIVED", "RECEIVED"])
         self.run_command("--once")  # 재기동
         self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "ACCEPTED", "ACCEPTED"])
-        self.assertEqual((self.charges(), billing.check_ledger()), (1, []))
+        self.assertEqual((self.charges(), billing.check_ledger()), (3, []))
 
     def test_the_previous_signal_handler_is_restored(self):
         before = signal.getsignal(signal.SIGTERM)

@@ -27,7 +27,7 @@ def _reaction_body(reaction):
         "reaction_id": str(reaction.reaction_id), "decision_id": str(reaction.decision_id), "type": reaction.type,
         "occurred_at": _utc(reaction.occurred_at, "auto"),  # 매체가 보낸 정밀도를 잃지 않는다
         "received_at": _utc(reaction.received_at),
-        "status": reaction.status, "reason_code": reaction.reason_code,
+        "status": reaction.status, "reason_code": reaction.reason_code, "subject_id": reaction.subject_id,
     }
 
 
@@ -77,7 +77,7 @@ def put_reaction(request, decision_id, reaction_id):
     fields = parse_reaction_request(body)
     with transaction.atomic():  # 커밋된 뒤에만 2xx 를 보낸다: 2xx 는 "수신함에 저장했다"는 확인이다(커밋이 실패해도 503)
         reaction, created = records.receive_reaction(
-            request.media.media_id, decision_id, reaction_id, fields.type, fields.occurred_at, raw=body,
+            request.media.media_id, decision_id, reaction_id, fields.type, fields.occurred_at, raw=body, subject_id=fields.subject_id,
         )
         payload = _reaction_body(reaction)
     if created:

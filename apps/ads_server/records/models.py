@@ -56,7 +56,10 @@ class Decision(AppendOnlyModel):
                 name="records_decision_subject_by_audience",
             ),
         ]
-        indexes = [models.Index(fields=["media_id", "decided_at"])]
+        indexes = [
+            models.Index(fields=["media_id", "decided_at"]),
+            models.Index(fields=["slot_id", "subject_id", "decided_at"], name="records_decision_display_idx"),  # 같은 표시 단위의 다음 결정을 찾는다(일괄 슬롯은 subject_id IS NULL)
+        ]
 
 
 class ReactionType(models.TextChoices):
@@ -92,7 +95,9 @@ class Reaction(models.Model):
     received_at = models.DateTimeField(default=timezone.now)  # 서버 수신 시각. 분석의 기준
     raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체). 서버가 관측한 클릭은 서버가 만든 사실이다
     source = models.CharField(max_length=10, choices=ReactionSource.choices, default=ReactionSource.MEDIA)  # 누가 알려 준 반응인가
-    subject_id = models.CharField(max_length=200, null=True, blank=True)  # 반응한 사람(가명 UUID). 서버가 관측한 클릭에 채우고, 매체 보고의 이 필드는 2-9
+    subject_id = models.CharField(max_length=200, null=True, blank=True)  # **보고된** 사람(가명 UUID, 소문자). 매체 보고의 선택 필드, 서버가 관측한 클릭에는 사람. 판정에 쓰는 값은 아래 person_id
+    person_id = models.CharField(max_length=200, null=True, blank=True)  # **판정 단위의 사람**: 인정할 때 확정해 저장한다(개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람). 인정된 행에는 항상 있다
+    checked_at = models.DateTimeField(null=True, blank=True)  # 전제를 기다리며 보류한 마지막 판정 시각. 보류분을 돌려가며 처리해 대기열이 막히지 않게 한다
     status = models.CharField(max_length=20, choices=ReactionStatus.choices, default=ReactionStatus.RECEIVED)
     reason_code = models.CharField(max_length=40, null=True, blank=True)  # REJECTED 일 때만
     applied_rule = models.CharField(max_length=64, null=True, blank=True)  # 거부한 규칙의 이름(REJECTED 일 때만)
@@ -118,7 +123,12 @@ class Reaction(models.Model):
                 ),
                 name="records_reaction_processed_state",
             ),
-            # 안전망: 결정당 유형별로 인정된 반응은 하나뿐이다(규칙 `once-per-type` 이 먼저 거르고, 동시 처리가 새도 DB 가 막는다)
-            models.UniqueConstraint(fields=["decision_id", "type"], condition=Q(status="ACCEPTED"), name="records_reaction_one_accepted_per_type"),
+            # 안전망: (결정, 사람)당 유형별로 인정된 반응은 하나뿐이다(규칙 `once-per-type` 이 먼저 거르고, 동시 처리가 새도 DB 가 막는다).
+            # 개인 슬롯의 사람은 결정의 사람이라 결정당 하나, 일괄 슬롯은 보는 사람마다 하나다
+            models.UniqueConstraint(
+                fields=["decision_id", "person_id", "type"], condition=Q(status="ACCEPTED"), name="records_reaction_one_accepted_per_person_type",
+            ),
+            # NULL 은 유일 제약에서 서로 다르게 취급되므로, 인정된 행에는 판정 단위의 사람이 반드시 있어야 위 제약이 의미를 갖는다
+            models.CheckConstraint(condition=~Q(status="ACCEPTED") | Q(person_id__isnull=False), name="records_reaction_accepted_has_person"),
         ]
         indexes = [models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx")]

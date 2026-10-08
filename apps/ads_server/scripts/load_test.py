@@ -50,7 +50,10 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     acked_decisions: 수신 확인(201)한 결정 ID 들.
     acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
+    from datetime import timedelta
+
     from django.conf import settings
+    from django.utils import timezone
 
     from billing import api as billing
     from billing.budget_day import budget_day_of
@@ -89,9 +92,26 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     accepted = [r for r in reactions if r.status == "ACCEPTED"]
     seen = {}
     for r in accepted:
-        seen[(r.decision_id, r.type)] = seen.get((r.decision_id, r.type), 0) + 1
+        seen[(r.decision_id, r.person_id, r.type)] = seen.get((r.decision_id, r.person_id, r.type), 0) + 1
     if any(count > 1 for count in seen.values()):
-        problems.append("같은 결정·유형이 두 번 이상 인정됐다")
+        problems.append("같은 결정·사람·유형이 두 번 이상 인정됐다")
+    # 퍼널: 인정된 클릭은 서버가 관측한 것이고 같은 사람의 인정된 노출이 있으며, 인정된 전환 뒤에는 같은 사람의 인정된 클릭이 있다
+    accepted_of = {(str(r.decision_id), r.person_id, r.type) for r in accepted}
+    funnel = {"media_click": 0, "no_impression": 0, "no_click": 0, "click_late": 0}
+    for r in accepted:
+        key = (str(r.decision_id), r.person_id)
+        if r.type == "CLICK":
+            funnel["media_click"] += r.source != "server"
+            funnel["no_impression"] += (*key, "IMPRESSION") not in accepted_of
+            decision = decisions.get(str(r.decision_id))
+            funnel["click_late"] += bool(decision) and r.received_at > decision.decided_at + timedelta(seconds=settings.REACTION_CLICK_WINDOW_SECONDS)
+        elif r.type == "CONVERSION":
+            funnel["no_click"] += (*key, "CLICK") not in accepted_of
+    funnel_labels = {
+        "media_click": "매체가 보고한 클릭이 인정됐다", "no_impression": "노출 없이 클릭이 인정됐다", "no_click": "클릭 없이 전환이 인정됐다",
+        "click_late": "클릭 기간(결정 후)을 넘긴 클릭이 인정됐다",
+    }
+    problems += [f"{funnel_labels[key]}: {count}건" for key, count in funnel.items() if count]
 
     expected_refs = set()
     for r in accepted:
@@ -139,9 +159,12 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append("일 소진액이 원장의 그날 과금 합과 다르다")
 
     if expect_drained:
-        pending = sum(1 for r in reactions if r.status == "RECEIVED")
-        if pending:
-            problems.append(f"처리되지 않은 반응(RECEIVED) {pending}건이 남아 있다")
+        # 앞 단계(노출·클릭)를 기다리는 보류는 기한(REACTION_HOLD_SECONDS) 안에서는 정상이다. 그 밖의 RECEIVED 는 처리되지 않은 것이다
+        now = timezone.now()
+        hold = timedelta(seconds=settings.REACTION_HOLD_SECONDS + settings.REACTION_HOLD_RECHECK_SECONDS)
+        stale = sum(1 for r in reactions if r.status == "RECEIVED" and not (r.type != "IMPRESSION" and now - r.received_at <= hold))
+        if stale:
+            problems.append(f"처리되지 않은 반응(RECEIVED) {stale}건이 남아 있다")
     return problems
 
 
@@ -374,8 +397,15 @@ class Harness:
         outcomes, wall = run_concurrent(three, lambda i: self.put_reaction(decision2, kinds[i % 3]))
         self.phase("C' 세 유형 동시", outcomes, wall)
         self.drain()
-        accepted = sorted(Reaction.objects.filter(decision_id=decision2, status="ACCEPTED").values_list("type", flat=True))
-        self.check("유형마다 정확히 하나씩 인정", accepted == sorted(kinds), str(accepted))
+        by_type = {}
+        for r in Reaction.objects.filter(decision_id=decision2):
+            by_type.setdefault(r.type, []).append(r.status)
+        # 노출만 인정된다(나머지 노출은 중복 거부): 매체가 보고한 클릭은 거부(click_not_reported), 클릭 없는 전환은 클릭을 기다리며 보류(RECEIVED)
+        ok = (
+            by_type.get("IMPRESSION", []).count("ACCEPTED") == 1 and set(by_type.get("IMPRESSION", [])) <= {"ACCEPTED", "REJECTED"}
+            and set(by_type.get("CLICK", [])) == {"REJECTED"} and set(by_type.get("CONVERSION", [])) == {"RECEIVED"}
+        )
+        self.check("노출 하나만 인정·매체 클릭은 거부·클릭 없는 전환은 보류", ok, str({t: sorted(set(v)) for t, v in by_type.items()}))
         self.verify("유형 중복")
 
     # ------------------------------------------------------------ D. 같은 reaction_id 재전송 폭주
@@ -455,7 +485,8 @@ class Harness:
         self.check("종료 때 남은 반응은 RECEIVED 로 있다(유실·임의 거부 없음)", left > 0 and Reaction.objects.count() >= len(flat), f"남은 {left}건")
         self.verify("SIGTERM 직후(재기동 전)", expect_drained=False)
         self.log("   재기동(process_reactions --once): " + self.drain())
-        self.check("재기동 뒤 남김없이 처리", Reaction.objects.filter(status="RECEIVED").count() == 0)
+        left_after = list(Reaction.objects.filter(status="RECEIVED").values_list("type", flat=True))
+        self.check("재기동 뒤 남김없이 처리(앞 단계를 기다리는 전환 보류만 남는다)", set(left_after) <= {"CONVERSION"}, str({t: left_after.count(t) for t in set(left_after)}))
         self.verify("재기동 뒤")
         self.exits = exits
 

@@ -210,6 +210,17 @@ def end_campaign(user, campaign_id, now=None):
     return _campaign_view(c, now)
 
 
+def campaign_end_times(campaign_ids):
+    """캠페인 ID들의 종료 시각(`ends_at`, 미포함 경계) 하나의 질의로. 끝이 없으면 값이 `None`, 없는 ID는 결과에 없다. 반응 판정이 쓴다."""
+    ids = []
+    for campaign_id in campaign_ids:
+        try:
+            ids.append(parse_uuid(campaign_id, "캠페인"))
+        except errors.NotFound:
+            pass
+    return dict(Campaign.objects.filter(pk__in=ids).values_list("campaign_id", "ends_at"))
+
+
 def end_expired_campaigns(now=None):
     """기간이 지난 캠페인을 `ENDED` 로(시스템 작업, 멱등). 바뀐 개수를 돌려준다."""
     now = _now(now)

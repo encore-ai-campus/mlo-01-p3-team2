@@ -111,27 +111,28 @@ def get_decision(media_id, decision_id):
 def _reaction_view(r):
     return ReactionView(
         inbox_id=r.inbox_id, reaction_id=r.reaction_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at, received_at=r.received_at,
-        status=r.status, reason_code=r.reason_code,
+        status=r.status, reason_code=r.reason_code, subject_id=r.subject_id,
     )
 
 
-def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred_at, raw, now=None):
+def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred_at, raw, subject_id=None, now=None):
     """반응을 수신함에 저장한다. 반환: `(ReactionView, created)`. **호출한 쪽이 바깥 트랜잭션을 열고, 커밋된 뒤에만 2xx 를 보낸다.**
 
-    멱등(최소 한 번 전달 + 중복 제거): (매체, `reaction_id`) 가 같고 내용(결정·유형·감지 시각)도 같으면 처음 행을 돌려주고(`created=False`),
+    멱등(최소 한 번 전달 + 중복 제거): (매체, `reaction_id`) 가 같고 내용(결정·유형·감지 시각·사람)도 같으면 처음 행을 돌려주고(`created=False`),
     내용이 다르면 409. 다른 매체가 같은 `reaction_id` 를 써도 충돌하지 않는다. 결정이 있는지·내 것인지는 **여기서 묻지 않는다** —
     일단 받고 처리 단계가 거부한다(접수한 반응은 지우지 않는다).
     입력(유형·시각·UUID 형식)은 경계가 검증해서 넘긴다.
     """
     now = _now(now)
     media_id, decision_id, reaction_id = parse_uuid(media_id, "매체"), parse_uuid(decision_id, "결정"), parse_uuid(reaction_id, "반응")
-    wanted = (decision_id, reaction_type, occurred_at)
+    subject_id = None if subject_id is None else str(subject_id).lower()
+    wanted = (decision_id, reaction_type, occurred_at, subject_id)
 
     def existing():
         return Reaction.objects.filter(media_id=media_id, reaction_id=reaction_id).first()
 
     def same_or_conflict(row):
-        if (row.decision_id, row.type, row.occurred_at) != wanted:
+        if (row.decision_id, row.type, row.occurred_at, row.subject_id) != wanted:
             raise errors.Conflict("같은 reaction_id 로 다른 내용이 이미 접수되었습니다.")
         return _reaction_view(row), False
 
@@ -142,7 +143,7 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
         with transaction.atomic():  # 안전망: 동시에 같은 키가 들어오면 유일 제약이 한쪽만 통과시킨다
             row = Reaction.objects.create(
                 media_id=media_id, reaction_id=reaction_id, decision_id=decision_id, type=reaction_type, occurred_at=occurred_at,
-                received_at=now, raw=raw,
+                received_at=now, raw=raw, subject_id=subject_id,
             )
     except IntegrityError as error:
         if not is_unique_violation(error):  # 유일 제약이 아닌 이유(CHECK 등)는, 같은 키의 행이 있어도 숨기지 않는다

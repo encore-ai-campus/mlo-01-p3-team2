@@ -1,0 +1,547 @@
+"""2-9 반응 판정 확장: 퍼널 규칙(순서·기간·클릭 출처·사람·시각·캠페인 종료)과 보류.
+
+규칙의 원본은 설계 §10 "반응 퍼널 규칙"·"일괄 슬롯"·"클릭 출처"와 계약 C1 v1.1이다. 판정 단위는 개인 슬롯이면 결정, 일괄 슬롯이면 (결정, 사람)이다.
+시각은 모두 고정한다: 결정은 `NOW`, 반응은 `NOW + 몇 초`에 수신, 판정은 `now=` 로 주입한다.
+"""
+import json
+import uuid
+from datetime import timedelta
+from random import Random
+
+from django.db import connection
+from django.test import Client, TestCase, override_settings, tag
+from django.test.utils import CaptureQueriesContext
+
+from billing import api as billing
+from campaigns.models import Campaign
+from masters import api as masters
+from records import api as records
+from records.models import Reaction
+from tests.contract_support import Contract, ProviderContractMixin
+from tests.factories import NOW, SUBJECT, World, png_file
+
+A = "0197a5c0-0000-7000-8000-0000000000a1"
+B = "0197a5c0-0000-7000-8000-0000000000b2"
+C = "0197a5c0-0000-7000-8000-0000000000c3"
+SEC = timedelta(seconds=1)
+
+
+def at(seconds):
+    return NOW + timedelta(seconds=seconds)
+
+
+@override_settings(REACTION_PROCESS_ON_RECEIPT=False)  # 판정 시각은 시험이 정한다
+class FunnelBase(TestCase):
+    def setUp(self):
+        self.w = World()
+        self.media = self.w.slot.media_id
+        self.decision = self.decide(self.w.slot, SUBJECT)
+
+    def decide(self, slot, subject, when=NOW):
+        return records.decide(slot.media_id, slot.slot_id, subject_id=subject, now=when, rng=Random(1))
+
+    def shared(self):
+        """일괄 슬롯과 거기에 놓인 광고(같은 광고주·캠페인). 결정은 사람 없이 한 번 만든다."""
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((3, 3, 3)), now=NOW)
+        return slot, self.decide(slot, None)
+
+    def report(self, rtype, decision=None, when=0, occurred=None, subject=None, rid=None):
+        """매체가 보고한 반응(노출·전환·매체 클릭)을 `when` 초에 수신했다."""
+        decision = decision or self.decision
+        view, created = records.receive_reaction(
+            self.media, decision.decision_id, rid or uuid.uuid4(), rtype, occurred if occurred is not None else at(when), {"type": rtype},
+            subject_id=subject, now=at(when),
+        )
+        self.assertTrue(created)
+        return Reaction.objects.get(pk=view.inbox_id)
+
+    def click(self, decision=None, when=0, viewer=None):
+        """서버가 관측한 클릭(`GET /c/{token}`)을 `when` 초에 수신했다."""
+        decision = decision or self.decision
+        records.observe_click(decision.decision_id, viewer, now=at(when))
+        qs = Reaction.objects.filter(decision_id=decision.decision_id, source="server")
+        return qs.filter(subject_id=viewer).get() if viewer else qs.get()
+
+    def judge(self, row, when=0):
+        outcome = records.process_reaction(row.inbox_id, now=at(when))
+        row.refresh_from_db()
+        return outcome
+
+    def verdict(self, row):
+        return (row.status, row.reason_code, row.applied_rule)
+
+    def accept_impression(self, decision=None, subject=None, when=0):
+        row = self.report("IMPRESSION", decision, when=when, subject=subject)
+        self.assertEqual(self.judge(row, when), "ACCEPTED")
+        return row
+
+
+@tag("security")
+class ClickSourceTests(FunnelBase):
+    def test_a_click_reported_by_the_media_is_rejected_and_never_used(self):
+        self.accept_impression()
+        reported = self.report("CLICK", when=1)
+        self.assertEqual(self.judge(reported, 1), "REJECTED")
+        self.assertEqual(self.verdict(reported), ("REJECTED", "click_not_reported", "click-source"))
+        conversion = self.report("CONVERSION", when=2)
+        self.assertEqual(self.judge(conversion, 2), "PENDING")  # 매체의 클릭 보고는 전환의 전제가 되지 않는다
+
+    def test_the_media_click_does_not_take_the_seat_of_the_real_one(self):
+        self.accept_impression()
+        self.judge(self.report("CLICK", when=1), 1)
+        real = self.click(when=2)
+        self.assertEqual(self.judge(real, 2), "ACCEPTED")
+        self.assertEqual(Reaction.objects.filter(decision_id=self.decision.decision_id, type="CLICK", status="ACCEPTED").count(), 1)
+
+    def test_removing_the_rule_from_settings_does_not_open_the_gate(self):
+        row = self.report("CLICK")
+        with override_settings(REACTION_RULES=()):
+            self.assertEqual(self.judge(row), "REJECTED")
+        self.assertEqual(self.verdict(row), ("REJECTED", "click_not_reported", "guard"))
+
+
+@tag("security")
+class SubjectTests(FunnelBase):
+    def test_a_shared_decision_needs_the_person_in_every_report(self):
+        _slot, decision = self.shared()
+        row = self.report("IMPRESSION", decision)
+        self.assertEqual(self.judge(row), "REJECTED")
+        self.assertEqual(self.verdict(row), ("REJECTED", "subject_required", "subject"))
+        self.assertEqual(self.judge(self.report("IMPRESSION", decision, subject=A)), "ACCEPTED")
+
+    def test_an_individual_report_may_omit_the_person_but_not_contradict_it(self):
+        omitted, same, other = (self.report("IMPRESSION", subject=s) for s in (None, SUBJECT, A))
+        self.assertEqual(self.judge(other), "REJECTED")
+        self.assertEqual(self.verdict(other), ("REJECTED", "subject_mismatch", "subject"))
+        self.assertEqual(self.judge(omitted), "ACCEPTED")
+        self.assertEqual(self.judge(same), "REJECTED")  # 이미 인정된 노출이 있으니 중복 — 같은 사람의 같은 유형
+        self.assertEqual(same.reason_code, "duplicate_type")
+
+    def test_the_person_checks_survive_removing_the_rule(self):
+        _slot, decision = self.shared()
+        row = self.report("IMPRESSION", decision)
+        other = self.report("IMPRESSION", subject=A)
+        with override_settings(REACTION_RULES=()):
+            self.assertEqual((self.judge(row), self.judge(other)), ("REJECTED", "REJECTED"))
+        self.assertEqual((row.reason_code, row.applied_rule), ("subject_required", "guard"))
+        self.assertEqual((other.reason_code, other.applied_rule), ("subject_mismatch", "guard"))
+
+    def test_an_accepted_reaction_always_carries_the_judged_person(self):
+        row = self.accept_impression()
+        self.assertEqual(row.person_id, SUBJECT)  # 보고에 사람이 없어도 개인 슬롯은 결정의 사람
+        _slot, decision = self.shared()
+        self.assertEqual(self.accept_impression(decision, subject=A).person_id, A)
+
+
+@tag("security")
+class OccurredAtTests(FunnelBase):
+    def test_the_reported_time_must_be_plausible_within_the_tolerance(self):
+        cases = {  # (수신 후 몇 초에 감지했다고 보고) → 기대
+            "just after the decision": (0, "ACCEPTED"), "60 s before the decision": (-60, "ACCEPTED"), "61 s before the decision": (-61, "REJECTED"),
+            "60 s ahead of receipt": (160, "ACCEPTED"), "61 s ahead of receipt": (161, "REJECTED"),
+        }
+        for label, (occurred, expected) in cases.items():
+            with self.subTest(label):
+                row = self.report("IMPRESSION", when=100, occurred=at(occurred))
+                self.assertEqual(self.judge(row, 100), expected)
+                if expected == "REJECTED":
+                    self.assertEqual(self.verdict(row), ("REJECTED", "invalid_occurred_at", "occurred-at"))
+                Reaction.objects.filter(pk=row.pk).delete()
+                Reaction.objects.filter(decision_id=self.decision.decision_id, status="ACCEPTED").delete()  # 다음 경우를 위해 비운다
+
+    def test_a_conversion_time_is_checked_too_and_the_server_click_is_exempt(self):
+        self.accept_impression()
+        self.judge(self.click(when=1), 1)
+        conversion = self.report("CONVERSION", when=2, occurred=at(-3600))
+        self.assertEqual(self.judge(conversion, 2), "REJECTED")
+        self.assertEqual(conversion.reason_code, "invalid_occurred_at")
+        self.assertEqual(self.click_row().status, "ACCEPTED")
+
+    def click_row(self):
+        return Reaction.objects.get(decision_id=self.decision.decision_id, source="server")
+
+
+@tag("security")
+class CampaignOpenTests(FunnelBase):
+    def end_at(self, seconds):
+        Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(ends_at=at(seconds))
+
+    def test_a_reaction_received_at_or_after_the_end_is_not_accepted_or_charged(self):
+        self.end_at(100)
+        late = self.report("IMPRESSION", when=100)  # 종료 시각은 미포함 경계: 같은 시각은 종료다
+        self.assertEqual(self.judge(late, 200), "REJECTED")  # 처리가 늦어도 판단은 수신 시각 기준이다
+        self.assertEqual(self.verdict(late), ("REJECTED", "campaign_ended", "campaign-open"))
+        self.assertEqual(Reaction.objects.get(pk=late.pk).person_id, None)
+        self.assertEqual(billing.get_wallet(self.w.adv, now=NOW).balance, 50_000)
+
+    def test_received_before_the_end_is_accepted_even_when_processed_after_it(self):
+        self.end_at(100)
+        early = self.report("IMPRESSION", when=99)
+        self.assertEqual(self.judge(early, 500), "ACCEPTED")
+
+    def test_an_extension_after_receipt_is_reflected_at_judgment_time(self):
+        self.end_at(100)
+        row = self.report("IMPRESSION", when=100)
+        self.end_at(1000)  # 연장
+        self.assertEqual(self.judge(row, 200), "ACCEPTED")
+
+    def test_the_end_check_survives_removing_the_rule(self):
+        self.end_at(10)
+        row = self.report("IMPRESSION", when=20)
+        with override_settings(REACTION_RULES=()):
+            self.assertEqual(self.judge(row, 20), "REJECTED")
+        self.assertEqual((row.reason_code, row.applied_rule), ("campaign_ended", "guard"))
+
+
+@tag("security")
+class FunnelOrderTests(FunnelBase):
+    def test_a_click_without_an_impression_is_held_and_accepted_when_the_impression_arrives(self):
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1), "PENDING")
+        self.assertEqual((click.status, click.attempts, click.checked_at), ("RECEIVED", 0, at(1)))  # 실패가 아니다: 횟수를 올리지 않는다
+        self.accept_impression(when=2)  # 재시도 큐 때문에 늦게 도착한 노출
+        self.assertEqual(self.judge(click, 10), "ACCEPTED")
+
+    def test_an_impression_that_is_only_received_does_not_count_yet(self):
+        impression = self.report("IMPRESSION", when=0)
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1), "PENDING")  # 인정되기 전의 노출은 "있음"이 아니다
+        self.judge(impression, 2)
+        self.assertEqual(self.judge(click, 3), "ACCEPTED")
+
+    def test_the_wait_ends_with_missing_prerequisite_after_the_hold_time(self):
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1 + 299), "PENDING")
+        self.assertEqual(self.judge(click, 1 + 300), "REJECTED")
+        self.assertEqual(self.verdict(click), ("REJECTED", "missing_prerequisite", "funnel-order"))
+
+    def test_a_conversion_needs_an_accepted_click_and_never_rides_on_a_pending_one(self):
+        conversion = self.report("CONVERSION", when=2)
+        self.assertEqual(self.judge(conversion, 2), "PENDING")  # 클릭이 없다
+        click = self.click(when=1)
+        self.assertEqual(self.judge(conversion, 10), "PENDING")  # 클릭은 있지만 아직 인정 전(노출을 기다린다)
+        self.assertEqual(click.status, "RECEIVED")
+        self.accept_impression(when=3)
+        self.assertEqual(self.judge(click, 11), "ACCEPTED")
+        self.assertEqual(self.judge(conversion, 12), "ACCEPTED")
+
+    def test_a_conversion_is_not_accepted_after_the_click_was_rejected(self):
+        click = self.click(when=1)
+        self.judge(click, 1 + 301)  # 노출 없이 기한 초과
+        self.assertEqual(click.status, "REJECTED")
+        conversion = self.report("CONVERSION", when=400)
+        self.assertEqual(self.judge(conversion, 400), "PENDING")
+        self.assertEqual(self.judge(conversion, 400 + 300), "REJECTED")
+        self.assertEqual(conversion.reason_code, "missing_prerequisite")
+
+    def test_full_funnel_in_order_is_accepted_and_charges_the_billing_unit_only(self):
+        for row in (self.report("IMPRESSION", when=0), self.click(when=1), self.report("CONVERSION", when=2)):
+            self.assertEqual(self.judge(row, 3), "ACCEPTED")
+        self.assertEqual(billing.get_wallet(self.w.adv, now=NOW).balance, 50_000 - 30)
+
+    def test_a_hard_rejection_is_decided_before_waiting(self):
+        """기한을 넘긴 클릭은 노출을 기다리지 않고 바로 `window_expired` 다(되돌릴 수 없는 거부가 보류보다 먼저)."""
+        click = self.click(when=301)
+        self.assertEqual(self.judge(click, 301), "REJECTED")
+        self.assertEqual(self.verdict(click), ("REJECTED", "window_expired", "funnel-window"))
+
+
+@tag("security")
+class FunnelWindowTests(FunnelBase):
+    def test_a_click_must_come_within_the_click_window_after_the_decision(self):
+        self.accept_impression()
+        inside, outside = self.click(when=300), None
+        self.assertEqual(self.judge(inside, 300), "ACCEPTED")
+        w = World()
+        d = self.decide(w.slot, SUBJECT, when=NOW)
+        self.media = w.slot.media_id
+        outside = self.click(d, when=301)
+        self.assertEqual(self.judge(outside, 301), "REJECTED")
+        self.assertEqual(outside.reason_code, "window_expired")
+
+    def test_the_click_window_is_a_setting(self):
+        self.accept_impression()
+        with override_settings(REACTION_CLICK_WINDOW_SECONDS=10):
+            self.assertEqual(self.judge(self.click(when=11), 11), "REJECTED")
+
+    def test_a_click_after_the_next_decision_in_the_same_display_is_rejected_after_the_grace(self):
+        self.accept_impression()
+        self.decide(self.w.slot, SUBJECT, when=at(10))  # 같은 슬롯·같은 사람의 다음 결정: 이전 광고는 내려갔다
+        self.assertEqual(self.judge(self.click(when=15), 15), "ACCEPTED")  # 다음 결정 + 5초 안은 인정
+        decision2 = self.decision
+        Reaction.objects.filter(decision_id=decision2.decision_id, type="CLICK").delete()
+        late = self.click(when=16)
+        self.assertEqual(self.judge(late, 16), "REJECTED")
+        self.assertEqual(self.verdict(late), ("REJECTED", "display_ended", "funnel-window"))
+
+    def test_decisions_of_other_people_or_slots_do_not_end_this_display(self):
+        self.accept_impression()
+        self.decide(self.w.slot, A, when=at(10))  # 같은 슬롯, 다른 사람 — 개인 슬롯의 표시 단위는 (슬롯, 사람)
+        other = World()
+        self.decide(other.slot, SUBJECT, when=at(10))  # 다른 슬롯
+        self.assertEqual(self.judge(self.click(when=100), 100), "ACCEPTED")
+
+    def test_in_a_shared_slot_any_later_decision_of_the_slot_ends_the_display(self):
+        slot, decision = self.shared()
+        self.accept_impression(decision, subject=A)
+        self.decide(slot, None, when=at(10))
+        self.assertEqual(self.judge(self.click(decision, when=15, viewer=A), 15), "ACCEPTED")
+        late = self.click(decision, when=16, viewer=B)
+        self.accept_impression(decision, subject=B, when=16)
+        self.assertEqual(self.judge(late, 16), "REJECTED")
+        self.assertEqual(late.reason_code, "display_ended")
+
+    def test_a_conversion_must_follow_its_click_within_the_conversion_window(self):
+        Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(ends_at=None)  # 30일 뒤에도 캠페인은 진행 중이다
+        self.accept_impression()
+        self.judge(self.click(when=1), 1)
+        day = 24 * 3600
+        ok = self.report("CONVERSION", when=1 + 30 * day, occurred=at(1 + 30 * day))
+        self.assertEqual(self.judge(ok, 1 + 30 * day), "ACCEPTED")
+        Reaction.objects.filter(pk=ok.pk).delete()
+        late = self.report("CONVERSION", when=1 + 30 * day + 1, occurred=at(1 + 30 * day + 1))
+        self.assertEqual(self.judge(late, 1 + 30 * day + 1), "REJECTED")
+        self.assertEqual(self.verdict(late), ("REJECTED", "window_expired", "funnel-window"))
+
+
+@tag("security")
+class SharedSlotFunnelTests(FunnelBase):
+    def setUp(self):
+        super().setUp()
+        self.slot, self.shared_decision = self.shared()
+
+    def test_each_person_has_their_own_funnel_and_their_own_seats(self):
+        for person in (A, B):
+            self.accept_impression(self.shared_decision, subject=person)
+        self.assertEqual(self.judge(self.click(self.shared_decision, when=1, viewer=A), 1), "ACCEPTED")
+        again = self.report("IMPRESSION", self.shared_decision, when=2, subject=A)
+        self.assertEqual(self.judge(again, 2), "REJECTED")  # 같은 사람의 같은 유형은 한 번
+        self.assertEqual(again.reason_code, "duplicate_type")
+        accepted = Reaction.objects.filter(decision_id=self.shared_decision.decision_id, status="ACCEPTED")
+        self.assertEqual(sorted((r.person_id, r.type) for r in accepted), [(A, "CLICK"), (A, "IMPRESSION"), (B, "IMPRESSION")])
+
+    def test_one_persons_impression_does_not_admit_another_persons_click(self):
+        self.accept_impression(self.shared_decision, subject=A)
+        other = self.click(self.shared_decision, when=1, viewer=B)
+        self.assertEqual(self.judge(other, 1), "PENDING")
+        self.assertEqual(self.judge(other, 1 + 300), "REJECTED")
+        self.assertEqual(other.reason_code, "missing_prerequisite")
+
+    def test_a_click_with_an_arbitrary_s_value_is_never_accepted_without_that_persons_impression(self):
+        """`?s=` 는 최종 사용자가 마음대로 바꿀 수 있다 — 막는 장치는 같은 사람의 인정된 노출을 요구하는 순서 규칙이다."""
+        self.accept_impression(self.shared_decision, subject=A)
+        forged = [self.click(self.shared_decision, when=1, viewer=str(uuid.uuid4())) for _ in range(5)]
+        for row in forged:
+            self.assertEqual(self.judge(row, 1), "PENDING")
+            self.assertEqual(self.judge(row, 400), "REJECTED")
+            self.assertEqual(row.reason_code, "missing_prerequisite")
+        self.assertFalse(Reaction.objects.filter(type="CLICK", status="ACCEPTED").exists())
+
+    def test_a_conversion_follows_that_persons_click_only(self):
+        for person in (A, B):
+            self.accept_impression(self.shared_decision, subject=person)
+        self.judge(self.click(self.shared_decision, when=1, viewer=A), 1)
+        mine = self.report("CONVERSION", self.shared_decision, when=2, subject=A)
+        theirs = self.report("CONVERSION", self.shared_decision, when=2, subject=B)
+        self.assertEqual((self.judge(mine, 2), self.judge(theirs, 2)), ("ACCEPTED", "PENDING"))
+
+
+@tag("security")
+class HoldQueueTests(FunnelBase):
+    def test_held_reactions_are_rechecked_only_after_the_interval(self):
+        click = self.click(when=0)
+        self.assertEqual(records.process_pending(now=at(0))["pending"], 1)
+        self.assertEqual(sum(records.process_pending(now=at(4)).values()), 0)  # 간격(5초) 전에는 다시 보지 않는다
+        self.accept_impression(when=4)
+        self.assertEqual(records.process_pending(now=at(5))["accepted"], 1)
+        click.refresh_from_db()
+        self.assertEqual(click.status, "ACCEPTED")
+
+    def test_a_pile_of_held_reactions_does_not_starve_new_ones(self):
+        """보류분은 마지막으로 손댄 순서로 돌려 처리한다 — 보류 N 건이 있어도 새 반응은 몇 번의 처리 안에 판정된다."""
+        _slot, decision = self.shared()
+        held = [self.click(decision, when=0, viewer=str(uuid.uuid4())) for _ in range(6)]
+        records.process_pending(limit=100, now=at(0))
+        self.assertTrue(all(Reaction.objects.get(pk=h.pk).status == "RECEIVED" for h in held))
+        fresh = self.report("IMPRESSION", when=10)
+        passes = 0
+        while Reaction.objects.get(pk=fresh.pk).status == "RECEIVED" and passes < 6:
+            records.process_pending(limit=2, now=at(10))
+            passes += 1
+        self.assertEqual(Reaction.objects.get(pk=fresh.pk).status, "ACCEPTED")
+        self.assertLessEqual(passes, 4)  # 보류 6건 ÷ 한 번에 2건 = 3번 + 1
+
+    def test_holding_is_not_a_failure(self):
+        self.click(when=0)
+        for _ in range(10):
+            records.process_pending(now=at(100))
+        self.assertEqual(Reaction.objects.get(type="CLICK").attempts, 0)
+        self.assertEqual(records.stuck_count(), 0)
+
+    def test_the_cost_of_judging_does_not_grow_with_the_number_of_other_reactions(self):
+        self.accept_impression()
+        first = self.click(when=1)
+        with CaptureQueriesContext(connection) as small:
+            self.judge(first, 1)
+        w = World()
+        d = self.decide(w.slot, SUBJECT)
+        self.media = w.slot.media_id
+        for _ in range(25):  # 같은 결정에 다른 반응이 많아도
+            self.report("IMPRESSION", d, when=0)
+        self.decision = d
+        self.judge(self.report("IMPRESSION", d, when=0), 0)
+        second = self.click(d, when=1)
+        with CaptureQueriesContext(connection) as large:
+            self.judge(second, 1)
+        self.assertEqual(len(small), len(large))
+
+
+@tag("security")
+class MandatoryRulesRemainTests(FunnelBase):
+    def test_with_no_configured_rules_only_the_mandatory_conditions_apply(self):
+        """설정을 비워도 돈이 걸린 조건(결정·매체·광고, 클릭 출처, 사람, 종료)은 유지되고, 순서·기간 같은 정책만 빠진다."""
+        with override_settings(REACTION_RULES=()):
+            click_without_impression = self.click(when=1)  # 정책이 빠졌으니 노출 없이도 인정된다
+            self.assertEqual(self.judge(click_without_impression, 1), "ACCEPTED")
+            media_click = self.report("CLICK", when=2)
+            self.assertEqual(self.judge(media_click, 2), "REJECTED")
+
+
+@tag("security")
+class ReactionSubjectApiTests(ProviderContractMixin, TestCase):
+    contract = Contract("serving")
+
+    def setUp(self):
+        from serving_api.throttle import buckets
+
+        buckets.reset()
+        self.addCleanup(buckets.reset)
+        self.w = World()
+        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+        self.decision = records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+
+    def put(self, rid, body, key="USE"):
+        return Client().put(
+            f"/api/media/v1/decisions/{self.decision.decision_id}/reactions/{rid}", data=json.dumps(body), content_type="application/json",
+            HTTP_X_MEDIA_KEY=self.key if key == "USE" else key,
+        )
+
+    def test_the_subject_is_stored_lowercase_and_echoed_and_matches_the_contract(self):
+        rid = uuid.uuid4()
+        body = {"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:00Z", "subject_id": A.upper()}
+        response = self.put(rid, body)
+        self.assertEqual(response.status_code, 201)
+        self.assertContract(self.contract, "/decisions/{decision_id}/reactions/{reaction_id}", "put", response)
+        self.assertEqual(response.json()["subject_id"], A)
+        self.assertEqual(Reaction.objects.get(reaction_id=rid).subject_id, A)
+        self.assertEqual(Reaction.objects.get(reaction_id=rid).raw["subject_id"], A.upper())  # 받은 원문은 그대로
+
+    def test_a_resend_must_carry_the_same_person(self):
+        rid, body = uuid.uuid4(), {"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:00Z", "subject_id": A}
+        self.assertEqual(self.put(rid, body).status_code, 201)
+        self.assertEqual(self.put(rid, {**body, "subject_id": A.upper()}).status_code, 200)  # 표기만 다른 같은 사람
+        self.assertEqual(self.put(rid, {**body, "subject_id": B}).status_code, 409)
+        without = {k: v for k, v in body.items() if k != "subject_id"}
+        self.assertEqual(self.put(rid, without).status_code, 409)
+
+    def test_a_malformed_person_is_400_and_absent_is_null(self):
+        bad = self.put(uuid.uuid4(), {"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:00Z", "subject_id": "learner-1"})
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("/subject_id", [e["pointer"] for e in bad.json()["errors"]])
+        self.assertContract(self.contract, "/decisions/{decision_id}/reactions/{reaction_id}", "put", bad)
+        ok = self.put(uuid.uuid4(), {"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:00Z"})
+        self.assertIsNone(ok.json()["subject_id"])
+        self.assertContract(self.contract, "/decisions/{decision_id}/reactions/{reaction_id}", "put", ok)
+
+    def test_the_result_shows_the_verdict_with_the_new_reason_codes(self):
+        rid = uuid.uuid4()
+        self.put(rid, {"type": "CLICK", "occurred_at": "2026-10-07T12:00:00Z"})
+        records.process_pending(now=NOW)
+        got = Client().get(f"/api/media/v1/decisions/{self.decision.decision_id}/reactions/{rid}", HTTP_X_MEDIA_KEY=self.key)
+        self.assertEqual((got.status_code, got.json()["status"], got.json()["reason_code"]), (200, "REJECTED", "click_not_reported"))
+        self.assertContract(self.contract, "/decisions/{decision_id}/reactions/{reaction_id}", "get", got)
+
+
+@tag("security")
+class EndToEndFunnelTests(TestCase):
+    """실제 URL 로 결정 → 노출 → 클릭(`click_url`) → 전환까지. 수신 직후 처리가 켜진 기본 설정이다. 시각은 `NOW` 로 고정한다."""
+
+    def setUp(self):
+        from unittest import mock
+
+        from serving_api.throttle import buckets
+
+        buckets.reset()
+        self.addCleanup(buckets.reset)
+        for target in ("records.services._now", "records.processing._now"):
+            patcher = mock.patch(target, lambda now=None: now or NOW)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.w = World()
+        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+
+    def api(self, method, path, body=None):
+        extra = {"HTTP_X_MEDIA_KEY": self.key}
+        client = Client()
+        if body is None:
+            return getattr(client, method)(path, **extra)
+        return getattr(client, method)(path, data=json.dumps(body), content_type="application/json", **extra)
+
+    def decide(self, slot, **body):
+        response = self.api("post", "/api/media/v1/decisions", {"slot_id": str(slot.slot_id), **body})
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
+
+    def report(self, decision, rtype, **extra):
+        rid = uuid.uuid4()
+        response = self.api("put", f"/api/media/v1/decisions/{decision['decision_id']}/reactions/{rid}", {"type": rtype, "occurred_at": "2026-10-07T12:00:00Z", **extra})
+        self.assertEqual(response.status_code, 201, response.content)
+        return rid
+
+    def status(self, decision, rid):
+        body = self.api("get", f"/api/media/v1/decisions/{decision['decision_id']}/reactions/{rid}").json()
+        return body["status"], body["reason_code"]
+
+    def follow(self, url):
+        return Client().get(url.removeprefix("http://testserver"))
+
+    def test_an_individual_visitor_goes_through_the_whole_funnel(self):
+        decision = self.decide(self.w.slot, subject_id=SUBJECT)
+        impression = self.report(decision, "IMPRESSION")
+        self.assertEqual(self.status(decision, impression), ("ACCEPTED", None))
+        self.assertEqual(self.follow(decision["ad"]["click_url"]).status_code, 302)
+        conversion = self.report(decision, "CONVERSION")
+        self.assertEqual(self.status(decision, conversion), ("ACCEPTED", None))
+        accepted = Reaction.objects.filter(decision_id=decision["decision_id"], status="ACCEPTED")
+        self.assertEqual(sorted(accepted.values_list("type", flat=True)), ["CLICK", "CONVERSION", "IMPRESSION"])
+        self.assertEqual({r.person_id for r in accepted}, {SUBJECT})
+        self.assertEqual(billing.get_wallet(self.w.adv, now=NOW).balance, 50_000 - 30)
+
+    def test_a_click_that_beats_its_impression_waits_and_is_accepted_when_the_impression_lands(self):
+        decision = self.decide(self.w.slot, subject_id=SUBJECT)
+        self.follow(decision["ad"]["click_url"])
+        click = Reaction.objects.get(decision_id=decision["decision_id"], source="server")
+        self.assertEqual((click.status, click.attempts), ("RECEIVED", 0))  # 보류: 거부도 실패도 아니다
+        self.assertEqual(self.status(decision, self.report(decision, "IMPRESSION")), ("ACCEPTED", None))
+        self.assertEqual(records.process_pending(now=at(6))["accepted"], 1)  # 재확인 간격이 지나 다시 판정한다
+        click.refresh_from_db()
+        self.assertEqual(click.status, "ACCEPTED")
+
+    def test_in_a_shared_slot_each_viewer_reports_their_own_funnel(self):
+        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        decision = self.decide(slot)
+        self.assertTrue(decision["ad"]["click_url"].endswith("?s={subject_id}"))
+        for person in (A, B):
+            self.assertEqual(self.status(decision, self.report(decision, "IMPRESSION", subject_id=person)), ("ACCEPTED", None))
+        self.assertEqual(self.status(decision, self.report(decision, "IMPRESSION")), ("REJECTED", "subject_required"))
+        self.follow(decision["ad"]["click_url"].replace("{subject_id}", A))
+        self.follow(decision["ad"]["click_url"].replace("{subject_id}", C))  # 노출이 없는 임의의 사람
+        clicks = {r.subject_id: r.status for r in Reaction.objects.filter(decision_id=decision["decision_id"], source="server")}
+        self.assertEqual(clicks, {A: "ACCEPTED", C: "RECEIVED"})
+        self.assertEqual(self.status(decision, self.report(decision, "CONVERSION", subject_id=B)), ("RECEIVED", None))  # B 는 클릭하지 않았다: 보류
+        self.assertEqual(self.status(decision, self.report(decision, "CONVERSION", subject_id=A)), ("ACCEPTED", None))
+        self.assertEqual(Reaction.objects.get(decision_id=decision["decision_id"], type="IMPRESSION", subject_id=A).person_id, A)

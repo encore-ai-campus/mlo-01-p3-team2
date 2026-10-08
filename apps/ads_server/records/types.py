@@ -48,3 +48,4 @@ class ReactionView:
     received_at: datetime
     status: str
     reason_code: str | None
+    subject_id: str | None = None  # 보고에 실린 사람(소문자 UUID). 없으면 None

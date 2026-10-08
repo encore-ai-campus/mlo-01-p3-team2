@@ -32,8 +32,7 @@ def sql(statement, *params):
         cur.execute(statement, params)
 
 
-@tag("security")
-class InvariantCheckerTests(TestCase):
+class InvariantBase(TestCase):
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
@@ -45,6 +44,9 @@ class InvariantCheckerTests(TestCase):
         acked = {(str(self.media), str(self.view.reaction_id)): (str(self.decision.decision_id), "IMPRESSION")}
         return load_test.verify_invariants(kw.pop("decisions", {self.decision.decision_id}), kw.pop("reactions", acked), **kw)
 
+
+@tag("security")
+class InvariantCheckerTests(InvariantBase):
     def test_a_clean_state_passes(self):
         self.assertEqual(self.problems(), [])
 
@@ -139,9 +141,66 @@ class InvariantCheckerTests(TestCase):
 
     def test_two_accepted_reactions_of_the_same_type_are_found(self):
         second, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
-        sql("DROP INDEX records_reaction_one_accepted_per_type")
-        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s WHERE inbox_id = %s" % ("'2026-10-07 12:00:00'", "'" + second.inbox_id.hex + "'"))
+        sql("DROP INDEX records_reaction_one_accepted_per_person_type")
+        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s, person_id = %s WHERE inbox_id = %s" % ("'2026-10-07 12:00:00'", "'" + SUBJECT + "'", "'" + second.inbox_id.hex + "'"))
         self.assertTrue(any("두 번 이상 인정" in p for p in self.problems()))
+
+
+@tag("security")
+class FunnelInvariantTests(InvariantBase):
+    """검사기가 퍼널 약속(서버 관측 클릭만, 노출 → 클릭 → 전환, 클릭 기간)과 보류의 허용 범위를 안다."""
+
+    def put(self, rtype, **kw):
+        values = dict(
+            media_id=self.media, reaction_id=uuid.uuid4(), decision_id=self.decision.decision_id, type=rtype, occurred_at=NOW, received_at=NOW,
+            raw={}, status="ACCEPTED", processed_at=NOW, person_id=SUBJECT, source="server" if rtype == "CLICK" else "media",
+        )
+        values.update(kw)
+        return Reaction.objects.create(**values)
+
+    def test_a_correct_funnel_passes(self):
+        self.put("CLICK")  # 노출은 setUp 에서 인정됨
+        self.put("CONVERSION")
+        self.assertEqual(self.problems(), [])
+
+    def test_an_accepted_click_reported_by_the_media_is_found(self):
+        self.put("CLICK", source="media")
+        self.assertTrue(any("매체가 보고한 클릭" in p for p in self.problems()))
+
+    def test_an_accepted_click_without_an_accepted_impression_is_found(self):
+        Reaction.objects.filter(type="IMPRESSION").update(person_id="0197a5c0-0000-7000-8000-0000000000a1")  # 다른 사람의 노출
+        self.put("CLICK")
+        self.assertTrue(any("노출 없이 클릭" in p for p in self.problems()))
+
+    def test_an_accepted_conversion_without_an_accepted_click_is_found(self):
+        self.put("CONVERSION")
+        self.assertTrue(any("클릭 없이 전환" in p for p in self.problems()))
+
+    def test_an_accepted_click_after_the_click_window_is_found(self):
+        from datetime import timedelta
+
+        self.put("CLICK", received_at=NOW + timedelta(seconds=301))
+        self.assertTrue(any("클릭 기간" in p for p in self.problems()))
+
+    def test_the_same_person_and_type_accepted_twice_is_found_but_other_people_may_repeat(self):
+        sql("DROP INDEX records_reaction_one_accepted_per_person_type")
+        self.put("IMPRESSION", person_id="0197a5c0-0000-7000-8000-0000000000a1")  # 다른 사람(일괄 슬롯의 다른 시청자)은 괜찮다
+        self.assertEqual([p for p in self.problems() if "두 번 이상" in p], [])
+        self.put("IMPRESSION")  # 같은 사람의 같은 유형
+        self.assertTrue(any("두 번 이상 인정" in p for p in self.problems()))
+
+    def test_waiting_for_a_prerequisite_is_normal_only_within_the_hold_time(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        self.put("CONVERSION", status="RECEIVED", processed_at=None, person_id=None, received_at=timezone.now())
+        self.assertEqual(self.problems(), [])  # 앞 단계를 기다리는 전환은 정상
+        self.put("CONVERSION", status="RECEIVED", processed_at=None, person_id=None, received_at=timezone.now() - timedelta(seconds=3600))
+        self.assertTrue(any("RECEIVED" in p for p in self.problems()))  # 기한을 넘기고도 남은 것은 처리되지 않은 것
+        Reaction.objects.filter(status="RECEIVED").delete()
+        self.put("IMPRESSION", status="RECEIVED", processed_at=None, person_id=None, received_at=timezone.now())
+        self.assertTrue(any("RECEIVED" in p for p in self.problems()))  # 노출은 기다릴 앞 단계가 없다
 
 
 @tag("security")

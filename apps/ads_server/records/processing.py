@@ -7,18 +7,22 @@
 - 여러 프로세스가 동시에 돌려도 안전하다(행을 `RECEIVED` 일 때만 집고, 상태는 조건부 UPDATE 로 바꾼다). 단일 관리 프로세스가 기본 운영 방식이다.
 """
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from billing import api as billing
 
+from . import facts as fact_gathering
 from .models import Decision, Reaction, ReactionStatus
-from .rules import RuleInput, run_rules
+from .rules import MANDATORY_RULES, Hold, run_rules
 
 logger = logging.getLogger(__name__)
+
+PENDING = "PENDING"  # 처리 결과가 아니라 "앞 단계 반응을 기다린다"는 뜻(상태는 `RECEIVED` 그대로)
 
 
 def _now(now=None):
@@ -30,28 +34,18 @@ def reaction_ref(media_id, reaction_id):
     return f"{media_id}:{reaction_id}"
 
 
-def _finish(row, status, now, reason=None, rule=None):
-    """상태를 바꾸는 **유일한 곳**. 아직 `RECEIVED` 인 행만 바꾼다(끝난 반응은 다시 바뀌지 않는다)."""
+def _finish(row, status, now, reason=None, rule=None, person=None):
+    """상태를 바꾸는 **유일한 곳**. 아직 `RECEIVED` 인 행만 바꾼다(끝난 반응은 다시 바뀌지 않는다). 인정할 때는 판정 단위의 사람도 함께 확정한다."""
     changed = Reaction.objects.filter(pk=row.pk, status=ReactionStatus.RECEIVED).update(
-        status=status, reason_code=reason, applied_rule=rule, processed_at=now,
+        status=status, reason_code=reason, applied_rule=rule, processed_at=now, person_id=person,
     )
     if changed != 1:
         raise RuntimeError(f"이미 처리된 반응의 상태를 바꾸려 했다: {row.pk}")
 
 
-def _guard(row, decision):
-    """**규칙 설정과 무관한 필수 조건**: 결정이 있고, 보고한 매체가 그 결정을 만든 매체이고, 광고가 있었다.
-
-    규칙 체인은 정책(무엇을 인정할지)을 바꿀 수 있게 열어 둔 곳이고, 이 세 가지는 과금의 권한·근거라서 설정으로 빠질 수 없다.
-    규칙이 이미 걸러 냈다면 여기 오지 않는다. 걸리면 규칙 이름 `guard` 로 거부한다.
-    """
-    if decision is None:
-        return "guard", "unknown_decision"
-    if decision.media_id != row.media_id:
-        return "guard", "media_mismatch"
-    if decision.creative_id is None:
-        return "guard", "no_ad_shown"
-    return None
+def _hold(row, now):
+    """앞 단계 반응을 기다린다. 상태는 `RECEIVED` 그대로이고 실패가 아니므로 `attempts` 도 올리지 않는다. 마지막 확인 시각만 남겨 돌려가며 다시 판정한다."""
+    Reaction.objects.filter(pk=row.pk, status=ReactionStatus.RECEIVED).update(checked_at=now)
 
 
 def _process(inbox_id, now):
@@ -59,25 +53,24 @@ def _process(inbox_id, now):
     if row is None:
         return None  # 이미 처리됐거나 없다
     decision = Decision.objects.filter(decision_id=row.decision_id).first()
-    accepted = frozenset(
-        Reaction.objects.filter(decision_id=row.decision_id, status=ReactionStatus.ACCEPTED).values_list("type", flat=True)
-    )
-    facts = RuleInput(
-        media_id=row.media_id, reaction_type=row.type, decision_exists=decision is not None,
-        decision_media_id=decision.media_id if decision else None, ad_was_shown=bool(decision and decision.creative_id is not None),
-        accepted_types=accepted,
-    )
-    rejection = run_rules(settings.REACTION_RULES, facts)
-    if rejection is None:
-        rejection = _guard(row, decision)
-    if rejection is not None:
-        _finish(row, ReactionStatus.REJECTED, now, reason=rejection[1], rule=rejection[0])
+    facts = fact_gathering.gather(row, decision, now)
+    verdict = run_rules(settings.REACTION_RULES, facts)
+    if verdict is None or isinstance(verdict[1], Hold):
+        # **필수 조건은 규칙 설정과 무관하게** 거친다(결정·매체·광고, 클릭 출처, 사람, 종료 전 수신). 설정에서 규칙을 빼도 이것들은 빠지지 않는다.
+        mandatory = run_rules(MANDATORY_RULES, facts)
+        if mandatory is not None:
+            verdict = ("guard", mandatory[1])
+    if verdict is not None and isinstance(verdict[1], Hold):
+        _hold(row, now)
+        return PENDING
+    if verdict is not None:
+        _finish(row, ReactionStatus.REJECTED, now, reason=verdict[1], rule=verdict[0])
         return ReactionStatus.REJECTED
     billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
         decision.owner_id, decision.campaign_id, row.type, decision.pricing_unit, decision.applied_amount,
         reaction_ref(row.media_id, row.reaction_id), now=row.received_at,
     )
-    _finish(row, ReactionStatus.ACCEPTED, now)
+    _finish(row, ReactionStatus.ACCEPTED, now, person=fact_gathering.person_of(decision, row.subject_id))
     return ReactionStatus.ACCEPTED
 
 
@@ -90,7 +83,7 @@ def _note_failure(inbox_id):
 
 
 def process_reaction(inbox_id, now=None):
-    """반응 하나를 처리한다. 반환: `ACCEPTED`/`REJECTED`, 이미 처리됐으면 `None`. 실패하면 되돌리고 실패 횟수를 올린 뒤 예외를 올린다."""
+    """반응 하나를 처리한다. 반환: `ACCEPTED`/`REJECTED`/`PENDING`(앞 단계 반응을 기다리는 보류), 이미 처리됐으면 `None`. 실패하면 되돌리고 실패 횟수를 올린 뒤 예외를 올린다."""
     now = _now(now)
     try:
         with transaction.atomic():
@@ -112,15 +105,20 @@ def process_after_receipt(inbox_id):
 
 
 def process_pending(limit=100, now=None, should_stop=None):
-    """오래된 순으로 `RECEIVED` 를 최대 `limit` 건 처리한다. 한 건의 실패가 다른 건을 막지 않는다. 반환: 결과별 건수.
+    """`RECEIVED` 를 최대 `limit` 건 처리한다. 한 건의 실패가 다른 건을 막지 않는다. 반환: 결과별 건수.
+
+    앞 단계를 기다리는 보류분은 `REACTION_HOLD_RECHECK_SECONDS` 가 지나야 다시 대상이 된다 — 방금 확인한 보류분이 대기열 앞을 차지해
+    새로 들어온 반응을 굶기지 않고 돌려가며 처리된다(정렬은 접수 순서 그대로다).
 
     `should_stop()` 이 참이 되면 **현재 반응을 끝낸 뒤 다음 반응을 시작하지 않는다**(남은 것은 `RECEIVED` 로 둔다).
     """
+    now_for_due = _now(now)
+    due = Q(checked_at__isnull=True) | Q(checked_at__lte=now_for_due - timedelta(seconds=settings.REACTION_HOLD_RECHECK_SECONDS))
     ids = list(
-        Reaction.objects.filter(status=ReactionStatus.RECEIVED, attempts__lt=settings.REACTION_MAX_ATTEMPTS)
+        Reaction.objects.filter(due, status=ReactionStatus.RECEIVED, attempts__lt=settings.REACTION_MAX_ATTEMPTS)
         .order_by("received_at", "inbox_id").values_list("inbox_id", flat=True)[:limit]
     )
-    counts = {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0}
+    counts = {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0}
     for inbox_id in ids:
         if should_stop is not None and should_stop():
             break

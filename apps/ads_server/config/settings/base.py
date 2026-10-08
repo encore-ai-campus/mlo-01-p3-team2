@@ -153,7 +153,16 @@ BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:
 BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
-REACTION_RULES = ("known-decision", "same-media", "ad-shown", "once-per-type")
+REACTION_RULES = (  # 순서가 곧 판정 순서. 되돌릴 수 없는 거부(기간·형식)를 보류(전제 대기)보다 먼저 둔다
+    "known-decision", "same-media", "ad-shown", "click-source", "subject", "occurred-at", "campaign-open", "once-per-type",
+    "funnel-window", "funnel-order",
+)
+REACTION_CLICK_WINDOW_SECONDS = 300  # 클릭은 결정 후 이 안에 있어야 한다(설계 §10 "반응 퍼널 규칙")
+REACTION_DISPLAY_GRACE_SECONDS = 5  # 같은 표시 단위의 다음 결정이 만들어진 뒤에도 이만큼은 이전 광고의 클릭을 인정한다(화면 반영 여유)
+REACTION_CONVERSION_WINDOW_SECONDS = 30 * 24 * 3600  # 전환은 클릭 후 이 안에 있어야 한다
+REACTION_OCCURRED_AT_TOLERANCE_SECONDS = 60  # 매체가 보낸 감지 시각이 수신 시각보다 이만큼 넘게 미래면 거부
+REACTION_HOLD_SECONDS = 300  # 전제(노출·클릭)를 기다리며 보류하는 최대 시간. 끝내 오지 않으면 missing_prerequisite
+REACTION_HOLD_RECHECK_SECONDS = 5  # 보류한 반응을 다시 판정하는 간격(대기열이 보류분으로 막히지 않게 마지막 확인 순으로 돌린다)
 REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해 본다(실패해도 접수 응답은 그대로). 끄면 process_reactions 가 전부 처리한다
 REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
 

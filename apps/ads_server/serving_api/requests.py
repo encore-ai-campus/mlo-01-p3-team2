@@ -79,13 +79,14 @@ def parse_decision_request(body):
 REACTION_TYPES = ("IMPRESSION", "CLICK", "CONVERSION")
 # 계약 `DateTimeUtc`와 같은 문법: ASCII 숫자, 대문자 `T`·`Z`, 소수 초 1~6자리(마이크로초 — 저장·비교가 잃는 것 없이 다루는 한계)
 _UTC_TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?Z")
-_REACTION_FIELDS = frozenset({"type", "occurred_at"})
+_REACTION_FIELDS = frozenset({"type", "occurred_at", "subject_id"})
 
 
 @dataclass(frozen=True)
 class ReactionRequest:
     type: str
     occurred_at: datetime
+    subject_id: str | None = None  # 반응한 사람(소문자 UUID). 일괄 슬롯은 필요하지만 접수는 슬롯을 모르므로 판정은 처리 단계가 한다
 
 
 def parse_utc_time(value):
@@ -120,6 +121,7 @@ def parse_reaction_request(body):
         occurred = parse_utc_time(body["occurred_at"])
         if occurred is None:
             problems.append(_error("/occurred_at", "RFC 3339 UTC 시각(예: 2026-10-07T03:21:46Z)이어야 합니다."))
+    subject = _uuid_field(body, "subject_id", problems) if "subject_id" in body else None
     if problems:
         raise errors.InvalidRequest(errors=problems)
-    return ReactionRequest(type=body["type"], occurred_at=occurred)
+    return ReactionRequest(type=body["type"], occurred_at=occurred, subject_id=None if subject is None else str(subject))

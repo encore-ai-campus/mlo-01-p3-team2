@@ -63,7 +63,7 @@ class PutReactionTests(ReactionApiBase):
         self.assertContract(self.contract, PATH, "put", response)
         self.assertEqual(response.json(), {
             "reaction_id": str(rid), "decision_id": str(self.decision_id), "type": "IMPRESSION",
-            "occurred_at": "2026-10-07T03:21:46Z", "received_at": "2026-10-07T12:00:00.000Z", "status": "RECEIVED", "reason_code": None,
+            "occurred_at": "2026-10-07T03:21:46Z", "received_at": "2026-10-07T12:00:00.000Z", "status": "RECEIVED", "reason_code": None, "subject_id": None,
         })
         row = Reaction.objects.get()  # 응답이 나간 시점에 이미 저장돼 있다
         self.assertEqual((row.media_id, row.reaction_id, row.decision_id, row.status), (self.media_id, rid, self.decision_id, "RECEIVED"))
