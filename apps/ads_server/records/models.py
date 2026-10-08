@@ -71,6 +71,11 @@ class ReactionStatus(models.TextChoices):
     REJECTED = "REJECTED", "거부"
 
 
+class ReactionSource(models.TextChoices):
+    MEDIA = "media", "매체가 보고"
+    SERVER = "server", "광고 서버가 관측"  # 클릭: `GET /c/{token}` (설계 §10 "클릭 출처")
+
+
 class Reaction(models.Model):
     """반응 수신함(inbox, 설계 §4.4, DRD P2). 매체가 보고한 노출·클릭·전환을 **받은 그대로** 저장한다.
 
@@ -85,7 +90,9 @@ class Reaction(models.Model):
     type = models.CharField(max_length=20, choices=ReactionType.choices)
     occurred_at = models.DateTimeField()  # 매체가 감지한 시각. 참고용
     received_at = models.DateTimeField(default=timezone.now)  # 서버 수신 시각. 분석의 기준
-    raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체)
+    raw = models.JSONField()  # 받은 본문 그대로(검증을 통과한 JSON 객체). 서버가 관측한 클릭은 서버가 만든 사실이다
+    source = models.CharField(max_length=10, choices=ReactionSource.choices, default=ReactionSource.MEDIA)  # 누가 알려 준 반응인가
+    subject_id = models.CharField(max_length=200, null=True, blank=True)  # 반응한 사람(가명 UUID). 서버가 관측한 클릭에 채우고, 매체 보고의 이 필드는 2-9
     status = models.CharField(max_length=20, choices=ReactionStatus.choices, default=ReactionStatus.RECEIVED)
     reason_code = models.CharField(max_length=40, null=True, blank=True)  # REJECTED 일 때만
     applied_rule = models.CharField(max_length=64, null=True, blank=True)  # 거부한 규칙의 이름(REJECTED 일 때만)
@@ -98,6 +105,7 @@ class Reaction(models.Model):
             models.UniqueConstraint(fields=["media_id", "reaction_id"], name="records_reaction_once_per_media"),
             models.CheckConstraint(condition=Q(type__in=ReactionType.values), name="records_reaction_type_valid"),
             models.CheckConstraint(condition=Q(status__in=ReactionStatus.values), name="records_reaction_status_valid"),
+            models.CheckConstraint(condition=Q(source__in=ReactionSource.values), name="records_reaction_source_valid"),
             models.CheckConstraint(
                 condition=(Q(status="REJECTED", reason_code__isnull=False) | (~Q(status="REJECTED") & Q(reason_code__isnull=True))),
                 name="records_reaction_reason_only_when_rejected",

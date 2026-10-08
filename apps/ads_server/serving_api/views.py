@@ -12,6 +12,7 @@ from masters import api as masters
 from records import api as records
 
 from .auth import media_endpoint
+from .clicks import make_click_url
 from .requests import UUID_PATTERN, parse_decision_request, parse_reaction_request, path_uuid
 
 BASE = "/api/media/v1"
@@ -34,7 +35,7 @@ def _decision_body(decision):
     ad = None
     if decision.chosen is not None:
         c = decision.chosen
-        ad = {"creative_id": str(c.creative_id), "title": c.title, "image_url": c.image_url, "redirect_url": c.redirect_url}
+        ad = {"creative_id": str(c.creative_id), "title": c.title, "image_url": c.image_url, "redirect_url": c.redirect_url, "click_url": make_click_url(decision)}
     return {
         "decision_id": str(decision.decision_id), "slot_id": str(decision.slot_id),
         "slot_name": masters.slot_names([decision.slot_id]).get(decision.slot_id, ""),

@@ -32,7 +32,7 @@ CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", default=[])  # 예: http
 ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 
 MEDIA_ROOT = env_str("MEDIA_ROOT", required=True)  # 코드·정적 파일 경로 밖. 웹서버가 직접 서빙하지 않는다.
-ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", required=True)  # 결정 응답의 image_url 에 쓰는 공개 주소
+ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", required=True)  # 결정 응답의 image_url·click_url 에 쓰는 광고 서버의 공개 주소
 ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"  # 중단·종료된 캠페인의 이미지는 404 (campaigns 가 판정, assets 는 모른다)
 SIGNUP_GRANT_POINTS = env_int("SIGNUP_GRANT_POINTS", 50_000)
 BUDGET_DAY_OFFSET_HOURS = env_int("BUDGET_DAY_OFFSET_HOURS", 0)

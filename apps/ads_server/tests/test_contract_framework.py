@@ -19,6 +19,7 @@ DECISION = {
     "ad": {
         "creative_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "title": "가을 학습 스터디 모집",
         "image_url": "https://ads.internal.example/assets/" + "a" * 64 + ".png", "redirect_url": "https://example.com/study",
+        "click_url": "https://ads.internal.example/c/eyJkIjoiN2QzZTVmNjAifQ:1vAbCd:Zk3xQ",
     },
 }
 

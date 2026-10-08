@@ -165,7 +165,8 @@ class DecisionContextTests(DecisionApiBase):
 
     def test_context_never_changes_the_selection(self):
         a, b = self.request({"x": 1}).json(), self.request({"y": [1, 2]}).json()
-        self.assertEqual(a["ad"], b["ad"])  # 수집만 한다
+        strip = lambda ad: {k: v for k, v in ad.items() if k != "click_url"}  # 클릭 주소는 결정마다 다른 서명 토큰이다
+        self.assertEqual(strip(a["ad"]), strip(b["ad"]))  # 수집만 한다
 
     def test_limits_are_inclusive_at_the_boundary_and_rejected_just_beyond(self):
         deep_ok = {"a": {"b": {"c": {"d": 1}}}}  # 깊이 4(context 자신이 1)

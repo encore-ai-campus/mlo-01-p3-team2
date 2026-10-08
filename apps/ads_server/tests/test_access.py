@@ -22,6 +22,7 @@ EXPECTED_PUBLIC = {
     # 매체 API(C1): 세션 로그인이 아니라 `X-Media-Key` 로 인증한다(`media_endpoint`). health 는 인증 없음
     "/api/media/v1/health", "/api/media/v1/decisions", "/api/media/v1/decisions/<str:decision_id>",
     "/api/media/v1/decisions/<str:decision_id>/reactions/<str:reaction_id>",
+    "/c/<str:token>",  # 클릭 관측(C1 v1.1): 최종 사용자 브라우저가 연다. 서명 토큰이 곧 자격이다
 }
 LOGIN_ONLY = {"/accounts/logout/"}  # 로그인은 필요하지만 역할은 무관
 
