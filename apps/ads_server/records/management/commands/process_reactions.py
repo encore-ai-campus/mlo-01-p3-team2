@@ -40,6 +40,9 @@ class Command(BaseCommand):
             self.stdout.write(f"retried-stuck: {reset_stuck()}")
         stop = []
         previous = signal.signal(signal.SIGTERM, lambda *_: stop.append(1))  # 배포·재시작 때 처리 중인 한 건은 끝내고 멈춘다
+        mode = "once" if options["once"] else f"interval={interval}"
+        self.stdout.write(f"started {mode} batch={batch}")  # 신호 처리기가 설치된 뒤의 시작 표시(운영 로그·부하 시험의 준비 확인)
+        self.stdout.flush()
         try:
             while True:
                 total = self.drain(batch, lambda: bool(stop))

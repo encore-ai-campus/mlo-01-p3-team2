@@ -6,7 +6,8 @@
 #   PYTHON=/path/to/python        사용할 파이썬(기본: python)
 #
 # 단계: check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
-#       → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
+#       → 부하 시험(소규모: 파일 SQLite·실제 HTTP·별도 처리 프로세스, 불변식) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
+#       150 동시 전체 시험은 `python scripts/load_test.py`(약 40초, docs/ads-server/load-test.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 PY="${PYTHON:-python}"
@@ -45,6 +46,7 @@ audit_dependencies() {
 run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test
+run "부하 시험 (20 동시, 불변식)" "$PY" scripts/load_test.py --small
 run "pip-audit (의존성 취약점)" audit_dependencies
 run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing records serving_api
 
