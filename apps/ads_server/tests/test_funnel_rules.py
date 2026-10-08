@@ -32,8 +32,10 @@ def at(seconds):
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)  # 판정 시각은 시험이 정한다
 class FunnelBase(TestCase):
+    UNIT = "IMPRESSION"  # 광고그룹의 과금 단위 — 금전 영향을 보려면 시험 클래스가 바꾼다
+
     def setUp(self):
-        self.w = World()
+        self.w = World(unit=self.UNIT)
         self.media = self.w.slot.media_id
         self.decision = self.decide(self.w.slot, SUBJECT)
 
@@ -546,3 +548,114 @@ class EndToEndFunnelTests(TestCase):
         self.assertEqual(self.status(decision, self.report(decision, "CONVERSION", subject_id=B)), ("RECEIVED", None))  # B 는 클릭하지 않았다: 보류
         self.assertEqual(self.status(decision, self.report(decision, "CONVERSION", subject_id=A)), ("ACCEPTED", None))
         self.assertEqual(Reaction.objects.get(decision_id=decision["decision_id"], type="IMPRESSION", subject_id=A).person_id, A)
+
+
+class TimingBase(FunnelBase):
+    def balance(self):
+        return billing.get_wallet(self.w.adv, now=NOW).balance
+
+
+@tag("security")
+class LatePrerequisiteTests(TimingBase):
+    """검토 2-9 후속 #1: 보류 기한이 지난 뒤에 도착한 노출이 클릭을 되살려 과금시키면 안 된다. 단, 제때 도착했는데 처리만 늦은 경우는 거부하면 안 된다."""
+
+    UNIT = "CLICK"  # 클릭이 과금 단위라 인정되면 곧바로 원장에 나타난다
+
+    def test_a_prerequisite_that_first_arrived_after_the_hold_window_does_not_rescue_a_held_click(self):
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1), "PENDING")
+        late = self.report("IMPRESSION", when=302)  # 클릭 접수 + 301초: 기한(300초) 뒤에 처음 도착했다
+        self.assertEqual(self.judge(late, 302), "ACCEPTED")  # 노출 자체는 정상이다
+        self.assertEqual(self.judge(click, 303), "REJECTED")
+        self.assertEqual(self.verdict(click), ("REJECTED", "missing_prerequisite", "funnel-order"))
+        self.assertEqual(self.balance(), 50_000)  # 과금 없음
+
+    def test_the_deadline_is_inclusive_to_the_microsecond(self):
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1), "PENDING")
+        on_time = self.report("IMPRESSION", when=301)  # 정확히 접수 + 300초
+        self.judge(on_time, 400)
+        self.assertEqual(self.judge(click, 401), "ACCEPTED")
+        self.assertEqual(self.balance(), 50_000 - 30)
+
+        other = self.decide(self.w.slot, A)
+        click2 = self.click(other, when=1)
+        self.assertEqual(self.judge(click2, 1), "PENDING")
+        too_late = self.report("IMPRESSION", other, when=301, occurred=at(301))
+        Reaction.objects.filter(pk=too_late.pk).update(received_at=at(301) + timedelta(microseconds=1))
+        self.judge(too_late, 400)
+        self.assertEqual(self.judge(click2, 401), "REJECTED")
+        self.assertEqual(self.balance(), 50_000 - 30)
+
+    def test_a_prerequisite_that_arrived_in_time_but_was_processed_late_still_counts(self):
+        """처리 작업자가 늦게 돈 것은 매체의 잘못이 아니다 — 제때 도착한 노출이 기한 뒤에 인정돼도 클릭은 인정된다."""
+        click = self.click(when=1)
+        self.assertEqual(self.judge(click, 1), "PENDING")
+        impression = self.report("IMPRESSION", when=250)  # 제때 도착
+        self.assertEqual(self.judge(impression, 310), "ACCEPTED")  # 작업자가 기한 뒤에 처리
+        self.assertEqual(self.judge(click, 311), "ACCEPTED")
+        self.assertEqual(self.balance(), 50_000 - 30)
+
+    def test_a_prerequisite_that_arrived_in_time_but_is_still_unprocessed_keeps_the_click_waiting(self):
+        click = self.click(when=1)
+        impression = self.report("IMPRESSION", when=250)  # 제때 도착, 아직 처리 전
+        self.assertEqual(self.judge(click, 400), "PENDING")  # 기한이 지났어도 거부하지 않는다
+        self.assertEqual(click.status, "RECEIVED")
+        self.assertEqual(self.judge(impression, 401), "ACCEPTED")
+        self.assertEqual(self.judge(click, 402), "ACCEPTED")
+
+    def test_an_unprocessed_prerequisite_that_arrived_too_late_does_not_keep_the_click_waiting_forever(self):
+        click = self.click(when=1)
+        self.report("IMPRESSION", when=305)  # 기한(301) 뒤에 도착했고 아직 처리 전
+        self.assertEqual(self.judge(click, 400), "REJECTED")
+        self.assertEqual(click.reason_code, "missing_prerequisite")
+
+    def test_an_unprocessed_prerequisite_that_is_then_rejected_ends_the_wait_at_the_deadline(self):
+        self.accept_impression()  # 이미 인정된 노출이 있어 새 노출은 중복으로 거부된다
+        decision = self.decide(self.w.slot, A)
+        click = self.click(decision, when=1)
+        dup = self.report("IMPRESSION", decision, when=250, subject=None)
+        Reaction.objects.filter(pk=dup.pk).update(occurred_at=at(-3600))  # 시각이 틀린 노출: 거부될 것
+        self.assertEqual(self.judge(dup, 251), "REJECTED")
+        self.assertEqual(self.judge(click, 301), "REJECTED")
+        self.assertEqual(click.reason_code, "missing_prerequisite")
+
+
+@tag("security")
+class ConversionBeforeClickTests(TimingBase):
+    """검토 2-9 후속 #2: 실제 클릭보다 먼저 접수된 전환을 나중에 생긴 클릭으로 소급 인정하면 안 된다."""
+
+    UNIT = "CONVERSION"
+
+    def test_a_conversion_received_before_the_click_is_never_accepted(self):
+        self.accept_impression(when=0)
+        conversion = self.report("CONVERSION", when=1)
+        self.assertEqual(self.judge(conversion, 1), "PENDING")
+        click = self.click(when=200)
+        self.assertEqual(self.judge(click, 200), "ACCEPTED")
+        self.assertEqual(self.judge(conversion, 201), "PENDING")  # 클릭이 있어도 전환이 먼저였다
+        self.assertEqual(self.judge(conversion, 301), "REJECTED")
+        self.assertEqual(self.verdict(conversion), ("REJECTED", "missing_prerequisite", "funnel-order"))
+        self.assertEqual(self.balance(), 50_000)  # 전환 과금 없음
+
+    def test_a_conversion_received_at_the_same_instant_or_later_is_accepted(self):
+        self.accept_impression(when=0)
+        self.judge(self.click(when=5), 5)
+        same = self.report("CONVERSION", when=5)
+        self.assertEqual(self.judge(same, 6), "ACCEPTED")
+        self.assertEqual(self.balance(), 50_000 - 30)
+
+        other = self.decide(self.w.slot, A)
+        self.accept_impression(other, subject=None, when=0)
+        self.judge(self.click(other, when=5), 5)
+        later = self.report("CONVERSION", other, when=6)
+        self.assertEqual(self.judge(later, 7), "ACCEPTED")
+
+    def test_a_click_that_is_still_unprocessed_does_not_admit_an_earlier_conversion_either(self):
+        self.accept_impression(when=0)
+        conversion = self.report("CONVERSION", when=1)
+        click = self.click(when=50)  # 처리 전
+        self.assertEqual(self.judge(conversion, 60), "PENDING")
+        self.assertEqual(self.judge(click, 61), "ACCEPTED")
+        self.assertEqual(self.judge(conversion, 62), "PENDING")
+        self.assertEqual(self.judge(conversion, 1 + 300), "REJECTED")

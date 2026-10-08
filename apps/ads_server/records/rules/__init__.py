@@ -45,9 +45,10 @@ class RuleInput:
     decided_at: datetime | None
     # 판정 단위(개인 슬롯 = 결정, 일괄 슬롯 = 결정·사람)에서 모은 사실
     accepted_types: frozenset  # 이 단위에서 이미 인정된 반응 유형
-    impression_state: str | None  # 이 단위의 노출: `ACCEPTED` | `RECEIVED`(인정 전) | None
-    click_state: str | None  # 이 단위의 서버 관측 클릭
-    click_received_at: datetime | None  # 인정된 클릭의 수신 시각
+    # 앞 단계 반응(클릭이면 같은 사람의 노출, 전환이면 같은 사람의 서버 관측 클릭)이 **도착한 시각**들. 인정 여부와 도착 시각을 함께 본다:
+    # 기한은 "언제 도착했나"로 판정해야 처리 작업자가 늦게 돈 것이 매체의 잘못이 되지 않고, 기한 뒤에 도착한 전제가 반응을 되살리지도 않는다
+    prereq_accepted: tuple  # 인정된(`ACCEPTED`) 앞 단계 반응의 수신 시각
+    prereq_waiting: tuple  # 아직 처리 전(`RECEIVED`)인 앞 단계 반응의 수신 시각
     next_display_at: datetime | None  # 같은 표시 단위의 다음 결정 시각(없으면 아직 표시 중)
     campaign_ends_at: datetime | None  # 판정 시점의 캠페인 종료 시각(없으면 계속 진행)
     limits: Limits

@@ -50,6 +50,7 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     acked_decisions: 수신 확인(201)한 결정 ID 들.
     acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
+    from collections import defaultdict
     from datetime import timedelta
 
     from django.conf import settings
@@ -95,21 +96,32 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         seen[(r.decision_id, r.person_id, r.type)] = seen.get((r.decision_id, r.person_id, r.type), 0) + 1
     if any(count > 1 for count in seen.values()):
         problems.append("같은 결정·사람·유형이 두 번 이상 인정됐다")
-    # 퍼널: 인정된 클릭은 서버가 관측한 것이고 같은 사람의 인정된 노출이 있으며, 인정된 전환 뒤에는 같은 사람의 인정된 클릭이 있다
-    accepted_of = {(str(r.decision_id), r.person_id, r.type) for r in accepted}
-    funnel = {"media_click": 0, "no_impression": 0, "no_click": 0, "click_late": 0}
+    # 퍼널: 인정된 클릭은 서버가 관측한 것이고, **도착 시각**으로 앞 단계가 맞아야 한다 — 클릭은 같은 사람의 인정된 노출이 클릭 접수 + 보류 기한 안에,
+    # 전환은 같은 사람의 인정된 클릭이 전환 접수 시각까지 도착했어야 한다(처리 시각이 아니라 도착 시각: 처리가 늦어도 정상이고 기한 뒤의 도착은 소급되지 않는다)
+    arrivals = defaultdict(list)
+    for r in accepted:
+        arrivals[(str(r.decision_id), r.person_id, r.type)].append(r.received_at)
+    hold = timedelta(seconds=settings.REACTION_HOLD_SECONDS)
+    funnel = {"media_click": 0, "no_impression": 0, "late_impression": 0, "no_click": 0, "click_after_conversion": 0, "click_late": 0, "conversion_late": 0}
     for r in accepted:
         key = (str(r.decision_id), r.person_id)
         if r.type == "CLICK":
             funnel["media_click"] += r.source != "server"
-            funnel["no_impression"] += (*key, "IMPRESSION") not in accepted_of
+            impressions = arrivals.get((*key, "IMPRESSION"), [])
+            funnel["no_impression"] += not impressions
+            funnel["late_impression"] += bool(impressions) and min(impressions) > r.received_at + hold
             decision = decisions.get(str(r.decision_id))
             funnel["click_late"] += bool(decision) and r.received_at > decision.decided_at + timedelta(seconds=settings.REACTION_CLICK_WINDOW_SECONDS)
         elif r.type == "CONVERSION":
-            funnel["no_click"] += (*key, "CLICK") not in accepted_of
+            clicks = arrivals.get((*key, "CLICK"), [])
+            funnel["no_click"] += not clicks
+            funnel["click_after_conversion"] += bool(clicks) and min(clicks) > r.received_at
+            before = [c for c in clicks if c <= r.received_at]
+            funnel["conversion_late"] += bool(before) and r.received_at > max(before) + timedelta(seconds=settings.REACTION_CONVERSION_WINDOW_SECONDS)
     funnel_labels = {
         "media_click": "매체가 보고한 클릭이 인정됐다", "no_impression": "노출 없이 클릭이 인정됐다", "no_click": "클릭 없이 전환이 인정됐다",
-        "click_late": "클릭 기간(결정 후)을 넘긴 클릭이 인정됐다",
+        "late_impression": "클릭 접수 + 보류 기한 뒤에야 도착한 노출로 클릭이 인정됐다", "click_after_conversion": "전환보다 늦게 생긴 클릭으로 전환이 인정됐다",
+        "click_late": "클릭 기간(결정 후)을 넘긴 클릭이 인정됐다", "conversion_late": "클릭 후 전환 기간을 넘긴 전환이 인정됐다",
     }
     problems += [f"{funnel_labels[key]}: {count}건" for key, count in funnel.items() if count]
 

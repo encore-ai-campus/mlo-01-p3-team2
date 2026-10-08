@@ -11,7 +11,8 @@ def check(facts):
             return "window_expired"
         if facts.next_display_at is not None and facts.received_at > facts.next_display_at + limits.display_grace:
             return "display_ended"
-    elif facts.reaction_type == "CONVERSION" and facts.click_received_at is not None:
-        if facts.received_at > facts.click_received_at + limits.conversion_window:
+    elif facts.reaction_type == "CONVERSION":
+        before = [arrived for arrived in facts.prereq_accepted if arrived <= facts.received_at]  # 전환보다 먼저 도착한 인정된 클릭(없으면 순서 규칙의 몫)
+        if before and facts.received_at > max(before) + limits.conversion_window:
             return "window_expired"
     return None

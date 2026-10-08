@@ -185,6 +185,40 @@ class FunnelInvariantTests(InvariantBase):
         self.put("CLICK", received_at=NOW + timedelta(seconds=301))
         self.assertTrue(any("클릭 기간" in p for p in self.problems()))
 
+    def test_an_accepted_click_whose_impression_arrived_after_the_hold_window_is_found(self):
+        """검토 2-9 후속 #1: 기한(접수 + 300초)을 넘겨 처음 도착한 노출로 인정된 클릭. 기한 정각은 정상이다."""
+        from datetime import timedelta
+
+        self.put("CLICK")
+        Reaction.objects.filter(type="IMPRESSION").update(received_at=NOW + timedelta(seconds=300))
+        self.assertEqual([p for p in self.problems() if "보류 기한" in p], [])
+        Reaction.objects.filter(type="IMPRESSION").update(received_at=NOW + timedelta(seconds=301))
+        self.assertTrue(any("보류 기한 뒤에야 도착한 노출" in p for p in self.problems()))
+
+    def test_processing_late_is_not_a_violation_only_arriving_late_is(self):
+        from datetime import timedelta
+
+        self.put("CLICK", processed_at=NOW + timedelta(hours=5))  # 인정(처리)은 몇 시간 뒤여도 도착이 제때면 정상
+        Reaction.objects.filter(type="IMPRESSION").update(processed_at=NOW + timedelta(hours=6))
+        self.assertEqual(self.problems(), [])
+
+    def test_an_accepted_conversion_received_before_its_click_is_found(self):
+        """검토 2-9 후속 #2: 클릭보다 먼저 접수된 전환이 나중 클릭으로 인정됨. 같은 시각은 정상이다."""
+        from datetime import timedelta
+
+        self.put("CLICK", received_at=NOW + timedelta(seconds=200))
+        self.put("CONVERSION", received_at=NOW + timedelta(seconds=200))
+        self.assertEqual([p for p in self.problems() if "전환" in p], [])
+        Reaction.objects.filter(type="CONVERSION").update(received_at=NOW + timedelta(seconds=199))
+        self.assertTrue(any("전환보다 늦게 생긴 클릭" in p for p in self.problems()))
+
+    def test_a_conversion_after_the_conversion_window_is_found(self):
+        from datetime import timedelta
+
+        self.put("CLICK")
+        self.put("CONVERSION", received_at=NOW + timedelta(days=30, seconds=1))
+        self.assertTrue(any("전환 기간" in p for p in self.problems()))
+
     def test_the_same_person_and_type_accepted_twice_is_found_but_other_people_may_repeat(self):
         self.put("IMPRESSION", person_id="0197a5c0-0000-7000-8000-0000000000a1")  # 다른 사람(일괄 슬롯의 다른 시청자)은 괜찮다
         self.assertEqual([p for p in self.problems() if "두 번 이상" in p], [])

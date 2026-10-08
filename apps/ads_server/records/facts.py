@@ -37,13 +37,12 @@ def _same_person(qs, decision, person):
     return qs.filter(Q(subject_id__isnull=True) | Q(subject_id=decision.subject_id))
 
 
-def _best_state(qs):
-    """인정(`ACCEPTED`)된 것이 있으면 그 상태와 수신 시각, 없고 처리 전(`RECEIVED`)만 있으면 `RECEIVED`, 아무것도 없으면 `None`."""
-    rows = list(qs.filter(status__in=[ReactionStatus.ACCEPTED, ReactionStatus.RECEIVED]).values_list("status", "received_at"))
-    for status, received_at in rows:
-        if status == ReactionStatus.ACCEPTED:
-            return "ACCEPTED", received_at
-    return ("RECEIVED", None) if rows else (None, None)
+def _arrivals(qs):
+    """앞 단계 후보 반응의 수신 시각: (인정된 것들, 처리 전인 것들). 거부된 것은 없는 것과 같다 — 질의 한 번."""
+    accepted, waiting = [], []
+    for status, received_at in qs.filter(status__in=[ReactionStatus.ACCEPTED, ReactionStatus.RECEIVED]).values_list("status", "received_at"):
+        (accepted if status == ReactionStatus.ACCEPTED else waiting).append(received_at)
+    return tuple(sorted(accepted)), tuple(sorted(waiting))
 
 
 def next_display_at(decision):
@@ -64,7 +63,7 @@ def gather(row, decision, now):
     if decision is None:
         return RuleInput(
             **common, decision_exists=False, decision_media_id=None, ad_was_shown=False, audience=None, decision_subject_id=None, decided_at=None,
-            accepted_types=frozenset(), impression_state=None, click_state=None, click_received_at=None, next_display_at=None, campaign_ends_at=None,
+            accepted_types=frozenset(), prereq_accepted=(), prereq_waiting=(), next_display_at=None, campaign_ends_at=None,
         )
     person = person_of(decision, row.subject_id)
     accepted = frozenset()
@@ -72,17 +71,18 @@ def gather(row, decision, now):
         accepted = frozenset(
             Reaction.objects.filter(decision_id=decision.decision_id, person_id=person, status=ReactionStatus.ACCEPTED).values_list("type", flat=True)
         )
-    impression_state = click_state = click_received_at = next_at = None
+    prereq_accepted = prereq_waiting = ()
+    next_at = None
     if decision.creative_id is not None and person is not None:
         if row.type == ReactionType.CLICK:
-            impression_state, _ = _best_state(_same_person(Reaction.objects.filter(decision_id=decision.decision_id, type=ReactionType.IMPRESSION), decision, person))
+            prereq_accepted, prereq_waiting = _arrivals(_same_person(Reaction.objects.filter(decision_id=decision.decision_id, type=ReactionType.IMPRESSION), decision, person))
             next_at = next_display_at(decision)
         elif row.type == ReactionType.CONVERSION:
             clicks = Reaction.objects.filter(decision_id=decision.decision_id, type=ReactionType.CLICK, source=ReactionSource.SERVER)
-            click_state, click_received_at = _best_state(_same_person(clicks, decision, person))
+            prereq_accepted, prereq_waiting = _arrivals(_same_person(clicks, decision, person))
     ends = campaigns.campaign_end_times([decision.campaign_id]).get(decision.campaign_id) if decision.campaign_id is not None else None
     return RuleInput(
         **common, decision_exists=True, decision_media_id=decision.media_id, ad_was_shown=decision.creative_id is not None,
         audience=decision.audience, decision_subject_id=decision.subject_id, decided_at=decision.decided_at, accepted_types=accepted,
-        impression_state=impression_state, click_state=click_state, click_received_at=click_received_at, next_display_at=next_at, campaign_ends_at=ends,
+        prereq_accepted=prereq_accepted, prereq_waiting=prereq_waiting, next_display_at=next_at, campaign_ends_at=ends,
     )

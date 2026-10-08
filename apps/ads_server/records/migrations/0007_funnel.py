@@ -4,17 +4,31 @@ from django.db import migrations, models
 
 
 def backfill_accepted(apps, schema_editor):
-    """2-9 이전에 인정된 반응에 판정 단위의 사람과 인정 키를 채운다. 그때는 모든 슬롯이 개인 슬롯이라 사람은 결정의 사람이다.
+    """2-9 이전에 인정된 반응에 판정 단위의 사람과 인정 키를 채운다.
 
-    새 제약(인정된 행에는 키가 있어야 한다)이 걸리기 전에 해야 한다. 결정을 찾을 수 없는 인정 행은 있을 수 없지만(인정은 결정을 요구한다) 있다면 건드리지 않고 두어
-    제약 추가에서 실패하게 한다(조용히 틀린 키를 만들지 않는다).
+    사람의 출처는 결정의 슬롯 성격에 따른다: **개인 슬롯은 결정의 사람, 일괄 슬롯은 반응에 실린 사람**(2-8 의 서버 관측 클릭은 일괄 슬롯에서도
+    클릭한 사람을 반응에 남겼다). 새 제약(인정된 행에는 키가 있어야 한다)이 걸리기 전에 해야 한다.
+
+    사람을 알 수 없는 인정 행(예: 사람 없이 보고된 일괄 슬롯의 매체 노출)은 **임의로 채우거나 고치지 않고** 무엇이 문제인지 알리며 멈춘다 —
+    인정된 반응은 과금의 근거라 마이그레이션이 판정을 바꿀 수 없다. 운영자가 확인해 정리한 뒤 다시 실행한다.
     """
     Reaction, Decision = apps.get_model("records", "Reaction"), apps.get_model("records", "Decision")
-    subjects = dict(Decision.objects.filter(decision_id__in=Reaction.objects.filter(status="ACCEPTED").values("decision_id")).values_list("decision_id", "subject_id"))
-    for reaction in Reaction.objects.filter(status="ACCEPTED").iterator():
-        person = subjects.get(reaction.decision_id)
-        if person is not None:
-            Reaction.objects.filter(pk=reaction.pk).update(person_id=person, accepted_key=f"{reaction.decision_id}:{person}:{reaction.type}")
+    accepted = Reaction.objects.filter(status="ACCEPTED")
+    decisions = {
+        decision_id: (audience, subject_id)
+        for decision_id, audience, subject_id in Decision.objects.filter(decision_id__in=accepted.values("decision_id")).values_list("decision_id", "audience", "subject_id")
+    }
+    unresolved = []
+    for reaction in accepted.iterator():
+        audience, subject_id = decisions.get(reaction.decision_id, (None, None))
+        person = subject_id if audience == "individual" else reaction.subject_id
+        if person is None:
+            unresolved.append(str(reaction.pk))
+            continue
+        Reaction.objects.filter(pk=reaction.pk).update(person_id=person, accepted_key=f"{reaction.decision_id}:{person}:{reaction.type}")
+    if unresolved:
+        raise RuntimeError(f"사람을 알 수 없는 인정된 반응 {len(unresolved)}건이 있어 이행을 멈춥니다(inbox_id: {', '.join(unresolved[:5])}{' …' if len(unresolved) > 5 else ''}). "
+                           "일괄 슬롯 결정의 인정된 반응은 보고에 사람이 있어야 합니다. 확인해 정리한 뒤 다시 실행하세요.")
 
 
 class Migration(migrations.Migration):
