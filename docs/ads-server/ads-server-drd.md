@@ -572,7 +572,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
-| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). 처리 시각·적용 규칙 이름은 2-5에서 추가 | **UNIQUE(media_id, reaction_id)**, `type`·`status` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`. 수신은 짧은 INSERT 한 번(재전송은 쓰기 없이 조회만), 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 결정 존재 여부는 수신 때 묻지 않는다 | 2-4 [구현], 2-5 [계획] |
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 결정·유형의 `ACCEPTED`는 하나뿐**(부분 UNIQUE). 수신은 짧은 INSERT 한 번(재전송은 쓰기 없이 조회만), 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 결정 존재 여부는 수신 때 묻지 않는다 | 2-4·2-5 [구현] |
 | P3 outbox | 이벤트 ID(UUIDv7, PK), 이벤트 이름·버전, 페이로드 JSON, 생성 시각, **전달 시각(`sent_at`)** | 결정·반응·과금과 **같은 트랜잭션**에 쓴다. 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 PK 규칙 |
 
 ### 4.4 무결성 규칙 — 어디서 지키나
@@ -688,7 +688,7 @@ stateDiagram-v2
 
 | # | 계약 | 방향 | 상대 | 전송·인증 | 데이터 형식 | 상태 |
 |---|---|---|---|---|---|---|
-| C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현](2-2), 결정 엔드포인트 [구현](2-3), 반응 접수·조회 [구현](2-4), 반응 처리 [계획] 2-5 |
+| C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현](2-2), 결정 엔드포인트 [구현](2-3), 반응 접수·조회 [구현](2-4), 반응 처리 [구현](2-5) |
 | C2 | 이벤트 | 나감 | 데이터 파이프라인 | JSONL 파일 → Kafka | JSON 이벤트(§5.6 [제안]) | [계획] Step 4~5 |
 | C3 | 이미지 URL | 나감 | 매체·최종 사용자 브라우저 | HTTPS GET, 인증 없음 | JPEG·PNG | [구현] |
 | C4 | Insight 입력 | 들어옴 | 데이터 파이프라인 | [열림] HTTP·Kafka·파일 | JSON 메시지(§5.7 [제안]) | 예약 |
@@ -765,7 +765,7 @@ sequenceDiagram
 
 `engine`에 들어가는 후보(`Candidate`)의 필드는 설계서 §4.3 표와 같다: 식별(캠페인·광고그룹·소재·슬롯), 과금 단위, 입찰(금액·버전·생성 시각), 정책 스냅샷(하한·기준가·상한·버전), 자격 판정용 사실(캠페인 상태, 광고그룹 켜짐, 기간 시작·끝, 지갑 잔액, 오늘 남은 예산).
 
-### 5.3 C1 반응 보고 → 접수 [구현 2-4] → 처리 → 과금 [계획 2-5]
+### 5.3 C1 반응 보고 → 접수 [구현 2-4] → 처리 → 과금 [구현 2-5]
 
 **요청** (`PUT /api/media/v1/decisions/{decision_id}/reactions/{reaction_id}`)
 
@@ -803,7 +803,7 @@ sequenceDiagram
         S-->>M: 503 + Retry-After (매체는 같은 reaction_id로 재시도)
     end
     P->>DB: RECEIVED 반응 읽기
-    P->>P: 규칙 체인 known-decision → same-media → once-per-type
+    P->>P: 규칙 체인 known-decision → same-media → ad-shown → once-per-type
     alt 거부
         P->>DB: REJECTED + reason_code (지우지 않음)
     else 인정
@@ -923,7 +923,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 작업 | 읽는 것 | 쓰는 것 | 멱등 | 실행 |
 |---|---|---|---|---|
 | `end_expired_campaigns` | O1(`ends_at ≤ now`, 아직 `ENDED` 아님) | O1 `ENDED`·`ended_from`, O6 `CLOSED_ENDED`, A3 | 예(조건부 UPDATE) | 관리 명령. 주기 실행 방식 [열림 §7-9] |
-| `process_reactions` | P2 `RECEIVED` | P2 상태, B1·B2·B3 | 예(`reaction_ref`) | [계획] Step 2-5 |
+| `process_reactions` | P2 `RECEIVED` | P2 상태, B1·B2·B3 | 예(`reaction_ref`) | [구현] 2-5 |
 | `recompute_spend` | B2 `CHARGE` | B3 전체 재작성 | 예 | 예산 경계 설정을 바꾼 뒤 |
 | `check_ledger` | B1, B2 | 없음(불일치 목록) | 읽기 전용 | 수시. 불일치 시 비정상 종료 |
 
@@ -1060,6 +1060,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 버전 | 날짜 | 내용 |
 |---|---|---|
+| 0.8 | 2026-10-08 | 2-5(반응 처리) 반영: 규칙 `ad-shown` 추가, `records_reaction`에 `applied_rule`·`processed_at`·`attempts`와 부분 UNIQUE, `process_reactions` [구현] |
 | 0.7 | 2026-10-08 | 2-4(반응 수신) 반영: `records_reaction`(수신함) [구현], 접수 규칙(201/200/409, 커밋 뒤 2xx) |
 | 0.6 | 2026-10-08 | 2-3(결정 API) 구현 반영: D-1~D-3 해결, `records_decision.context` 열, C1 결정 엔드포인트 [구현] |
 | 0.5 | 2026-10-08 | PK 규칙을 코드에 적용(D-8 해결): 표기를 목표 모양에서 현재 모양으로, §4.8은 적용 기록으로 |
