@@ -1142,7 +1142,7 @@ components:
 
     Slot:
       type: object
-      required: [slot_id, media, name, pricing_unit, active, policy]
+      required: [slot_id, media, name, pricing_unit, audience, max_viewers, active, policy]
       additionalProperties: false
       properties:
         slot_id:
@@ -1161,6 +1161,14 @@ components:
           description: 슬롯 이름. **읽기 편하라고 주는 정보**이며 식별은 `slot_id`로 한다(이름은 바뀔 수 있다).
         pricing_unit:
           $ref: "#/components/schemas/PricingUnit"
+        audience:
+          $ref: "#/components/schemas/Audience"
+        max_viewers:
+          description: "`shared` 슬롯에서 결정 하나가 인정하는 서로 다른 사람 수의 상한. `individual`이면 `null`."
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
         active:
           type: boolean
         policy:
@@ -1168,6 +1176,13 @@ components:
           oneOf:
             - $ref: "#/components/schemas/SlotPolicy"
             - type: "null"
+
+    Audience:
+      type: string
+      enum: [individual, shared]
+      description: |
+        슬롯 성격. `individual` = 결정 하나를 한 사람이 본다, `shared` = 여러 사람이 같은 광고를 본다(전광판 등).
+        관리자가 슬롯을 만들 때 정하며 **바뀌지 않는다**. 타기팅 여부가 아니다. 광고주는 슬롯 목록에서 이 값을 보고 고른다.
 
     SlotPolicy:
       type: object

@@ -172,6 +172,8 @@ erDiagram
         uuid media_id FK
         string name "매체 안에서 유일"
         string pricing_unit "변경 불가"
+        string audience "individual·shared, 변경 불가"
+        int max_viewers "shared 일 때만"
         bool is_active
     }
     masters_bid_policy {
@@ -248,6 +250,7 @@ erDiagram
         uuid decision_id PK
         uuid media_id
         uuid slot_id
+        string audience "슬롯 성격 스냅샷"
         uuid campaign_id "스냅샷"
         uuid bid_id "선택된 입찰 버전 행"
         uuid bid_policy_id "판정에 쓴 정책 버전 행"
@@ -372,6 +375,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `media_id` | UUID | N | FK→M1 `PROTECT` | |
 | `name` | 문자 100 | N | UNIQUE(media, name) | 사람용 이름. **식별에 쓰지 않는다** |
 | `pricing_unit` | 코드 | N | `IMPRESSION`·`CLICK`·`CONVERSION`, 변경 시 거부 | |
+| `audience` | 코드 | N | `individual`·`shared`, **변경 시 거부**, 기본값 없음(만드는 쪽이 정한다) | 슬롯 성격 [구현 2-7]. `individual` = 결정 하나를 한 사람이 본다, `shared` = 여러 사람이 같은 광고를 본다. 타기팅이 아니다 |
+| `max_viewers` | 정수 | Y | `CHECK`: `individual`이면 NULL, `shared`이면 1 이상 100000 이하(NULL 불가) | `shared` 슬롯에서 결정 하나가 인정하는 서로 다른 사람 수의 상한(매체의 부풀리기 방어, 판정은 2-9) |
 | `is_active` | 불리언 | N | | |
 | `created_at` | 시각 | N | | |
 
@@ -550,7 +555,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `decision_id` | UUID | N | PK | C1 응답·반응 경로의 식별자 |
 | `media_id` | UUID | N | 인덱스(media, decided_at) | 요청한 매체(키로 인증된 값). 조회는 이 매체만 |
 | `slot_id` | UUID | N | | |
-| `subject_id` | 문자 200 | Y | | 노출 대상 **가명 UUID**. 수집만 하고 해석하지 않는다 |
+| `subject_id` | 문자 200 | Y | `CHECK`: `audience`가 `individual`이면 NOT NULL, `shared`이면 NULL | 노출 대상 **가명 UUID**. 수집만 하고 해석하지 않는다. 일괄 슬롯의 결정에는 없다 |
+| `audience` | 코드 | N | `individual`·`shared`(슬롯이 같은 값을 갖는다) | 슬롯 성격 **스냅샷** [구현 2-7]. 이벤트·집계가 슬롯을 다시 조회하지 않아도 되게 결정이 자기 사실을 들고 있다 |
 | `context` | JSON | N | 기본 `{}` | 매체 부가 정보. **저장만 하고 해석하지 않는다**(선택에 쓰지 않음). 경계에서 속성 50개·4 KiB·깊이 4·직접 식별자 키 금지를 검사한다 |
 | `decided_at` | 시각 | N | 인덱스 | |
 | `owner_id` | UUID | Y | 아래 묶음 | 과금할 지갑 주인 |

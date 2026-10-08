@@ -179,6 +179,7 @@ paths:
                     decision_id: 7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f
                     slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
                     slot_name: lobby-banner
+                    audience: individual
                     decided_at: "2026-10-07T03:21:45Z"
                     ad:
                       creative_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
@@ -191,6 +192,7 @@ paths:
                     decision_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
                     slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
                     slot_name: lobby-banner
+                    audience: individual
                     decided_at: "2026-10-07T03:22:10Z"
                     ad: null
         "400":
@@ -571,7 +573,7 @@ components:
         subject_id:
           description: |
             노출 대상의 **가명 UUID**. 직접 식별자는 안 된다. 수집만 하고 해석하지 않는다.
-            `individual` 슬롯은 **필수**, `shared` 슬롯은 **보내지 않는다**(둘 다 어기면 400) [v1.1. 그 전까지 모든 슬롯이 `individual`이라 필수].
+            `individual` 슬롯은 **필수**, `shared` 슬롯은 **보내지 않는다**(둘 다 어기면 400). 슬롯이 없거나 다른 매체의 것이면(404) 이 검사보다 먼저 404다.
           $ref: "#/components/schemas/Uuid"
         context:
           $ref: "#/components/schemas/Context"
@@ -608,7 +610,7 @@ components:
 
     Decision:
       type: object
-      required: [decision_id, slot_id, slot_name, decided_at, ad]
+      required: [decision_id, slot_id, slot_name, audience, decided_at, ad]
       additionalProperties: false
       properties:
         decision_id:
@@ -619,6 +621,7 @@ components:
           type: string
           description: 슬롯의 이름. **읽기 편하라고 함께 주는 정보**이며 식별에 쓰지 않는다(바뀔 수 있다).
         audience:
+          description: 이 결정을 받은 슬롯의 성격 [v1.1, 2-7에서 필수로 올림]. 매체는 `shared`면 보는 사람마다 반응에 `subject_id`를 넣어 보고한다.
           $ref: "#/components/schemas/Audience"
         decided_at:
           $ref: "#/components/schemas/DateTimeUtc"
