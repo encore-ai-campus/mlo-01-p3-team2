@@ -1,0 +1,21 @@
+{% load static %}
+<section class="avatar-picker" data-avatar-picker aria-label="과정별 캐릭터 선택">
+  <fieldset class="avatar-outfits">
+    <legend>캐릭터 선택</legend>
+    <div class="avatar-choices">
+      {% for option in avatar_options %}
+        <label class="avatar-option">
+          <input type="radio" name="avatar" value="{{ option.id }}" required{% if form.avatar.value == option.id %} checked{% endif %}>
+          <span class="avatar-choice-content">
+            <img src="{% static option.preview %}" width="128" height="128" alt="{{ option.description }}" decoding="async">
+            <span class="avatar-type">{{ option.gender_label }} · {{ option.type }}</span>
+            <strong>{{ option.name }}</strong>
+          </span>
+        </label>
+      {% endfor %}
+    </div>
+    {% if form.avatar.errors %}<div class="field-errors" role="alert">{{ form.avatar.errors }}</div>{% endif %}
+  </fieldset>
+  <p class="field-help">캐릭터는 처음 한 번만 정할 수 있어요. 저장 후에는 변경할 수 없어요.</p>
+  <span class="sr-only" aria-live="polite" data-avatar-status></span>
+</section>
