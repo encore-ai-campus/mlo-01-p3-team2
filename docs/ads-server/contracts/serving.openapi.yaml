@@ -462,7 +462,7 @@ paths:
       - name: token
         in: path
         required: true
-        description: 결정 응답의 `click_url`에 들어 있는 서명 토큰(`decision_id`, `individual` 슬롯은 `subject_id`까지 서명). 위조·변조하면 무효다.
+        description: 결정 응답의 `click_url`에 들어 있는 서명 토큰(서명된 `decision_id`). 위조·변조하면 무효다. 사람의 `subject_id`는 토큰에 싣지 않는다(개인 슬롯은 결정에서 정해지고, 일괄 슬롯은 `s`로 받는다).
         schema:
           type: string
           maxLength: 512
