@@ -1,6 +1,7 @@
 """2-5 반응 처리: 규칙 체인 → 과금 → ACCEPTED/REJECTED. 재시작·중복 처리·자정 뒤 재처리에서도 과금은 한 번이고 예산 일은 접수 시각 기준이다."""
 import io
 import json
+import signal
 import threading
 import time
 import uuid
@@ -10,6 +11,7 @@ from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured  # noqa: F401
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import OperationalError, connection
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
@@ -118,6 +120,18 @@ class RuleChainTests(ProcessingBase):
             self.assertEqual(self.process(view), "REJECTED")
             self.assertEqual(self.row(view).applied_rule, "guard")
         self.assertEqual(self.charges(), 0)
+
+    def test_ownership_is_enforced_whatever_the_rule_configuration(self):
+        """교체 가능한 것은 정책(유형별 1회 등)이고, 결정의 존재·매체 소유·광고 유무는 규칙 설정과 무관한 필수 조건이다."""
+        other = World()
+        for rules in ((), ("once-per-type",), ("known-decision", "ad-shown"), ("same-media",)):
+            with override_settings(REACTION_RULES=rules):
+                view = self.receive("IMPRESSION", media_id=other.slot.media_id)  # 다른 매체가 이 결정으로 보고
+                self.assertEqual(self.process(view), "REJECTED", rules)
+                self.assertEqual((self.row(view).reason_code, self.charges(), self.balance()), ("media_mismatch", 0, 50_000), rules)
+        with override_settings(REACTION_RULES=()):  # 규칙이 없어도 정당한 보고는 인정된다(안전망은 거부만 한다)
+            self.assertEqual(self.process(self.receive("IMPRESSION")), "ACCEPTED")
+        self.assertEqual(self.charges(), 1)
 
     def test_dropping_a_rule_by_configuration_really_changes_the_result(self):
         first, second = self.receive("IMPRESSION"), self.receive("IMPRESSION")
@@ -253,6 +267,77 @@ class QueueTests(ProcessingBase):
         call_command("process_reactions", "--once", "--retry-stuck", stdout=out)
         self.assertIn("retried-stuck: 1", out.getvalue())
         self.assertEqual(self.row(view).status, "ACCEPTED")
+
+
+@tag("security")
+class CommandSafetyTests(ProcessingBase):
+    def run_command(self, *args):
+        out = io.StringIO()
+        call_command("process_reactions", *args, stdout=out)
+        return out.getvalue()
+
+    def test_invalid_options_are_rejected_before_anything_is_changed(self):
+        view = self.receive()
+        Reaction.objects.filter(pk=view.inbox_id).update(attempts=99)
+        for args in (
+            ("--once", "--batch", "0"), ("--once", "--batch", "-1"), ("--once", "--interval", "0"), ("--once", "--interval", "-1"),
+            ("--once", "--interval", "nan"), ("--once", "--interval", "inf"),
+        ):
+            with self.assertRaises(CommandError, msg=args):
+                self.run_command("--retry-stuck", *args)
+            self.assertEqual(self.row(view).attempts, 99, args)  # --retry-stuck 이 먼저 실행되지 않았다
+        self.assertEqual(self.row(view).status, "RECEIVED")
+
+    def test_sigterm_finishes_the_current_reaction_and_stops_without_draining_the_queue(self):
+        for i, kind in enumerate(("IMPRESSION", "CLICK", "CONVERSION", "IMPRESSION")):
+            self.receive(kind, at=NOW + timedelta(seconds=i))
+        handlers, real = {}, records.process_reaction
+
+        def capture(signum, handler):
+            handlers[signum] = handler
+            return signal.SIG_DFL
+
+        def term_during_first(inbox_id, now=None):
+            if not handlers.get("fired"):
+                handlers["fired"] = True
+                handlers[signal.SIGTERM](signal.SIGTERM, None)  # 첫 반응을 처리하는 중에 SIGTERM
+            return real(inbox_id, now=now)
+
+        for batch in ("2", "1", "100"):
+            Reaction.objects.update(status="RECEIVED", reason_code=None, applied_rule=None, processed_at=None)
+            handlers.clear()
+            with mock.patch("records.management.commands.process_reactions.signal.signal", capture), \
+                    mock.patch("records.processing.process_reaction", term_during_first):
+                self.run_command("--batch", batch, "--interval", "0.01")
+            done = Reaction.objects.exclude(status="RECEIVED").count()
+            self.assertEqual(done, 1, f"batch={batch}: 현재 한 건만 끝내고 멈춘다")
+            self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 3)  # 남은 것은 RECEIVED 로 두고 재기동 뒤 이어서 처리
+
+    def test_a_restart_resumes_what_the_stopped_run_left(self):
+        views = [self.receive(kind, at=NOW + timedelta(seconds=i)) for i, kind in enumerate(("IMPRESSION", "CLICK", "CONVERSION"))]
+        handlers, real = {}, records.process_reaction
+
+        def capture(signum, handler):
+            handlers[signum] = handler
+            return signal.SIG_DFL
+
+        def term_after_first(inbox_id, now=None):
+            result = real(inbox_id, now=now)
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return result
+
+        with mock.patch("records.management.commands.process_reactions.signal.signal", capture), \
+                mock.patch("records.processing.process_reaction", term_after_first):
+            self.run_command("--batch", "1")
+        self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "RECEIVED", "RECEIVED"])
+        self.run_command("--once")  # 재기동
+        self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "ACCEPTED", "ACCEPTED"])
+        self.assertEqual((self.charges(), billing.check_ledger()), (1, []))
+
+    def test_the_previous_signal_handler_is_restored(self):
+        before = signal.getsignal(signal.SIGTERM)
+        self.run_command("--once")
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
 
 @tag("security")

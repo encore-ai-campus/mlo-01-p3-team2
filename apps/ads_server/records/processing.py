@@ -39,6 +39,21 @@ def _finish(row, status, now, reason=None, rule=None):
         raise RuntimeError(f"이미 처리된 반응의 상태를 바꾸려 했다: {row.pk}")
 
 
+def _guard(row, decision):
+    """**규칙 설정과 무관한 필수 조건**: 결정이 있고, 보고한 매체가 그 결정을 만든 매체이고, 광고가 있었다.
+
+    규칙 체인은 정책(무엇을 인정할지)을 바꿀 수 있게 열어 둔 곳이고, 이 세 가지는 과금의 권한·근거라서 설정으로 빠질 수 없다.
+    규칙이 이미 걸러 냈다면 여기 오지 않는다. 걸리면 규칙 이름 `guard` 로 거부한다.
+    """
+    if decision is None:
+        return "guard", "unknown_decision"
+    if decision.media_id != row.media_id:
+        return "guard", "media_mismatch"
+    if decision.creative_id is None:
+        return "guard", "no_ad_shown"
+    return None
+
+
 def _process(inbox_id, now):
     row = Reaction.objects.select_for_update().filter(pk=inbox_id, status=ReactionStatus.RECEIVED).first()
     if row is None:
@@ -53,9 +68,8 @@ def _process(inbox_id, now):
         accepted_types=accepted,
     )
     rejection = run_rules(settings.REACTION_RULES, facts)
-    if rejection is None and (decision is None or decision.creative_id is None):
-        # 설정에서 규칙을 뺐더라도 존재하지 않는 결정·광고 없는 결정은 과금할 수 없다(근거가 없다): 안전하게 거부한다
-        rejection = ("guard", "unknown_decision" if decision is None else "no_ad_shown")
+    if rejection is None:
+        rejection = _guard(row, decision)
     if rejection is not None:
         _finish(row, ReactionStatus.REJECTED, now, reason=rejection[1], rule=rejection[0])
         return ReactionStatus.REJECTED
@@ -97,14 +111,19 @@ def process_after_receipt(inbox_id):
         return None
 
 
-def process_pending(limit=100, now=None):
-    """오래된 순으로 `RECEIVED` 를 최대 `limit` 건 처리한다. 한 건의 실패가 다른 건을 막지 않는다. 반환: 결과별 건수."""
+def process_pending(limit=100, now=None, should_stop=None):
+    """오래된 순으로 `RECEIVED` 를 최대 `limit` 건 처리한다. 한 건의 실패가 다른 건을 막지 않는다. 반환: 결과별 건수.
+
+    `should_stop()` 이 참이 되면 **현재 반응을 끝낸 뒤 다음 반응을 시작하지 않는다**(남은 것은 `RECEIVED` 로 둔다).
+    """
     ids = list(
         Reaction.objects.filter(status=ReactionStatus.RECEIVED, attempts__lt=settings.REACTION_MAX_ATTEMPTS)
         .order_by("received_at", "inbox_id").values_list("inbox_id", flat=True)[:limit]
     )
     counts = {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0}
     for inbox_id in ids:
+        if should_stop is not None and should_stop():
+            break
         try:
             outcome = process_reaction(inbox_id, now=now)
         except Exception:  # noqa: BLE001
