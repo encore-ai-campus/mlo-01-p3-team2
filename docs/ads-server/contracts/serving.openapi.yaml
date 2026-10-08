@@ -238,6 +238,7 @@ paths:
         **이 응답은 "접수" 확인이다.** 2xx는 광고 서버가 저장했다는 뜻이고, 과금 대상인지는 이후에 판정된다
         (`status`가 `RECEIVED` → `ACCEPTED` 또는 `REJECTED`). 결과는 `GET`으로 확인한다.
         존재하지 않는 결정이나 다른 매체의 결정에 대한 보고도 일단 접수되고 `REJECTED`로 판정된다(접수한 반응은 지우지 않는다).
+        경로의 ID(`decision_id`·`reaction_id`)가 UUID 형식(하이픈 포함 36자)이 아니면 **400**이다.
       requestBody:
         required: true
         content:
