@@ -57,7 +57,7 @@ info:
     1. **슬롯 성격 `audience`**: 관리자가 슬롯을 만들 때 정하고 **바뀌지 않는다**.
        - `individual`: 결정 하나를 **한 사람**이 본다. 보는 사람마다 결정을 요청하고 `subject_id`가 필수다.
        - `shared`(전광판처럼 여러 사람이 같은 광고를 봄): 광고를 띄울 때 결정을 한 번 요청하며 `subject_id`를 **보내지 않는다**(보내면 400).
-         노출·전환은 **보는 사람마다** 반응에 `subject_id`를 넣어 보고한다. 결정 하나에서 인정하는 서로 다른 사람 수에는 상한이 있다(슬롯 설정 `max_viewers`).
+         노출·전환은 **보는 사람마다** 반응에 `subject_id`를 넣어 보고한다.
        - 어느 쪽이든 **광고를 바꿀 때마다 새 결정**을 요청한다.
     2. **클릭은 광고 서버가 관측한다.** 결정 응답의 `ad.click_url`로 이동시키면 광고 서버가 클릭을 기록하고 `redirect_url`로 302 보낸다(`GET /c/{token}`).
        `shared` 슬롯의 `click_url`에는 `{subject_id}` 자리가 있고, 매체가 클릭한 사람의 `subject_id`로 바꿔 넣는다.
@@ -664,7 +664,7 @@ components:
         현재 값: `unknown_decision`(없는 결정), `media_mismatch`(다른 매체의 결정), `no_ad_shown`(광고가 없던 결정), `duplicate_type`(그 결정에서 같은 유형이 이미 인정됨).
         v1.1 추가: `missing_prerequisite`(기간 안에 앞 단계 없음 — 노출 없는 클릭·클릭 없는 전환), `click_not_reported`(매체가 보고한 `CLICK`, 클릭은 서버가 관측),
         `window_expired`(결정 후 300초 지난 클릭·클릭 후 30일 지난 전환), `display_ended`(광고가 내려간 뒤의 클릭), `campaign_ended`(캠페인 종료 뒤 수신),
-        `invalid_occurred_at`(결정 시각 이전·수신 시각 + 60초 이후), `subject_required`, `subject_mismatch`, `viewer_limit`(`shared` 결정의 사람 수 상한 초과).
+        `invalid_occurred_at`(결정 시각 이전·수신 시각 + 60초 이후), `subject_required`, `subject_mismatch`.
 
     Reaction:
       type: object

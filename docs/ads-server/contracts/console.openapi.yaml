@@ -1142,7 +1142,7 @@ components:
 
     Slot:
       type: object
-      required: [slot_id, media, name, pricing_unit, audience, max_viewers, active, policy]
+      required: [slot_id, media, name, pricing_unit, audience, active, policy]
       additionalProperties: false
       properties:
         slot_id:
@@ -1163,12 +1163,6 @@ components:
           $ref: "#/components/schemas/PricingUnit"
         audience:
           $ref: "#/components/schemas/Audience"
-        max_viewers:
-          description: "`shared` 슬롯에서 결정 하나가 인정하는 서로 다른 사람 수의 상한. `individual`이면 `null`."
-          oneOf:
-            - type: integer
-              minimum: 1
-            - type: "null"
         active:
           type: boolean
         policy:

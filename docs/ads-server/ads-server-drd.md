@@ -173,7 +173,6 @@ erDiagram
         string name "매체 안에서 유일"
         string pricing_unit "변경 불가"
         string audience "individual·shared, 변경 불가"
-        int max_viewers "shared 일 때만"
         bool is_active
     }
     masters_bid_policy {
@@ -376,7 +375,6 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `name` | 문자 100 | N | UNIQUE(media, name) | 사람용 이름. **식별에 쓰지 않는다** |
 | `pricing_unit` | 코드 | N | `IMPRESSION`·`CLICK`·`CONVERSION`, 변경 시 거부 | |
 | `audience` | 코드 | N | `individual`·`shared`, **변경 시 거부**, 기본값 없음(만드는 쪽이 정한다) | 슬롯 성격 [구현 2-7]. `individual` = 결정 하나를 한 사람이 본다, `shared` = 여러 사람이 같은 광고를 본다. 타기팅이 아니다 |
-| `max_viewers` | 정수 | Y | `CHECK`: `individual`이면 NULL, `shared`이면 1 이상 100000 이하(NULL 불가) | `shared` 슬롯에서 결정 하나가 인정하는 서로 다른 사람 수의 상한(매체의 부풀리기 방어, 판정은 2-9) |
 | `is_active` | 불리언 | N | | |
 | `created_at` | 시각 | N | | |
 
