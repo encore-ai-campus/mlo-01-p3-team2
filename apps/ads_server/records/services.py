@@ -1,4 +1,6 @@
 """결정 유스케이스(설계 §4.3~4.4). 후보 조립 → engine → **저장한 뒤에만** 돌려준다(§4.4-12)."""
+import hashlib
+import hmac
 import logging
 import random
 import uuid
@@ -155,19 +157,22 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
 
 # ---------------------------------------------------------------- 클릭 관측 (C1 v1.1 GET /c/{token})
 
-_CLICK_NAMESPACE = uuid.UUID("6f1d0a52-3c7e-5b0a-9a5e-2d1c4b7e8f90")  # 서버 관측 클릭의 reaction_id 를 만드는 고정 이름공간(바꾸면 중복 제거가 깨진다)
-
-
 def click_reaction_id(decision_id, subject_id):
-    """(결정, 사람)에서 결정적으로 만든 `reaction_id`. 같은 사람의 두 번째 클릭이 같은 ID 라 `UNIQUE(media_id, reaction_id)` 가 1건만 남긴다."""
-    return uuid.uuid5(_CLICK_NAMESPACE, f"{decision_id}/{subject_id}")
+    """(결정, 사람)에서 결정적으로 만든 `reaction_id`. 같은 사람의 두 번째 클릭이 같은 ID 라 `UNIQUE(media_id, reaction_id)` 가 1건만 남긴다.
+
+    **서버 비밀(`SECRET_KEY`)로 만든 HMAC** 이다. 소스에 있는 공개 값(이름공간)으로 계산되면 매체가 같은 ID 로 아무 반응이나 먼저 접수시켜
+    진짜 클릭을 "중복"으로 지울 수 있다(같은 유일 제약을 쓰므로). 비밀을 모르면 계산할 수 없다. 비밀이 바뀌면 ID가 달라져 사람마다 클릭이
+    한 번 더 기록될 수 있다(토큰도 함께 무효가 되므로 감수한다).
+    """
+    digest = hmac.new(settings.SECRET_KEY.encode(), f"ads_server.click.reaction/{decision_id}/{subject_id}".encode(), hashlib.sha256).digest()
+    return uuid.UUID(bytes=digest[:16], version=8)  # RFC 9562 의 사용자 정의 UUID(v8)
 
 
-def observe_click(decision_id, signed_subject_id=None, viewer_id=None, now=None):
+def observe_click(decision_id, viewer_id=None, now=None):
     """클릭을 기록하고 **결정에 저장된 `redirect_url`** 을 돌려준다(이동할 곳은 요청에서 받지 않는다 — 열린 리다이렉트 없음).
 
     - 없는 결정·광고가 없던 결정은 `NotFound`.
-    - 개인(`individual`) 슬롯: 사람은 결정의 `subject_id` 다. 토큰에 서명된 `signed_subject_id` 가 그것과 다르면 `NotFound`.
+    - 개인(`individual`) 슬롯: 사람은 결정의 `subject_id` 다(결정은 추가만 되는 기록이고 사람이 한 명이라 토큰에 따로 싣지 않는다).
     - 일괄(`shared`) 슬롯: 사람은 `viewer_id`(매체가 `click_url` 에 채운 값)다. 없으면 **이동만 하고 기록하지 않는다**.
     - 기록의 실패는 이동을 막지 않는다(최종 사용자 경험이 우선이다). 실패는 로그로만 남긴다.
     판정(인정·거부)은 하지 않는다 — 수신함에 `CLICK` 으로 넣으면 처리 단계가 판정한다.
@@ -179,12 +184,7 @@ def observe_click(decision_id, signed_subject_id=None, viewer_id=None, now=None)
         raise errors.NotFound("결정을 찾을 수 없습니다.")
     if d.creative_id is None:
         raise errors.NotFound("결정을 찾을 수 없습니다.")  # 광고가 없던 결정에는 클릭이 있을 수 없다
-    if d.audience == masters.Audience.INDIVIDUAL:
-        if signed_subject_id != d.subject_id:
-            raise errors.NotFound("결정을 찾을 수 없습니다.")
-        person = d.subject_id
-    else:
-        person = viewer_id
+    person = d.subject_id if d.audience == masters.Audience.INDIVIDUAL else viewer_id
     redirect_url = d.snapshot["redirect_url"]
     if person is not None:
         try:
@@ -203,8 +203,8 @@ def _record_click(d, person, now):
                 raw={"type": "CLICK", "source": "server", "subject_id": person}, source=ReactionSource.SERVER, subject_id=person,
             )
     except IntegrityError as error:
-        if is_unique_violation(error) and Reaction.objects.filter(media_id=d.media_id, reaction_id=reaction_id).exists():
-            return None  # 같은 사람의 중복 클릭: 처음 것이 있다
+        if is_unique_violation(error) and Reaction.objects.filter(media_id=d.media_id, reaction_id=reaction_id, source=ReactionSource.SERVER).exists():
+            return None  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
         raise
     process_after_receipt(row.inbox_id)  # 수신 직후 한 번 처리해 본다(실패해도 이동·기록은 그대로, 남은 것은 재처리가 맡는다)
     return row.inbox_id

@@ -11,7 +11,7 @@ from unittest import mock
 
 from django.core import signing
 from django.db import OperationalError, connection
-from django.test import Client, TestCase, TransactionTestCase, tag
+from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from masters import api as masters
 from records.models import Decision, Reaction
@@ -23,6 +23,7 @@ from tests.factories import NOW, SUBJECT, World, png_file
 
 BASE = "http://testserver"
 PATH = "/c/{token}"
+DECISION = "0197a5c0-0000-7000-8000-0000000000dd"
 OTHER = "0197a5c0-0000-7000-8000-0000000000aa"
 THIRD = "0197a5c0-0000-7000-8000-0000000000bb"
 
@@ -63,10 +64,13 @@ class ClickBase(ProviderContractMixin, TestCase):
 @tag("security")
 class ClickUrlTests(ClickBase):
     def test_individual_click_url_is_an_absolute_signed_address_without_a_placeholder(self):
-        ad = self.decide()["ad"]
+        body = self.decide()
+        self.last_decision_id, ad = body["decision_id"], body["ad"]
         self.assertRegex(ad["click_url"], rf"^{BASE}/c/[A-Za-z0-9_\-:.]+$")
         self.assertNotIn("{", ad["click_url"])
-        self.assertNotIn(SUBJECT, ad["click_url"])  # 사람의 ID가 주소에 평문으로 드러나지 않는다(서명된 토큰 안에만 있다)
+        token = ad["click_url"].removeprefix(f"{BASE}/c/")
+        self.assertNotIn(SUBJECT, ad["click_url"])
+        self.assertEqual(signing.loads(token, salt=SALT), {"d": self.last_decision_id})  # 토큰은 결정 ID뿐 — signing 은 암호화가 아니라 사람의 ID가 URL·로그에 드러나지 않게 싣지 않는다
 
     def test_shared_click_url_leaves_the_subject_placeholder_for_the_media(self):
         body = self.decide(self.shared_slot())
@@ -138,13 +142,56 @@ class FollowClickTests(ClickBase):
 
 
 @tag("security")
+class MediaCannotPreemptServerClicksTests(ClickBase):
+    """매체가 서버 관측 클릭의 `reaction_id` 를 미리 접수시켜 그 클릭을 지울 수 없다(검토 2-8 #1).
+
+    서버 클릭과 매체 반응은 같은 `UNIQUE(media_id, reaction_id)` 를 쓴다. 클릭의 ID가 소스에 있는 공개 값(이름공간)으로 계산되면
+    매체가 같은 ID로 아무 반응이나 먼저 보낼 수 있고, 그러면 진짜 클릭이 "중복"으로 조용히 버려진다.
+    """
+
+    OLD_NAMESPACE = uuid.UUID("6f1d0a52-3c7e-5b0a-9a5e-2d1c4b7e8f90")  # 2-8 최초 구현의 이름공간(소스에 공개되어 있던 값)
+
+    def put(self, decision_id, reaction_id):
+        return Client().put(
+            f"/api/media/v1/decisions/{decision_id}/reactions/{reaction_id}", data=json.dumps({"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:00Z"}),
+            content_type="application/json", HTTP_X_MEDIA_KEY=self.key,
+        )
+
+    def test_a_media_report_with_the_publicly_computable_id_does_not_swallow_the_real_click(self):
+        body = self.decide()
+        guessed = uuid.uuid5(self.OLD_NAMESPACE, f"{body['decision_id']}/{SUBJECT}")  # 소스를 읽은 매체가 계산할 수 있는 값
+        self.assertEqual(self.put(body["decision_id"], guessed).status_code, 201)
+        self.assertEqual(self.follow(body["ad"]["click_url"]).status_code, 302)
+        self.assertEqual(self.clicks().count(), 1)  # 서버가 관측한 클릭은 그대로 기록된다
+        self.assertEqual(Reaction.objects.filter(reaction_id=guessed).get().source, "media")  # 매체의 반응은 따로 남아 있다
+
+    def test_the_click_id_depends_on_the_server_secret(self):
+        ids = {click_reaction_id(DECISION, SUBJECT)}
+        with override_settings(SECRET_KEY="another-secret-" + "x" * 40):
+            ids.add(click_reaction_id(DECISION, SUBJECT))
+        self.assertEqual(len(ids), 2)  # 비밀 없이는 계산할 수 없다
+        self.assertEqual(click_reaction_id(DECISION, SUBJECT), click_reaction_id(DECISION, SUBJECT))  # 같은 (결정, 사람)은 같은 ID
+        self.assertNotEqual(click_reaction_id(DECISION, SUBJECT), click_reaction_id(DECISION, OTHER))
+
+    def test_an_id_collision_with_a_media_row_is_an_error_not_a_silent_duplicate(self):
+        """안전망: 어떤 이유로든 같은 ID의 *매체* 행이 있으면 중복 클릭으로 오인해 버리지 않고 오류로 기록한다."""
+        body = self.decide()
+        fixed = uuid.uuid4()
+        self.assertEqual(self.put(body["decision_id"], fixed).status_code, 201)
+        with mock.patch("records.services.click_reaction_id", return_value=fixed), self.assertLogs("records.services", "ERROR"):
+            response = self.follow(body["ad"]["click_url"])
+        self.assertEqual(response.status_code, 302)  # 이동은 한다
+        self.assertEqual(self.clicks().count(), 0)
+
+
+@tag("security")
 class InvalidTokenTests(ClickBase):
     def test_forged_tampered_and_foreign_tokens_are_404_and_record_nothing(self):
         body = self.decide()
         token = body["ad"]["click_url"].removeprefix(f"{BASE}/c/")
-        payload = {"d": body["decision_id"], "s": SUBJECT}
+        payload = {"d": body["decision_id"]}
         tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
-        other_payload = signing.dumps({"d": str(uuid.uuid4()), "s": SUBJECT}, salt=SALT)  # 서명은 맞지만 없는 결정
+        other_payload = signing.dumps({"d": str(uuid.uuid4())}, salt=SALT)  # 서명은 맞지만 없는 결정
         bad = {
             "tampered signature": tampered,
             "truncated": token[:20],
@@ -153,9 +200,9 @@ class InvalidTokenTests(ClickBase):
             "unsigned payload": signing.b64_encode(json.dumps(payload).encode()).decode(),
             "too long": "A" * 513,
             "wrong payload type": signing.dumps(["x"], salt=SALT),
-            "missing key": signing.dumps({"d": body["decision_id"]}, salt=SALT),
-            "decision not a uuid": signing.dumps({"d": "lobby", "s": None}, salt=SALT),
-            "subject not a string": signing.dumps({"d": body["decision_id"], "s": 5}, salt=SALT),
+            "missing key": signing.dumps({"s": body["decision_id"]}, salt=SALT),
+            "decision not a uuid": signing.dumps({"d": "lobby"}, salt=SALT),
+            "decision not a string": signing.dumps({"d": 5}, salt=SALT),
             "unknown decision": other_payload,
         }
         for label, value in bad.items():
@@ -165,17 +212,11 @@ class InvalidTokenTests(ClickBase):
             self.assertNoCookies(response)
         self.assertEqual(self.clicks().count(), 0)
 
-    def test_an_individual_token_signed_for_another_person_is_404(self):
-        body = self.decide()
-        forged = signing.dumps({"d": body["decision_id"], "s": OTHER}, salt=SALT)  # 서명은 유효하지만 결정의 사람과 다르다
-        self.assertEqual(Client().get(f"/c/{forged}").status_code, 404)
-        self.assertEqual(self.clicks().count(), 0)
-
     def test_a_decision_without_an_ad_is_404(self):
         masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
         no_ad = Decision.objects.get(pk=self.decide()["decision_id"])
         self.assertIsNone(no_ad.creative_id)
-        token = signing.dumps({"d": str(no_ad.decision_id), "s": SUBJECT}, salt=SALT)  # 광고가 없으면 click_url 이 응답에 없으므로 직접 서명해 본다
+        token = signing.dumps({"d": str(no_ad.decision_id)}, salt=SALT)  # 광고가 없으면 click_url 이 응답에 없으므로 직접 서명해 본다
         self.assertEqual(Client().get(f"/c/{token}").status_code, 404)
         self.assertEqual(self.clicks().count(), 0)
 
