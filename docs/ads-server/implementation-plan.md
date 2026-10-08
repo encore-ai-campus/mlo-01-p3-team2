@@ -796,7 +796,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 - [x] `threat-model.md` 갱신: T33(계약), T34(인증·요청 제한), T35(결정 입력·열람), T36(반응 수신), T37(반응 처리), SQLite 단일 노드 행(2-6 측정)
 - [x] 설계 §10에 Step 2 결정 반영(결정 API·반응 수신·반응 처리 세부, 동시성 검증 결과, 요청 제한 유지), DRD 갱신(D-1~D-3·D-8 해결, 0.8), 진행 상태 표(§10) 갱신
 - [ ] **사람의 일 — 매체 쪽 담당자와 계약 공유·확인**: [contracts/README.md](contracts/README.md)를 건네 재시도 구현(같은 `reaction_id` 재전송·`Retry-After` 존중)·접수/처리 분리 약속을 확인한다. 확인 전에는 "유실 0"이 **수신 이후 구간**에 한정된다
-- [ ] **알려진 한계(후속 단계)**: 요청 제한 버킷이 프로세스 메모리라 다중 워커에서 한도가 최대 N배로 느슨해짐 · 동시성은 SQLite 결과이며 조건부 유일 제약 3곳(`billing_charge_once_per_reaction`·`billing_one_signup_grant_per_wallet`·`campaigns_one_open_review_per_campaign`)은 MySQL·MariaDB에서 쓸 수 없음(반응 인정 1건은 2-9 보완에서 `accepted_key`로 바꿈, 나머지는 전환 시 같은 방식으로 재설계·재검증) · 보류된 반응은 처리 프로세스가 떠 있어야 풀림(운영 전제) · 이벤트 outbox(C2)는 Step 4 · C6의 `/reports/daily`·`/alerts`는 Step 3 · 부하는 단일 프로세스 `wsgiref` 서버 기준(운영 서버·프록시·장시간 미측정)
+- [ ] **알려진 한계(후속 단계)**: 동시성 증거는 SQLite 결과이며 MySQL 재검증은 Step DB의 DB-1d · 요청 제한 버킷이 프로세스 메모리라 다중 워커에서 한도가 최대 N배로 느슨해짐 · 동시성은 SQLite 결과이며 조건부 유일 제약 3곳(`billing_charge_once_per_reaction`·`billing_one_signup_grant_per_wallet`·`campaigns_one_open_review_per_campaign`)은 MySQL·MariaDB에서 쓸 수 없음(반응 인정 1건은 2-9 보완에서 `accepted_key`로 바꿈, 나머지는 전환 시 같은 방식으로 재설계·재검증) · 보류된 반응은 처리 프로세스가 떠 있어야 풀림(운영 전제) · 이벤트 outbox(C2)는 Step 4 · C6의 `/reports/daily`·`/alerts`는 Step 3 · 부하는 단일 프로세스 `wsgiref` 서버 기준(운영 서버·프록시·장시간 미측정)
 
 ## 7.2 C1 v1.1: 퍼널 규칙·일괄 슬롯·클릭 관측 [계획, 결정 확정 2026-10-08]
 
@@ -809,9 +809,64 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 2-8 **[완료 2026-10-08]** | **클릭 관측** `GET /c/{token}`(`serving_api`, 루트 경로): Django `signing`(전용 salt) 토큰 = 서명된 `decision_id`뿐(`subject_id`는 싣지 않는다: 개인 슬롯의 사람은 결정에서 정해지고, `signing`은 암호화가 아니라 URL에 드러난다), 결정 응답 `ad.click_url`(계약 `required`로, `shared`는 `?s={subject_id}` 템플릿). 유효한 토큰은 **항상 302** → 결정에 저장된 `redirect_url`, 무효·없는 결정·광고 없는 결정은 404. 클릭을 수신함에 `CLICK`으로 기록: 매체 = 결정의 매체, `reaction_id` = (결정, 사람)에서 **서버 비밀(HMAC)로** 결정적으로 만든 UUID(중복 클릭 1건, 매체가 미리 계산해 선점할 수 없다), 시각 = 서버 수신, **출처 열 `source`(`media`·`server`)** 추가. `shared`에서 `s`가 없거나 틀리면 이동만. 헤더 `Cache-Control: no-store`·`Referrer-Policy: no-referrer`, 쿠키 없음, 인증 없음(URL 전수 점검 목록에 공개 뷰로 등록) | 302 대상이 요청 값과 무관함(열린 리다이렉트 없음), 위조·변조 토큰 404, 같은 사람 중복 클릭 1행·서로 다른 사람은 각각, `s` 누락 시 이동만, 쿠키·헤더 계약 대조, 기록 실패해도 이동은 되는지(사용자 경험)와 그 경우 로그 |
 | 2-9 **[완료 2026-10-08]** | **반응 판정 확장**(`records`): ① 반응 요청 `subject_id`(선택, 저장, 재전송 비교 대상에 포함) ② 규칙 파일 추가: `click-source`(매체가 보고한 `CLICK` → `click_not_reported`, 유형별 1회 자리를 차지하지 않음), `subject`(`subject_required`·`subject_mismatch`), `campaign-open`(`campaign_ended`: 판정 시점의 캠페인 종료 시각 이후 수신), `occurred-at`(`invalid_occurred_at`), `funnel-order`(`missing_prerequisite`), `funnel-window`(`window_expired`·`display_ended`: "같은 표시 단위의 다음 결정 시각"을 처리 단계가 조회해 사실로 넘김) ③ **보류**: 규칙이 "아직 판단 불가"를 돌려주면 `RECEIVED`로 두고 `attempts`를 올리지 않음, 보류 기한(300초)이 지나면 `missing_prerequisite`. `process_reactions`가 보류분을 다시 집음 ④ 판정 단위: `individual` = 결정, `shared` = (결정, 사람). 같은 결정·유형의 `ACCEPTED` 부분 유일 제약을 (결정, 사람, 유형)으로 확장 ⑤ 수치(300초·5초·30일·허용 오차 60초·보류 기한)는 설정값 ⑥ 응답 `subject_id`(계약 `required`로) | 규칙별 인정·거부 테스트(새 사유 8개), 보류 → 늦게 온 노출로 인정 / 기한 초과 거부, 매체 `CLICK`이 과금·전환 전제에 쓰이지 않음, 일괄 슬롯에서 A의 노출로 B의 클릭이 인정되지 않음(**`?s=`는 최종 사용자가 마음대로 바꿀 수 있으므로, 노출이 없는 사람의 임의 `s` 클릭이 거부되는 시험을 반드시 포함** — 이때 막는 장치는 `funnel-order` 하나다), 캠페인 종료 뒤 수신은 과금 없음(기존 빈틈 회귀 테스트), 규칙을 설정에서 빼도 필수 조건(`guard`)은 유지 |
 | 2-10 **[완료 2026-10-08]** | **퍼널 집계** = Step 3의 S1을 앞당김: `records.api.daily_report`(노출·클릭·전환 수, CTR = 클릭/노출, 전환율 = 전환/클릭, 소진 포인트, 앞 구간 비교). 조회 시점 집계(별도 테이블 없음), `ACCEPTED`만 센다. 반응이 많아지면 함수 안쪽만 카운터·파이프라인 결과(C4)로 바꾼다(설계 §10 "퍼널 집계") | 개인·일괄 슬롯 섞인 데이터로 수치 대조, 다른 광고주 범위 차단, 질의 수 고정(N+1 없음) |
-| 2-11 | **마무리**: 계약 `info.version` `1.1.0`(draft 해제), `[v1.1]` 표시 정리, 부하 시험에 클릭 경유·보류(**보류 해소 지연** — 처리 프로세스가 돌아야 풀리는 운영 전제의 검증)·일괄 슬롯 추가(유실 0·이중 과금 0 유지), 변형 검사, 위협 모델 새 행(클릭 경유 공개 GET·토큰 위조·링크 미리보기·일괄 슬롯 노출 부풀리기(이상치 감지 전까지 알려진 한계)·보류 악용), DRD C1 절·[contracts/README.md](contracts/README.md)(매체 안내) v1.1로 갱신 | `scripts/check.sh` 통과, 계약 ↔ 구현 대조에 `/c/{token}` 포함, 매체 안내에 "광고를 바꿀 때마다 새 결정"·"이동은 `click_url`로"·"일괄 슬롯은 사람별 보고" 명시 |
+| 2-11 | **마무리**: 계약 `info.version` `1.1.0`(draft 해제), `[v1.1]` 표시 정리, 부하 시험에 클릭 경유·보류(**보류 해소 지연** — 처리 프로세스가 돌아야 풀리는 운영 전제의 검증)·일괄 슬롯 **단계 추가**(소규모 20 동시, 유실 0·이중 과금 0 유지). **150 동시 재측정은 하지 않는다**: 곧바로 SQLite를 MySQL로 바꾸므로(Step DB) DB-1d에서 MySQL로 잰다 [합의 2026-10-08]. 변형 검사, 위협 모델 새 행(클릭 경유 공개 GET·토큰 위조·링크 미리보기·일괄 슬롯 노출 부풀리기(이상치 감지 전까지 알려진 한계)·보류 악용), DRD C1 절·[contracts/README.md](contracts/README.md)(매체 안내) v1.1로 갱신 | `scripts/check.sh` 통과, 계약 ↔ 구현 대조에 `/c/{token}` 포함, 매체 안내에 "광고를 바꿀 때마다 새 결정"·"이동은 `click_url`로"·"일괄 슬롯은 사람별 보고" 명시 |
 
 **알려진 한계(설계 §10 "계약 v1.1")**: 클릭 주소는 공개 GET이라 링크 미리보기·프리페치가 클릭으로 기록될 수 있다(중복 1건·표시 중 5초 창으로 폭 제한, IP 단위 제한은 필요해지면). 일괄 슬롯의 "누가"와 노출·전환은 여전히 매체 보고이고, 일괄 슬롯의 사람별 노출 부풀리기는 이후 **이상치 감지**로 막는다(인원 상한은 두지 않음, 설계 §10 "일괄 슬롯 노출 방어").
+
+## 7.3 Step DB 상세 계획 [초안 2026-10-08, 인프라 확인 반영]
+
+### 7.3.1 인프라에서 확인한 사실 (`platform/`, [docs/platform/infra-automation-design.md](../platform/infra-automation-design.md))
+
+| 항목 | 확인한 내용 | 이 단계에 미치는 영향 |
+|---|---|---|
+| MySQL | **8.4 LTS**(Server·Shell·Router). 1대 Standalone 또는 2대 **InnoDB ReplicaSet**(비동기 복제, **수동 failover**). GTID 켜짐. 문자셋·격리 수준·`sql_mode`는 서버 기본값(utf8mb4, `REPEATABLE READ`, strict) | 개발·시험도 **8.4**로 맞춘다. failover 중에는 연결이 끊기므로 앱이 503 + 재시도로 견뎌야 한다(지금 구조가 이미 그렇다) |
+| 접속 경로 | 앱은 **Backend 서버**에서 접속한다. ReplicaSet이면 **MySQL Router**(설치까지만 됨, **설정(bootstrap)은 서비스 영역 = 우리 몫**)의 읽기·쓰기 포트로, Standalone이면 직접. 방화벽은 Backend·Spark·Bastion의 IP만 연다 | 개발자 PC는 **Bastion SSH 터널**로만 닿는다. 공유 서버라 테스트를 거기서 돌리지 않는다 |
+| `dev` 계정 | 업무 DB 전역 `SELECT/INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/INDEX/REFERENCES/TRIGGER/LOCK TABLES…`(`mysql`·`sys` 제외), 출처는 Backend·Spark·Bastion IP | 마이그레이션·`CREATE DATABASE`는 된다. 팀원이 같은 서버에 테스트 DB를 만들면 이름이 겹치므로 사람·환경별 이름을 쓴다 |
+| MongoDB | **8.0**. 1대 Standalone 또는 3대 Replica Set(keyfile 인증). `dev` = `readWriteAnyDatabase`(컬렉션·색인 생성 가능). TLS 없음, 같은 방화벽 규칙 | DB-2 연결에 쓴다. 로컬 개발·시험용 mongod는 **단일 노드 Replica Set** 모드로 띄워야 같은 기능(트랜잭션·재시도 쓰기)을 쓴다 |
+| 시간·통신 | 서버 시간은 UTC, 내부 통신은 **평문**(TLS 없음, 방화벽·Bastion으로만 보호) | Django `TIME_ZONE=UTC`와 맞는다. DB 비밀번호는 환경변수로 받고 코드·로그에 남기지 않는다 |
+| 이 PC | Docker·Homebrew MySQL(**26.7**, 혁신 릴리스)·mongod 8.0이 설치돼 있다 | **MySQL이 운영(8.4)과 다르다.** 시험은 8.4 컨테이너(또는 `mysql@8.4`)로 한다 |
+
+### 7.3.2 결정 (인프라에서 정해지는 것은 그대로 받았다. 아래는 근거와 함께 제안이며 이견이 없으면 이 값으로 간다)
+
+| # | 결정 | 이유 |
+|---|---|---|
+| S1 | **MySQL 8.4 LTS**(MariaDB 아님) | 인프라와 같은 버전·같은 동작(조건부 제약·JSON·CHECK) |
+| S2 | 드라이버 **`mysqlclient`**(MongoDB는 `pymongo`) | Django가 권장하는 드라이버. 빌드에 MySQL 클라이언트 개발 패키지가 필요: macOS `brew install mysql-client pkg-config`, Backend(AL2023)는 `mysql-community-devel` — **인프라 쪽 요청**(7.3.4). `PyMySQL`은 Django 공식 지원 밖이라 쓰지 않는다 |
+| S3 | **시험·`check.sh`는 개발 PC의 8.4 컨테이너**(Docker `mysql:8.4`)에서. 공유 인프라 서버에서는 돌리지 않는다. 인프라 서버는 **통합 확인**(마이그레이션·`dev` 권한·Router·failover)에만 쓴다 | 공유·Bastion 터널·이름 충돌, 시험이 느려지고 남의 작업을 건드릴 위험 |
+| S4 | **SQLite는 DB-1 끝에 제거**한다(두 DB를 함께 지원하지 않는다) | 설계가 "전환 뒤 운영·시험·테스트 모두 MySQL"로 정했고, 두 DB를 유지하면 분기 비용만 는다 |
+| S5 | 격리 수준 **`READ COMMITTED`**(연결 초기화 명령) 시도, 부하 시험으로 확인하고 `REPEATABLE READ`(기본)와 비교해 확정 | `REPEATABLE READ`의 간격 잠금은 같은 유일 키를 노리는 동시 쓰기에서 교착을 늘린다. 판정은 유일 제약과 행 잠금에 기대므로 `READ COMMITTED`로도 의미가 같다 — 근거는 측정 |
+| S6 | **교착(1213)·잠금 대기 초과(1205)는 일시 오류**로 다룬다: 반응 처리는 `attempts`를 올리지 않고 다음 주기에 다시 하며, API는 지금처럼 503 + `Retry-After` | 지금은 모든 처리 예외가 실패 횟수를 올려 5번이면 자동 재처리에서 빠진다. MySQL에서는 교착이 정상 동작의 일부다 |
+| S7 | 접속 설정은 환경변수(`DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`)로 받는다. 연결에 `SET SESSION sql_mode=STRICT_ALL_TABLES`·`init_command`로 격리 수준을 지정한다 | 비밀번호는 코드·로그에 없다(인프라의 Vault는 서버 구축용이고, 앱의 비밀번호는 앱이 받는다) |
+| S8 | 조건부 유일 제약 3곳은 **조건 없는 유일 제약 + NULL 키**로 바꾼다(설계 §10 "MySQL 전환 점검"): 과금 멱등 키는 `reaction_ref` 자체가 NULL 허용이라 조건만 제거 | MySQL은 조건부 유일 제약을 만들지 않는다(Django 경고 `W036`) |
+
+### 7.3.3 단계
+
+| 단계 | 내용 | 완료 증거 |
+|---|---|---|
+| **DB-1a 준비** | `mysqlclient` 추가, `DATABASES`를 환경변수 기반으로, 8.4 시험용 컨테이너 정의와 사용법(README), 개발·시험 설정, `check.sh`의 시험·부하 단계가 MySQL을 쓰도록(없으면 **명확히 실패**, 건너뛰지 않는다), 전체 시험을 MySQL에서 한 번 돌려 **실패 목록**을 만든다 | 컨테이너 한 줄로 시험 환경이 뜬다. 실패 목록이 문서에 있다 |
+| **DB-1b 제약·SQL 재설계** | 조건부 유일 제약 3곳 교체(데이터 이전 포함), SQLite 문법의 시험(원시 SQL `DROP INDEX` 등) 재작성, `W036` 경고 0 | `makemigrations --check`·`check --deploy` 경고 0, 제약을 빼면 실패하는 시험(MySQL에서) |
+| **DB-1c 동시성** | S5·S6: 격리 수준 결정, 교착·잠금 초과를 일시 오류로, 스레드 동시성 시험(과금·입찰·정책·반응 처리)을 MySQL에서 반복 실행, 원장 `seq`·지갑 잠금(`SELECT … FOR UPDATE`) 검증 | 반복 실행(수십 회) 무실패, 교착 주입 시험(처리는 횟수 불변·재시도, API는 503) |
+| **DB-1d 부하·장애** | 부하 시험(`scripts/load_test.py`)을 MySQL로, **150 동시 재측정**(2-11에서 넘어온 항목), 처리 프로세스 정지·재기동·보류 해소 지연, 인프라 서버(Backend)에서 통합 확인: 마이그레이션·Router 경유 접속·**수동 failover 중 503과 복구** | 유실 0·이중 과금 0·잔액=원장 불변식 통과, `load-test.md` 갱신(MySQL 수치와 한계), failover 확인 기록 |
+| **DB-1e 정리** | SQLite 설정·`sqlite_config`·PRAGMA 시험·임시 파일 DB 코드 제거, 위협 모델의 "SQLite 단일 노드" 행과 `load-test.md`·README·설계의 SQLite 전제 문구 갱신, `.gitignore`의 `db.sqlite3` | `git grep -i sqlite`에 이력·결정 기록만 남음, `check.sh` 통과 |
+| **DB-2 MongoDB 연결** | `pymongo`, 연결 설정(환경변수, 인증, 레플리카셋 이름), 관리 명령으로 `ad_events` 컬렉션·색인(`_id = event_id`) 생성, 상태 확인(연결·쓰기 권한·색인). **이벤트는 아직 쓰지 않는다**(Step 4) | 로컬 단일 노드 Replica Set과 인프라 서버 양쪽에서 연결·색인 확인, 연결 실패 시 앱이 영향을 받지 않음(아직 쓰지 않으므로) |
+
+### 7.3.4 인프라 쪽에 요청·확인할 것 (사람의 일)
+
+1. **Backend 서버에 `mysqlclient` 빌드 의존성**(`mysql-community-devel`, 컴파일러·`pkg-config`) 또는 미리 만든 wheel — `roles/backend`는 지금 `mysql-router-community`만 설치한다.
+2. **MySQL Router 설정**: 누가 어떤 값으로 bootstrap하는가(포트 6446/6447, `router` 계정). ReplicaSet이면 앱은 읽기·쓰기 포트로 접속한다.
+3. **앱 전용 데이터베이스 이름과 생성 방식**(`dev` 계정이 `CREATE DATABASE`를 할 수 있다). 개발·스테이징 서버가 따로 있는지.
+4. **`max_connections`·`innodb_lock_wait_timeout` 기본값** 확인(Django 연결 수 = 워커 수 × 스레드 수).
+5. **MongoDB `ad_events`용 데이터베이스 이름**과 `dev` 계정의 쓰기 권한 범위 확인(`readWriteAnyDatabase`라 충분하지만 이름을 정한다).
+6. 앱 배포 방식(프로세스 관리자·`process_reactions` 상시 실행·로그 위치)은 인프라가 "서비스 영역"으로 남겨 둔 부분이라 별도로 정해야 한다.
+
+### 7.3.5 위험
+
+| 위험 | 대응 |
+|---|---|
+| MySQL에서 시험이 많이 깨진다 | DB-1a에서 먼저 **실패 목록만** 만들고 원인별(제약·원시 SQL·시간 정밀도·정렬)로 묶어 고친다 |
+| 교착이 부하에서 늘어난다 | S5·S6, 부하 시험으로 격리 수준을 정하고 잠금 순서를 점검한다 |
+| 수동 failover 중 요청 유실 | 수신 2xx는 커밋 뒤에만 나가므로 유실이 아니라 503 + 재시도다. DB-1d에서 실제로 확인한다 |
+| 로컬(8.4)과 운영의 설정 차이 | 컨테이너에 인프라의 `infra.cnf` 핵심(GTID·문자셋)을 같이 두고, 통합 확인을 인프라 서버에서 한다 |
 
 ---
 
@@ -821,7 +876,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 |---|---|
 | Step 3-1 | 관리자(Django admin): 입찰 정책 새 버전 입력과 **일괄 입력 동작**, 매체·슬롯, 광고 모니터링(썸네일·이동 주소 도메인), 중단/해제(사유), **재검토 대기 목록(해제/반려)**, 광고주 비활성화·비밀번호 초기화, 포인트 조정, 감사 로그 열람 |
 | Step 3-2 | 광고주 콘솔: 대시보드(포인트 위젯), 캠페인·광고그룹 목록, 광고 만들기(단계형), **정지 사유·재검토 요청 버튼**, 포인트 내역, 내 정보. **콘솔 뷰에 비즈니스 규칙을 두지 않는다**(설계 §6.6). **규칙의 원본은 `contracts/console.openapi.yaml`(C6 초안)** — 서비스가 이 규칙을 지키고 화면은 그대로 따른다 |
-| Step DB | **DB 전환(2-11 직후, Step 3 전)**. DB-1: MySQL 이전 — 설정·마이그레이션, SQLite 전용 동작(조건부 유일 제약 등) 재설계, 동시성 재검증(부하 시험 재실행), **테스트를 MySQL에서**. DB-2: MongoDB 연결(레플리카셋)·`ad_events` 컬렉션·색인(아직 쓰지 않음). 결정 근거는 설계 §10 "저장소 단계" |
+| Step DB | **DB 전환(2-11 직후, Step 3 전)** — 상세는 §7.3. DB-1: MySQL 이전 — 설정·마이그레이션, SQLite 전용 동작(조건부 유일 제약 등) 재설계, 동시성 재검증(부하 시험 재실행), **테스트를 MySQL에서**. DB-2: MongoDB 연결(레플리카셋)·`ad_events` 컬렉션·색인(아직 쓰지 않음). 결정 근거는 설계 §10 "저장소 단계" |
 | Step 4-1 | outbox(MySQL, 업무 데이터와 같은 트랜잭션, 열은 Debezium outbox 라우터 기본 모양과 맞춤) + 중계 → MongoDB `ad_events`(`_id = event_id` 멱등: 같은 내용 통과·다른 내용 충돌로 멈춤), 이벤트 스키마(C2) 확정. 파이프라인 쪽 경계는 이 컬렉션(MySQL 직접 읽기 없음) |
 | Step 4-2 | NDJSON manifest·검증 도구(정합성 점검 결과, 재처리·백필 대상 목록. manifest = SHA-256·행 수·`schema_version`·`source_kind`·checkpoint, 임시 파일 → 교체) |
 | Step 5(확장) | 조건부·기록만: Debezium outbox 라우터 → Kafka(중계 대체), Spark → Delta 메달리온(설계 §10 "분석 계층 대응"), 스키마 저장소, C4 수신(`records.api` 집계 안쪽 교체) |
