@@ -58,7 +58,8 @@ class Decision(AppendOnlyModel):
         ]
         indexes = [
             models.Index(fields=["media_id", "decided_at"]),
-            models.Index(fields=["slot_id", "subject_id", "decided_at"], name="records_decision_display_idx"),  # 같은 표시 단위의 다음 결정을 찾는다(일괄 슬롯은 subject_id IS NULL)
+            models.Index(fields=["slot_id", "subject_id", "decided_at"], name="records_decision_display_idx"),
+            models.Index(fields=["owner_id", "campaign_id", "ad_group_id"], name="records_decision_owner_idx"),  # 보고서가 광고주·캠페인·광고그룹으로 결정을 좁힌다  # 같은 표시 단위의 다음 결정을 찾는다(일괄 슬롯은 subject_id IS NULL)
         ]
 
 

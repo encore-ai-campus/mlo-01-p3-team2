@@ -210,6 +210,12 @@ def end_campaign(user, campaign_id, now=None):
     return _campaign_view(c, now)
 
 
+def campaign_ids_of(user):
+    """이 광고주의 모든 캠페인 ID(보고서 범위용). 광고주만."""
+    _require_advertiser(user)
+    return list(Campaign.objects.filter(owner=user).values_list("campaign_id", flat=True))
+
+
 def campaign_end_times(campaign_ids):
     """캠페인 ID들의 종료 시각(`ends_at`, 미포함 경계) 하나의 질의로. 끝이 없으면 값이 `None`, 없는 ID는 결과에 없다. 반응 판정이 쓴다."""
     ids = []

@@ -171,6 +171,28 @@ def spend_today(campaign_ids, now=None):
     return dict(CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day=day).values_list("campaign_id", "spent"))
 
 
+def spend_by_day(campaign_ids, start_day, end_day):
+    """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}` 를 **질의 한 번**으로. `start_day` 포함, `end_day` 미포함. 소진이 없는 날은 결과에 없다(0 으로 읽는다)."""
+    rows = (
+        CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
+        .values("budget_day").annotate(total=Sum("spent")).values_list("budget_day", "total")
+    )
+    return dict(rows)
+
+
+def charged_amounts(reaction_refs):
+    """반응 멱등 키(`reaction_ref`)별로 **실제로 받은** 포인트 `{키: 포인트}`. 과금되지 않은 키(과금 단위가 아닌 유형 등)는 결과에 없다.
+
+    광고그룹처럼 소진액이 따로 쌓이지 않는 범위의 소진을 원장에서 읽을 때 쓴다. 한 번에 많은 키를 `IN` 에 넣지 않도록 나눠 조회한다.
+    """
+    refs, found = list(reaction_refs), {}
+    for start in range(0, len(refs), 500):
+        chunk = refs[start:start + 500]
+        for ref, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, reaction_ref__in=chunk).values_list("reaction_ref", "amount"):
+            found[ref] = -amount  # 원장의 과금은 음수다
+    return found
+
+
 def recompute_spend():
     """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수를 돌려준다."""
     # 원장 읽기부터 교체까지 **한 쓰기 트랜잭션**이다. SQLite 는 시작할 때(IMMEDIATE) 쓰기 잠금을 잡으므로, 읽은 뒤 다른 연결의 과금이 끼어들어

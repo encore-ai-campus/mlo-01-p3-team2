@@ -1,0 +1,126 @@
+"""퍼널 집계(설계 §10 "퍼널 집계", C6 `/reports/daily`). **조회 시점에 인정된 반응을 결정과 묶어 세는 읽기 전용 함수**다 — 별도 테이블·쓰기가 없다.
+
+반응이 많아져 느려지면 이 함수 안쪽만 일별 카운터나 파이프라인 결과(C4)로 바꾼다. 호출하는 쪽(콘솔)은 그대로다.
+
+- 범위는 광고주의 것으로 좁힌다: 결정에 기록된 `owner_id`·`campaign_id`·`ad_group_id`(과금과 같은 근거). 남의 캠페인·광고그룹은 없는 것과 같다(404).
+- 날짜는 **수신 시각(`received_at`)** 의 예산 일(기본 UTC 자정) 기준이고, 구간은 `from` 포함 `to` 미포함, 일 경계에 맞아야 하며 최대 92일이다.
+- 노출·클릭·전환은 `ACCEPTED` 만 센다(일괄 슬롯은 사람마다 한 건씩 센다). `spent` 는 **실제로 받은 포인트**다(잔액이 모자라 덜 받았으면 그만큼).
+  캠페인·광고주 범위는 일별 소진액(`CampaignSpend`)에서, 소진액이 따로 쌓이지 않는 광고그룹 범위는 원장의 과금에서 읽는다.
+- 질의 수는 데이터 양과 무관하다(광고그룹 범위의 원장 조회는 반응 500건당 한 번).
+"""
+from collections import defaultdict
+from datetime import timedelta, timezone as dt_timezone
+
+from django.conf import settings
+from django.http import Http404
+from django.db.models import Count, DateTimeField, ExpressionWrapper, F
+from django.db.models.functions import TruncDate
+
+from billing import api as billing
+from campaigns import api as campaigns
+from foundation.api import Role, errors
+
+from .models import Decision, Reaction, ReactionStatus, ReactionType
+from .processing import reaction_ref
+from .types import DailyReportView, ReportRow, ReportTotals
+
+MAX_DAYS = 92
+_FIELD = {ReactionType.IMPRESSION: "impressions", ReactionType.CLICK: "clicks", ReactionType.CONVERSION: "conversions"}
+
+
+def _require_advertiser(user):
+    if not (getattr(user, "is_authenticated", False) and user.is_active and user.role == Role.ADVERTISER):
+        raise errors.Forbidden("광고주만 볼 수 있습니다.")
+
+
+def _check_window(start, end):
+    problems = []
+    for pointer, value in (("/from", start), ("/to", end)):
+        if getattr(value, "tzinfo", None) is None:
+            problems.append({"pointer": pointer, "message": "UTC 시각이어야 합니다."})
+        elif billing.day_start(billing.budget_day_of(value)) != value:
+            problems.append({"pointer": pointer, "message": "예산 일 경계(기본 UTC 자정)에 맞아야 합니다."})
+    if problems:
+        raise errors.InvalidRequest(errors=problems)
+    if end <= start:
+        raise errors.InvalidRequest(errors=[{"pointer": "/to", "message": "to 는 from 보다 뒤여야 합니다."}])
+    if (billing.budget_day_of(end) - billing.budget_day_of(start)).days > MAX_DAYS:
+        raise errors.InvalidRequest(errors=[{"pointer": "/to", "message": f"구간은 최대 {MAX_DAYS}일입니다."}])
+
+
+def _day_expression():
+    """수신 시각이 속한 예산 일. 예산 일 경계가 UTC 자정이 아니면(`BUDGET_DAY_OFFSET_HOURS`) 그만큼 밀어서 날짜를 자른다."""
+    offset = timedelta(hours=settings.BUDGET_DAY_OFFSET_HOURS)
+    instant = ExpressionWrapper(F("received_at") + offset, output_field=DateTimeField()) if offset else F("received_at")
+    return TruncDate(instant, tzinfo=dt_timezone.utc)
+
+
+def _scope(user, campaign_id, ad_group_id):
+    """(결정 필터, 광고그룹 보기 또는 None). 남의 캠페인·광고그룹, 서로 맞지 않는 쌍은 `Http404`(다른 광고주 객체 조회와 같은 규약)."""
+    filters = {"owner_id": user.pk}
+    group = None
+    if campaign_id is not None:
+        filters["campaign_id"] = campaigns.get_campaign(user, campaign_id).campaign_id  # 소유 확인(남의 것은 404)
+    if ad_group_id is not None:
+        group = campaigns.get_ad_group(user, ad_group_id)
+        if campaign_id is not None and group.campaign_id != filters["campaign_id"]:
+            raise Http404
+        filters["ad_group_id"] = group.ad_group_id
+    return filters, group
+
+
+def _counts(decision_filters, since, until):
+    """`{(날짜, 유형): 인정된 반응 수}` — 질의 한 번."""
+    decisions = Decision.objects.filter(**decision_filters).values("decision_id")
+    rows = (
+        Reaction.objects.filter(status=ReactionStatus.ACCEPTED, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
+        .annotate(day=_day_expression()).values("day", "type").annotate(n=Count("inbox_id")).values_list("day", "type", "n")
+    )
+    return {(day, rtype): n for day, rtype, n in rows}
+
+
+def _spent_by_day(user, group, decision_filters, since, until, first_day, last_day):
+    """`{날짜: 받은 포인트}`."""
+    if group is None:
+        ids = [decision_filters["campaign_id"]] if "campaign_id" in decision_filters else campaigns.campaign_ids_of(user)
+        return billing.spend_by_day(ids, first_day, last_day)
+    # 광고그룹: 소진액이 캠페인 단위로만 쌓이므로, 이 광고그룹의 과금 단위 반응에 대한 원장 과금을 읽는다
+    decisions = Decision.objects.filter(**decision_filters).values("decision_id")
+    reactions = (
+        Reaction.objects.filter(status=ReactionStatus.ACCEPTED, type=group.pricing_unit, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
+        .annotate(day=_day_expression()).values_list("media_id", "reaction_id", "day")
+    )
+    days = {reaction_ref(media_id, reaction_id): day for media_id, reaction_id, day in reactions}
+    spent = defaultdict(int)
+    for ref, amount in billing.charged_amounts(days).items():
+        spent[days[ref]] += amount
+    return dict(spent)
+
+
+def daily_report(owner, start, end, campaign_id=None, ad_group_id=None):
+    """광고주의 일별 성과. `start` 포함 `end` 미포함(둘 다 예산 일 경계의 UTC 시각, 최대 92일).
+
+    `campaign_id`·`ad_group_id` 로 범위를 좁힐 수 있다. 직전의 같은 길이 구간은 `previous_totals` 로 함께 돌려준다.
+    """
+    _require_advertiser(owner)
+    _check_window(start, end)
+    first, last = billing.budget_day_of(start), billing.budget_day_of(end)
+    length = last - first
+    previous_start = billing.day_start(first - length)
+    filters, group = _scope(owner, campaign_id, ad_group_id)
+    counts = _counts(filters, previous_start, end)  # 직전 구간과 이번 구간을 한 번에 가져와 나눈다
+    spent = _spent_by_day(owner, group, filters, previous_start, end, first - length, last)
+
+    def totals_of(days):
+        sums = dict.fromkeys(_FIELD.values(), 0)
+        for day in days:
+            for rtype, field in _FIELD.items():
+                sums[field] += counts.get((day, rtype), 0)
+        return ReportTotals(spent=sum(spent.get(day, 0) for day in days), **sums)
+
+    days = [first + timedelta(days=i) for i in range(length.days)]
+    previous_days = [first - length + timedelta(days=i) for i in range(length.days)]
+    return DailyReportView(
+        start=start, end=end, rows=tuple(ReportRow(date=day, totals=totals_of([day])) for day in days),
+        totals=totals_of(days), previous_totals=totals_of(previous_days),
+    )
