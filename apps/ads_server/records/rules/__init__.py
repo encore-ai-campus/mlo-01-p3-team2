@@ -49,7 +49,7 @@ class RuleInput:
     # 기한은 "언제 도착했나"로 판정해야 처리 작업자가 늦게 돈 것이 매체의 잘못이 되지 않고, 기한 뒤에 도착한 전제가 반응을 되살리지도 않는다
     prereq_accepted: tuple  # 인정된(`ACCEPTED`) 앞 단계 반응의 수신 시각
     prereq_waiting: tuple  # 아직 처리 전(`RECEIVED`)인 앞 단계 반응의 수신 시각
-    next_display_at: datetime | None  # 같은 표시 단위의 다음 결정 시각(없으면 아직 표시 중)
+    next_display_at: datetime | None  # 같은 표시 단위의 이후 결정 중 처음으로 노출이 도착한 시각(없으면 아직 표시 중)
     campaign_ends_at: datetime | None  # 판정 시점의 캠페인 종료 시각(없으면 계속 진행)
     limits: Limits
 

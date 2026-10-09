@@ -6,6 +6,7 @@
 - 날짜는 **수신 시각(`received_at`)** 의 예산 일(기본 UTC 자정) 기준이고, 구간은 `from` 포함 `to` 미포함, 일 경계에 맞아야 하며 최대 92일이다.
 - 노출·클릭·전환은 `ACCEPTED` 만 센다(일괄 슬롯은 사람마다 한 건씩 센다). `spent` 는 **실제로 받은 포인트**다(잔액이 모자라 덜 받았으면 그만큼).
   캠페인·광고주 범위는 일별 소진액(`CampaignSpend`)에서, 소진액이 따로 쌓이지 않는 광고그룹 범위는 원장의 과금에서 읽는다.
+- 전환율은 **클릭 코호트 기준**이다: 그 구간에 받은 클릭 중 인정된 전환이 이어진 클릭 수(`converted_clicks`) / 클릭 수. 전환 수는 수신일 기준이라 이전 구간 클릭의 전환이 섞인다.
 - 질의 수는 데이터 양과 무관하다(광고그룹 범위의 원장 조회는 반응 500건당 한 번).
 """
 from collections import defaultdict
@@ -13,7 +14,7 @@ from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.http import Http404
-from django.db.models import Count, DateTimeField, ExpressionWrapper, F
+from django.db.models import Count, DateTimeField, Exists, ExpressionWrapper, F, OuterRef
 from django.db.models.functions import TruncDate
 
 from billing import api as billing
@@ -79,6 +80,21 @@ def _counts(decision_filters, since, until):
     return {(day, rtype): n for day, rtype, n in rows}
 
 
+def _converted_clicks(decision_filters, since, until):
+    """`{날짜: 인정된 전환이 이어진 클릭 수}` — 질의 한 번. 날짜는 **클릭**의 수신일이다(클릭 코호트).
+
+    같은 (결정, 사람)에 인정된 전환이 있으면 그 클릭은 전환으로 이어진 것이다(전환은 같은 사람의 서버 클릭 뒤에만 인정되고, 유형당 인정은 한 건).
+    전환은 구간 밖(이후)이어도 센다.
+    """
+    decisions = Decision.objects.filter(**decision_filters).values("decision_id")
+    converted = Reaction.objects.filter(status=ReactionStatus.ACCEPTED, type=ReactionType.CONVERSION, decision_id=OuterRef("decision_id"), person_id=OuterRef("person_id"))
+    rows = (
+        Reaction.objects.filter(status=ReactionStatus.ACCEPTED, type=ReactionType.CLICK, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
+        .filter(Exists(converted)).annotate(day=_day_expression()).values("day").annotate(n=Count("inbox_id")).values_list("day", "n")
+    )
+    return dict(rows)
+
+
 def _spent_by_day(user, group, decision_filters, since, until, first_day, last_day):
     """`{날짜: 받은 포인트}`."""
     if group is None:
@@ -109,6 +125,7 @@ def daily_report(owner, start, end, campaign_id=None, ad_group_id=None):
     previous_start = billing.day_start(first - length)
     filters, group = _scope(owner, campaign_id, ad_group_id)
     counts = _counts(filters, previous_start, end)  # 직전 구간과 이번 구간을 한 번에 가져와 나눈다
+    converted = _converted_clicks(filters, previous_start, end)
     spent = _spent_by_day(owner, group, filters, previous_start, end, first - length, last)
 
     def totals_of(days):
@@ -116,7 +133,7 @@ def daily_report(owner, start, end, campaign_id=None, ad_group_id=None):
         for day in days:
             for rtype, field in _FIELD.items():
                 sums[field] += counts.get((day, rtype), 0)
-        return ReportTotals(spent=sum(spent.get(day, 0) for day in days), **sums)
+        return ReportTotals(spent=sum(spent.get(day, 0) for day in days), converted_clicks=sum(converted.get(day, 0) for day in days), **sums)
 
     days = [first + timedelta(days=i) for i in range(length.days)]
     previous_days = [first - length + timedelta(days=i) for i in range(length.days)]

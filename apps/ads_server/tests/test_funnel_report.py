@@ -140,6 +140,86 @@ class DailyReportCountsTests(ReportBase):
 
 
 @tag("security")
+class ConversionRateCohortTests(ReportBase):
+    """검토 2-12 ②: 전환율 = 그 구간에 받은 **클릭 중** 전환으로 이어진 비율. 전환 수는 수신일, 클릭도 수신일이라 나누면 이전 구간 클릭의 전환이 섞여 1 을 넘을 수 있었다."""
+
+    def clicked(self, when, subject=SUBJECT):
+        decision = self.impression(when, subject=subject)
+        self.report(decision, "CLICK", when + 2 * SEC)
+        return decision
+
+    def test_conversions_of_the_previous_periods_clicks_do_not_inflate_the_rate(self):
+        yesterday = NOW - DAY
+        prior = [self.clicked(yesterday + n * HOUR, subject=s) for n, s in enumerate((A, B))]  # 10/6 에 받은 클릭 2개
+        for decision in prior:
+            self.report(decision, "CONVERSION", NOW + HOUR)  # 전환은 10/7 에 받는다
+        self.clicked(NOW + 2 * HOUR, subject=C)  # 10/7 클릭 1개, 전환 없음
+        today = self.report_for(window(1)).totals
+        self.assertEqual((today.clicks, today.conversions, today.converted_clicks), (1, 2, 0))
+        self.assertEqual(today.conversion_rate, 0.0)  # 전환 / 클릭 = 2.0 이 아니다
+        before = self.report_for(window(1)).previous_totals
+        self.assertEqual((before.clicks, before.conversions, before.converted_clicks, before.conversion_rate), (2, 0, 2, 1.0))  # 전환은 클릭이 속한 구간의 몫
+
+    def test_a_conversion_that_comes_after_the_period_still_counts_for_its_click(self):
+        decision = self.clicked(NOW)
+        self.report(decision, "CONVERSION", NOW + 2 * DAY)  # 10/9
+        day7 = self.report_for(window(1)).totals
+        self.assertEqual((day7.clicks, day7.conversions, day7.converted_clicks, day7.conversion_rate), (1, 0, 1, 1.0))
+        day9 = self.report_for(window(1, D7 + 2 * DAY)).totals
+        self.assertEqual((day9.clicks, day9.conversions, day9.conversion_rate), (0, 1, None))  # 클릭이 없는 구간은 정의되지 않는다
+
+    def test_a_click_without_a_conversion_is_in_the_denominator_only(self):
+        self.clicked(NOW, subject=A)
+        self.report(self.clicked(NOW + HOUR, subject=B), "CONVERSION", NOW + 2 * HOUR)
+        totals = self.report_for(window(1)).totals
+        self.assertEqual((totals.clicks, totals.converted_clicks, totals.conversion_rate), (2, 1, 0.5))
+
+    def test_a_rejected_or_pending_conversion_does_not_make_its_click_converted(self):
+        rejected, pending = self.clicked(NOW, subject=A), self.clicked(NOW + HOUR, subject=B)
+        view, _ = records.receive_reaction(rejected.media_id, rejected.decision_id, uuid.uuid4(), "CONVERSION", NOW + DAY, {}, now=NOW + 3 * SEC)  # 보고 시각이 미래 → 거부
+        self.assertEqual(records.process_reaction(view.inbox_id, now=NOW + 3 * SEC), "REJECTED")
+        records.receive_reaction(pending.media_id, pending.decision_id, uuid.uuid4(), "CONVERSION", NOW + HOUR + 3 * SEC, {}, now=NOW + HOUR + 3 * SEC)  # 아직 판정 전
+        totals = self.report_for(window(1)).totals
+        self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
+
+    def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
+        for person in (A, B):
+            self.report(decision, "IMPRESSION", NOW + SEC, subject=person)
+            self.report(decision, "CLICK", NOW + 2 * SEC, subject=person)
+        self.report(decision, "CONVERSION", NOW + 3 * SEC, subject=A)  # 같은 결정, A 만 전환
+        totals = self.report_for(window(1), ad_group_id=group.ad_group_id).totals
+        self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 1, 1, 0.5))
+
+    def test_the_rate_never_exceeds_one_and_rows_add_up_to_the_totals(self):
+        for n, subject in enumerate((A, B, C)):
+            decision = self.clicked(NOW - DAY + n * HOUR, subject=subject)
+            if n != 1:
+                self.report(decision, "CONVERSION", NOW + (n + 1) * HOUR)  # 이전 날 클릭의 전환이 오늘 들어온다
+        report = self.report_for(window(2, D7 - DAY))
+        for row in report.rows:
+            self.assertLessEqual(row.totals.converted_clicks, row.totals.clicks)
+            if row.totals.conversion_rate is not None:
+                self.assertLessEqual(row.totals.conversion_rate, 1.0)
+        self.assertEqual(sum(r.totals.converted_clicks for r in report.rows), report.totals.converted_clicks)
+        self.assertEqual((report.totals.clicks, report.totals.converted_clicks), (3, 2))
+        self.assertEqual(report.rows[0].totals.conversion_rate, 2 / 3)  # 10/6 클릭 3개 중 2개가 전환으로 이어졌다
+        self.assertEqual(report.rows[1].totals.conversion_rate, None)  # 10/7 은 클릭이 없다(전환만 받았다)
+
+    def test_another_advertisers_clicks_and_conversions_never_enter_the_rate(self):
+        other = World()
+        decision = records.decide(other.slot.media_id, other.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+        self.report(decision, "IMPRESSION", NOW + SEC)
+        self.report(decision, "CLICK", NOW + 2 * SEC)
+        self.report(decision, "CONVERSION", NOW + 3 * SEC)
+        mine = self.report_for(window(1)).totals
+        self.assertEqual((mine.clicks, mine.converted_clicks, mine.conversion_rate), (0, 0, None))
+
+
+@tag("security")
 class DailyReportScopeTests(ReportBase):
     def test_other_advertisers_data_never_shows_up(self):
         other = World()

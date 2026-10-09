@@ -269,32 +269,83 @@ class FunnelWindowTests(FunnelBase):
         with override_settings(REACTION_CLICK_WINDOW_SECONDS=10):
             self.assertEqual(self.judge(self.click(when=11), 11), "REJECTED")
 
-    def test_a_click_after_the_next_decision_in_the_same_display_is_rejected_after_the_grace(self):
-        self.accept_impression()
-        self.decide(self.w.slot, SUBJECT, when=at(10))  # 같은 슬롯·같은 사람의 다음 결정: 이전 광고는 내려갔다
-        self.assertEqual(self.judge(self.click(when=15), 15), "ACCEPTED")  # 다음 결정 + 5초 안은 인정
-        decision2 = self.decision
-        Reaction.objects.filter(decision_id=decision2.decision_id, type="CLICK").delete()
-        late = self.click(when=16)
-        self.assertEqual(self.judge(late, 16), "REJECTED")
-        self.assertEqual(self.verdict(late), ("REJECTED", "display_ended", "funnel-window"))
+    def probe(self, decision, seconds):
+        """`decision` 에 대한 클릭을 `seconds` 초에 수신해 판정한 결과(이전 클릭 행은 지운다 — 유형당 1회 규칙에 걸리지 않게)."""
+        Reaction.objects.filter(decision_id=decision.decision_id, type="CLICK").delete()
+        row = self.click(decision, when=seconds)
+        self.judge(row, seconds)
+        return row.reason_code or row.status
 
-    def test_decisions_of_other_people_or_slots_do_not_end_this_display(self):
+    def test_a_next_decision_without_an_impression_does_not_end_the_display(self):
+        """검토 2-12 ①: 응답을 못 받아 화면에 적용하지 못한 결정(노출 보고 없음)은 기존 광고를 내리지 않는다."""
         self.accept_impression()
-        self.decide(self.w.slot, A, when=at(10))  # 같은 슬롯, 다른 사람 — 개인 슬롯의 표시 단위는 (슬롯, 사람)
+        self.decide(self.w.slot, SUBJECT, when=at(10))  # 같은 슬롯·같은 사람의 다음 결정이지만 노출이 없다
+        self.assertEqual(self.probe(self.decision, 100), "ACCEPTED")
+
+    def test_the_display_ends_when_the_next_ads_impression_arrives_plus_the_grace(self):
+        self.accept_impression()
+        second = self.decide(self.w.slot, SUBJECT, when=at(10))
+        self.report("IMPRESSION", second, when=20)  # 다음 광고의 노출이 20초에 도착
+        self.assertEqual(self.probe(self.decision, 25), "ACCEPTED")  # 도착 + 5초까지는 인정(경계 포함)
+        self.assertEqual(self.probe(self.decision, 25.000001), "display_ended")  # 1마이크로초 뒤는 거부
+        with override_settings(REACTION_DISPLAY_GRACE_SECONDS=0):
+            self.assertEqual(self.probe(self.decision, 20.5), "display_ended")  # 여유는 설정값
+
+    def test_the_first_impression_among_all_later_decisions_is_the_signal(self):
+        """중간 결정에 노출이 없어도, 그 뒤 결정의 노출이 신호다. 여럿이면 가장 먼저 도착한 노출이다."""
+        self.accept_impression()
+        self.decide(self.w.slot, SUBJECT, when=at(10))  # 노출 없음 — 무시
+        third = self.decide(self.w.slot, SUBJECT, when=at(20))
+        fourth = self.decide(self.w.slot, SUBJECT, when=at(25))
+        self.report("IMPRESSION", third, when=40)
+        self.report("IMPRESSION", fourth, when=30)  # 결정은 더 늦지만 노출은 먼저 도착
+        self.assertEqual(self.probe(self.decision, 35), "ACCEPTED")
+        self.assertEqual(self.probe(self.decision, 36), "display_ended")
+
+    def test_the_impression_counts_whatever_its_verdict_or_whether_it_was_judged(self):
+        self.accept_impression()
+        second = self.decide(self.w.slot, SUBJECT, when=at(10))
+        waiting = self.report("IMPRESSION", second, when=20)  # 아직 판정 전(RECEIVED)
+        self.assertEqual(self.probe(self.decision, 26), "display_ended")
+        self.judge(waiting, 20)
+        Reaction.objects.filter(pk=waiting.pk).update(status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", accepted_key=None)  # 거부된 노출
+        self.assertEqual(self.probe(self.decision, 26), "display_ended")
+
+    def test_an_earlier_decisions_impression_does_not_end_this_display(self):
+        earlier = self.decide(self.w.slot, SUBJECT, when=at(-20))
+        self.report("IMPRESSION", earlier, when=-10)
+        self.accept_impression()
+        self.assertEqual(self.probe(self.decision, 100), "ACCEPTED")
+
+    def test_impressions_of_other_people_or_slots_do_not_end_this_display(self):
+        self.accept_impression()
+        theirs = self.decide(self.w.slot, A, when=at(10))  # 같은 슬롯, 다른 사람 — 개인 슬롯의 표시 단위는 (슬롯, 사람)
+        self.report("IMPRESSION", theirs, when=11, subject=A)
         other = World()
-        self.decide(other.slot, SUBJECT, when=at(10))  # 다른 슬롯
-        self.assertEqual(self.judge(self.click(when=100), 100), "ACCEPTED")
+        elsewhere = self.decide(other.slot, SUBJECT, when=at(10))  # 다른 슬롯
+        records.receive_reaction(other.slot.media_id, elsewhere.decision_id, uuid.uuid4(), "IMPRESSION", at(11), {}, now=at(11))
+        self.assertEqual(self.probe(self.decision, 100), "ACCEPTED")
 
-    def test_in_a_shared_slot_any_later_decision_of_the_slot_ends_the_display(self):
+    def test_in_a_shared_slot_anyones_impression_of_a_later_decision_ends_the_display(self):
         slot, decision = self.shared()
         self.accept_impression(decision, subject=A)
-        self.decide(slot, None, when=at(10))
-        self.assertEqual(self.judge(self.click(decision, when=15, viewer=A), 15), "ACCEPTED")
-        late = self.click(decision, when=16, viewer=B)
+        later = self.decide(slot, None, when=at(10))
+        self.assertEqual(self.judge(self.click(decision, when=15, viewer=A), 15), "ACCEPTED")  # 노출이 없는 다음 결정은 무시
+        self.report("IMPRESSION", later, when=16, subject=B)  # 다른 사람(B)의 노출이 교체 신호
         self.accept_impression(decision, subject=B, when=16)
-        self.assertEqual(self.judge(late, 16), "REJECTED")
+        late = self.click(decision, when=22, viewer=B)
+        self.assertEqual(self.judge(late, 22), "REJECTED")
         self.assertEqual(late.reason_code, "display_ended")
+
+    def test_the_lookup_is_one_query_however_many_later_decisions_exist(self):
+        self.accept_impression()
+        for n in range(5):
+            self.report("IMPRESSION", self.decide(self.w.slot, SUBJECT, when=at(10 + n)), when=20 + n)
+        from records import facts
+
+        with CaptureQueriesContext(connection) as queries:
+            facts.next_display_at(self.decision)
+        self.assertEqual(len(queries), 1)
 
     def test_a_conversion_must_follow_its_click_within_the_conversion_window(self):
         Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(ends_at=None)  # 30일 뒤에도 캠페인은 진행 중이다

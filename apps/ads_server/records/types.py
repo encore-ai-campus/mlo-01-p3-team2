@@ -44,7 +44,8 @@ class ReportTotals:
 
     impressions: int
     clicks: int
-    conversions: int
+    conversions: int  # 이 구간에 **받은** 전환 수(수신일 기준) — 이전 구간 클릭의 전환도 들어 있다
+    converted_clicks: int  # 이 구간에 받은 클릭 중 인정된 전환이 이어진 클릭 수(클릭 코호트). 전환이 나중에 와도 조회 시점에 센다. 항상 clicks 이하
     spent: int
 
     @property
@@ -54,8 +55,11 @@ class ReportTotals:
 
     @property
     def conversion_rate(self):
-        """전환율 = 전환 / 클릭(클릭을 거친 전환만 인정하므로 1 을 넘지 않는다)."""
-        return self.conversions / self.clicks if self.clicks else None
+        """전환율 = 클릭 코호트 기준: 이 구간의 클릭 중 전환으로 이어진 비율(`converted_clicks / clicks`)이라 1 을 넘지 않는다.
+
+        `conversions / clicks` 로 나누지 않는다: 전환은 수신일, 클릭도 수신일로 세므로 이전 구간 클릭의 전환이 섞여 1 을 넘을 수 있다.
+        """
+        return self.converted_clicks / self.clicks if self.clicks else None
 
 
 @dataclass(frozen=True)

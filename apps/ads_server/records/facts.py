@@ -1,12 +1,12 @@
 """반응 판정에 쓰는 사실을 모은다(읽기 전용). **판정은 하지 않는다** — 규칙(`records/rules/`)이 이 사실만 보고 정한다.
 
 판정 단위의 사람: 개인(`individual`) 슬롯은 결정의 `subject_id` 하나, 일괄(`shared`) 슬롯은 보고에 실린 사람이다(없으면 `None` —
-`subject` 규칙이 `subject_required` 로 거부한다). 질의는 필요한 만큼만 한다: 결정 1, 캠페인 종료 1, 인정된 유형 1, (클릭) 노출 상태 1·다음 결정 1, (전환) 클릭 상태 1.
+`subject` 규칙이 `subject_required` 로 거부한다). 질의는 필요한 만큼만 한다: 결정 1, 캠페인 종료 1, 인정된 유형 1, (클릭) 노출 상태 1·교체 신호(이후 결정의 첫 노출) 1, (전환) 클릭 상태 1.
 """
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Min, Q
 
 from campaigns import api as campaigns
 from masters import api as masters
@@ -46,12 +46,18 @@ def _arrivals(qs):
 
 
 def next_display_at(decision):
-    """같은 표시 단위의 **다음 결정**이 만들어진 시각(없으면 `None` = 아직 표시 중). 개인 슬롯은 (슬롯, 사람), 일괄 슬롯은 슬롯이다."""
+    """이 광고가 화면에서 교체된 시각: 같은 표시 단위의 **이후 결정 중 처음으로 노출이 도착한 시각**(`received_at`). 없으면 `None` = 아직 표시 중.
+
+    표시 단위는 개인 슬롯이면 (슬롯, 사람), 일괄 슬롯이면 슬롯이다(누구의 노출이든 교체 신호). 노출은 **판정 결과와 무관하게 접수된 것**을 쓴다.
+    결정이 만들어진 시각은 쓰지 않는다: 매체가 새 결정의 응답을 받지 못해 화면에 적용하지 못했다면 기존 광고는 계속 보이는데, 생성 시각을
+    쓰면 그 광고의 클릭이 `display_ended` 로 거부된다. 노출이 없는 이후 결정은 무시한다 — 끝내 노출이 오지 않으면 "결정 후 300초" 상한이 막는다.
+    질의 한 번(이후 결정을 부분 질의로 묶는다).
+    """
     later = Decision.objects.filter(slot_id=decision.slot_id, subject_id=decision.subject_id) if decision.subject_id else Decision.objects.filter(
         slot_id=decision.slot_id, subject_id__isnull=True,
     )
     later = later.filter(Q(decided_at__gt=decision.decided_at) | Q(decided_at=decision.decided_at, decision_id__gt=decision.decision_id))
-    return later.order_by("decided_at", "decision_id").values_list("decided_at", flat=True).first()
+    return Reaction.objects.filter(type=ReactionType.IMPRESSION, decision_id__in=later.values("decision_id")).aggregate(first=Min("received_at"))["first"]
 
 
 def gather(row, decision, now):
