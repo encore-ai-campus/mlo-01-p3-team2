@@ -925,10 +925,10 @@ paths:
                     from: "2026-10-06T00:00:00Z"
                     to: "2026-10-08T00:00:00Z"
                     rows:
-                      - {date: "2026-10-06", impressions: 120, clicks: 6, conversions: 1, spent: 240}
-                      - {date: "2026-10-07", impressions: 98, clicks: 4, conversions: 0, spent: 160}
-                    totals: {impressions: 218, clicks: 10, conversions: 1, spent: 400}
-                    previous_totals: {impressions: 150, clicks: 7, conversions: 1, spent: 280}
+                      - {date: "2026-10-06", impressions: 120, clicks: 6, conversions: 1, converted_clicks: 1, spent: 240}
+                      - {date: "2026-10-07", impressions: 98, clicks: 4, conversions: 0, converted_clicks: 0, spent: 160}
+                    totals: {impressions: 218, clicks: 10, conversions: 1, converted_clicks: 1, spent: 400}
+                    previous_totals: {impressions: 150, clicks: 7, conversions: 1, converted_clicks: 1, spent: 280}
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -1671,7 +1671,7 @@ components:
 
     Totals:
       type: object
-      required: [impressions, clicks, conversions, spent]
+      required: [impressions, clicks, conversions, converted_clicks, spent]
       additionalProperties: false
       properties:
         impressions:
@@ -1683,13 +1683,20 @@ components:
         conversions:
           type: integer
           minimum: 0
+          description: 이 구간에 **받은** 전환 수(수신일 기준). 이전 구간 클릭의 전환도 들어 있다.
+        converted_clicks:
+          type: integer
+          minimum: 0
+          description: |
+            이 구간에 받은 클릭 중 인정된 전환이 이어진 클릭 수(**클릭 코호트**). 전환이 구간 뒤에 와도 조회 시점에 센다. 항상 `clicks` 이하다.
+            **전환율 = `converted_clicks / clicks`** (`clicks`가 0이면 정의되지 않음). `conversions / clicks`로 나누지 않는다 — 이전 구간 클릭의 전환이 섞여 1을 넘을 수 있다.
         spent:
           $ref: "#/components/schemas/Money"
 
     DailyReportRow:
       description: 하루치 `Totals`에 `date`를 더한 행. `BidWithEffects`와 같은 이유로 `allOf` 대신 필드를 합쳐 정의한다. `Totals`와 필드를 함께 바꾼다.
       type: object
-      required: [date, impressions, clicks, conversions, spent]
+      required: [date, impressions, clicks, conversions, converted_clicks, spent]
       additionalProperties: false
       properties:
         date:
@@ -1705,6 +1712,13 @@ components:
         conversions:
           type: integer
           minimum: 0
+          description: 이 구간에 **받은** 전환 수(수신일 기준). 이전 구간 클릭의 전환도 들어 있다.
+        converted_clicks:
+          type: integer
+          minimum: 0
+          description: |
+            이 구간에 받은 클릭 중 인정된 전환이 이어진 클릭 수(**클릭 코호트**). 전환이 구간 뒤에 와도 조회 시점에 센다. 항상 `clicks` 이하다.
+            **전환율 = `converted_clicks / clicks`** (`clicks`가 0이면 정의되지 않음). `conversions / clicks`로 나누지 않는다 — 이전 구간 클릭의 전환이 섞여 1을 넘을 수 있다.
         spent:
           $ref: "#/components/schemas/Money"
 
