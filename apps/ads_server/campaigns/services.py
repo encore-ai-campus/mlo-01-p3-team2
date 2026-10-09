@@ -51,8 +51,11 @@ def _utc_time(value, pointer):
 
 # ---------------------------------------------------------------- 조회 도우미
 
-def _campaign(user, campaign_id):
-    return owned_or_404(Campaign.objects.all(), user, campaign_id=campaign_id)
+def _campaign(user, campaign_id, lock=False):
+    """`lock=True` 는 행 잠금(`FOR UPDATE`)으로 읽는다 — **캠페인 행을 쓰는 동작**(수정·종료·중단·해제·재검토 요청)과 기간 종료(`transitions.expire_due`)가
+    같은 잠금으로 순서를 정해, 읽은 값이 저장할 때까지 유효하다(안 그러면 이미 끝난 캠페인을 전체 행 저장이 되살린다). 트랜잭션 안에서만 쓴다."""
+    queryset = Campaign.objects.select_for_update() if lock else Campaign.objects.all()
+    return owned_or_404(queryset, user, campaign_id=campaign_id)
 
 
 def _ad_group(user, ad_group_id):
@@ -156,7 +159,7 @@ def update_campaign(user, campaign_id, changes, now=None):
     if unknown or not changes:
         raise _problem("/", f"바꿀 수 있는 필드: {sorted(CAMPAIGN_FIELDS)}")
     with transaction.atomic():
-        c = _campaign(user, campaign_id)
+        c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)  # 종료된 캠페인(상태 갱신 전 포함)은 어떤 값도 못 바꾼다
         if "status" in changes:
             target = changes["status"]
@@ -190,7 +193,7 @@ def end_campaign(user, campaign_id, now=None):
     require_advertiser(user)
     now = _now(now)
     with transaction.atomic():
-        c = _campaign(user, campaign_id)
+        c = _campaign(user, campaign_id, lock=True)
         previous = tr.apply(c, "end", tr.ADVERTISER, now)
         _audit(user, "campaign.ended_early", ("campaigns.campaign", c.campaign_id), {"from": previous})
     return _campaign_view(c, now)
@@ -222,7 +225,7 @@ def suspend_campaign(actor, campaign_id, reason, now=None):
     now = _now(now)
     reason = clean_text(reason, "중단 사유", "/reason", 500)
     with transaction.atomic():
-        c = Campaign.objects.filter(pk=parse_uuid(campaign_id, "캠페인")).first()
+        c = Campaign.objects.select_for_update().filter(pk=parse_uuid(campaign_id, "캠페인")).first()
         if c is None:
             raise errors.NotFound("캠페인을 찾을 수 없습니다.")
         previous = tr.apply(c, "suspend", tr.ADMIN, now, reason=reason)
@@ -234,7 +237,7 @@ def release_campaign(actor, campaign_id, now=None):
     require_admin(actor)
     now = _now(now)
     with transaction.atomic():
-        c = Campaign.objects.filter(pk=parse_uuid(campaign_id, "캠페인")).first()
+        c = Campaign.objects.select_for_update().filter(pk=parse_uuid(campaign_id, "캠페인")).first()
         if c is None:
             raise errors.NotFound("캠페인을 찾을 수 없습니다.")
         tr.assert_open(c, now)
@@ -253,7 +256,7 @@ def create_review_request(user, campaign_id, message="", now=None):
     message = clean_text(message, "메모", "/message", 500) if message else ""
     try:
         with transaction.atomic():
-            c = _campaign(user, campaign_id)
+            c = _campaign(user, campaign_id, lock=True)
             tr.assert_open(c, now)
             if c.status != CampaignStatus.SUSPENDED:
                 raise NotSuspended()
