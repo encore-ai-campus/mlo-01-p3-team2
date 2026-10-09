@@ -1,0 +1,7 @@
+---
+# MySQL 저장소 등록. roles/backend도 쓴다 (MySQL Router는 같은 저장소에 있다). OS에 따라 RPM 또는 APT.
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 저장소 등록
+  ansible.builtin.include_tasks: "repo-{{ ansible_facts['os_family'] | lower }}.yml"

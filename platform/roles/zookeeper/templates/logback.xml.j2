@@ -1,0 +1,12 @@
+<!-- Ansible로 관리한다 (roles/zookeeper). 파일 한 개에 쓰고, 회전은 logrotate가 맡는다. -->
+<configuration>
+  <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+    <File>{{ zookeeper_log_dir }}/zookeeper.log</File>
+    <encoder>
+      <pattern>%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n</pattern>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="FILE"/>
+  </root>
+</configuration>

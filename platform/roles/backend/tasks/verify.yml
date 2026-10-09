@@ -1,0 +1,6 @@
+---
+- name: MySQL Router 버전 확인
+  ansible.builtin.command: mysqlrouter --version
+  register: backend_router_version
+  changed_when: false
+  failed_when: "'8.4.' not in backend_router_version.stdout"

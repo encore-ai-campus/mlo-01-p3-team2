@@ -1,0 +1,71 @@
+---
+# --- 모든 서버: monitor 사용자가 시스템 로그와 서비스 로그를 읽을 수 있다 ---
+- name: monitor의 journalctl 읽기
+  ansible.builtin.command: journalctl -n 1 -q --no-pager
+  become_user: "{{ monitor_user }}"
+  changed_when: false
+
+- name: monitor가 서비스 로그를 읽을 수 있는지 확인 (읽을 수 없는 파일이 없어야 한다)
+  ansible.builtin.shell: "find {{ item }} -maxdepth 1 -type f ! -readable"
+  become_user: "{{ monitor_user }}"
+  register: monitor_unreadable
+  changed_when: false
+  failed_when: monitor_unreadable.stdout != ''
+  loop: "{{ monitor_service_log_paths }}"
+
+# --- Monitoring 서버: 모든 서버의 리소스, 서비스 상태, 로그가 수집된다 ---
+- name: 리소스 수집 확인
+  ansible.builtin.shell: "tail -n 1 {{ monitor_data_dir }}/metrics/{{ item }}/resource-$(date -u +%F).log"
+  register: monitor_resource
+  until: "'reach=ok state=up' in monitor_resource.stdout"
+  retries: 24
+  delay: 5
+  changed_when: false
+  loop: "{{ groups['all'] }}"
+  when: inventory_hostname in groups['monitoring']
+
+- name: 서비스 상태 수집 확인
+  ansible.builtin.shell: "tail -n 1 {{ monitor_data_dir }}/metrics/{{ item }}/service-$(date -u +%F).log"
+  register: monitor_service
+  until: >-
+    monitor_service.stdout | length > 0
+    and (expected_units | map('regex_replace', '^', 'unit_') | map('regex_replace', '$', '=active') | select('in', monitor_service.stdout) | list | length == expected_units | length)
+    and not (monitor_service.stdout is search('_check=fail|=failed|=inactive|port=down|_mode=down|master=down|ui=down'))
+  retries: 24
+  delay: 5
+  changed_when: false
+  loop: "{{ groups['all'] }}"
+  vars:
+    # spark-master는 Master인 서버에만 있으므로 필수 목록에서 뺀다.
+    expected_units: "{{ (monitor_units['all'] + (hostvars[item].group_names | select('in', monitor_units) | map('extract', monitor_units) | flatten)) | difference(['spark-master']) }}"
+  when: inventory_hostname in groups['monitoring']
+
+- name: 시스템 로그와 서비스 로그 수집 확인
+  ansible.builtin.shell: |
+    set -e
+    d={{ monitor_data_dir }}/logs/{{ item }}
+    test -s "$d"/journal/journal-$(date -u +%F).log
+    {% for p in hostvars[item].group_names | select('in', monitor_log_paths) | map('extract', monitor_log_paths) | flatten %}
+    {% if p.endswith('/') %}
+    ls "$d"/{{ p.rstrip('/').split('/')[-1] }}/* > /dev/null
+    {% else %}
+    test -s "$d"/{{ p.split('/')[-1] }}
+    {% endif %}
+    {% endfor %}
+  args:
+    executable: /bin/bash
+  register: monitor_logs
+  until: monitor_logs.rc == 0
+  retries: 24
+  delay: 5
+  changed_when: false
+  loop: "{{ groups['all'] }}"
+  when: inventory_hostname in groups['monitoring']
+
+# 일 단위 정리 스크립트가 오류 없이 끝난다
+- name: 정리 스크립트 실행
+  ansible.builtin.systemd:
+    name: infra-monitor-archive.service
+    state: started
+  changed_when: false
+  when: inventory_hostname in groups['monitoring']

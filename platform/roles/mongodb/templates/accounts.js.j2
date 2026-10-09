@@ -1,0 +1,28 @@
+// mongosh 스크립트 (roles/mongodb). root로 접속해 dev, monitor 계정을 만들거나 바로잡는다. 이미 기대 상태이면 아무것도 바꾸지 않는다.
+// 비밀번호는 환경변수(MONGO_*_PASSWORD)로 받는다.
+try {
+  const admin = connect('{{ mongodb_uri }}');
+  admin.auth('root', process.env.MONGO_ROOT_PASSWORD);
+  const want = [
+    {user: 'dev', pwd: process.env.MONGO_DEV_PASSWORD, roles: [{role: 'readWriteAnyDatabase', db: 'admin'}]},
+    {user: 'monitor', pwd: process.env.MONGO_MONITOR_PASSWORD, roles: [{role: 'clusterMonitor', db: 'admin'}]},
+  ];
+  const key = (roles) => roles.map((r) => r.role + '@' + r.db).sort().join(',');
+  for (const u of want) {
+    const cur = admin.getUser(u.user);
+    if (!cur) {
+      admin.createUser(u);
+      print('INFRA_CREATED ' + u.user);
+      continue;
+    }
+    let passwordOk = true;
+    try { connect('{{ mongodb_uri }}').auth(u.user, u.pwd); } catch (e) { passwordOk = false; }
+    if (!passwordOk || key(cur.roles) !== key(u.roles)) {
+      admin.updateUser(u.user, {pwd: u.pwd, roles: u.roles});
+      print('INFRA_UPDATED ' + u.user);
+    }
+  }
+} catch (e) {
+  print(String(e));
+  quit(1);
+}

@@ -1,0 +1,10 @@
+# Ansible로 관리한다 (roles/monitoring).
+[Unit]
+Description=Daily infra monitor archive and cleanup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

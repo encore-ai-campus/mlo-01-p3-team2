@@ -1,0 +1,5 @@
+---
+mongodb_repo_baseurl: https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/$basearch/
+mongodb_user: mongod
+mongodb_group: mongod
+mongodb_data_dir: /var/lib/mongo

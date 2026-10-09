@@ -1,0 +1,33 @@
+---
+# Ubuntu 24.04: ssh/chrony/mysql, MySQL 로그 /var/log/mysql/error.log(mysql:adm 0640)는 adm 그룹으로 읽는다, MongoDB 로그 그룹 mongodb
+
+monitor_units:
+  all: [ssh, chrony]
+  mysql: [mysql]
+  mongodb: [mongod]
+  kafka: [kafka]
+  spark: [zookeeper, spark-master, spark-worker]
+
+# 수집할 서비스 로그 (그룹별). 디렉터리는 끝에 /를 붙인다.
+monitor_log_paths:
+  mysql: [/var/log/mysql/]
+  mongodb: [/var/log/mongodb/]
+  kafka: [/var/log/kafka/]
+  spark: [/var/log/spark/, /var/log/zookeeper/]
+
+# 서버의 logrotate가 회전할 파일 (그룹별). 복사 후 비우는 방식(copytruncate)은 O_APPEND로 쓰는 로그에만 안전하다.
+# Kafka의 GC 로그(kafkaServer-gc.log)는 JVM이 직접 회전하므로 뺀다.
+monitor_logrotate_paths:
+  mysql: [/var/log/mysql/error.log]
+  mongodb: [/var/log/mongodb/*.log]
+  kafka: [/var/log/kafka/server.log]
+  spark: [/var/log/spark/*.log, /var/log/zookeeper/*.log]
+
+# monitor가 서비스 로그를 읽기 위해 속할 수 있는 그룹 (서버에 있는 것만 추가한다. systemd-journal은 항상 추가)
+monitor_group_candidates: [adm, mysql, mongodb]
+
+monitor_mysql_socket: /var/run/mysqld/mysqld.sock
+
+# 서비스가 0600으로 만드는 로그는 그룹 읽기(0640)로 맞춘다. 서비스 umask를 바꾸면 데이터 파일까지 열리므로 로그 파일만 바꾼다.
+# copytruncate 회전은 원본 파일을 그대로 쓰므로 권한이 유지된다.
+monitor_group_readable_logs: [/var/log/mongodb/mongod.log]

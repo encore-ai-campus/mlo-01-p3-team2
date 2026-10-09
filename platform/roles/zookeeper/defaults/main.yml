@@ -1,0 +1,26 @@
+---
+# 설치 출처: Apache 배포 tarball. 앞의 미러부터 시도한다(dlcdn → downloads → archive) (roles/kafka/defaults 참고). 어느 쪽에서 받아도 아래 sha512로 검증한다.
+zookeeper_version: 3.9.6
+zookeeper_urls:
+  - "https://dlcdn.apache.org/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+  - "https://downloads.apache.org/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+  - "https://archive.apache.org/dist/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+# 배포처의 .sha512 파일 값. 버전을 바꾸면 같이 바꾼다.
+zookeeper_sha512: e999626df06de30dc8bb53bb51da9bb786b1658406adafc6b92f104d72ca25e869f70a57c83a726f8b9558cc0fb519fc20f201aa5d6da09884bc4be5fe6dd3b0
+
+# ensemble을 이루는 서버 그룹 (Spark 노드에 함께 올라간다)
+zookeeper_group: spark
+
+zookeeper_user: zookeeper
+zookeeper_install_dir: "/opt/apache-zookeeper-{{ zookeeper_version }}-bin"
+zookeeper_home: /opt/zookeeper
+zookeeper_config_dir: /etc/zookeeper
+zookeeper_data_dir: /var/lib/zookeeper
+zookeeper_log_dir: /var/log/zookeeper
+
+zookeeper_client_port: 2181
+zookeeper_peer_port: 2888
+zookeeper_election_port: 3888
+
+# 데몬 하나에 Master, Worker가 함께 올라가므로 heap은 작게 고정한다.
+zookeeper_heap_mb: 256

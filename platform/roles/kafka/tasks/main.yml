@@ -1,0 +1,185 @@
+---
+# Kafka 4.x KRaft combined (broker + controller) 3대. controller quorum은 정적 voters로 정한다.
+- name: 역할 내부 값 계산
+  ansible.builtin.set_fact:
+    kafka_tarball: "{{ kafka_urls[0] | basename }}"
+    kafka_node_id: "{{ inventory_hostname | regex_search('[0-9]+$') | int }}"
+    kafka_heap_mb: "{{ [[ansible_facts['memtotal_mb'] * kafka_heap_ratio, kafka_heap_min_mb] | max, kafka_heap_max_mb] | min | int }}"
+    kafka_cli_env:
+      JAVA_HOME: "{{ java_home }}"
+      LOG_DIR: "{{ kafka_log_dir }}"
+
+# --- 설치 ---
+- name: 서비스 사용자
+  ansible.builtin.user:
+    name: "{{ kafka_user }}"
+    system: true
+    shell: /sbin/nologin
+    home: /var/lib/kafka
+    create_home: false
+
+- name: 데이터·로그·설정 디렉터리
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/lib/kafka, owner: "{{ kafka_user }}", mode: "0750" }
+    - { path: "{{ kafka_data_dir }}", owner: "{{ kafka_user }}", mode: "0750" }
+    - { path: "{{ kafka_log_dir }}", owner: "{{ kafka_user }}", mode: "0755" }
+    - { path: "{{ kafka_config_dir }}", owner: root, mode: "0755" }
+  loop_control:
+    label: "{{ item.path }}"
+
+# 이미 설치되어 있으면 내려받지 않는다 (임시 NAT를 제거한 뒤 재실행해도 동작하게 한다).
+- name: 설치 여부 확인
+  ansible.builtin.stat:
+    path: "{{ kafka_install_dir }}/bin/kafka-server-start.sh"
+  register: kafka_installed
+
+- name: tarball 내려받기 (sha512 검증, 미러를 차례로 시도)
+  when: not kafka_installed.stat.exists
+  block:
+    - name: 첫 번째 미러
+      ansible.builtin.get_url:
+        url: "{{ kafka_urls[0] }}"
+        dest: "/var/tmp/{{ kafka_tarball }}"
+        checksum: "sha512:{{ kafka_sha512 }}"
+        mode: "0644"
+        timeout: 60
+  rescue:
+    - name: 두 번째와 세 번째 미러
+      block:
+        - name: 두 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ kafka_urls[1] }}"
+            dest: "/var/tmp/{{ kafka_tarball }}"
+            checksum: "sha512:{{ kafka_sha512 }}"
+            mode: "0644"
+            timeout: 60
+      rescue:
+        - name: 세 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ kafka_urls[2] }}"
+            dest: "/var/tmp/{{ kafka_tarball }}"
+            checksum: "sha512:{{ kafka_sha512 }}"
+            mode: "0644"
+            timeout: 120
+
+- name: tarball 풀기
+  ansible.builtin.unarchive:
+    src: "/var/tmp/{{ kafka_tarball }}"
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ kafka_install_dir }}/bin/kafka-server-start.sh"
+  when: not kafka_installed.stat.exists
+
+- name: tarball 정리
+  ansible.builtin.file:
+    path: "/var/tmp/{{ kafka_tarball }}"
+    state: absent
+
+- name: 버전 없는 경로 링크
+  ansible.builtin.file:
+    src: "{{ kafka_install_dir }}"
+    dest: "{{ kafka_home }}"
+    state: link
+
+# --- 설정 ---
+# 이미 실행 중인 서비스는 설정이 바뀔 때만 다시 시작한다 (처음 시작할 때는 다시 시작하지 않는다).
+- name: 서비스 현재 상태
+  ansible.builtin.systemd:
+    name: kafka
+  register: kafka_before
+
+- name: 브로커 설정 배포
+  ansible.builtin.template:
+    src: server.properties.j2
+    dest: "{{ kafka_config_dir }}/server.properties"
+    owner: root
+    group: "{{ kafka_user }}"
+    mode: "0640"
+  register: kafka_config
+
+- name: 로그 설정 배포
+  ansible.builtin.template:
+    src: log4j2.yaml.j2
+    dest: "{{ kafka_config_dir }}/log4j2.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: kafka_log_config
+
+- name: systemd unit 배포
+  ansible.builtin.template:
+    src: kafka.service.j2
+    dest: /etc/systemd/system/kafka.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: kafka_unit_file
+
+# --- 클러스터 ID와 스토리지 포맷 ---
+# 클러스터 ID는 한 번만 만들고 모든 노드가 같은 값을 쓴다. 이미 포맷된 노드가 있으면 그 값을 이어 쓴다.
+# 포맷은 데이터를 초기화하므로 meta.properties가 없는 노드에서만 한다.
+- name: 기존 클러스터 ID 조회
+  ansible.builtin.shell: grep -h '^cluster.id=' {{ kafka_data_dir }}/meta.properties 2>/dev/null | cut -d= -f2 || true
+  register: kafka_meta_cluster
+  changed_when: false
+
+- name: 기존 클러스터 ID 정리
+  ansible.builtin.set_fact:
+    kafka_known_cluster_ids: "{{ groups['kafka'] | map('extract', hostvars, ['kafka_meta_cluster', 'stdout']) | select | unique | list }}"
+
+- name: 클러스터 ID가 하나인지 확인
+  ansible.builtin.assert:
+    that: kafka_known_cluster_ids | length <= 1
+    fail_msg: 노드마다 클러스터 ID가 다르다 ({{ kafka_known_cluster_ids }}). 데이터를 초기화하거나 노드를 바로잡은 뒤 다시 실행한다.
+
+- name: 새 클러스터 ID 생성 (한 번만)
+  ansible.builtin.command: "{{ kafka_home }}/bin/kafka-storage.sh random-uuid"
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  register: kafka_generated_id
+  changed_when: false
+  run_once: true
+  when: kafka_known_cluster_ids | length == 0
+
+- name: 클러스터 ID 확정
+  ansible.builtin.set_fact:
+    kafka_cluster_id: "{{ kafka_known_cluster_ids[0] if kafka_known_cluster_ids else hostvars[groups['kafka'][0]].kafka_generated_id.stdout }}"
+
+- name: 스토리지 포맷
+  ansible.builtin.command: "{{ kafka_home }}/bin/kafka-storage.sh format -t {{ kafka_cluster_id }} -c {{ kafka_config_dir }}/server.properties"
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  when: kafka_meta_cluster.stdout == ''
+
+# --- 시작 ---
+- name: kafka 활성화
+  ansible.builtin.systemd:
+    name: kafka
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: 설정이 바뀌었으면 다시 시작
+  ansible.builtin.systemd:
+    name: kafka
+    state: restarted
+    daemon_reload: true
+  when: (kafka_config.changed or kafka_log_config.changed or kafka_unit_file.changed) and kafka_before.status.ActiveState == 'active'
+
+- name: broker 응답 대기
+  ansible.builtin.wait_for:
+    host: "{{ ip }}"
+    port: "{{ kafka_broker_port }}"
+    timeout: 180
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

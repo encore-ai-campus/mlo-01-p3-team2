@@ -1,0 +1,28 @@
+---
+# MySQL 저장소 등록 (AL2023, RPM)
+# rpm_key는 매번 URL에서 키를 받아 비교하므로, 이미 등록되어 있으면 건너뛴다 (임시 NAT를 제거한 뒤 재실행해도 동작하게 한다).
+- name: MySQL GPG 키 등록 여부 확인
+  ansible.builtin.command: rpm -q gpg-pubkey-{{ mysql_gpg_key_id }}
+  register: mysql_gpg_key_installed
+  changed_when: false
+  failed_when: false
+
+- name: MySQL GPG 키 등록
+  ansible.builtin.rpm_key:
+    key: "{{ mysql_gpg_key_url }}"
+    state: present
+  when: mysql_gpg_key_installed.rc != 0
+
+- name: MySQL 저장소 등록
+  ansible.builtin.yum_repository:
+    name: "{{ item.name }}"
+    description: "{{ item.description }}"
+    baseurl: "{{ item.baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ mysql_gpg_key_url }}"
+    enabled: true
+  loop:
+    - { name: mysql-8.4-community, description: MySQL 8.4 LTS Community Server, baseurl: "{{ mysql_repo_baseurl }}" }
+    - { name: mysql-tools-8.4-community, description: MySQL 8.4 LTS Tools, baseurl: "{{ mysql_tools_repo_baseurl }}" }
+  loop_control:
+    label: "{{ item.name }}"

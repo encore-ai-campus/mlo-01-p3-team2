@@ -1,0 +1,76 @@
+---
+# 모든 노드: 서비스와 포트
+- name: kafka 서비스 상태
+  ansible.builtin.systemd:
+    name: kafka
+  register: kafka_unit
+  failed_when: kafka_unit.status.ActiveState != 'active' or kafka_unit.status.UnitFileState != 'enabled'
+
+# 첫 번째 서버: controller quorum, 임시 토픽으로 produce와 consume, ISR
+- name: controller quorum 조회
+  ansible.builtin.command: "{{ kafka_home }}/bin/kafka-metadata-quorum.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }} describe --status"
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  register: kafka_quorum
+  until: kafka_quorum.rc == 0 and 'CurrentVoters' in kafka_quorum.stdout
+  retries: 20
+  delay: 5
+  changed_when: false
+  when: kafka_node_id | int == (groups['kafka'][0] | regex_search('[0-9]+$') | int)
+
+- name: controller quorum 검증
+  ansible.builtin.assert:
+    that:
+      - "kafka_quorum.stdout_lines | select('match', 'LeaderId:\\s+[0-9]+') | list | length == 1"
+      - "kafka_quorum.stdout_lines | select('match', 'CurrentVoters:') | join | regex_findall('\"id\": [0-9]+') | length == groups['kafka'] | length"
+    fail_msg: controller quorum에 Leader가 없거나 voter 수가 서버 수와 다르다.
+  when: kafka_quorum is not skipped
+
+- name: 임시 토픽 생성
+  ansible.builtin.command: >-
+    {{ kafka_home }}/bin/kafka-topics.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }}
+    --create --if-not-exists --topic {{ kafka_check_topic }} --partitions 1 --replication-factor 3
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  changed_when: false
+  when: kafka_quorum is not skipped
+
+- name: 임시 토픽 상태 조회 (ISR)
+  ansible.builtin.command: "{{ kafka_home }}/bin/kafka-topics.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }} --describe --topic {{ kafka_check_topic }}"
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  register: kafka_topic
+  until: "(kafka_topic.stdout | regex_findall('Isr: ([0-9,]+)') | first).split(',') | length == groups['kafka'] | length"
+  retries: 12
+  delay: 5
+  changed_when: false
+  when: kafka_quorum is not skipped
+
+- name: produce (acks=all)
+  ansible.builtin.command: >-
+    {{ kafka_home }}/bin/kafka-console-producer.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }}
+    --topic {{ kafka_check_topic }} --command-property acks=all
+  args:
+    stdin: infra-check-message
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  changed_when: false
+  when: kafka_quorum is not skipped
+
+- name: consume
+  ansible.builtin.command: >-
+    {{ kafka_home }}/bin/kafka-console-consumer.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }}
+    --topic {{ kafka_check_topic }} --from-beginning --max-messages 1 --timeout-ms 30000
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  register: kafka_consume
+  changed_when: false
+  failed_when: "'infra-check-message' not in kafka_consume.stdout"
+  when: kafka_quorum is not skipped
+
+- name: 임시 토픽 삭제
+  ansible.builtin.command: "{{ kafka_home }}/bin/kafka-topics.sh --bootstrap-server {{ ip }}:{{ kafka_broker_port }} --delete --topic {{ kafka_check_topic }}"
+  environment: "{{ kafka_cli_env }}"
+  become_user: "{{ kafka_user }}"
+  changed_when: false
+  when: kafka_quorum is not skipped

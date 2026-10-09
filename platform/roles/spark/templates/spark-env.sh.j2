@@ -1,0 +1,13 @@
+# Ansible로 관리한다 (roles/spark).
+export JAVA_HOME={{ java_home }}
+export SPARK_LOCAL_IP={{ ip }}
+export SPARK_DAEMON_MEMORY={{ spark_daemon_mb }}m
+export SPARK_WORKER_CORES={{ ansible_facts['processor_vcpus'] }}
+export SPARK_WORKER_MEMORY={{ spark_worker_mb }}m
+export SPARK_WORKER_DIR={{ spark_data_dir }}/work
+export SPARK_LOG_DIR={{ spark_log_dir }}
+export SPARK_WORKER_OPTS="-Dspark.worker.cleanup.enabled=true"
+# Master 이중화: 활성 Master의 상태를 ZooKeeper에 저장해, Standby가 이어받는다.
+export SPARK_DAEMON_JAVA_OPTS="-Dspark.deploy.recoveryMode=ZOOKEEPER -Dspark.deploy.zookeeper.url={{ spark_zookeeper_url }} -Dspark.deploy.zookeeper.dir=/spark"
+export PYSPARK_PYTHON={{ spark_python }}
+export PYSPARK_DRIVER_PYTHON={{ spark_python }}

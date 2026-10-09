@@ -1,0 +1,11 @@
+---
+# Ubuntu 24.04: MySQL APT 저장소(8.4 LTS)를 쓴다. Ubuntu 기본 저장소의 mysql-server는 8.0이라 쓰지 않는다.
+mysql_service: mysql
+mysql_socket: /var/run/mysqld/mysqld.sock
+mysql_error_log: /var/log/mysql/error.log
+mysql_config_file: /etc/mysql/mysql.conf.d/infra.cnf
+mysql_apt_repo:
+  name: mysql
+  uri: https://repo.mysql.com/apt/ubuntu
+  suite: noble
+  components: [mysql-8.4-lts, mysql-tools]

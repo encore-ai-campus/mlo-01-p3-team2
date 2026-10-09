@@ -1,0 +1,7 @@
+---
+# Bastion이거나 Bastion이 없는 인벤토리(작은 구성 테스트, 직접 접속)면 SSH를 모든 출처에 연다 (키 인증만 허용).
+# 직접 접속하는 서버에서 SSH를 닫으면 Ansible이 잠기므로 기본값을 이렇게 둔다.
+firewall_ssh_anywhere: "{{ 'bastion' in group_names or not groups.get('bastion') }}"
+
+# 새 규칙 적용 후 새 SSH 연결이 안 되면 이 시간(초) 뒤에 방화벽 테이블을 지워 접속을 복구한다.
+firewall_rollback_seconds: 120

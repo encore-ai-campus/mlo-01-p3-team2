@@ -1,0 +1,24 @@
+---
+# Ubuntu에만 필요한 방화벽 설정
+# nftables.service는 /etc/nftables.conf를 로드하며 그 파일의 첫 줄이 `flush ruleset`이라, 켜지면 우리 전용 테이블이 지워진다.
+# 우리 규칙은 infra-firewall.service가 로드하므로 nftables.service는 꺼 둔다.
+- name: nftables.service 비활성화 (전용 테이블이 지워지지 않게)
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: false
+
+# ufw는 설치되어 있지만 꺼진 상태여야 한다. 켜져 있으면 규칙이 겹치므로 서비스도 끈다.
+- name: ufw 상태 조회
+  ansible.builtin.command: ufw status
+  register: firewall_ufw_status
+  changed_when: false
+
+- name: ufw 비활성 확인
+  ansible.builtin.assert:
+    that: "'inactive' in firewall_ufw_status.stdout"
+    fail_msg: ufw가 켜져 있다. 이 방화벽 자동화와 겹치므로 ufw를 끄고(ufw disable) 다시 실행한다.
+
+- name: ufw 서비스 비활성화
+  ansible.builtin.systemd_service:
+    name: ufw
+    enabled: false

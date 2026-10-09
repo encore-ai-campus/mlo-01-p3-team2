@@ -1,0 +1,56 @@
+---
+# 모든 노드: dev 계정으로 SELECT 1
+- name: dev 계정으로 SELECT 1
+  ansible.builtin.command: mysql -udev -S {{ mysql_socket }} -N -e "SELECT 1"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.dev }}"
+  register: mysql_select
+  changed_when: false
+  failed_when: mysql_select.stdout != '1'
+  no_log: "{{ mysql_no_log }}"
+
+# dev는 계정·권한 정보가 있는 시스템 스키마를 읽을 수 없어야 한다.
+- name: dev 계정으로 mysql 스키마 조회 시도
+  ansible.builtin.command: mysql -udev -S {{ mysql_socket }} -N -e "SELECT COUNT(*) FROM mysql.user"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.dev }}"
+  register: mysql_dev_system
+  changed_when: false
+  failed_when: mysql_dev_system.rc == 0
+  no_log: "{{ mysql_no_log }}"
+
+# ReplicaSet: 기본 노드에서 복제 상태 확인
+- name: ReplicaSet 상태 조회
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'replicaset-status.js.j2') }}"
+  register: mysql_rs_status
+  changed_when: false
+  when: mysql_is_primary and mysql_secondary_ips | length > 0
+  no_log: "{{ mysql_no_log }}"
+
+- name: ReplicaSet 상태 검증
+  ansible.builtin.assert:
+    that:
+      - mysql_rs_status_json.replicaSet.status == 'AVAILABLE'
+      - mysql_rs_status_json.replicaSet.topology | length == groups['mysql'] | length
+      - mysql_rs_status_json.replicaSet.topology.values() | map(attribute='status') | unique | list == ['ONLINE']
+    fail_msg: ReplicaSet이 AVAILABLE이 아니거나 모든 멤버가 ONLINE이 아니다.
+  vars:
+    mysql_rs_status_json: "{{ mysql_rs_status.stdout_lines | select('match', '^[{]') | first | from_json }}"
+  when: mysql_is_primary and mysql_secondary_ips | length > 0
+
+# ReplicaSet + Backend: Router용 계정이 Backend IP마다 있고(Secondary에는 복제되어 온다), Backend 이외의 출처는 없다.
+- name: Router 계정 확인
+  ansible.builtin.command: >-
+    mysql -uroot -S {{ mysql_socket }} -N -e
+    "SELECT host FROM mysql.user WHERE user = 'router' ORDER BY host"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  register: mysql_router_hosts
+  until: mysql_router_hosts.stdout_lines == (groups['backend'] | map('extract', hostvars, 'ip') | sort | list)
+  retries: 10
+  delay: 3
+  changed_when: false
+  when: mysql_secondary_ips | length > 0 and groups.get('backend', []) | length > 0
+  no_log: "{{ mysql_no_log }}"
