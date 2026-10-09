@@ -677,6 +677,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BidWithEffects"
+              examples:
+                added:
+                  summary: 새 입찰 버전과 슬롯별 적용 결과
+                  value:
+                    bid_version: 3
+                    amount: 45
+                    created_at: "2026-10-08T03:00:00Z"
+                    effects:
+                      - slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
+                        eligible: true
+                        applied_amount: 40
+                        reason: capped_at_cap
+                        policy_version: 2
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -905,6 +918,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DailyReport"
+              examples:
+                twoDays:
+                  summary: 날짜가 있는 행
+                  value:
+                    from: "2026-10-06T00:00:00Z"
+                    to: "2026-10-08T00:00:00Z"
+                    rows:
+                      - {date: "2026-10-06", impressions: 120, clicks: 6, conversions: 1, spent: 240}
+                      - {date: "2026-10-07", impressions: 98, clicks: 4, conversions: 0, spent: 160}
+                    totals: {impressions: 218, clicks: 10, conversions: 1, spent: 400}
+                    previous_totals: {impressions: 150, clicks: 7, conversions: 1, spent: 280}
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -1485,15 +1509,24 @@ components:
           minimum: 1
 
     BidWithEffects:
-      allOf:
-        - $ref: "#/components/schemas/Bid"
-        - type: object
-          required: [effects]
-          properties:
-            effects:
-              type: array
-              items:
-                $ref: "#/components/schemas/SlotEffect"
+      description: |
+        `Bid`에 `effects`를 더한 응답. 닫힌 객체(`additionalProperties: false`)는 `allOf`로 확장할 수 없으므로
+        (각 스키마가 따로 적용돼 `effects`가 `Bid`의 추가 속성으로 거부된다) 필드를 합쳐 정의한다. `Bid`와 필드를 함께 바꾼다.
+      type: object
+      required: [bid_version, amount, created_at, effects]
+      additionalProperties: false
+      properties:
+        bid_version:
+          type: integer
+          minimum: 1
+        amount:
+          $ref: "#/components/schemas/Money"
+        created_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+        effects:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlotEffect"
 
     Creative:
       type: object
@@ -1653,6 +1686,28 @@ components:
         spent:
           $ref: "#/components/schemas/Money"
 
+    DailyReportRow:
+      description: 하루치 `Totals`에 `date`를 더한 행. `BidWithEffects`와 같은 이유로 `allOf` 대신 필드를 합쳐 정의한다. `Totals`와 필드를 함께 바꾼다.
+      type: object
+      required: [date, impressions, clicks, conversions, spent]
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+          description: 예산 일 경계 기준의 날짜.
+        impressions:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        conversions:
+          type: integer
+          minimum: 0
+        spent:
+          $ref: "#/components/schemas/Money"
+
     DailyReport:
       type: object
       required: [from, to, rows, totals, previous_totals]
@@ -1665,15 +1720,7 @@ components:
         rows:
           type: array
           items:
-            allOf:
-              - $ref: "#/components/schemas/Totals"
-              - type: object
-                required: [date]
-                properties:
-                  date:
-                    type: string
-                    format: date
-                    description: 예산 일 경계 기준의 날짜.
+            $ref: "#/components/schemas/DailyReportRow"
         totals:
           $ref: "#/components/schemas/Totals"
         previous_totals:
@@ -1688,7 +1735,8 @@ components:
           type: string
           description: |
             `campaign_suspended`, `review_rejected`(재검토 반려, 답변 메모 포함), `campaign_ended`, `budget_exhausted`,
-            `balance_low`, `bid_below_floor`, `bid_capped`.
+            `balance_low`(warning: 잔액 < 활성 입찰의 최대 적용 금액 — 일부 슬롯에서 게재가 제한됨),
+            `balance_insufficient`(critical: 잔액 < 활성 입찰의 최소 적용 금액 — 어느 슬롯에도 게재되지 않음), `bid_below_floor`, `bid_capped`.
             클라이언트는 알 수 없는 값을 오류로 처리하지 않는다.
         severity:
           type: string

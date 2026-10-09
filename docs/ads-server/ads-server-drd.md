@@ -731,7 +731,7 @@ stateDiagram-v2
 
 | # | 계약 | 방향 | 상대 | 전송·인증 | 데이터 형식 | 상태 |
 |---|---|---|---|---|---|---|
-| C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현](2-2), 결정 엔드포인트 [구현](2-3), 반응 접수·조회 [구현](2-4), 반응 처리 [구현](2-5) |
+| C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현] 2-2, 결정 엔드포인트 [구현] 2-3, 반응 접수·조회 [구현] 2-4, 반응 처리 [구현] 2-5 |
 | C2 | 이벤트 | 나감 | 데이터 파이프라인 | Step 4: MongoDB `ad_events`(계약 면). 확장: Kafka | JSON 이벤트(§5.6 [제안]) | [계획] Step 4, 확장 |
 | C3 | 이미지 URL | 나감 | 매체·최종 사용자 브라우저 | HTTPS GET, 인증 없음 | JPEG·PNG | [구현] |
 | C4 | Insight 입력 | 들어옴 | 데이터 파이프라인 | [열림] HTTP·Kafka·파일 | JSON 메시지(§5.7 [제안]) | 예약(확장) |
@@ -919,24 +919,38 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `produced_at` | 시각(UTC) | outbox에 쓴 시각 |
 | `payload` | 객체 | 아래 |
 
-**전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`** 를 제안한다 — 한 결정의 결정·반응·과금 이벤트가 같은 파티션에서 순서대로 흐른다(팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5).
+**전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`** 를 제안한다(팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5). **순서는 보장한다고 가정하지 않는다**: Kafka의 순서 보장은 같은 토픽·같은 파티션 안뿐이라 결정·반응·과금이 서로 다른 토픽이면 사이의 순서가 없고, 최소 한 번 전달의 재전송도 순서를 흐트러뜨린다. 소비자는 반응이 결정보다 먼저 보일 수 있다고 보고 `decision_id`로 다시 맞춘다. 같은 토픽·파티션과 발행 순서로 순서를 보장할지는 Step 4 확정 조건이다.
 
 **`ad.decision.v1`** — 결정을 저장할 때 한 건
 
 | 필드 | 원본 | 비고 |
 |---|---|---|
 | `decision_id`, `media_id`, `slot_id`, `decided_at` | R1 | |
-| `subject_id` | R1 | 가명 UUID. 분석 계층 접근 권한 분리 필요(§7) |
+| `audience` | R1 | 슬롯 성격 스냅샷(`individual`·`shared`) |
+| `subject_id` | R1 | 가명 UUID. 분석 계층 접근 권한 분리 필요(§7). **일괄 슬롯 결정은 `null`** — 사람별 퍼널은 반응 이벤트의 사람 필드로 복구한다 |
 | `selected` | R1 선택 열 | 광고 없음이면 `null`. 아니면 `campaign_id`·`ad_group_id`·`creative_id`·`pricing_unit`·`bid_id`·`bid_version`·`bid_policy_id`·`policy_version`·`bid_amount`·`applied_amount` |
 | `selection_policy`, `candidate_count`, `rejected_counts` | R1 | `trace`는 크기 때문에 제외를 제안(필요하면 별도 이벤트) |
 
-**`ad.reaction.v1`** — 반응 처리 결과가 정해질 때 한 건
+반응은 **접수와 판정을 두 이벤트로 나눈다** [확정 2026-10-09, 설계서 §10 "C2 반응 이벤트"]. 두 이벤트의 `event_id`는 **수신함 ID(`inbox_id`)와 이벤트 종류에서 결정적으로** 만들어 재처리·재전송에도 같은 값이다.
+
+**`ad.reaction_received.v1`** — 접수할 때 한 건(접수 트랜잭션의 outbox. 서버가 관측한 클릭은 클릭 기록 트랜잭션). 보류·`stuck` 중인 반응도 이 이벤트로 바로 보인다(Bronze 입력)
 
 | 필드 | 원본 | 비고 |
 |---|---|---|
-| `reaction_id`, `media_id`, `decision_id` | P2 | (매체, `reaction_id`)가 유일 |
+| `inbox_id`, `reaction_id`, `media_id`, `decision_id` | P2 | 매체 범위 ID는 (`media_id`, `reaction_id`)로만 유일 — 전역 식별은 `event_id`(§9) |
+| `type`, `occurred_at`, `received_at` | P2 | |
+| `subject_id` | P2 | 보고에 실린 값(없으면 `null`) |
+| `source` | P2 | `media`(PUT 보고)·`server`(클릭 관측) |
+| `raw` | P2 | 받은 원문 그대로 |
+
+**`ad.reaction.v1`** — 판정(`ACCEPTED`/`REJECTED`)이 정해질 때 한 건(판정 트랜잭션의 outbox, Silver 입력)
+
+| 필드 | 원본 | 비고 |
+|---|---|---|
+| `inbox_id`, `reaction_id`, `media_id`, `decision_id` | P2 | 접수 이벤트와 같은 값으로 잇는다 |
 | `type`, `occurred_at`, `received_at` | P2 | 분석 기준 시각은 `received_at` |
-| `status`, `reason_code` | P2 | `ACCEPTED`·`REJECTED`. 거부된 반응도 보낸다(분석에서 걸러낼 수 있게) |
+| `subject_id`, `person_id`, `source`, `audience` | P2 / R1 | 보고된 사람, **판정 단위의 사람**(개인 슬롯 = 결정의 사람, 일괄 슬롯 = 보고된 사람), 출처, 슬롯 성격 스냅샷 |
+| `status`, `reason_code`, `applied_rule` | P2 | 거부된 반응도 보낸다(분석에서 걸러낼 수 있게) |
 
 **`ad.charge.v1`** — 원장 `CHARGE` 한 줄마다
 
@@ -961,7 +975,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `generated_at`, `valid_from`, `valid_until` | 유효 기간 |
 | `payload` | 종류별 내용(예: `slot_id`, `budget_day`, `impressions`, `clicks`, `conversions`) |
 
-저장은 별도 테이블(출처·버전·유효기간과 함께)에 한다. 전달 방식은 [열림](설계서 §7-6). **성과 집계(`slot_performance`)는 지금 광고 서버가 직접 계산한다**(2-10). C4는 그 집계를 파이프라인 결과로 바꿀 때의 입구다.
+저장은 별도 테이블(출처·버전·유효기간과 함께)에 한다. 전달 방식은 [열림] (설계서 §7-6). **성과 집계(`slot_performance`)는 지금 광고 서버가 직접 계산한다**(2-10). C4는 그 집계를 파이프라인 결과로 바꿀 때의 입구다.
 
 ### 5.8 C5 포인트 충전 [예약, 제안]
 
@@ -1064,7 +1078,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 결정의 `bid_id` | `selected_bid_id` | 이름만 다름 |
 | 결정의 `bid_policy_id` | `selected_bid_policy_id` | 이름만 다름 |
 | 결정의 `applied_amount`·`bid_amount` 스냅샷 | 저장 안 함(계산, 팀 DRD 6.10) | 서버는 과금 근거라 **저장한다**. 팀 DRD D-22가 "서버가 복사해 두는 것은 막지 않는다"고 명시 |
-| 반응 `reaction_id`, `type`, `occurred_at`, `received_at` | `bronze_ad_reaction_log.log_id`, `ad_reaction_type_code`, `occurred_at`, `collected_at` | 이름 변환 |
+| 반응 `type`, `occurred_at`, `received_at` / 이벤트 `event_id` / 반응 `media_id`·`reaction_id` | `ad_reaction_type_code`, `occurred_at`, `collected_at` / `bronze_ad_reaction_log.log_id` / (원본 식별 필드로 따로 유지) | `reaction_id`는 **매체 안에서만** 유일해(C1의 유일성은 (`media_id`, `reaction_id`)) 전역 PK인 `log_id`로 옮기면 다른 매체의 같은 ID와 충돌한다. `log_id`에는 이벤트의 `event_id`(MongoDB `_id`와 같음)를 쓰고 `media_id`·`reaction_id`는 별도 필드로 남긴다 |
 | 반응의 `subject_id` | `user_id`·`session_id`·`classroom_id`(NOT NULL) | **광고 서버는 사용자·세션·강의실을 모른다** → §10 D-5 |
 | 지갑·원장·일 소진액·재검토 요청·감사 | 없음 | 서버 내부(팀 DRD 7.1 미반영) |
 | `campaigns_ad_group_slot.ad_group_slot_id` | `ad_group_slot.ad_group_slot_id` | 같다(PK 규칙 적용 후) |
@@ -1118,6 +1132,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.12 | 2026-10-09 | 외부 검토 반영: C2 반응 이벤트를 접수(`ad.reaction_received.v1`)·판정(`ad.reaction.v1`) 둘로 나누고 사람·출처·슬롯 성격 필드 추가, 결정 이벤트에 `audience`. `log_id` = `event_id`(매체 범위 `reaction_id`와 분리), Kafka 순서는 가정하지 않음, 깨진 링크 정리 |
 | 0.11 | 2026-10-08 | 데이터 흐름 단계화: §2.1을 V1·DB 전환·확장 표로 나눔(파이프라인 연결은 확정 구조가 아님을 명시), 저장소 분담(MySQL 업무 + outbox / MongoDB 이벤트 로그), C2 경계 = MongoDB `ad_events`, JSONL 통로 삭제·NDJSON은 manifest·검증 전용, §2.3 분석 계층 대응, C4는 집계 교체의 입구 |
 | 0.10 | 2026-10-08 | 2-9(반응 판정 확장) 반영: `records_reaction.person_id`·`checked_at`, 유일 제약 (결정, 사람, 유형), 결정 인덱스 `(slot_id, subject_id, decided_at)`, 새 규칙 |
 | 0.9 | 2026-10-08 | 2-7(슬롯 `audience`·결정 스냅샷)·2-8(클릭 관측: `records_reaction.source`·`subject_id`) 반영 |
