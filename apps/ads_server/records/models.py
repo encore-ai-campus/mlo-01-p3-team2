@@ -143,4 +143,8 @@ class Reaction(models.Model):
                 name="records_reaction_accepted_key_iff_accepted",
             ),
         ]
-        indexes = [models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx")]
+        indexes = [
+            models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx"),
+            # 판정이 하는 거의 모든 조회가 결정으로 반응을 찾는다(인정된 유형·앞 단계·먼저 접수된 같은 유형·표시 교체 신호·보류 깨우기). 이것이 없으면 매체 접두만 쓰는 훑기가 된다
+            models.Index(fields=["decision_id", "type", "status"], name="records_reaction_decision_idx"),
+        ]

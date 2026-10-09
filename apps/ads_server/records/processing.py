@@ -95,17 +95,40 @@ def _note_failure(inbox_id):
         logger.exception("반응 처리 실패 횟수를 기록하지 못했다 inbox=%s", inbox_id)
 
 
+def _wake_dependents(inbox_id):
+    """같은 결정에서 보류 중이던 반응을 바로 다시 판정할 수 있게 한다(마지막 확인 시각을 비운다).
+
+    보류는 앞 단계 반응(노출·클릭)이나 먼저 접수된 같은 유형이 **끝나길** 기다리는 것이다. 끝났다는 사건이 생기면 그때 다시 보면 되므로, 주기적 재확인은
+    기한 경과를 잡는 안전망(느린 간격)이면 충분하다 — 보류 N 건을 짧은 주기로 계속 다시 판정하면 처리 프로세스가 보류분을 도는 데 다 쓰인다.
+
+    - **커밋 뒤에, 트랜잭션 밖에서** 한다: 판정 트랜잭션 안에서 다른 반응 행을 건드리면 그 행을 판정 중인 다른 처리 프로세스와 (지갑·반응 행) 교착할 수 있다.
+    - **끝난 반응과 같은 매체의 보류분만** 깨운다(다른 매체의 보고는 이 결정의 판정에 쓰이지 않는다 — `scoped_reactions`). 잠금 없는 조회로 후보를 고른 뒤
+      그 행들만 PK 로 갱신한다: 조건만으로 갱신하면 훑는 도중 접수가 끝나지 않은 행에서 기다리게 된다.
+    - 깨우기가 실패해도 안전망이 있으므로 판정 결과를 바꾸지 않는다.
+    """
+    try:
+        decision_id, media_id = Reaction.objects.filter(pk=inbox_id).values_list("decision_id", "media_id").first()
+        held = list(Reaction.objects.filter(decision_id=decision_id, media_id=media_id, status=ReactionStatus.RECEIVED, checked_at__isnull=False).values_list("pk", flat=True))
+        if held:
+            Reaction.objects.filter(pk__in=held, status=ReactionStatus.RECEIVED).update(checked_at=None)
+    except Exception:  # noqa: BLE001
+        logger.warning("보류 중인 반응을 깨우지 못했다(주기 재확인이 처리한다) inbox=%s", inbox_id, exc_info=True)
+
+
 def process_reaction(inbox_id, now=None):
     """반응 하나를 처리한다. 반환: `ACCEPTED`/`REJECTED`/`PENDING`(앞 단계 반응을 기다리는 보류), 이미 처리됐으면 `None`. 실패하면 되돌리고 실패 횟수를 올린 뒤 예외를 올린다."""
     now = _now(now)
     try:
         ordering.wait_for_inflight_receipts(inbox_id)  # 판정 전에 진행 중인 접수(더 이른 시각의 반응)가 커밋되길 기다린다 — 잠금은 쥐지 않는다
         with transaction.atomic():
-            return _process(inbox_id, now)
+            outcome = _process(inbox_id, now)
     except Exception as error:
         if not is_transient_lock_error(error):  # 교착·잠금 초과는 실패가 아니다: 서버가 되돌렸을 뿐이라 횟수를 올리면 정상 반응이 자동 재처리에서 빠진다(상한 5)
             _note_failure(inbox_id)
         raise
+    if outcome in (ReactionStatus.ACCEPTED, ReactionStatus.REJECTED):
+        _wake_dependents(inbox_id)
+    return outcome
 
 
 def process_after_receipt(inbox_id):
@@ -122,8 +145,8 @@ def process_after_receipt(inbox_id):
 def process_pending(limit=100, now=None, should_stop=None):
     """`RECEIVED` 를 최대 `limit` 건 처리한다. 한 건의 실패가 다른 건을 막지 않는다. 반환: 결과별 건수.
 
-    앞 단계를 기다리는 보류분은 `REACTION_HOLD_RECHECK_SECONDS` 가 지나야 다시 대상이 된다 — 방금 확인한 보류분이 대기열 앞을 차지해
-    새로 들어온 반응을 굶기지 않고 돌려가며 처리된다(정렬은 접수 순서 그대로다).
+    앞을 기다리는 보류분은 앞 단계가 끝나 **깨워지거나**(`_wake_dependents`) `REACTION_HOLD_RECHECK_SECONDS` 가 지나야 다시 대상이 된다.
+    정렬은 **한 번도 확인하지 않은(또는 깨워진) 것 먼저**(접수 순서), 그 다음은 마지막 확인이 오래된 순이다 — 보류분이 아무리 쌓여도 새 반응이 그 뒤로 밀리지 않는다.
 
     `should_stop()` 이 참이 되면 **현재 반응을 끝낸 뒤 다음 반응을 시작하지 않는다**(남은 것은 `RECEIVED` 로 둔다).
     """
@@ -131,7 +154,7 @@ def process_pending(limit=100, now=None, should_stop=None):
     due = Q(checked_at__isnull=True) | Q(checked_at__lte=now_for_due - timedelta(seconds=settings.REACTION_HOLD_RECHECK_SECONDS))
     ids = list(
         Reaction.objects.filter(due, status=ReactionStatus.RECEIVED, attempts__lt=settings.REACTION_MAX_ATTEMPTS)
-        .order_by("received_at", "inbox_id").values_list("inbox_id", flat=True)[:limit]
+        .order_by(F("checked_at").asc(nulls_first=True), "received_at", "inbox_id").values_list("inbox_id", flat=True)[:limit]
     )
     counts = {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0, "transient": 0}
     for inbox_id in ids:

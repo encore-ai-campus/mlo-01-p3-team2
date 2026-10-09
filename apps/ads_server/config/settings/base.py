@@ -162,7 +162,7 @@ REACTION_DISPLAY_GRACE_SECONDS = 5  # 같은 표시 단위의 다음 결정이 �
 REACTION_CONVERSION_WINDOW_SECONDS = 30 * 24 * 3600  # 전환은 클릭 후 이 안에 있어야 한다
 REACTION_OCCURRED_AT_TOLERANCE_SECONDS = 60  # 매체가 보낸 감지 시각이 수신 시각보다 이만큼 넘게 미래면 거부
 REACTION_HOLD_SECONDS = 300  # 전제(노출·클릭)를 기다리며 보류하는 최대 시간. 끝내 오지 않으면 missing_prerequisite
-REACTION_HOLD_RECHECK_SECONDS = 5  # 보류한 반응을 다시 판정하는 간격(대기열이 보류분으로 막히지 않게 마지막 확인 순으로 돌린다)
+REACTION_HOLD_RECHECK_SECONDS = 30  # 보류한 반응을 주기적으로 다시 판정하는 간격 = 기한 경과를 잡는 **안전망**. 앞 단계가 끝나면 같은 결정의 보류분을 바로 깨우므로(processing._wake_dependents) 평소엔 이 간격을 기다리지 않는다. 5초였을 때 보류 N 건을 5초마다 전부 다시 판정해 처리 프로세스가 보류분만 돌았다(DB-1d 측정)
 REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해 본다(실패해도 접수 응답은 그대로). 끄면 process_reactions 가 전부 처리한다
 REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
 

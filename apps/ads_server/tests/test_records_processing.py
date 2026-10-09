@@ -273,6 +273,36 @@ class QueueTests(ProcessingBase):
         self.assertEqual(sleeps, [0.5, 0.5])
         self.assertEqual(Reaction.objects.get().status, "ACCEPTED")
 
+    def test_the_loop_survives_a_database_outage_and_keeps_polling(self):
+        """DB 가 잠시 끊겨도(재시작·전환·장애) 상시 처리 프로세스가 죽지 않는다 — 대기열 조회에서 난 예외로 종료하면 복구된 뒤에도 아무도 처리하지 않는다."""
+        self.receive()
+        from records import api as records_api
+
+        real, calls, sleeps = records_api.process_pending, [], []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) <= 2:
+                raise OperationalError(2003, "Can't connect to MySQL server")
+            return real(*args, **kwargs)
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 4:
+                raise KeyboardInterrupt
+
+        err = io.StringIO()
+        with mock.patch("records.management.commands.process_reactions.process_pending", flaky), \
+                mock.patch("records.management.commands.process_reactions.time.sleep", fake_sleep):
+            call_command("process_reactions", "--interval", "0.5", stdout=io.StringIO(), stderr=err)
+        self.assertEqual(Reaction.objects.get().status, "ACCEPTED")  # 복구 뒤 이어서 처리했다
+        self.assertEqual(err.getvalue().count("DB 연결 문제"), 2)
+        self.assertGreaterEqual(len(sleeps), 3)
+
+    def test_once_still_fails_loudly_on_a_database_error(self):
+        with mock.patch("records.management.commands.process_reactions.process_pending", side_effect=OperationalError(2003, "down")), self.assertRaises(OperationalError):
+            call_command("process_reactions", "--once", stdout=io.StringIO())
+
     def test_command_can_revive_stuck_reactions(self):
         view = self.receive()
         Reaction.objects.filter(pk=view.inbox_id).update(attempts=99)

@@ -7,6 +7,7 @@ import json
 import uuid
 from datetime import timedelta
 from random import Random
+from unittest import mock
 
 from django.db import connection
 from django.test import Client, TestCase, override_settings, tag
@@ -411,11 +412,57 @@ class HoldQueueTests(FunnelBase):
     def test_held_reactions_are_rechecked_only_after_the_interval(self):
         click = self.click(when=0)
         self.assertEqual(records.process_pending(now=at(0))["pending"], 1)
-        self.assertEqual(sum(records.process_pending(now=at(4)).values()), 0)  # 간격(5초) 전에는 다시 보지 않는다
+        self.assertEqual(sum(records.process_pending(now=at(4)).values()), 0)  # 간격(30초, 안전망) 전에는 다시 보지 않는다
         self.accept_impression(when=4)
         self.assertEqual(records.process_pending(now=at(5))["accepted"], 1)
         click.refresh_from_db()
         self.assertEqual(click.status, "ACCEPTED")
+
+    def test_the_prerequisite_finishing_wakes_the_held_reaction_without_waiting_for_the_interval(self):
+        """DB-1d: 앞 단계가 끝났다는 사건이 생기면 같은 결정의 보류분을 바로 다시 판정한다 — 보류를 짧은 주기로 계속 다시 보지 않아도 된다."""
+        click = self.click(when=0)
+        self.assertEqual(records.process_pending(now=at(0))["pending"], 1)
+        self.assertEqual(Reaction.objects.get(pk=click.pk).checked_at, at(0))
+        impression = self.report("IMPRESSION", when=1)
+        self.assertEqual(records.process_reaction(impression.inbox_id, now=at(1)), "ACCEPTED")
+        self.assertIsNone(Reaction.objects.get(pk=click.pk).checked_at)  # 깨워졌다 — 간격(30초)이 지나지 않았는데도
+        self.assertEqual(records.process_pending(now=at(2))["accepted"], 1)
+        self.assertEqual(Reaction.objects.get(pk=click.pk).status, "ACCEPTED")
+
+    def test_a_finished_reaction_of_another_decision_or_media_does_not_wake_it(self):
+        click = self.click(when=0)
+        records.process_pending(now=at(0))
+        other = World()
+        elsewhere = records.decide(other.slot.media_id, other.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+        view, _ = records.receive_reaction(other.slot.media_id, elsewhere.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=at(1))
+        records.process_reaction(view.inbox_id, now=at(1))  # 다른 결정
+        foreign, _ = records.receive_reaction(other.slot.media_id, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=at(1))
+        records.process_reaction(foreign.inbox_id, now=at(1))  # 같은 결정이지만 다른 매체의 보고(거부된다)
+        self.assertEqual(Reaction.objects.get(pk=click.pk).checked_at, at(0))  # 그대로다
+
+    def test_the_interval_is_still_the_safety_net_for_the_deadline(self):
+        """깨울 사건이 없어도(앞 단계가 끝내 오지 않아도) 기한이 지나면 안전망 주기에 `missing_prerequisite` 로 거부된다."""
+        click = self.click(when=0)
+        records.process_pending(now=at(0))
+        self.assertEqual(sum(records.process_pending(now=at(29)).values()), 0)
+        self.assertEqual(records.process_pending(now=at(301))["rejected"], 1)
+        self.assertEqual(Reaction.objects.get(pk=click.pk).reason_code, "missing_prerequisite")
+
+    def test_never_checked_reactions_come_before_held_ones_whatever_their_age(self):
+        """정렬: 한 번도 확인하지 않은(또는 깨워진) 것 먼저, 그다음은 마지막 확인이 오래된 순 — 보류분이 쌓여도 새 반응이 밀리지 않는다."""
+        _slot, decision = self.shared()
+        old_held = self.click(decision, when=0, viewer=A)
+        records.process_pending(now=at(0))  # old_held 확인 @0
+        newer_held = self.click(decision, when=1, viewer=B)
+        records.process_pending(now=at(10), limit=1)  # newer_held 확인 @10 (old_held 는 간격 전이라 건너뛴다)
+        fresh = self.report("IMPRESSION", when=20)  # 접수가 가장 늦지만 한 번도 확인하지 않았다
+        order = []
+        from records import processing
+
+        original = processing.process_reaction
+        with mock.patch("records.processing.process_reaction", side_effect=lambda i, now=None: (order.append(i), original(i, now=now))[1]):
+            records.process_pending(now=at(100), limit=10)
+        self.assertEqual(order[:3], [fresh.inbox_id, old_held.inbox_id, newer_held.inbox_id])
 
     def test_a_pile_of_held_reactions_does_not_starve_new_ones(self):
         """보류분은 마지막으로 손댄 순서로 돌려 처리한다 — 보류 N 건이 있어도 새 반응은 몇 번의 처리 안에 판정된다."""
@@ -446,10 +493,11 @@ class HoldQueueTests(FunnelBase):
         w = World()
         d = self.decide(w.slot, SUBJECT)
         self.media = w.slot.media_id
-        for _ in range(25):  # 같은 결정에 다른 반응이 많아도
-            self.report("IMPRESSION", d, when=0)
+        crowd = [self.report("IMPRESSION", d, when=0) for _ in range(25)]  # 같은 결정에 다른 반응이 많아도
         self.decision = d
-        self.judge(self.report("IMPRESSION", d, when=0), 0)
+        for row in crowd:  # 먼저 접수된 것부터 끝낸다(같은 유형은 먼저 접수된 쪽이 대표라 뒤쪽은 그것을 기다린다)
+            self.judge(row, 0)
+        self.assertEqual(self.judge(self.report("IMPRESSION", d, when=0), 0), "REJECTED")  # 중복 — 판정 경로가 작은 쪽(인정)과 다르지 않게 클릭은 인정된 노출 위에서 판정된다
         second = self.click(d, when=1)
         with CaptureQueriesContext(connection) as large:
             self.judge(second, 1)
