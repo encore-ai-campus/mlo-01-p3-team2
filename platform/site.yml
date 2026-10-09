@@ -1,15 +1,20 @@
 ---
+# 프록시를 켠 인벤토리는 첫 패키지 설치 전에 HTTPS 저장소와 APT 접속을 준비한다.
+- ansible.builtin.import_playbook: prepare-proxy.yml
+
 # 공통 보안: Bastion을 먼저 설정해, 나머지 서버가 Bastion을 경유하는 도중에 접속이 끊기지 않는지 확인한다.
 - name: 공통 보안 (Bastion)
   hosts: bastion
   become: true
   any_errors_fatal: true  # Bastion 설정이 실패하면 Bastion을 경유하는 나머지 서버로 진행하지 않는다.
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: common, tags: [common] }
 
 - name: 공통 보안 (나머지 서버)
   hosts: all:!bastion
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: common, tags: [common] }
 
@@ -18,30 +23,35 @@
   hosts: bastion
   become: true
   any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: firewall, tags: [firewall] }
 
 - name: 방화벽 (나머지 서버)
   hosts: all:!bastion
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: firewall, tags: [firewall] }
 
 - name: MySQL
   hosts: mysql
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: mysql, tags: [mysql] }
 
 - name: MongoDB
   hosts: mongodb
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: mongodb, tags: [mongodb] }
 
 - name: Kafka
   hosts: kafka
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: kafka, tags: [kafka] }
 
@@ -49,6 +59,7 @@
 - name: ZooKeeper와 Spark
   hosts: spark
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: zookeeper, tags: [zookeeper] }
     - { role: spark, tags: [spark] }
@@ -57,6 +68,7 @@
 - name: Backend
   hosts: backend
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: backend, tags: [backend] }
 
@@ -64,5 +76,6 @@
 - name: Monitoring
   hosts: all
   become: true
+  environment: "{{ proxy_environment }}"
   roles:
     - { role: monitoring, tags: [monitoring], when: "groups['monitoring'] | default([]) | length > 0" }

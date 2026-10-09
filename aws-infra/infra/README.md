@@ -1,189 +1,86 @@
 # 5개 계정 공통 실행 안내
 
-현재 실행 코드는 **C:\third_project\aws-infra\infra** 아래에 있다.
-설계 설명은 [terraform-restructure-plan.md](terraform-restructure-plan.md), 서버 설치 범위는 [bootstrap/README.md](bootstrap/README.md)를 참고한다.
-팀원 Windows PC의 도구 준비는 [setup-windows/README.md](setup-windows/README.md)를 참고한다.
-명령어의 각 옵션과 계정별 배포 대상은 [실행 명령어와 계정별 구성](scripts/README.md)에 정리했다.
+현재 코드 기준: 2026-10-10. 실행 위치는 C:\third_project\aws-infra이며 코드는 infra/ 아래에 있다. [배포 절차](../docs/deployment-runbook.md), [명령별 실행 안내](scripts/README.md), [코드 지도](../docs/infra-routing/ROUTING-README.md), [서버 설치 경계](bootstrap/README.md)를 함께 사용한다. 이 문서 작업에서는 AWS·Terraform 적용을 실행하지 않았다.
 
-**이 개편에서는 AWS 자원 생성·변경·삭제를 실행하지 않았다.**
-기존 로컬 Terraform 상태를 새 S3 상태로 이관하지도 않았다. 새 코드를 기존 자원에 연결하려면 적용 전에 유지·이관·교체 범위를 정해야 한다.
-
-## 1. 어디를 수정하는가
+## 1. 수정할 입력과 실행기
 
 | 파일 | 역할 |
-|---|---|
-| [config/topology.tfvars.json](config/topology.tfvars.json) | 5개 계정·16대 서버의 배치, 사양, AZ, 디스크, AMI, 공개키, ALB |
-| [config/traffic.tfvars.json](config/traffic.tfvars.json) | 관리자 IP, 서비스 공개 범위, 서비스 간 포트 |
-| [config/backend.json](config/backend.json) | 공통 S3 상태 버킷과 접근 프로필 |
-| [scripts/infra.ps1](scripts/infra.ps1) | 계정·단계를 선택하는 공통 실행기 |
-| [scripts/prepare-key.sh](scripts/prepare-key.sh) | SSH 키가 없을 때만 사용하는 선택 도구 |
-| [setup-windows/install-tools.ps1](setup-windows/install-tools.ps1) | Windows PC에 Terraform·AWS CLI를 설치하는 도구 |
+| --- | --- |
+| [topology.tfvars.json](config/topology.tfvars.json) | 계정·AZ·노드·사양·디스크·AMI·공개키·HTTP ALB |
+| [traffic.tfvars.json](config/traffic.tfvars.json) | 관리자/사용자 CIDR, 포트와 역할 연결, 선택적 port_end |
+| [backend.json](config/backend.json) | 기존 S3 상태 버킷·프로필·key_prefix |
+| [infra.ps1](scripts/infra.ps1) | 계정·단계별 Validate/Test/Plan/Apply/Output |
+| [deploy.ps1](scripts/deploy.ps1) | 구성 복사·단계별 배포·현재 IP 인벤토리·프록시 준비 |
+| [bastion.ps1](scripts/bastion.ps1) | 별도 Bastion 생성·삭제·전원·현재 주소 조회 |
+| [account-keys.ps1](scripts/account-keys.ps1) | 기존 개인키의 공개키 준비·기존 서버 등록 |
+| [destroy-all.ps1](scripts/destroy-all.ps1) | 상태 범위 전체 삭제 Plan·적용·진행·잔존 검사 |
+| [Windows 도구](setup-windows/README.md) | Terraform·AWS CLI 설치와 인증 준비 |
 
-설정은 Terraform과 PowerShell이 함께 읽는 JSON 형식이다. JSON 파일에는 주석을 넣지 않는다.
-AWS 액세스 키·시크릿 키는 이 파일들에 넣지 않고 기존 CLI 프로필을 사용한다.
+설정은 JSON이며 주석·AWS 액세스 키를 넣지 않는다. 공개키 상대 경로는 infra 기준이고 개인키는 운영 PC에 보관한다. 비용별 프로필의 topology·traffic을 골라도 backend와 동일 원격 상태를 공유한다.
 
-## 2. 현재 반영한 배치와 기본값
+## 2. 현재 기본값
 
-- 계정별 서버 수: **4 / 3 / 4 / 2 / 3대**, 전체 16대.
-- 논리 A = **apne2-az1**, 논리 C = **apne2-az3**. 기존 네트워크 상태에서 확인한 물리 AZ ID이며, 계정별 콘솔의 a/c 글자와 항상 같다는 뜻은 아니다.
-- 계정별 VPC: **10.10 / 10.20 / 10.30 / 10.40 / 10.50.0.0/16**.
-- 각 VPC의 Private A·C는 세 번째 옥텟 10·11인 /24, Public A·C는 0·1인 /24로 만든다.
-  예: Account 1은 10.10.10.0/24, 10.10.11.0/24, 10.10.0.0/24, 10.10.1.0/24.
-- 비용 문서의 현재 가정대로 Account 1만 Public 서브넷·IGW를 만들고, **NAT 0개 + Bastion Forward Proxy**를 선택했다.
-- Bastion과 Front 2대에 고정 EC2 공인 IP 각 1개, Account 1에 ALB 1개.
-- OS 디스크는 20GiB/대. 150명 비용 가정에 맞춘 초기 데이터 디스크는 Mongo 900GiB/대, Kafka 200GiB/대, Spark 100GiB/대, MySQL 100GiB/대다. **실측 권장 용량이 아니라 기존 견적의 입력값**이다.
-- 관리자 SSH와 ALB 외부 공개 CIDR은 비어 있다. 채우기 전에는 외부에서 접속할 수 없다.
-- 보안그룹은 역할별 통신에 필요한 TCP 포트만 연다. 서버 사용자·파일 권한을 설정하지 않는다.
-- 기본 ALB는 HTTP 80을 HTTPS 443으로 돌리고, /static/*는 Front HTTP 80, 나머지 경로는 game HTTP 8000으로 보낸다. 아직 실제 앱의 경로·헬스 체크를 검증한 설정은 아니므로 배포 전에 맞춘다.
+- 리전 ap-northeast-2, 논리 A=apne2-az1·C=apne2-az3. 계정 콘솔 AZ 이름과 구분한다.
+- VPC는 10.10·10.20·10.30·10.40·10.50.0.0/16이다. 각 Private A/C는 /24의 세 번째 옥텟 10/11이다.
+- 서비스 서버는 계정별 4/2/4/2/3대, 총 15대다. Bastion은 account1 Public A의 별도 상태로 선택 생성한다. 포함하면 계정별 5/2/4/2/3대, 총 16대다.
+- 광고는 account1 Private C다. account1만 Public A/C·IGW·ALB를 만들며 기본 NAT는 0개다.
+- Front 두 대에 EIP를 만들고 Bastion은 자동 공인 IP를 사용한다. 서비스 OS 디스크는 20GiB, 별도 데이터 디스크는 [프로젝트 구성표](../README.md#서버-수와-사양)를 따른다.
+- ALB는 HTTP 80이며 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. ACM ARN을 요구하거나 HTTPS 리스너를 만들지 않는다.
+- 현재 관리자·사용자 CIDR은 각각 한 항목이다. 배포 전에 본인의 접속 범위와 맞는지 확인한다. 서비스 콘솔 SSH는 리전별 EC2 Instance Connect IPv4 접두사 목록 → 서비스 역할 SG의 TCP 22 규칙을 별도로 선언한다.
 
-Proxy 프로그램은 자동 설치하지 않는다. 서비스 간에는 사설 Peering 경로를 사용하고,
-인터넷 HTTPS는 애플리케이션의 Proxy 설정과 실제 Proxy 서비스가 있어야 사용할 수 있다.
-Private 서브넷의 기본 라우트를 Bastion이나 다른 VPC의 IGW에 연결하는 구성이 아니다.
+인터넷 다운로드는 [프록시 준비](../../platform/README.md#구성별-프록시-준비-스크립트)가 필요하다. NAT 모드로 바꾸려면 해당 계정의 public_subnets=true·egress=nat로 Public A/C의 AZ별 NAT를 만들고 인터넷 송신 SG·프로그램 Proxy 설정도 맞춘다. 다른 VPC의 NAT를 Peering만으로 공유하는 구성은 아니다.
 
-NAT로 바꾸려면 해당 계정의 topology 설정에서 public_subnets를 true, egress를 "nat"으로 바꾼다.
-foundation이 **Public A·C에 public NAT를 하나씩** 만들고 **각 Private 서브넷을 같은 AZ NAT로 라우팅**한다.
-클라이언트의 직접 HTTPS 송신이 필요하면 traffic의 internet_https_roles와 프로그램의 Proxy 설정도 함께 조정한다.
+## 3. 배포 전 확인할 값
 
-## 3. 실제 배포 전 채울 값
+현재 기본 파일에는 S3 bucket, 다섯 계정 AMI와 config/keys/account1.pub~account5.pub 경로가 채워져 있다. 채워져 있다는 것만으로 실제 자원·권한·키 일치를 보증하지 않는다. 기본 backend의 bucket은 aws-infra-tfstate-541308265856, region=ap-northeast-2, profile=account1, key_prefix=aws-infra-v2다. AMI 기본값은 ami-0c713e716602facc2다. 선택한 프로필의 실제 값을 사용한다.
 
-| 설정 | 필요한 값 |
-|---|---|
-| backend.bucket | 이미 준비한 S3 상태 버킷 이름. 현재 빈칸 |
-| backend.region / profile | 그 버킷의 리전과 접근할 CLI 프로필. 기본 프로필 account1 |
-| accounts.*.ami_id | 서울 리전에서 사용할 Ubuntu 24.04 x86_64 AMI. 현재 빈칸 |
-| accounts.*.ssh_public_key_path | 해당 계정 EC2에 등록할 OpenSSH 공개키 파일 |
-| alb.certificate_arn | Account 1·서울 리전의 ACM 인증서 ARN. 현재 빈칸 |
-| traffic.admin_public_cidrs | 팀원의 관리자 공인 IPv4 CIDR, 개인 IP는 /32 |
-| traffic.game_client_cidrs | 서비스에 접속할 사용자 IPv4 CIDR |
+| 입력 | 확인 |
+| --- | --- |
+| 계정 ID·CLI 프로필 | STS 응답과 accounts.*.id가 일치 |
+| 상태 버킷 | 버전 관리 Enabled, 상태·잠금 파일 접근 권한 |
+| AMI | 선택 리전·x86_64·Ubuntu 24.04와 맞는 실제 이미지 |
+| 공개키 | 계정별 개인키와 쌍이며 infra 기준 경로에 존재 |
+| 관리자/사용자 CIDR | Bastion SSH / ALB HTTP 접속 범위 |
+| ALB 앱 경로 | 실제 /static/*·/ads/*·헬스 체크 응답 |
 
-공개키의 상대 경로는 `infra/`를 기준으로 해석한다.
-기존 Account 1 공개키만 config/keys/account1.pub로 복사했다.
-Account 2~5의 공개키 경로는 비워 두었다. 팀이 같은 공개키를 사용하기로 했다면 동일한 .pub 경로를 명시할 수 있다.
-개인키는 각자의 PC에서 보관하며 Terraform에 전달하지 않는다. 새 키를 만들 필요가 없다면 prepare-key.sh를 실행하지 않는다.
+certificate_arn은 현재 공통 입력 타입에 남아 있지만 HTTP ALB에 전달하지 않는다. 인증서가 없다는 이유로 이 구성의 Plan·Apply를 막지 않는다. 실행기는 로그인·버킷 생성·권한 수정·기존 상태 이관을 자동으로 수행하지 않는다.
 
-계정 ID와 프로필은 기존 설정에서 옮겼고 Account 1 프로필은 실제 등록된 account1로 맞췄다.
+## 4. 실행 순서와 상태
 
-| 이름 | 계정 ID | CLI 프로필 |
-|---|---|---|
-| account1 | 541308265856 | account1 |
-| account2 | 529088287882 | account2 |
-| account3 | 667879771148 | account3 |
-| account4 | 688567306400 | account4 |
-| account5 | 217016296352 | account5 |
+도구는 PowerShell 5.1 이상, Terraform >=1.11·<2.0, AWS CLI와 각 계정 인증이다. provider는 ~>6.68이며 각 stack lock 파일을 사용한다. Ansible 연결에는 WSL·가상환경·키도 필요하다.
 
-Plan·Apply·Output은 실제 프로필의 계정 ID를 STS로 확인한다.
-이미 등록한 자격 증명이 유효하면 매번 브라우저 로그인할 필요가 없다. 실행기가 login.ps1이나 aws login을 호출하지 않는다.
-
-상태 버킷에는 버전 관리가 켜져 있어야 한다. 실행기는 이를 조회하고, 꺼져 있으면 중단한다.
-버킷 자동 생성·권한 수정은 하지 않는다. backend 프로필에는 버전 관리 상태 조회·객체 목록/읽기/쓰기와
-잠금 파일(.tflock)의 읽기/쓰기/삭제 권한이 필요하다. 다른 stack의 상태를 읽는 데도 이 프로필을 사용한다.
-[S3 backend 공식 권한 안내](https://developer.hashicorp.com/terraform/language/backend/s3#permissions-required)
-
-## 4. 실행 순서
-
-`-Account`·`-Stage`·`-Action`의 의미, 5개 계정의 서버 목록, 단계별 명령 예시는 [실행 상세 안내](scripts/README.md)를 참고한다.
-
-필요 도구: **Terraform 1.11 이상 2.0 미만**, AWS CLI, PowerShell 5.1 이상.
-AWS provider는 6.x이며 각 stack의 .terraform.lock.hcl에 버전을 고정한다.
-
-작업 경로는 다음과 같이 잡는다.
-
-~~~powershell
+```powershell
 Set-Location C:\third_project\aws-infra
-~~~
-
-먼저 AWS에 접근하지 않는 정적 검증을 할 수 있다. 최초 init은 provider 다운로드가 필요할 수 있다.
-
-~~~powershell
+# 먼저 정적 검사를 한다. provider가 없으면 다운로드가 필요할 수 있다.
 .\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Validate
 .\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Validate
 .\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Validate
-~~~
-
-Validate는 문법과 스키마를 검사한다. 실제 AMI·권한·서비스 설치나 AWS 연결 성공을 확인하는 명령은 아니다.
-
-실제 구축 순서는 **5개 계정 foundation → 공통 connectivity → 5개 계정 workload**다.
-아래 Plan/Apply는 사용자가 검토 후 실행할 명령이며, 이번 개편에서 실행하지 않았다.
-
-~~~powershell
-# Account 1의 기반 네트워크 계획을 확인한 뒤 적용한다.
+# foundation은 account1~5 각각 Plan → 검토 → Apply한다.
 .\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Plan
 .\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Apply
-
-# Account 2~5도 계정 이름을 바꾸어 foundation Plan → 검토 → Apply를 수행한다.
-# 다섯 계정의 foundation이 모두 끝난 후 공동 연결을 구성한다.
+# 다섯 foundation 완료 후 연결을 구성한다.
 .\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Plan
 .\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Apply
-
-# 서버·보안그룹 규칙·ALB는 계정마다 계획하고 적용한다.
+# workload도 account1~5 각각 같은 순서로 진행한다.
 .\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Plan
 .\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Apply
+# 별도 Bastion 계획을 검토한 뒤 생성한다.
+.\infra\scripts\bastion.ps1 -Action PlanCreate
+.\infra\scripts\bastion.ps1 -Action Create
+```
 
-# 계정별 서버 주소와 역할을 JSON으로 저장한다.
-.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Output
-~~~
+Apply는 저장 계획을 추가 확인창 없이 적용한다. Plan의 삭제·교체를 검토하고, 설정·코드·공개키가 바뀌면 새 Plan을 만든다. Apply 성공 후 계획과 manifest는 제거된다. 새 Plan이 실패하면 이전 계획도 적용할 수 없다.
 
-Apply는 **이미 저장한 계획을 그대로 적용하며 추가 확인창은 띄우지 않는다.**
-Plan 출력의 생성·변경·삭제 대상을 확인한 다음 실행한다.
-설정·Terraform·실행기·공개키가 바뀌면 Apply를 막으므로 다시 Plan을 만든다.
-이번 폴더 이동 전에 저장한 계획도 새 경로에서 Plan을 다시 실행한 뒤 검토한다.
-새 Plan이 실패하면 이전 계획을 적용할 수 없게 무효화한다.
-팀원이 그 사이 상태를 갱신한 경우 Terraform의 저장 계획 검사도 적용된다.
+S3 상태는 foundation/workload 계정별 10개와 shared/connectivity 1개, 선택 Bastion의 account1/bastion 1개다. 기본 key는 aws-infra-v2/계정/단계/terraform.tfstate다. S3 use_lockfile과 버전 관리를 사용하고 Terraform workspace는 default다. 로컬 작업은 .local/계정/단계, 다른 프로필은 .local/profiles/구성경로해시/계정/단계로 분리하며 이 분리가 원격 환경 복제를 뜻하지는 않는다.
 
-상태 파일은 하나의 버킷 안에서 다음 11개 경로로 분리한다.
+## 5. 설치·변경·정리
 
-~~~text
-aws-infra-v2/account1/foundation/terraform.tfstate
-aws-infra-v2/account1/workload/terraform.tfstate
-... account2~account5 각각 foundation/workload ...
-aws-infra-v2/shared/connectivity/terraform.tfstate
-~~~
+생성 후 Inventory → Proxy는 [deploy.ps1 실행 안내](scripts/README.md#비용별-구성-선택과-일괄-배포)를 따른다. Proxy 완료 후 Vault·데이터 마운트를 준비하고 WSL에서 서비스 역할을 실행한다. 클러스터 설치는 각 역할 전체를 대상으로 검증까지 완료한다.
 
-S3 잠금은 use_lockfile=true를 사용한다. 기본 Terraform workspace만 사용한다.
-로컬 작업 파일은 infra/.local/계정/단계 아래에 분리하며 Git에서 제외한다.
-S3 잠금과 별개로 같은 PC에서 같은 계정·단계의 실행기를 동시에 실행하지 않는다.
+현재 데이터 EBS의 prevent_destroy=false다. 사양·노드 이름·계정·AZ 변경 계획에 데이터 삭제·교체가 포함될 수 있다. 자동 백업·이전·파일시스템 확장은 없다. 전체 정리는 [삭제 절차](scripts/README.md#15-전체-인프라-삭제)로 분리하고 상태 밖 수동 자원이나 상태 S3 버킷을 삭제한다고 가정하지 않는다.
 
-## 5. 변경과 데이터 이전
+## 6. 테스트와 이관 이력
 
-| 변경 | 수정할 곳 | 적용 범위 |
-|---|---|---|
-| 같은 계정·AZ의 사양/디스크 용량 | topology.nodes | 해당 workload |
-| 노드의 계정·AZ·역할 이동 | topology.nodes | 관련 foundation → connectivity → workload 검토 및 데이터 이전 |
-| VPC·AZ ID·NAT 방식 | topology.accounts / az_ids | foundation → connectivity → workload 재검토 |
-| 통신 포트·관리자 IP | traffic | 규칙 양끝에 해당하는 workload |
-| ALB 경로·헬스 체크 | topology.alb | ALB 계정 workload 및 서버 설정 |
+[테스트 안내](tests/README.md)는 실행기 모의 테스트·Terraform 테스트·미해결 기대값을 구분한다. Validate·모의 테스트 성공은 실제 IAM·Peering·AMI·서비스 성능 확인과 다르다. 이번 문서 작업에서 이를 재실행하지 않았다.
 
-노드 이름과 데이터 디스크 이름은 Terraform 자원 식별자다. 표시 이름처럼 임의로 바꾸지 않는다.
-EBS 데이터 볼륨에는 prevent_destroy가 있어 자동 삭제·교체 계획을 막는다.
-계정·AZ 이동은 스냅샷/복제·새 대상 준비·데이터 이전·접속 전환 계획이 필요하며 자동 이전하지 않는다.
-이 보호를 제거하거나 자원을 state에서 빼는 작업을 일상적인 실행 절차로 사용하지 않는다.
-용량 증설 뒤에는 서버 안의 파일시스템 확장이 필요할 수 있다.
-
-기존 Account 1 네트워크는 10.11.0.0/16, 새 배치는 10.10.0.0/16이다.
-새 Plan은 기존 자원을 알아서 재사용하지 않으며 추가 자원을 생성하는 계획이 나올 수 있다.
-기존 .terraform-state와 새 S3 상태를 구분하고, 실제 교체 방식을 결정한 뒤 적용한다.
-
-## 6. 검증
-
-~~~powershell
-# 아래 Terraform 테스트는 AWS provider와 원격 상태를 모의 처리한다.
-.\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Test
-.\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Test
-.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Test
-
-# Python 3.10 이상: AWS/Terraform CLI 대신 가짜 실행 파일로 실행기 보호 동작을 확인한다.
-python .\infra\tests\test_runner.py
-~~~
-
-기존 provider 파일을 사용할 때는 -PluginDirectory에 provider 디렉터리를 지정할 수 있다.
-테스트용 JSON·임시 계획은 .local/tests 아래에만 생성한다.
-테스트는 설치 프로그램의 실제 동작, AWS IAM 권한, 서비스 성능을 보증하지 않는다.
-
-## 7. 이전 파일
-
-대체된 Account 1 스크립트·기존 Terraform 소스·기존 계정 설정은
-**C:\third_project\trash\aws-infra-legacy-20261009**에 원래 상대 경로를 유지해 보관한다.
-이동 목록은 그 폴더의 manifest.json을 참고한다.
-
-기존 .terraform-state, .terraform 캐시/초기화 정보, SSH 개인키, AWS CLI 프로필은 정리 대상에서 제외했다.
-새 실행기는 trash의 파일을 읽지 않는다.
+2026-10-09 개편 당시 대체된 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 보관했다는 기록이 있다. 현재 실행기는 그 파일을 읽지 않는다. 과거 10.11.0.0/16 네트워크·로컬 상태가 새 10.10.0.0/16 S3 구성에 자동 이관된 것은 아니다. 실제 상태·자원 연결은 별도 이관 계획으로 확인한다.

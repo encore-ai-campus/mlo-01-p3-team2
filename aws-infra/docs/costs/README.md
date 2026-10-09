@@ -1,50 +1,33 @@
-# 계정별 인프라 구성 및 A·C 운영 계획
+# 현재 자원 구성과 과거 비용 견적
 
-갱신일: **2026-10-08 (한국 시간)**
+문서 갱신: 2026-10-10. 현재 구성은 로컬 topology 설정과 라우팅 문서를 대조했다. AWS 사용액·크레딧 잔액·최신 단가는 이번 문서 정리에서 조회하지 않았다.
 
-사용자가 지정한 5개 계정의 VPC·서버·인스턴스 사양을 기준으로 구성한다. Kafka·Spark·MongoDB·MySQL 노드는 가용 영역 A·C에 나눠 배치한다. 아래 배치는 문서상의 운영 계획이다.
+## 현재 기본 구성
 
-## 계정별 구성과 가용 영역 배치
+서비스 EC2 15대와 별도 bastion 단계의 배스천 1대다. 배스천을 포함하면 small 8대·large 8대, AZ A 10대·C 6대다. 사양은 t3a.small / t3a.large이며 배포 프로필에서 변경할 수 있다.
 
-**5개 계정 · EC2 16대 · 가용 영역 A 10대 / C 6대 · ALB 1개**
+| 계정 / VPC | AZ A | AZ C | EC2 / 전체 EBS |
+|---|---|---|---|
+| Account 1 / 10.10.0.0/16 | Public Bastion small, Public Front-A small, Private game large | Public Front-C small, Private ad large | 5대 / 100GiB |
+| Account 2 / 10.20.0.0/16 | Private Mongo-1 small, Spark-2 large | 없음 | 2대 / 1,040GiB |
+| Account 3 / 10.30.0.0/16 | Private Kafka-1 large, MySQL-1 small, Spark-1 large | Private Mongo-2 small | 4대 / 1,380GiB |
+| Account 4 / 10.40.0.0/16 | Private Kafka-2 large | Private Spark-3 large | 2대 / 340GiB |
+| Account 5 / 10.50.0.0/16 | Private Mongo-3 small | Private MySQL-2 small, Kafka-3 large | 3대 / 1,260GiB |
+| 합계 | 10대 | 6대 | 16대 / 4,120GiB |
 
-**사양 범례:** `S` = `t3a.small` · `L` = `t3a.large`  
-각 서버 앞에 Public·Private을 표시했다. A·C는 서로 다른 물리 가용 영역이며, 계정별 AZ 이름은 AZ ID와 대조한다.
+전체 EBS는 OS 20GiB/대와 데이터 볼륨을 합산한 할당량이다. 배스천을 생성하지 않으면 15대·4,100GiB다. 데이터 볼륨의 포맷·마운트는 자동화되지 않았다. 계정별 상세 배치는 [자원 배분](account-allocation.md)을 따른다.
 
-| 계정 / VPC | 가용 영역 A | 가용 영역 C | EC2 |
-|---|---|---|---:|
-| **Account 1**<br>`10.10.0.0/16` | Public · Bastion `S`<br>Public · Front(A) `S`<br>Private · game-server `L` | Public · Front(B) `S` | **4대** |
-| **Account 2**<br>`10.20.0.0/16` | Private · Mongo-1 `S`<br>Private · Spark-2 `L` | Private · Ad-server `L` | **3대** |
-| **Account 3**<br>`10.30.0.0/16` | Private · Kafka-1 `L`<br>Private · MySQL-1 `S`<br>Private · Spark-1 `L` | Private · Mongo-2 `S` | **4대** |
-| **Account 4**<br>`10.40.0.0/16` | Private · Kafka-2 `L` | Private · Spark-3 `L` | **2대** |
-| **Account 5**<br>`10.50.0.0/16` | Private · Mongo-3 `S` | Private · MySQL-2 `S`<br>Private · Kafka-3 `L` | **3대** |
+Account 1의 ALB는 Public A·C에 연결한 HTTP 80 리스너다. Front 2대에 EIP를 할당하지만 배스천은 자동 공인 IPv4를 사용한다. 배스천 중지 후 시작 시 공인 IP가 바뀔 수 있으므로 고정 IP 3개를 유지한다는 과거 가정을 현재 구성에 적용하면 안 된다. 기본 NAT Gateway는 0개이고 사설 서버의 설치 다운로드는 배스천 Squid 프록시를 사용한다.
 
-**ALB:** Account 1의 **Public A·C에 걸쳐 1개**를 배치한다. 위 EC2 수량에는 포함하지 않는다.  
-**Front(B):** 두 번째 프론트의 이름이며, 실제 배치 가용 영역은 **C**다.
+현재 기본값은 A=apne2-az1, C=apne2-az3이다. 계정별 AZ 이름보다 물리 AZ ID를 기준으로 비교한다. 선언과 실제 AWS 배치의 일치는 별도 확인 대상이다.
 
-Account 1은 기존 A·C 배치를 따르고, Account 2~5는 기존 비용 계산에서 사용한 A·C 배치를 유지한다.
+## 비용 비교 시 바꿔야 할 입력
 
-<details>
-<summary><strong>서비스별 A·C 분산 보기</strong> — Kafka · Spark · MongoDB · MySQL</summary>
+과거 견적은 ad가 Account 2에 있었고, Spark Master 1대·Worker 2대의 처리량 배분과 배스천 고정 IP 유지 시간을 가정했다. 현재 ad는 Account 1이고 Spark는 Master 2개·Worker 3개다. 아래의 계정별 금액이나 50명·100명용 디스크를 현재 기본값의 견적으로 사용하지 않는다.
 
-| 서비스 | 가용 영역 A | 가용 영역 C |
-|---|---|---|
-| Kafka | Kafka-1 (Account 3)<br>Kafka-2 (Account 4) | Kafka-3 (Account 5) |
-| Spark | Spark-1 (Account 3)<br>Spark-2 (Account 2) | Spark-3 (Account 4) |
-| MongoDB | Mongo-1 (Account 2)<br>Mongo-3 (Account 5) | Mongo-2 (Account 3) |
-| MySQL | MySQL-1 (Account 3) | MySQL-2 (Account 5) |
+현재 프로필의 서버 크기·대수·EBS 할당량, EC2 실행 시간, EBS·ALB·EIP 유지 시간, 자동 공인 IPv4 할당 시간, 실제 전송량·응답 크기, CPU 크레딧, 세금과 남은 계정별 크레딧을 다시 넣어야 한다. 2026-10-13~19 중 평일 09:00~18:00의 45시간 운영과 153시간 자원 유지는 당시 견적용 일정이며 자동 예약 설정이 아니다.
 
-</details>
-
-## 운영 일정과 일일 비용 확인
-
-운영 기간은 **2026년 10월 13일부터 19일까지, 오전 9시부터 오후 6시까지**로 잡는다. 기존 비용 계산과 동일하게 **평일인 13·14·15·16·19일, 총 45시간**을 기준으로 한다.
-
-최대 **150명이 각자 초당 30개 이벤트**를 보내면 전체 발생량은 **초당 4,500개**다. 기존 견적의 추가 통신 예시 포함 비용은 **$327.22**로, 최초 총 크레딧 **$300(5개 계정 × $60)**을 넘을 수 있다. 인터넷 무료 송신 100GB가 남아 있는 경우의 예시도 **$314.62**다.
-
-팀은 **하루 단위로 전체 비용과 계정별 사용 금액·남은 크레딧을 확인하면서 예산 범위에 맞춰 운영하는 것**을 목표로 한다. 특히 비용이 집중되는 Account 1의 사용 금액을 함께 확인한다. 일일 비용 확인은 운영 계획이며, 아래 예상 금액과 실제 사용량을 비교해 관리한다.
-
-## 기존 비용 계산 기준과 시나리오
+## 2026-10-08 견적 기록 — 현재 배포의 견적 아님
 
 **2026-10-13·14·15·16·19, 매일 09:00~18:00에 같은 인원이 계속 접속하는 독립 시나리오 세 개**다. 50명·100명·150명의 금액을 서로 더하지 않는다. 각 사용자가 초당 30개 이벤트를 보내며, EC2는 45시간 실행하고 EBS·ALB·고정 IPv4는 153시간 유지하는 조건이다.
 
@@ -61,7 +44,7 @@ Account 1은 기존 A·C 배치를 따르고, Account 2~5는 기존 비용 계�
 
 추가 통신 예시는 **Spark의 추가 A↔C 통신을 입력 원본량의 0.5배, MySQL binlog 교차 전송을 1배**로 놓은 민감도 계산이다. 실측값이나 제품 기본 동작을 뜻하지 않는다. 광고·정적 파일·추가 Kafka 발행·재처리·CPU 초과 크레딧·별도 로그/백업·용량 추가·세금 등은 별도다.
 
-## 반영한 구성
+## 당시 견적에 반영한 구성
 
 - 서울 리전 `ap-northeast-2`, 서로 다른 물리 가용 영역 **A·C**. 계정별 AZ 이름은 AZ ID와 대조한다.
 - EC2 **16대: t3a.small 8대 + t3a.large 8대**. Spark-1도 large다.
@@ -71,7 +54,7 @@ Account 1은 기존 A·C 배치를 따르고, Account 2~5는 기존 비용 계�
 - 모든 EC2에 OS 20GiB. MongoDB·Kafka는 데이터량에 따라 증설하고, Spark·MySQL의 추가 100GiB/대는 기존 가정을 유지한다.
 - 최대 인원으로 45시간 내내 처리할 때의 산술 예시다. 이 사양이 1,500~4,500 이벤트/초를 처리할 수 있는지는 미검증이다.
 
-## 계정별 예시와 $60 한도
+## 당시 계정별 예시와 $60 한도
 
 아래는 **추가 Spark·MySQL 통신 예시 포함, 인터넷 무료량 차감 전**이다. ALB와 인터넷 송신 비용은 Account 1에 반영하며, 전송료를 5등분하지 않는다.
 
@@ -86,18 +69,9 @@ Account 1은 기존 A·C 배치를 따르고, Account 2~5는 기존 비용 계�
 
 100명·150명은 이 조건에서 **Account 1의 소계만으로 $60을 넘는다**. 무료 송신 100GB를 전부 적용해도 Account 1은 각각 $85.82·$126.96이다. 50명도 Account 1에 남는 차액은 약 $2.72뿐이며, 기존 사용액과 미포함 비용이 있으므로 $60 이내를 보장하지 않는다. 150명은 추가 통신 예시에서 Account 3도 $60을 넘는다. 실제 크레딧 잔액은 조회하지 않았다.
 
-## 상세 근거와 재계산
 
-- [상세 계산·배치·가정·단가·경로별 비용](dual-az.md)
-- [계산 스크립트](calculate.py) — Python 표준 라이브러리만 사용하며 AWS에 접근하지 않는다.
-- [기본 입력값의 계산 결과](estimate.json) — 반올림 전 계정별·항목별 값.
+## 상세 근거와 재계산 범위
 
-저장소 루트에서 다음 명령을 실행한다. 응답 크기는 이벤트 1개에 대해 **모든 수신자에게 보내는 응답 바이트 합계**다.
+[상세 견적 기록](dual-az.md)은 당시 단가·전송량·계산식을 보관한다. 현재 배치와 과거 계산 배치를 구분해 읽는다. 이전 문서가 안내한 calculate.py와 estimate.json은 현재 비용 문서 폴더에 없으므로 실행 명령과 링크를 제거했다. 이 저장소에 재계산 도구가 구현되어 있다고 안내하지 않는다.
 
-```powershell
-python -X utf8 costs/calculate.py
-python -X utf8 costs/calculate.py --free-egress-gb 100
-python -X utf8 costs/calculate.py --event-bytes 1024 --response-bytes 2048
-```
-
-153시간 이후의 보관료는 이번 기간 견적에서 제외했다. 이는 **10월 19일에 데이터를 삭제하라는 정책이나 자동 삭제 설정이 아니다**. 운영 종료 후 보관할 EBS·백업·ALB·IP가 있으면 그 기간을 추가한다. 실제 리소스 배포·삭제·예약은 수행하지 않았다.
+153시간 이후 보관료를 제외했던 가정은 데이터 삭제 정책이 아니다. 종료 후 남기는 EBS·백업·ALB·IP의 비용을 추가하고, 실제 삭제는 [배포·삭제 실행 안내](../deployment-runbook.md)를 따른다.

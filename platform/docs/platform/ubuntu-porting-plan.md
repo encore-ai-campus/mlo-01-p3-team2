@@ -9,6 +9,14 @@
 
 ---
 
+# 현재 배포 연결 범위 — 2026-10-10
+
+이 문서의 구현·검증 완료 상태와 2026-10-08 서버 시험은 당시 포팅 결과다. 이번 문서 갱신은 로컬 코드·라우팅 문서의 반영이며 새 AWS 배포나 외부 호환성 시험을 수행한 결과가 아니다.
+
+포팅 후 추가된 prepare-proxy.yml과 bootstrap-proxy.yml은 Ubuntu 24.04 amd64 기본 이미지에 한정한다. 기존 서비스 역할의 AL2023 지원을 이 프록시 준비에도 적용할 수 있다고 해석하지 않는다. 현재 NAT 0개 구성에서는 Bastion의 Squid를 설치하고 HTTPS APT·원격 다운로드를 준비한 후 역할을 설치한다. 생성된 hosts.current.yml을 명시하는 실행·Vault 절차는 [플랫폼 README](../../README.md)를 따른다.
+
+현재 Spark 통신은 Master 7077·8080, Worker 7100, Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888이다. zookeeper만 실행해 성공했더라도 Spark 설치는 별도이므로 두 역할을 함께 선택한다. AWS 규칙 적용과 서비스 설치를 각각 확인한다. [Spark 설정 지도](../platform-routing/roles/spark/README.md), [준비 플레이북 지도](../platform-routing/prepare-proxy.yml.md)를 참고한다.
+
 # 1. 목적과 범위
 
 - **포팅이다.** 새 기능은 없다. AL2023에서 구현·검증된 범위(P0~P8: 공통 보안, 방화벽, MySQL, MongoDB, Kafka, ZooKeeper·Spark, Backend·Frontend, Monitoring, 통합)를 Ubuntu 24.04 LTS에서 같은 결과로 동작하게 한다.

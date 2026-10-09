@@ -12,7 +12,9 @@ PowerShell 5.1 공통 함수 모음이다. 아래 선언은 원본 PowerShell을
 | Invoke-InfraTerraform | ([string]$Command, [string]$Directory, [string[]]$Arguments) | -chdir로 실행하고 0이 아닌 종료 코드를 오류로 전달 |
 | Assert-InfraConfiguration | ($Topology, $Traffic) | 계정·VPC·송신 방식·외부 CIDR·포트 검사 |
 | Assert-InfraBackend | ($Backend, $Topology) | S3 버킷 이름·key_prefix 형식·리전·등록 프로필 검사 |
-| Get-InfraFingerprint | ([string]$Root, [string]$PublicKeyPath) | 배포 입력 파일 목록과 각 해시를 합쳐 전체 fingerprint 생성 |
+| Get-InfraWorkPath | ([string]$Root, [string]$Account, [string]$Stage, [string]$ConfigurationDirectory) | 기본 경로는 유지하고 별도 구성의 로컬 Plan·출력 경로를 구성 경로 해시로 분리 |
+| Get-InfraFingerprint | ([string]$Root, [string]$PublicKeyPath, [string]$ConfigurationDirectory) | 배포 입력 파일 목록과 각 해시를 합쳐 전체 fingerprint 생성 |
+| Assert-InfraBastionPlan | ($Plan, [ValidateSet('Create','Delete')][string]$Mode, [string]$Account, [string]$Project) | Bastion 전용 자원·변경 종류·기존 자원 태그 검사 |
 
 ## 설정 검사의 범위
 
@@ -26,7 +28,14 @@ Assert-InfraBackend는 로컬 값의 형식을 검사한다. 실제 AWS 계정·
 
 - infra/config 바로 아래의 JSON 파일.
 - infra/terraform 아래의 .tf 및 .terraform.lock.hcl 파일. .terraform 캐시 내부는 제외한다.
-- infra/scripts/infra.ps1 및 infra/scripts/lib 바로 아래의 .ps1 파일.
+- infra/scripts/infra.ps1, infra/scripts/bastion.ps1, infra/scripts/destroy-all.ps1 및 infra/scripts/lib 바로 아래의 .ps1 파일.
 - 선택한 공개키 파일이 존재하면 그 내용의 해시.
+- ConfigurationDirectory를 지정하면 해당 topology.tfvars.json·traffic.tfvars.json의 절대 경로와 내용 해시.
 
 Markdown, 로컬 상태·계획·캐시, .tftest.hcl, prepare-key.sh, 설치 스크립트는 이 함수의 목록에 포함되지 않는다. 이 해시는 실행기의 저장 계획 유효성 검사에 사용하며, 프로젝트의 모든 파일이나 실제 AWS 상태를 비교하는 해시는 아니다.
+
+## Bastion 저장 계획 검사
+
+Assert-InfraBastionPlan은 planned_values·prior_state와 resource_changes를 대조한다. 허용하는 managed 주소는 module.model.terraform_data.configuration, module.bastion.aws_instance.this, module.bastion.aws_key_pair.this뿐이다. Create는 no-op/create/update, Delete는 no-op/delete만 허용하고 교체·import·deferred 변경은 거부한다. 기존 EC2·키페어의 Project·Account·Stage=bastion 태그도 검사한다.
+
+실제 AWS에서 전용 상태 밖의 기존 Bastion을 찾는 검사는 호출자인 [infra.ps1](../infra.ps1.md)의 Assert-SavedBastionPlan이 담당한다. 기존 workload 자원의 자동 이관 기능은 아니다.

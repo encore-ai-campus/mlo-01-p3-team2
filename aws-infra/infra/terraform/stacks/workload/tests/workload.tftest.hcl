@@ -54,9 +54,24 @@ override_data {
 run "account1_default_closed" {
   state_key = "account1"
   command   = apply
+  # 로컬 접속 허용 IP와 무관하게 CIDR 미지정 상태를 검사한다.
+  variables {
+    traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = [] })
+  }
   assert {
-    condition     = length(output.inventory.instances) == 4 && length(module.rules.public_ingress) == 0
-    error_message = "Account 1은 4대이며 CIDR을 정하기 전 외부 인바운드는 닫혀야 합니다."
+    condition = (toset(keys(output.inventory.instances)) == toset(["bastion", "front-a", "front-b", "game-server", "ad-server"]) &&
+    length(module.rules.public_ingress) == 0)
+    error_message = "Account 1은 광고 서버 포함 5대이며 CIDR을 정하기 전 외부 인바운드는 닫혀야 합니다."
+  }
+  # 광고 서버의 입출력 규칙이 account1의 ALB·광고 SG를 연결하는지 확인한다.
+  assert {
+    condition = (
+      module.rules.ingress["account1/alb/account1/ad/8000"].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.ad &&
+      module.rules.ingress["account1/alb/account1/ad/8000"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.alb &&
+      module.rules.egress["account1/alb/account1/ad/8000"].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.alb &&
+      module.rules.egress["account1/alb/account1/ad/8000"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.ad
+    )
+    error_message = "ALB→광고 HTTP 8000은 Account 1의 ALB·광고 SG를 양쪽에서 참조해야 합니다."
   }
   assert {
     condition = (module.rules.egress["account1/game/account3/kafka/9092"].peer_id ==
@@ -64,12 +79,12 @@ run "account1_default_closed" {
     error_message = "game→Kafka는 해당 계정의 Kafka SG를 참조해야 합니다."
   }
 }
-run "account2_three_nodes" {
+run "account2_two_nodes" {
   state_key = "account2"
   command   = apply
   variables { account_key = "account2" }
   assert {
-    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2", "ad-server"]) &&
+    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2"]) &&
     output.inventory.alb_dns_name == null)
     error_message = "Account 2의 서버 배치 또는 ALB 범위가 잘못되었습니다."
   }

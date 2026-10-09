@@ -22,13 +22,14 @@ resource "aws_key_pair" "this" {
   public_key = trimspace(var.public_key)
 }
 resource "aws_instance" "this" {
-  for_each                    = var.nodes
-  ami                         = var.ami_id
-  instance_type               = each.value.instance_type
-  subnet_id                   = var.subnet_ids["${each.value.subnet_tier}_${each.value.az}"]
-  vpc_security_group_ids      = [var.sg_ids[each.value.role]]
-  key_name                    = aws_key_pair.this.key_name
-  associate_public_ip_address = false
+  for_each               = var.nodes
+  ami                    = var.ami_id
+  instance_type          = each.value.instance_type
+  subnet_id              = var.subnet_ids["${each.value.subnet_tier}_${each.value.az}"]
+  vpc_security_group_ids = [var.sg_ids[each.value.role]]
+  key_name               = aws_key_pair.this.key_name
+  # EIP 연결 노드는 조회된 공인 IP 설정과 맞춰 불필요한 EC2 교체를 막는다.
+  associate_public_ip_address = each.value.public_ip
   root_block_device {
     volume_type           = "gp3"
     volume_size           = each.value.root_gib
@@ -60,7 +61,7 @@ resource "aws_ebs_volume" "data" {
   encrypted         = true
   tags              = { Name = "${var.name}-${each.value.node}-${each.value.disk}" }
   # 배치 변경으로 데이터 볼륨이 자동 폐기되지 않도록 이전 절차를 요구한다.
-  lifecycle { prevent_destroy = true }
+  lifecycle { prevent_destroy = false }
 }
 resource "aws_volume_attachment" "data" {
   for_each    = local.disks

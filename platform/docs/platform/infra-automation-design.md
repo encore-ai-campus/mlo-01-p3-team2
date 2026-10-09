@@ -4,6 +4,12 @@
 
 ---
 
+# 현재 구현 반영 — 2026-10-10
+
+위 Approved·승격일은 원래 설계의 승인 기록이다. 이번 갱신은 현재 로컬 구현의 문서 반영이며 새 설계 승인이나 EC2 재검증 결과가 아니다. 과거 서버 시험·외부 버전 확인은 당시 기록으로 읽는다. 현재 실행 절차는 [플랫폼 README](../../README.md), 구현 파일 위치는 [라우팅 문서](../platform-routing/ROUTING-README.md)를 따른다.
+
+AWS 서버 생성과 비용별 프로필 변경은 별도 aws-infra의 deploy.ps1이 맡는다. Inventory는 hosts.current.yml을 생성하고 Proxy는 설치용 네트워크를 준비한다. 이 단계와 플랫폼 서비스 설치를 구분한다.
+
 # 1. 문서 목적과 범위
 
 본 문서는 인프라 자동화(`platform/`)가 무엇을 구축하고 무엇을 구축하지 않는지, 그리고 구현 전에 확정한 결정 사항을 정의한다.
@@ -17,7 +23,7 @@
 
 ## 범위 밖
 
-- AWS 환경 생성: VPC, Peering, Security Group, VM, 패키지 다운로드용 임시 NAT
+- AWS 환경 생성: VPC, Peering, Security Group, VM, 인터넷 연결 경로. aws-infra가 담당하며 현재 기본값은 NAT 0개와 중앙 Bastion Proxy다.
 - Frontend/Backend의 서비스와 비즈니스 로직
 - Monitoring UI
 - 보관된 로그의 후처리
@@ -29,11 +35,11 @@
 
 막 생성된 x86_64 Linux VM에 Ansible로 보안 설정과 역할별 구축을 한다. Python 오케스트레이터는 두지 않고 Ansible만 쓴다. 전체 구축은 `ansible-playbook`, 역할별 실행은 `--limit`(또는 태그)로 한다.
 
-- 전제: VM, 네트워크(VPC·Peering·Security Group), 패키지 다운로드용 임시 NAT는 사전에 구성되어 있다. 이 도구는 AWS 환경을 만들지 않는다.
-- 구축이 끝나면 NAT는 제거해도 된다 (2주 프로젝트). 이후 패키지 설치나 업데이트가 필요하면 NAT를 다시 연결한다.
+- 전제: VM·VPC·Peering·Security Group·SSH 경로가 준비되어 있다. 프록시 활성 구성은 Ubuntu 24.04 amd64의 prepare-proxy.yml을 첫 패키지 설치 전에 실행한다. 이 도구는 AWS 환경을 만들지 않는다.
+- 현재 기본 다운로드 경로는 Bastion Squid TCP 3128이고 Bastion은 HTTPS로 직접 나간다. 설치 파일이 남아 있으면 일부 다운로드를 생략하지만, 전체 실행은 프록시 외부 검사를 포함하므로 오프라인 재실행을 보장하지 않는다. AL2023 역할 지원과 Ubuntu 전용 프록시 준비의 지원 범위를 구분한다.
 - 프로젝트 위치: 저장소의 `platform/` (inventory, role, 플레이북, `requirements.txt`)
 - 대상 서버의 Python: Ansible은 시스템 Python(`/usr/bin/python3`, Ubuntu 24.04는 3.12, AL2023은 3.9)을 쓴다. 기본 이미지에 이미 있어 `raw` 부트스트랩은 필요 없다 (확인됨).
-- 실행 위치: 개발자 PC에서 실행하고 Bastion은 ProxyJump 경유지로만 쓴다. ProxyJump은 inventory 변수(Bastion 공인 IP 경유)로 설정한다.
+- 실행 위치: 개발자 PC의 WSL에서 Ansible을 실행한다. Bastion은 SSH ProxyCommand 경유지이자 설치용 Squid 프록시다. 생성 인벤토리는 대상 계정 키와 Bastion 계정 키를 구분한다. 접속 주소를 갱신하려면 Inventory를 다시 생성한다.
 
 ---
 
@@ -49,7 +55,7 @@
 
 # 4. 입력
 
-사용자는 **Ansible inventory(YAML) 하나**에 서버 이름, 역할(그룹), IP, 팀원 계정을 적는다. 별도 변환 프로그램은 없고 Ansible이 이 파일을 그대로 읽는다.
+Ansible은 **inventory(YAML)**의 서버 이름·그룹·IP·계정 정보를 읽는다. 수동 입력 예시는 아래와 같고, aws-infra의 Inventory 실행은 Terraform 출력과 실제 AWS 서버를 대조해 inventory/hosts.current.yml을 생성한다. 인프라 mongo 역할은 mongodb 그룹으로 변환한다. 예시의 단일 키는 공통 키 구성에만 해당하므로 계정별 키를 쓰는 경우 생성 인벤토리의 인증 경로를 따른다.
 
 - YAML인 이유: 서버 목록은 구조화된 데이터라 `.env`의 평면 key=value로는 표현이 어렵고, Ansible이 바로 읽는 형식이다.
 - 비밀번호/키 같은 Secret은 이 파일에 쓰지 않고 Ansible Vault에 둔다. (팀원 공개키는 Secret이 아니므로 이 파일에 둔다.)
@@ -86,15 +92,15 @@ all:
 | 역할 | 대수 | 비고 |
 |---|---|---|
 | Bastion | 1 | |
-| Frontend | 1 | |
-| Monitoring | 1 | |
-| Backend | 1 | MySQL Router 설치 |
+| Frontend | 현재 기본 2 | 수동 시험 구성에서는 1대도 사용 |
+| Monitoring | 선택 그룹 | 현재 AWS 기본 배치에는 없음 |
+| Backend | 선택 그룹 | MySQL Router 설치, 현재 AWS 기본 배치에는 없음 |
 | MySQL | 2 | InnoDB ReplicaSet, AdminAPI 수동 failover |
 | MongoDB | 3 | Replica Set, 1대 장애 허용 |
 | Kafka | 3 | KRaft combined, `RF=3, min.isr=2, acks=all`, 1대 장애 허용 |
 | Spark | 3 | Master 2 + Worker 3 + ZooKeeper 3 (3노드 동거) |
 
-모드는 서버 대수에서 자동 결정한다 (MySQL 1대 Standalone / 2대 ReplicaSet, MongoDB 1대 Standalone / 3대 Replica Set).
+모드는 서버 대수에서 자동 결정한다 (MySQL 1대 Standalone / 2대 ReplicaSet, MongoDB 1대 Standalone / 3대 Replica Set). 현재 AWS 기본 배치는 서비스 15대와 선택적 Bastion 1대이며 game·ad는 전용 설치 역할과 애플리케이션 방화벽 규칙이 없다. 위 표의 선택 그룹을 실제 생성된 서버처럼 해석하지 않는다.
 
 ## 역할 지정과 노드 ID
 
@@ -109,7 +115,7 @@ all:
 ## Kafka
 
 - 브로커 기본 설정: `process.roles=broker,controller`, `num.partitions=3`, `default.replication.factor=3`, `min.insync.replicas=2`, `offsets.topic.replication.factor=3`, `transaction.state.log.replication.factor=3`, `transaction.state.log.min.isr=2`, `auto.create.topics.enable=false`, `group.initial.rebalance.delay.ms=0`
-- Broker와 Controller 리스너는 서버의 사설 IP로 지정한다 (포트는 후속 확정).
+- Broker와 Controller 리스너는 서버의 사설 IP로 지정한다. 기본 포트는 Broker 9092, Controller 9093이며 AWS 규칙과 함께 맞춘다.
 - 클러스터 ID는 한 번만 생성해 모든 노드가 공유하며, 재실행해도 바꾸지 않는다. 스토리지 포맷은 데이터를 초기화하므로 `meta.properties`가 없는 노드에서 한 번만 실행한다.
 - 토픽 자동 생성이 꺼져 있으므로 검증용 임시 토픽은 직접 만든다.
 - controller quorum은 정적 voters(`controller.quorum.voters`)로 정한다. 노드 ID는 서버 이름의 숫자다.
@@ -119,8 +125,10 @@ all:
 - `spark-env.sh`: `JAVA_HOME`, `SPARK_LOCAL_IP`(노드의 사설 IP. 서버에 실제 할당된 IP인지 확인한다), `SPARK_WORKER_CORES`(`nproc`), `SPARK_WORKER_MEMORY`, `SPARK_DAEMON_MEMORY`
 - 한 VM에 Master, Worker, ZooKeeper가 함께 올라가므로 Worker 메모리는 전체 RAM에서 OS 몫(1GiB), Master·Worker 데몬 메모리, ZooKeeper heap을 뺀 값으로 계산한다.
 - PySpark를 지원한다. `spark-env.sh`의 `PYSPARK_PYTHON`, `PYSPARK_DRIVER_PYTHON`에 Python 3.12를 지정한다. Spark 4.x가 Python 3.10 이상을 요구한다. Ubuntu 24.04는 시스템 `python3`가 3.12라 그대로 쓰고, AL2023은 시스템 Python이 3.9이므로 `python3.12`를 따로 설치하되 시스템 Python은 바꾸지 않는다.
-- Standalone 모드는 Python 애플리케이션의 cluster mode를 지원하지 않으므로 Python 작업은 client mode로 실행된다. 작업을 제출한 서버(드라이버)가 Spark 노드와 직접 통신해야 하고, 드라이버와 Spark 노드의 Python 마이너 버전이 같아야 한다. 작업 제출 위치는 확정되지 않았다 (Backend로 예상하며, 그 서버의 Python과 Spark 클라이언트 준비는 서비스 영역이다).
+- Standalone 모드는 Python 애플리케이션의 cluster mode를 지원하지 않으므로 Python 작업은 client mode로 실행된다. 작업을 제출한 서버(드라이버)가 Spark 노드와 직접 통신해야 하고, 드라이버와 Spark 노드의 Python 마이너 버전이 같아야 한다. 업무 작업의 제출 위치는 별도 결정 사항이다. 역할 자체의 검증 작업은 첫 Spark 서버에서 제출한다. Backend 등 다른 서버에서 업무 작업을 제출하면 Python·Spark 클라이언트와 Driver 통신 경로도 준비해야 한다.
 - Kafka 커넥터, MySQL JDBC 드라이버, MongoDB Spark 커넥터 JAR을 Spark 노드에 미리 설치한다 (11장). 서비스가 쓰는 Python 패키지(pandas 등)는 설치하지 않는다.
+
+현재 Spark 포트는 Master RPC 7077·내부 Master UI 8080, Worker RPC 7100, Driver 7078–7094·BlockManager 7079–7095다. 작업의 spark.port.maxRetries는 16이고 Master·Worker 데몬은 0이다. ZooKeeper 클러스터는 2181·2888·3888을 사용한다. Worker UI 8081의 원격 공개 SG 규칙은 없다. [Spark 설정 지도](../platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 참고한다.
 
 ## Frontend / Backend
 
@@ -169,7 +177,8 @@ all:
 | 대상 | 접근 허용 |
 |---|---|
 | 모든 서버 SSH | Bastion, Monitoring |
-| Bastion SSH | IP 제한 없음 (SSH 키 인증만) |
+| Bastion SSH | 호스트 방화벽은 SSH 키 접속 허용; 외부 출처 제한은 AWS admin CIDR 규칙도 적용 |
+| Bastion Proxy | proxy_enabled일 때 프로젝트 VPC CIDR에서 TCP 3128 |
 | Frontend | 외부 전체 (80/443만) |
 | Backend | Frontend, Spark, Bastion |
 | MySQL | Backend, Spark, Bastion, MySQL 노드끼리 |
@@ -177,7 +186,7 @@ all:
 | Kafka | Backend, Spark, Bastion, Kafka 노드끼리 |
 | Spark | Backend, Bastion, Spark 노드끼리 |
 
-- 허용 범위는 서브넷이 아니라 YAML 서버 목록의 IP로 한정한다.
+- 역할별 서비스 허용 출처는 YAML 서버 목록의 IP로 한정한다. Bastion Proxy 3128은 예외적으로 proxy 설정의 프로젝트 VPC CIDR을 사용한다. AWS SG의 서비스 포트 제한과 호스트 방화벽의 역할별 허용 범위를 구분한다. game·ad의 전용 애플리케이션 규칙은 현재 없다.
 - 포트를 지정하지 않은 규칙(위 표의 역할 간 허용, 클러스터 노드끼리의 허용)은 SSH(22)를 제외한 모든 포트를 허용한다. SSH는 첫 행의 규칙(Bastion, Monitoring)으로만 허용한다.
 - 팀원이 개발자 PC에서 Bastion SSH 터널을 통해 DB, Kafka, Spark UI에 직접 접속할 수 있도록 해당 서버에서 Bastion의 접근을 허용한다.
 - 인바운드만 제한하고 아웃바운드는 전부 허용한다.
@@ -209,14 +218,14 @@ all:
 - Kafka와 Spark는 데이터 경로와 애플리케이션 로그 경로를 분리한다 (Kafka의 `log.dirs`는 데이터 경로이며 로그가 아니다). 로그 경로(`LOG_DIR`, `SPARK_LOG_DIR`)는 서비스별 로그 폴더(`/var/log/<서비스>/`)로 고정해 Monitoring이 수집한다.
 - 각 서버의 logrotate는 일 단위로 회전하고 3일 보관 후 삭제한다 (서버 디스크 보호용. 원본은 이미 Monitoring에 있다).
 - 하루가 지난 로그는 압축해 보관 폴더(`/var/archive/infra/<서버이름>/`)에 둔다. 이동이 아니라 압축 복사로 하고, 수집 폴더의 원본은 4일 뒤 삭제한다. 이동하면 서버에 아직 남은 파일을 `rsync`가 다시 가져오기 때문이다 (서버 3일 < 수집 폴더 4일 < 보관 폴더 14일).
-- 보관 폴더는 14일이 지난 파일을 삭제한다 (디스크 보호용 기본값). Monitoring 서버의 디스크는 15대 분량의 로그를 이 기간 보관할 수 있게 준비한다.
+- 보관 폴더는 14일이 지난 파일을 삭제한다 (디스크 보호용 기본값). Monitoring 그룹을 추가한 경우 실제 인벤토리의 수집 대상 수와 로그량에 맞춰 디스크를 준비한다. 과거 시험의 15대 수량을 현재 배포 수량으로 고정하지 않는다.
 - 보관 폴더의 로그를 이후 어떻게 처리할지는 후속 과제다.
 
 ---
 
 # 11. 소프트웨어 버전
 
-2026-10-05 기준, 공식 사이트에서 확인했다.
+아래 표는 기존 설계와 구현 시험에서 기록한 버전·출처다. 2026-10-05의 외부 확인 기록을 최신 버전 확인으로 해석하지 않는다. 이번 갱신에서는 로컬 역할의 설치 선언과 문서 경로를 확인했으며 외부 릴리스·지원 종료일을 다시 조회하지 않았다. 설치값과 체크섬은 역할의 defaults를 따른다.
 
 | 대상 | 버전 | 설치 출처 | 비고 |
 |---|---|---|---|
@@ -228,27 +237,29 @@ all:
 | MySQL | 8.4 LTS (Server, Shell, Router 모두 8.4) | AL2023: MySQL Yum 저장소(el9). Ubuntu: MySQL APT 저장소(`noble`, 컴포넌트 `mysql-8.4-lts`, `mysql-tools`) | InnoDB ReplicaSet 지원 확인 |
 | MongoDB | 8.0 | AL2023: MongoDB Yum 저장소(Amazon Linux 2023용). Ubuntu: MongoDB APT 저장소(`noble/mongodb-org/8.0`) | 지원 2029-10-31까지. 9.0은 2026-09 출시라 제외. 커널 6.19 이상에서는 시작하지 않는다 (14장) |
 | Python (Spark 노드) | 3.12 | AL2023: `python3.12` 패키지(시스템 3.9는 그대로). Ubuntu: 시스템 `python3`(3.12) | PySpark용 |
-| Spark Kafka 커넥터 | `spark-sql-kafka-0-10_2.13` 4.2.0 | Maven Central | 의존(Spark 4.2.0 기준): `spark-token-provider-kafka-0-10_2.13` 4.2.0, `kafka-clients` 3.9.2, `commons-pool2` 2.13.1. 구현 시점에 확정 |
-| MySQL JDBC 드라이버 | `mysql-connector-j` 9.7.0 | Maven Central | MySQL 8.4 서버와의 호환은 구현 때 확인 |
-| MongoDB Spark 커넥터 | `mongo-spark-connector_2.13` 11.1.0 | Maven Central | Spark 4.0 이상 지원. 의존: `mongodb-driver-sync` 5.1.x(`[5.1.1,5.1.99)`)와 그 전이 의존(`bson`, `mongodb-driver-core` 등). 구현 시점에 확정 |
+| Spark Kafka 커넥터 | `spark-sql-kafka-0-10_2.13` 4.2.0 | Maven Central | 의존(Spark 4.2.0 기준): `spark-token-provider-kafka-0-10_2.13` 4.2.0, `kafka-clients` 3.9.2, `commons-pool2` 2.13.1. 현재 역할 선언 참조 |
+| MySQL JDBC 드라이버 | `mysql-connector-j` 9.7.0 | Maven Central | 현재 Spark JAR 설치 선언과 과거 P8 연동 시험 기록 참조 |
+| MongoDB Spark 커넥터 | `mongo-spark-connector_2.13` 11.1.0 | Maven Central | Spark 4.0 이상 지원. 현재 역할은 driver·core·bson·bson-record-codec 5.1.4를 설치. P5 구현 기록 참조 |
 
 - Kafka, Spark, ZooKeeper tarball은 체크섬(sha512)을 검증한다.
-- Spark 커넥터 JAR은 구축 단계에서 Spark 노드의 JAR 폴더에 미리 설치한다. 구축 후 임시 NAT를 제거해도 작업 제출 때 `--packages`로 Maven에서 받지 않아도 되게 하기 위함이다. 위 표의 JAR 의존 버전은 출발점이며, 전이 의존성을 포함한 JAR 목록과 정확한 버전, 체크섬은 구현 시점에 확정한다.
+- Spark 커넥터 JAR은 구축 단계에서 Spark 노드의 JAR 폴더에 미리 설치한다. 설치 다운로드 경로 없이도 작업 제출 때 `--packages`로 Maven에서 받지 않아도 되게 하기 위함이다. 전이 의존성을 포함한 현재 JAR 목록·체크섬은 Spark 역할에 선언되어 있다. P5 구현 기록과 역할 라우팅 문서를 따르며 버전을 바꿀 때 함께 검토한다.
 - Kafka는 `dlcdn.apache.org`(최신 릴리스만 남지만 빠르다) → `downloads.apache.org` → `archive.apache.org`(구형도 남지만 시험에서 약 50KB/s로 느리다) 순으로 받는다. sha512는 role에 고정해 어느 쪽이든 검증한다. ZooKeeper와 Spark도 같은 방식이다(`dlcdn`에 있음).
 - MySQL은 MySQL 공식 페이지의 Yum 저장소 목록에 Amazon Linux 2023이 없고 el9 패키지를 쓴다. 기존 교안(Day 17, MySQL 8.0)도 같은 방식(`mysql80-community-release-el9` RPM)으로 AL2023에 설치했다. 8.4는 `mysql84-community-release-el9` RPM을 쓴다.
-- 저장소 파일은 릴리스 RPM 대신 직접 만들고 2025 GPG 키(`RPM-GPG-KEY-mysql-2025`)를 등록한다. 설치 직후 root 임시 비밀번호는 `/var/log/mysqld.log`에 생성되므로 Ansible이 읽어서 변경한다.
+- AL2023은 저장소·GPG 키를 등록하고 /var/log/mysqld.log의 초기 root 비밀번호를 변경한다. Ubuntu는 APT 저장소와 auth_socket의 root 소켓 접속을 사용하는 별도 초기화 흐름이다. 두 OS의 초기 비밀번호 처리 방법을 섞지 않는다.
 - 패치 버전은 저장소의 최신을 쓴다 (2026-10-05 시험에서 Server 8.4.11 설치). 고정이 필요하면 구현 시점에 확정한다.
 
 ---
 
 # 12. 실행 순서
 
-1. 공통 보안(sshd, 사용자, sudo)과 시간 동기화. Bastion을 먼저 설정해, 다른 서버가 Bastion을 경유하는 도중에 접속이 끊기지 않는지 확인한다.
-2. 방화벽 (Bastion SSH 허용 → 연결 검증 → default deny)
-3. 서비스: MySQL → MongoDB → Kafka → Spark(ZooKeeper 포함). 서비스는 순서대로 진행하고, 같은 서비스의 노드는 Ansible이 병렬 처리한다.
-4. Backend, Frontend
-5. Monitoring
-6. 역할별 검증
+1. aws-infra에서 서버를 생성하고 Inventory로 현재 주소·키·역할을 갱신한다.
+2. 프록시 활성 Ubuntu 구성에서는 Proxy로 Squid를 준비하고 prepare-proxy.yml로 HTTPS 저장소·APT 프록시·다운로드를 검사한다. site.yml도 첫 패키지 설치 전에 준비 플레이북을 import한다.
+3. Bastion의 공통 보안·방화벽을 먼저 적용하고 프록시 및 새 SSH 연결이 유지되는지 확인한다. 이어 대상 서버의 공통 보안·방화벽을 적용한다.
+4. MySQL·MongoDB·Kafka·ZooKeeper·Spark 역할을 실행한다. 같은 서비스의 클러스터 노드는 함께 선택한다. zookeeper만 선택하면 Spark는 설치되지 않으므로 --tags zookeeper,spark --limit spark를 사용한다.
+5. 인벤토리에 있는 Frontend·Backend·Monitoring 그룹을 처리한다. Backend는 Router 설치까지이며 game·ad 앱 배포는 별도다.
+6. 역할 내부의 복제·송수신·ensemble·Worker 등록·작업 검증을 확인한다. systemd active만으로 클러스터 검증 완료로 판단하지 않는다. verify 태그만 선택하면 앞 단계의 등록 변수가 없어질 수 있으므로 역할 전체 실행을 기준으로 한다.
+
+공통 태그나 Proxy 준비만으로 DB·Kafka·Spark를 설치하지 않는다. 실제 명령·Vault 준비는 [README](../../README.md)를 따른다.
 
 ---
 
@@ -290,7 +301,7 @@ all:
 
 # 15. 후속 과제
 
-- 서비스 포트 목록 확정과 방화벽 규칙 반영
+- game·ad 등 애플리케이션 통신 규칙과 외부 Driver 경로 확정. 기본 DB·Kafka·Spark·ZooKeeper 포트는 현재 코드에 반영되어 있다.
 - Monitoring UI
 - 보관된 로그의 후처리
 - MySQL 자동 failover (Bastion 또는 Monitoring에서 상태를 확인해 실행)

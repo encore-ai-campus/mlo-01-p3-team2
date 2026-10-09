@@ -1,210 +1,44 @@
-# Terraform 공통 구성과 이전 기준
+# 공통 Terraform 구조와 개편 이력
 
-갱신일: **2026-10-09**
-위치: **C:\third_project\aws-infra\infra**
-상태: **공통 코드 구현, AWS 미적용**. 실행 명령과 아직 채울 값은 [README.md](README.md)에 정리했다.
+기준: 2026-10-10의 구현. 이 문서는 2026-10-09 최초 개편안을 이후 Bastion 분리·HTTP ALB·구성별 배포·Proxy·전체 삭제·Spark 범위 변경까지 반영해 설명한다. 실제 AWS 이관·배포 완료 기록과 구분한다. 코드 위치는 [라우팅](../docs/infra-routing/ROUTING-README.md), 운영 명령은 [실행 안내](README.md)와 [배포 절차](../docs/deployment-runbook.md)에 있다.
 
-## 1. 합의한 구조
+## 입력과 상태 소유권
 
-**전체 배치 설정 한곳 + 공통 Terraform 모듈 + 계정별 실행·상태 분리**를 사용한다.
-계정별로 network.ps1·security.ps1과 Terraform 코드를 복사하지 않는다.
+| stack | 대상 | 책임 |
+| --- | --- | --- |
+| foundation | account1~5 각각 | VPC·서브넷·라우팅 테이블·IGW/NAT·역할 SG |
+| connectivity | shared | 설정한 계정 쌍 Peering·상대 CIDR 경로 |
+| workload | account1~5 각각 | SG 규칙·서비스 EC2·키페어·데이터 EBS·Front EIP·해당 계정 ALB |
+| bastion | account1 | 선택 Bastion EC2·루트 디스크·전용 키페어 |
 
-~~~text
-infra/
-├── README.md                       # 실행 순서와 배포 전 입력값
-├── terraform-restructure-plan.md   # 구조·소유 범위·이전 기준
-├── setup-windows/                 # 팀원 Windows PC의 도구 설치
-│   ├── README.md                  # 설치 안내와 실행 예시
-│   └── install-tools.ps1          # Terraform·AWS CLI 설치
-├── scripts/                       # 직접 실행하는 파일과 공통 함수
-│   ├── infra.ps1                   # 계정·단계를 받는 공통 실행기
-│   ├── prepare-key.sh              # 선택적인 로컬 SSH 키 준비
-│   └── lib/infra-common.ps1        # 설정 검사·해시·Terraform 호출
-├── config/
-│   ├── topology.tfvars.json        # 계정·서버·AZ·사양·디스크·공개키 경로
-│   ├── traffic.tfvars.json         # 역할 사이 통신과 외부 CIDR
-│   ├── backend.json                # 공유 S3 상태 저장소
-│   └── keys/account1.pub           # 기존 공개키의 복사본
-├── terraform/
-│   ├── modules/
-│   │   ├── model/                  # 설정 형식·관계 검사, 역할 관계 계산
-│   │   ├── network/                # VPC·서브넷·기본 라우트·선택적 NAT
-│   │   ├── security-groups/        # 역할별 보안그룹 자체
-│   │   ├── security-rules/         # SG 참조·CIDR 규칙
-│   │   ├── compute/                # EC2·별도 EBS·공개키·고정 공인 IP
-│   │   ├── alb/                    # ALB·리스너·대상 그룹
-│   │   └── peering/                # 요청·수락·양쪽 라우트
-│   └── stacks/
-│       ├── foundation/             # 단일 계정씩 실행
-│       ├── connectivity/           # shared로 한 번 실행
-│       └── workload/               # 단일 계정씩 실행
-├── bootstrap/README.md             # 서버 내부 설치·배포의 연결 지점
-├── tests/                          # 실행기 테스트와 모의 상태
-└── .local/                         # 계정별 캐시·계획·출력, Git 제외
-~~~
+기본 topology에는 서비스 15대와 Bastion 정의가 있다. workload는 role=bastion을 제외한다. 광고는 account1 Private C다. 공통 model이 계정·AZ·역할·연결을 검사하고, security-rules가 포트 또는 선택적 끝 포트 범위를 만든다. 현재 데이터 EBS의 prevent_destroy는 false다.
 
-JSON 변수 파일은 PowerShell과 Terraform 양쪽에서 같은 값을 읽기 위해 선택했다.
-Terraform module은 재사용 부품, stack은 계획·적용·상태 관리 단위다.
-입력·출력이 작은 모듈은 main.tf에 함께 두어 불필요한 파일 분할을 줄였다.
+상태는 계정별 foundation/workload 10개, shared/connectivity 1개와 선택 Bastion 1개, 총 12개 경로다. 원격 상태는 S3 버전 관리와 use_lockfile을 사용한다. 상태 자체·자원·라우팅을 다른 stack에 중복 선언하지 않는다.
 
-## 2. 처음 적용할 16대 배치
+## 네트워크와 서비스 포트
 
-A·C는 **물리 AZ ID**로 고정한다. 현재 A는 apne2-az1, C는 apne2-az3이다.
-콘솔에 표시되는 계정별 AZ 이름의 글자가 같다고 같은 물리 AZ라고 가정하지 않는다.
+서울 리전의 물리 AZ ID apne2-az1·apne2-az3를 논리 A/C로 쓴다. account1만 Public A/C·IGW·ALB가 있고 기본 NAT는 0개다. 중앙 Forward Proxy를 사용하며 Private 기본 라우트는 Bastion에 지정하지 않는다. 모든 VPC 쌍의 직접 Peering 10개와 각 상대 CIDR 경로를 만든다.
 
-| 계정 / VPC | 서버 키 | 영역 | AZ | 사양 | 별도 데이터 gp3 |
-|---|---|---|---|---|---|
-| account1 / 10.10.0.0/16 | bastion | Public | A | t3a.small | 없음 |
-| account1 | front-a | Public | A | t3a.small | 없음 |
-| account1 | front-b | Public | C | t3a.small | 없음 |
-| account1 | game-server | Private | A | t3a.large | 없음 |
-| account2 / 10.20.0.0/16 | mongo-1 | Private | A | t3a.small | 900GiB |
-| account2 | spark-2 | Private | A | t3a.large | 100GiB |
-| account2 | ad-server | Private | C | t3a.large | 없음 |
-| account3 / 10.30.0.0/16 | kafka-1 | Private | A | t3a.large | 200GiB |
-| account3 | mysql-1 | Private | A | t3a.small | 100GiB |
-| account3 | spark-1 | Private | A | t3a.large | 100GiB |
-| account3 | mongo-2 | Private | C | t3a.small | 900GiB |
-| account4 / 10.40.0.0/16 | kafka-2 | Private | A | t3a.large | 200GiB |
-| account4 | spark-3 | Private | C | t3a.large | 100GiB |
-| account5 / 10.50.0.0/16 | mysql-2 | Private | C | t3a.small | 100GiB |
-| account5 | mongo-3 | Private | A | t3a.small | 900GiB |
-| account5 | kafka-3 | Private | C | t3a.large | 200GiB |
+ALB는 HTTP 80이고 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. certificate_arn은 공통 입력에 남아 있지만 ALB 모듈에 전달하지 않는다. HTTPS listener·자동 TLS는 없다. 서비스 콘솔 SSH는 리전별 IPv4 EC2 Instance Connect 접두사 목록의 22 규칙이며 Private 접속 경로를 새로 만드는 것은 아니다.
 
-전체 t3a.small 8대 + t3a.large 8대, OS 디스크는 각각 20GiB.
-데이터 디스크는 [상세 비용 문서](../costs/dual-az.md)의 **150명 입력 가정**을 옮겼다.
-성능이나 실제 데이터 크기를 측정해서 확정한 값은 아니다.
-Front(B)는 이름을 유지한 front-b이며 C에 배치한다. ALB는 Account 1 Public A·C에 걸친 1개다.
+Spark Worker 7100·Master UI 8080, 작업 Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 Spark SG 사이에 허용한다. port_end가 없으면 단일 포트이고 같은 SG 쌍·시작 포트는 최대 끝 값으로 합친다. [모듈·stack 테스트](../docs/infra-routing/tests/README.md#spark-포트-범위)와 [플랫폼 포트](../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 본다.
 
-## 3. 설정의 책임
+## 실행기와 비용별 구성
 
-topology에서 서버별 account, role, az, subnet_tier, instance_type, root_gib, data_disks를 바꾼다.
-서버 이름과 데이터 디스크 이름은 for_each의 고정 키로 사용한다.
-계정의 id/profile과 VPC·AMI·SSH 공개키도 이 파일에 모은다.
+infra.ps1은 Validate/Test/Plan/Apply/Output, 구성 선택과 저장 계획 검사를 담당한다. 온라인 동작은 실제 계정·backend 인증과 S3 버전 관리를 확인한다. 새 Plan에서 이전 계획을 무효화하고 성공한 Apply에서 계획과 manifest를 제거한다. 설정·코드·공개키·대상이 바뀌면 새 Plan이 필요하다.
 
-traffic은 출발 역할 목록 → 도착 역할 목록 → 포트 이름을 정의한다.
-model 모듈은 이 관계를 실제 배치된 account/role SG 쌍으로 계산한다.
-workload는 해당 계정의 인바운드·아웃바운드만 생성하며, 같은 SG 쌍·포트는 중복 제거한다.
+deploy.ps1 NewProfile은 topology·traffic·platform.json을 로컬 복사하고 노드 크기·대수·계정 배치를 선택하게 한다. 모든 프로필은 동일 원격 상태를 바꾸며 경로 해시로 로컬 캐시만 구분한다. Deploy는 foundation → connectivity → workload → bastion의 단계별 검토·적용 후 Inventory·Proxy를 수행한다. 자동 가격 비교·DB 설치·클러스터 데이터 이전은 포함하지 않는다.
 
-- 동일 리전 Peering으로 연결한 계정끼리는 상대 역할 SG를 참조한다.
-- 인바운드·아웃바운드를 모두 필요한 대상·TCP 포트로 제한한다.
-- 관리자 IP는 Bastion SSH에, 서비스 공개 CIDR은 ALB 80/443에 적용한다.
-- 기본 관리자 CIDR·서비스 공개 CIDR은 빈 배열이다.
-- SG는 파일 읽기·수정이나 sudo 권한을 부여하지 않는다.
+Inventory는 소유 EC2의 현재 주소·태그·상태·사양을 확인하고, 목적지 계정 키와 Bastion 키를 구분해 플랫폼 인벤토리를 만든다. Proxy는 Squid·ACL·Ubuntu HTTPS 저장소·APT·다운로드를 준비한다. 서비스는 WSL의 Ansible 역할로 별도 설치한다. backend bucket·AMI·공개키는 현재 기본 파일에 채워져 있으나 실제 유효성은 배포 시 확인한다.
 
-AWS 인증은 기존 account1~account5 CLI 프로필을 사용한다.
-SSH 공개키 등록은 workload가 수행하고, 개인키 생성·보관은 로컬 선택 작업이다.
-둘은 서로 대체하는 인증 수단이 아니다.
+## 설치·변경·삭제 경계
 
-## 4. 단계별 소유 범위
+Terraform은 EC2·EBS 연결까지다. [bootstrap](bootstrap/README.md)과 플랫폼이 프로그램 설치 경계를 안내한다. 데이터 포맷·마운트·백업·이전은 자동화하지 않았다. 현재 EBS 보호가 꺼져 있으므로 노드 이름·계정·AZ·디스크 변경의 삭제·교체를 확인한다.
 
-| 단계 | 실행 범위 | 소유 자원 |
-|---|---|---|
-| foundation | account1~account5 각각 | VPC, 서브넷, 라우팅 테이블, 기본 라우트, IGW·선택적 NAT, 빈 역할 SG |
-| connectivity | shared | 계정 사이 Peering 요청·수락·DNS 옵션·상대 VPC 라우트 |
-| workload | account1~account5 각각 | SG 규칙, EC2, EBS, 키페어, 공인 IP, 해당 계정 ALB |
+bastion.ps1은 별도 상태의 생성·삭제와 중지·시작·재시작·현재 IP를 관리한다. 자동 공인 IP이며 EIP를 만들지 않는다. destroy-all.ps1은 상태 범위의 삭제 Plan을 모두 준비한 뒤 검토한 실행 ID로 Bastion → workload 5개 → connectivity → foundation 5개를 적용한다. 데이터 삭제 선택이 필요하고 상태 밖 자원·S3 상태 버킷을 모두 지우는 기능은 아니다.
 
-같은 AWS 자원이나 라우트를 두 상태에서 관리하지 않는다.
-기본 라우트는 foundation, Peering 라우트는 connectivity, SG 자체는 foundation, SG 규칙은 workload가 맡는다.
+## 이전 자료와 검증
 
-~~~mermaid
-flowchart TD
-  C["topology · traffic 설정"] --> F["5개 계정 foundation"]
-  F --> P["shared connectivity"]
-  F --> W["5개 계정 workload"]
-  P --> W
-  W --> O["계정별 서버 주소·역할 출력"]
-  O --> B["서버 프로그램 설치·연결 설정·배포"]
-~~~
+최초 개편 기록상 대체된 scripts/account1·상위 config·terraform 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 보관했다. 현재 실행기는 그 파일을 읽지 않는다. 과거 Account 1의 10.11.0.0/16와 로컬 상태가 새 10.10.0.0/16·S3 상태에 자동 이관되지 않는다. 상태 연결·import·데이터 이전은 별도 작업이다.
 
-다중 계정 provider를 for_each로 동적으로 바꾸지 않는다.
-connectivity에는 5개 provider alias와 10개 계정 쌍을 명시하며, topology.peerings로 활성화 여부를 선택한다.
-현재 통신 관계는 Bastion 관리/Proxy와 분산 서비스 복제·소비 때문에 10쌍을 포함한다.
-Peering은 중간 VPC를 거쳐 전달하지 않으므로 필요한 계정 쌍을 직접 연결한다.
-
-다른 stack의 상태를 읽을 때 계정 ID·VPC CIDR·리전·AZ를 현재 설정과 비교한다.
-workload는 필요한 Peering 유무와 connectivity가 기록한 VPC ID도 확인한다.
-foundation 변경 후에는 connectivity를 먼저 갱신한다.
-
-## 5. 인터넷 송신과 ALB
-
-현재 비용 가정은 Account 1의 Bastion/Proxy와 NAT 0개다.
-이 기본값을 코드에 옮겼지만 Proxy 프로그램 설치까지 완료한 것은 아니다.
-서비스 간 통신은 사설 Peering, 인터넷 HTTPS 송신은 명시적 Forward Proxy를 사용한다.
-
-egress를 nat으로 고르고 public_subnets를 켜면 같은 계정의 Public A·C에 public NAT를 만들고
-각 Private 서브넷의 0.0.0.0/0을 같은 AZ NAT로 연결한다.
-egress=none도 선택할 수 있다. 이 설정은 기본 인터넷 라우트 선택이며, SG와 앱의 Proxy 설정을 자동 변경하지 않는다.
-
-ALB는 HTTPS 인증서가 필요하다. 초기 경로 가정은 /static/* → Front 80, 기본 경로 → game 8000이다.
-실제 Django URL과 정적 파일 배포·헬스 체크에 맞춰 수정한다.
-모든 이벤트를 Kafka에 먼저 기록하는 Kappa 흐름은 서버 프로그램에서 구현하며 SG나 ALB만으로 완성되지 않는다.
-
-## 6. 실행기와 상태 분리
-
-infra/scripts/infra.ps1은 Account, Stage, Action을 받는다.
-실행 위치와 관계없이 상위 infra 폴더에서 config·terraform·.local을 찾는다.
-foundation/workload에는 account1~account5, connectivity에는 shared를 사용한다.
-동작은 Validate / Test / Plan / Apply / Output이다.
-
-- Validate: backend 없이 초기화 후 문법·스키마 확인.
-- Test: mock provider·mock remote state로 코드 테스트. AWS 배포 없음.
-- Plan: 대상 프로필과 backend 프로필의 실제 계정 확인, S3 버전 관리 확인 후 저장 계획 생성.
-- Apply: 계정·단계·state key·코드/설정/공개키 해시·계획 파일 해시를 검사하고 저장 계획 적용.
-- Output: 상태의 출력을 계정별 outputs.json으로 저장.
-
-새 Plan을 시작하면 이전 계획을 무효화하고, Apply 성공 후 계획을 소비한다.
-기존 프로세스의 AWS 환경 자격 증명이 지정한 프로필을 덮어쓰지 않게 격리하고 종료 시 복원한다.
-로그인 창을 자동으로 열거나 장기 액세스 키를 파일로 추출하지 않는다.
-
-S3 상태는 key_prefix/accountN/foundation, key_prefix/accountN/workload,
-key_prefix/shared/connectivity의 11개 terraform.tfstate로 나눈다.
-버킷 버전 관리와 S3 잠금 파일(use_lockfile)을 사용한다.
-로컬 TF_DATA_DIR도 계정·단계별로 나누고 Validate/Test용 캐시는 온라인 작업과 분리한다.
-
-버킷 생성·버킷 정책·기존 상태 이관은 자동화하지 않았다.
-backend.json의 빈 bucket 값 때문에 현재 상태 그대로 Plan/Apply는 시작할 수 없다.
-팀이 실제 사용할 버킷과 접근 권한을 먼저 준비한다.
-
-## 7. 서버 내부 설치와 데이터 보호
-
-compute는 EC2와 암호화된 gp3 디스크, IMDSv2, 역할 메타데이터를 구성한다.
-데이터 디스크는 별도 EBS 자원이며 prevent_destroy로 삭제·교체 계획을 막는다.
-OS 루트 디스크는 인스턴스 삭제 시 함께 삭제되는 일반 설정이므로 데이터 보관 위치로 사용하지 않는다.
-
-Kafka·MongoDB·MySQL·Spark·Django·Proxy 설치, 파일시스템 포맷/마운트, 서비스 시작, 복제 설정은
-[bootstrap 안내](bootstrap/README.md)에 정의한 다음 단계다. 이번 개편에 자동 설치 구현은 포함하지 않는다.
-Output 결과를 서버 연결 설정의 입력으로 사용할 수 있지만 완전한 배포 설정 생성기는 아직 없다.
-
-계정·AZ를 바꾼다고 데이터가 자동 이동하지 않는다.
-새 대상 준비 → 데이터 이전 → 접속 전환 → 기존 자원 정리 절차가 필요하다.
-사양·디스크 증설과 계정·AZ 이동은 별개의 변경으로 검토한다.
-
-## 8. 기존 파일을 어떻게 처리했는가
-
-| 이전 파일 | 대체 위치/처리 |
-|---|---|
-| scripts/account1/login.ps1 | 필수 배포 경로에서 제외. infra.ps1이 기존 CLI 프로필을 확인 |
-| scripts/account1/network.ps1 | infra.ps1 -Stage foundation |
-| scripts/account1/security.ps1 | 입력 검사는 공통 실행기, SG 자체는 foundation, 규칙은 workload |
-| scripts/account1/prepare-key.sh | infra/scripts/prepare-key.sh로 공통화, 기존 키 재사용 |
-| scripts/account1/README.md | infra/README.md에 전체 실행 순서 |
-| 상위 config/account1~account5 | infra/config/topology.tfvars.json과 공개키 복사본 |
-| 상위 terraform/accounts/account1 소스 | infra/terraform의 공통 모듈·stack |
-
-대체된 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 원래 상대 경로와 SHA-256 목록을 남겨 보관한다.
-기존 .terraform-state, .terraform 캐시/초기화 정보, 개인키와 CLI 프로필은 이동하지 않는다.
-
-기존 Account 1 VPC CIDR은 10.11.0.0/16이고 새 기준은 10.10.0.0/16이다.
-소스 개편과 기존 AWS 자원 교체는 별개다. 새 상태에 기존 자원을 자동 import하지 않았으며,
-원래 로컬 상태를 잃어버린 것처럼 새 자원을 곧바로 적용해서는 안 된다.
-
-## 9. 참고 자료
-
-- [계정별 배치와 비용 요약](../costs/README.md)
-- [상세 비용 가정](../costs/dual-az.md)
-- [Terraform provider를 모듈에 전달하는 방법](https://developer.hashicorp.com/terraform/language/modules/develop/providers)
-- [Terraform S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3)
-- [Terraform for_each](https://developer.hashicorp.com/terraform/language/meta-arguments/for_each)
-- [Terraform 테스트 상태 분리](https://developer.hashicorp.com/terraform/language/tests#modules-state)
-- [AWS AZ ID](https://docs.aws.amazon.com/ram/latest/userguide/working-with-az-ids.html)
+[테스트 안내](tests/README.md)는 모의 CLI·mock provider 검사와 실제 배포를 구분한다. 기존 workload 테스트에 남은 노드 수·SG ID 기대값 차이를 새 Spark·콘솔 SSH 테스트가 해결한 것으로 기록하지 않는다. 이번 문서 작업에서는 테스트·AWS·설치 명령을 재실행하지 않았다. 비용 자료는 [docs/costs](../docs/costs/README.md)로 옮겨졌으며 이전 ../costs 경로는 사용하지 않는다.

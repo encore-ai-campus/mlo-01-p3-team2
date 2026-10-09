@@ -16,10 +16,10 @@
 
 account_key로 accounts에서 한 계정을 선택한다. network에 VPC CIDR·물리 AZ ID·Public 사용 여부·egress를 넘기고, groups에 해당 계정의 역할 목록과 VPC ID를 넘긴다. 원격 상태를 읽지 않는 첫 번째 배포 단계다.
 
-foundation 출력에는 account_key, account_id, region, vpc_cidr, az_ids, vpc_id, subnet_ids, route_table_ids, sg_ids, nat_gateway_ids가 들어간다. connectivity와 workload가 S3 원격 상태에서 이 출력을 읽고 계정·리전·CIDR·AZ를 대조한다.
+foundation 출력에는 account_key, account_id, region, vpc_cidr, az_ids, vpc_id, subnet_ids, route_table_ids, sg_ids, nat_gateway_ids가 들어간다. connectivity·workload 및 Account 1 bastion이 S3 원격 상태에서 이 출력을 읽고 계정·리전·CIDR·AZ를 대조한다.
 
-현재 Account 1은 Public·Private A/C로 서브넷 4개, 나머지는 Private A/C로 각각 2개다. 모든 계정이 proxy이므로 NAT는 없다. SG는 생성하지만 서비스 간 허용 규칙·EC2·ALB는 workload에서 만든다.
+현재 Account 1은 Public·Private A/C로 서브넷 4개, 나머지는 Private A/C로 각각 2개다. 모든 계정이 proxy이므로 NAT는 없다. SG는 생성하지만 서비스 간 허용 규칙·서비스 EC2·ALB는 workload에서 만든다. Bastion SG는 EC2가 없는 동안에도 유지하며 Bastion EC2·OS 디스크·전용 키페어는 [bastion 단계](bastion.md)에서 별도로 만든다.
 
 ## 변경 영향
 
-VPC·서브넷·AZ·역할 목록이 바뀌면 foundation을 검토한 뒤 connectivity와 workload의 상태 의존성을 확인한다. 계정별 상태 key는 {key_prefix}/{account}/foundation/terraform.tfstate다. 기존 자원의 자동 import나 과거 로컬 상태의 자동 이관은 이 stack에 없다.
+VPC·서브넷·AZ·역할 목록이 바뀌면 foundation을 검토한 뒤 connectivity·workload·bastion의 상태 의존성을 확인한다. 계정별 상태 key는 {key_prefix}/{account}/foundation/terraform.tfstate다. 기존 자원의 자동 import나 과거 로컬 상태의 자동 이관은 이 stack에 없다.

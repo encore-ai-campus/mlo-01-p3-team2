@@ -1,6 +1,6 @@
 # 인프라 코드 탐색 안내
 
-어떤 설정과 코드를 찾아 수정해야 하는지 안내하는 문서다. 기준은 **2026-10-09의 실제 작업 파일**이며, AWS에 배포된 자원이나 서비스 연결을 확인한 보고서는 아니다.
+어떤 설정과 코드를 찾아 수정해야 하는지 안내하는 문서다. 기준은 **2026-10-10의 실제 작업 파일**이며, AWS에 배포된 자원이나 서비스 연결을 확인한 보고서는 아니다.
 
 ## 시작점과 경로 기준
 
@@ -15,6 +15,10 @@
 | 하려는 일 | 먼저 볼 문서 | 실제 코드·설정 |
 | --- | --- | --- |
 | 실행 옵션·저장 계획·계정 확인 흐름 파악 | [공통 실행기](scripts/infra.ps1.md) | [infra.ps1](../../infra/scripts/infra.ps1) |
+| 비용별 구성·EC2 생성·인벤토리·프록시 일괄 준비 | [구성별 배포](scripts/deploy.ps1.md) | [deploy.ps1](../../infra/scripts/deploy.ps1) |
+| 배스천 생성·삭제·상태 조회·중지·시작 | [배스천 관리](scripts/bastion.ps1.md) | [bastion.ps1](../../infra/scripts/bastion.ps1) |
+| 전체 인프라 삭제 Plan·적용·진행 확인 | [전체 삭제 실행기](scripts/destroy-all.ps1.md) | [destroy-all.ps1](../../infra/scripts/destroy-all.ps1) |
+| 전체 삭제 순서·자원 범위·상태·결과 검사 | [삭제 공통 함수](scripts/lib/infra-destroy.ps1.md) | [infra-destroy.ps1](../../infra/scripts/lib/infra-destroy.ps1) |
 | CIDR·계정·상태 버킷·파일 해시 검사 수정 | [실행기 공통 함수](scripts/lib/infra-common.ps1.md) | [infra-common.ps1](../../infra/scripts/lib/infra-common.ps1) |
 | 서버 계정·AZ·사양·디스크·AMI 변경 | [설정 지도](config/README.md) | [topology.tfvars.json](../../infra/config/topology.tfvars.json) |
 | 팀원 공인 IP·서비스 포트·통신 대상 변경 | [설정 지도](config/README.md) | [traffic.tfvars.json](../../infra/config/traffic.tfvars.json) |
@@ -22,8 +26,13 @@
 | VPC·서브넷·IGW·NAT·SG 자체 생성 | [foundation](terraform/stacks/foundation.md) | [foundation stack](../../infra/terraform/stacks/foundation/main.tf) |
 | 계정 간 Peering·양방향 라우팅 변경 | [connectivity](terraform/stacks/connectivity.md) | [connectivity stack](../../infra/terraform/stacks/connectivity/main.tf) |
 | 보안규칙·EC2·EBS·ALB 변경 | [workload](terraform/stacks/workload.md) | [workload stack](../../infra/terraform/stacks/workload/main.tf) |
+| 서비스 EC2의 콘솔 SSH 접두사 목록 규칙 | [콘솔 SSH 범위](terraform/stacks/workload.md#콘솔-ssh-규칙의-범위) | [workload 선언](../../infra/terraform/stacks/workload/main.tf), [5개 계정 모의 테스트](../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) |
+| Spark의 고정 포트·재시도 범위와 SG 규칙 검사 | [Spark 포트 범위 테스트](tests/README.md#spark-포트-범위) · [플랫폼 Spark 설정](../../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | traffic의 port_end → model.flows → workload 범위 병합 → security-rules |
+| Bastion EC2·OS 디스크·전용 키페어 변경 | [bastion](terraform/stacks/bastion.md) | [bastion stack](../../infra/terraform/stacks/bastion/main.tf) |
+| Squid 패키지 설치 범위 확인 | [Proxy 설치 스크립트](setup-proxy.sh.md) | [setup-proxy.sh](../../infra/setup-proxy.sh) |
 | 공통 자원 생성 방식 수정 | [Terraform 모듈 목록](terraform/README.md) | [modules](../../infra/terraform/modules/) |
 | SSH 키 준비 | [키 준비 스크립트](scripts/prepare-key.sh.md) | [prepare-key.sh](../../infra/scripts/prepare-key.sh) |
+| 계정별 PEM 준비·기존 서버 공개키 등록 | [계정별 SSH 키 전환](scripts/account-keys.ps1.md) | [account-keys.ps1](../../infra/scripts/account-keys.ps1) |
 | Windows 도구 설치 동작 확인 | [설치 스크립트](setup-windows/install-tools.ps1.md) | [install-tools.ps1](../../infra/setup-windows/install-tools.ps1) |
 | 테스트와 모의 입력 찾기 | [테스트 지도](tests/README.md) | [실행기 테스트](../../infra/tests/test_runner.py), [fixtures](../../infra/tests/fixtures.json) |
 | Python 함수·시그니처 찾기 | [test_runner.py 구조](tests/test_runner.py.md) | routing-doc-sync AST 분석 결과 기준 |
@@ -38,6 +47,8 @@ flowchart TB
     F --> C["connectivity × shared<br/>Peering · 양방향 라우팅"]
     F --> W["workload × 5계정<br/>SG 규칙 · EC2 · EBS · ALB"]
     C --> W
+    F --> BS["bastion × account1<br/>선택 생성·삭제 · 자동 공인 IP · EIP 없음"]
+    BS --> BO["Bastion Output<br/>현재 공인·사설 IP · SSH · Proxy 주소"]
     W --> O["Output<br/>서버 주소 · 디스크 ID · ALB DNS"]
     O -. "후속 설치 작업" .-> B["bootstrap 범위<br/>프로그램 설치 · 디스크 마운트 · 서비스 설정"]
 ```
@@ -47,9 +58,13 @@ flowchart TB
 ## 현재 구현의 범위
 
 - 계정 키는 account1~account5이며 shared는 connectivity 실행 구분이다.
-- 서버는 4 / 3 / 4 / 2 / 3대, 전체 16대다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW·ALB를 구성한다.
+- workload의 서비스 서버는 4 / 2 / 4 / 2 / 3대, 전체 15대다. Bastion 한 대는 별도 bastion 단계에서 필요할 때 생성·삭제한다. ad-server는 Account 1의 Private C에 배치한다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW·ALB를 구성한다.
 - 보안그룹 자체는 foundation, 통신 규칙은 workload가 소유한다. Peering과 상대 VPC 경로는 connectivity가 소유한다.
-- 출력은 Terraform 상태를 읽은 값이다. 프로그램 설치·디스크 마운트·클러스터 구성·실제 접속 성공은 별도 확인 대상이다.
-- EC2 일일 Stop/Start, 백업·복구·데이터 이전 자동화는 현재 실행기에 없다.
+- 서비스 콘솔 SSH는 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록에서 TCP 22를 허용한다. 계정별 서비스 SG 3 / 2 / 4 / 2 / 3개, 총 14개가 대상이며 기존 Bastion 규칙과 별도로 선언한다. Private 접속 경로나 SSH 공개키를 준비하는 기능은 아니다.
+- ALB는 HTTP 80에서 요청을 받는다. `/static/*`는 Front 두 대의 HTTP 80으로, `/ads/*`는 ad-server의 HTTP 8000으로, 기본 경로는 game-server의 HTTP 8000으로 보낸다. HTTPS 리스너와 ACM 인증서 검사는 없다.
+- topology의 Bastion 역할은 유지하지만 workload의 EC2 대상에서는 제외한다. foundation의 Bastion SG와 workload의 SSH·Proxy 규칙은 Bastion 삭제 후에도 유지한다. 현재 관리자·사용자 CIDR은 각각 한 항목이며 계정별 AMI·공개키 경로도 채워져 있다. 설정값은 [설정 지도](config/README.md)에서 확인한다.
+- 공통 실행기 Output은 Terraform 상태를 읽은 값이고, bastion.ps1의 Status·Output은 AWS CLI로 현재 EC2를 조회한다. 프로그램 설치·디스크 마운트·클러스터 구성·실제 접속 성공은 별도 확인 대상이다.
+- [bastion.ps1](scripts/bastion.ps1.md)은 PlanCreate → 검토 → Create, PlanDelete → 검토 → Delete와 Status·Output·Stop·Start·Restart를 지원한다. Stop은 삭제가 아니다. 전체 삭제는 [destroy-all.ps1](scripts/destroy-all.ps1.md)의 Plan → 검토 → Apply로 지원한다. EBS 보호 해제는 사용자의 수동 변경이며 스크립트가 변경하지 않는다. EC2 전체의 일일 예약 실행, 백업·복구·데이터 이전 자동화는 없다.
+- 현재 compute 모듈의 데이터 EBS는 prevent_destroy=false다. Terraform의 해당 삭제 보호가 꺼진 상태이며 전체 삭제 시 데이터 볼륨도 대상에 포함된다. 이번 문서 동기화는 이 값을 변경하지 않았다.
 
 Python 구조는 지정한 routing-doc-sync 스킬로 확인했다. PowerShell·Terraform·JSON·Bash는 스킬의 Python 분석 범위 밖이므로 실제 파일을 대조했다. 검사 깊이와 기존 문서의 남은 차이는 [검증 기록](verification.md)에 구분했다.

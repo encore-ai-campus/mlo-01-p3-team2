@@ -17,7 +17,8 @@
 - name: Master 상태 조회
   ansible.builtin.shell: |
     for ip in {{ groups['spark'][:spark_master_count] | map('extract', hostvars, 'ip') | join(' ') }}; do
-      curl -sf http://$ip:{{ spark_master_webui_port }}/json/ | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("aliveworkers", 0))'
+      # 내부 Master 조회가 방화벽에 막혀도 한 요청을 무한정 기다리지 않는다.
+      curl --fail --silent --show-error --connect-timeout 3 --max-time 10 --noproxy '*' http://$ip:{{ spark_master_webui_port }}/json/ | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("aliveworkers", 0))'
     done
   register: spark_masters
   until: >-
