@@ -8,6 +8,7 @@
 """
 import os
 import sys
+import uuid
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,30 +33,51 @@ def connect():
         raise SystemExit(f"MySQL 에 연결하지 못했습니다: {exc}\n시험용 컨테이너가 떠 있는지 확인하세요(README 'MySQL 시험 환경').")
 
 
-def create_database(name):
+_OWNED = set()  # 이 프로세스가 CREATE 에 성공한 데이터베이스. 이것만 지운다(이름이 겹친 남의 DB 는 건드리지 않는다)
+
+
+def create_database(prefix):
+    """무작위 이름의 새 데이터베이스를 만들어 이름을 돌려준다. 이미 있는 이름이면 지우지 않고 실패한다(CREATE 는 `IF NOT EXISTS` 없이)."""
+    import MySQLdb
+
+    name = f"{prefix}_{uuid.uuid4().hex}"
     conn = connect()
-    with conn.cursor() as cur:
-        cur.execute(f"DROP DATABASE IF EXISTS `{name}`")
-        cur.execute(f"CREATE DATABASE `{name}` CHARACTER SET utf8mb4 COLLATE {COLLATION}")
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"CREATE DATABASE `{name}` CHARACTER SET utf8mb4 COLLATE {COLLATION}")
+            except MySQLdb.Error as exc:
+                raise SystemExit(f"데이터베이스 {name} 을 만들지 못했습니다: {exc}")
+        _OWNED.add(name)
+    finally:
+        conn.close()
+    return name
 
 
 def drop_database(name):
+    """이 프로세스가 만든 데이터베이스만 지운다. 만들지 않은 이름이면 거부한다."""
+    if name not in _OWNED:
+        raise ValueError(f"{name} 은 이 실행이 만든 데이터베이스가 아니라 지우지 않는다")
     conn = connect()
-    with conn.cursor() as cur:
-        cur.execute(f"DROP DATABASE IF EXISTS `{name}`")
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"DROP DATABASE IF EXISTS `{name}`")
+        _OWNED.discard(name)
+    finally:
+        conn.close()
 
 
 def preflight():
     conn = connect()
-    with conn.cursor() as cur:
-        cur.execute("SELECT VERSION()")
-        version = cur.fetchone()[0]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT VERSION()")
+            version = cur.fetchone()[0]
         if not version.startswith("8.4."):
             raise SystemExit(f"MySQL 8.4 가 필요합니다(지금 {version}).")
-        cur.execute("CREATE DATABASE IF NOT EXISTS ads_preflight")
-        cur.execute("DROP DATABASE ads_preflight")
+    finally:
+        conn.close()
+    drop_database(create_database("ads_preflight"))  # 생성·삭제 권한 확인: 무작위 이름이라 남의 DB 와 겹치지 않는다
     print(f"MySQL {version} 연결 확인, 데이터베이스 생성·삭제 권한 확인")
 
 

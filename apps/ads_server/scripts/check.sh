@@ -47,6 +47,7 @@ audit_dependencies() {
 }
 
 run "MySQL 접속 (시험 DB, 없으면 여기서 멈춘다)" "$PY" scripts/mysql_admin.py
+if [ ${#failures[@]} -gt 0 ]; then printf '\n실패: %s\nDB 가 필요한 나머지 단계는 실행하지 않았습니다(README "MySQL 시험 환경").\n' "${failures[*]}"; exit 1; fi
 run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test

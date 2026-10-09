@@ -704,14 +704,51 @@ def main(argv=None):
     args = parser.parse_args(argv)
     count = 20 if args.small else args.concurrency
 
-    tmp = Path(tempfile.mkdtemp(prefix="ads-load-"))
     sys.path.insert(0, str(BASE_DIR))
     sys.path.insert(0, str(BASE_DIR / "scripts"))
     os.chdir(BASE_DIR)
     import mysql_admin
 
-    db_name = f"ads_load_{uuid.uuid4().hex[:8]}"
-    mysql_admin.create_database(db_name)  # 접속 값이 없거나 연결이 안 되면 여기서 이유를 말하고 멈춘다
+    # 자원은 만드는 즉시 기록하고, 어느 단계에서 실패해도(준비·시험·결과 저장) 만든 것만 바깥 finally 가 정리한다.
+    res = {"tmp": None, "db": None, "server": None, "serving": False}
+    try:
+        res["tmp"] = tmp = Path(tempfile.mkdtemp(prefix="ads-load-"))
+        res["db"] = db_name = mysql_admin.create_database("ads_load")  # 접속 값이 없거나 연결이 안 되면 여기서 이유를 말하고 멈춘다
+        return run(args, count, tmp, db_name, res)
+    finally:
+        cleanup(res, keep=args.keep)
+
+
+def cleanup(res, keep):
+    if keep:
+        print(f"남겨 둠: 폴더 {res['tmp']}, 데이터베이스 {res['db']}")
+        return
+    import mysql_admin
+
+    def stop_server():
+        if res["serving"]:  # serve_forever 가 돈 적이 없으면 shutdown() 은 영원히 기다린다
+            res["server"].shutdown()
+        if res["server"]:
+            res["server"].server_close()
+
+    def close_connections():
+        if "django.db" in sys.modules:
+            sys.modules["django.db"].connections.close_all()
+
+    steps = [
+        ("서버 종료", stop_server),
+        ("연결 닫기", close_connections),
+        ("데이터베이스 삭제", lambda: res["db"] and mysql_admin.drop_database(res["db"])),
+        ("임시 폴더 삭제", lambda: res["tmp"] and shutil.rmtree(res["tmp"], ignore_errors=True)),
+    ]
+    for label, step in steps:  # 한 단계가 실패해도 나머지는 계속한다
+        try:
+            step()
+        except Exception as exc:  # noqa: BLE001 — 정리 실패는 알리고 원래 오류를 가리지 않는다
+            print(f"정리 실패({label}): {exc!r}", file=sys.stderr)
+
+
+def run(args, count, tmp, db_name, res):
     os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MEDIA_ROOT=str(tmp / "media"))
     os.environ.pop("DJANGO_DEBUG", None)
 
@@ -726,10 +763,11 @@ def main(argv=None):
     call_command("migrate", verbosity=0)
     ctx = seed()
     server = ThreadedServer(("127.0.0.1", 0), QuietHandler)
+    res["server"] = server
     server.set_app(get_wsgi_application())
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    res["serving"] = True
     harness = Harness(server.server_address[1], ctx, count, tmp, log, rest_scale=0.1 if args.small else 1.0)
-    ok = True
     try:
         harness.decisions()
         harness.rest()
@@ -753,7 +791,6 @@ def main(argv=None):
         harness.drain()
         harness.verify("최종")
     finally:
-        server.shutdown()
         ok = all(c["ok"] for c in harness.checks)
         from billing.models import LedgerEntry
         from records.models import Decision, Reaction
@@ -763,12 +800,6 @@ def main(argv=None):
         log("결과: " + ("모든 불변식 충족" if ok else "실패 항목 있음 — " + ", ".join(c["check"] for c in harness.checks if not c["ok"])))
         if args.json:
             Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "hold_resolution_s": getattr(harness, "hold_seconds", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
-        if not args.keep:
-            from django.db import connections
-
-            connections.close_all()
-            mysql_admin.drop_database(db_name)
-            shutil.rmtree(tmp, ignore_errors=True)
     return 0 if ok else 1
 
 
