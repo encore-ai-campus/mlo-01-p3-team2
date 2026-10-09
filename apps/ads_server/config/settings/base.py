@@ -204,15 +204,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 def mysql_config(name, user, password, host, port, isolation_level="read committed"):
     """MySQL 8.4 접속 설정 (계획 §7.3 S5·S7). 값은 호출한 쪽이 환경변수에서 읽어 넘긴다.
 
-    - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다(SQLite 에서는 없던 검사).
+    - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다.
     - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`scripts/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
       READ COMMITTED 는 두 번 모두 교착 0·잠금 초과 0·불변식 전부 통과, REPEATABLE READ 는 교착 8건(1213)이 나고 불변식 2건이 실패했다
       (같은 `reaction_id` 재전송 폭주에서 201 이 하나가 아니었고, 결정마다 퍼널이 인정되지 않은 결정이 있었다).
       간격 잠금이 같은 유일 키를 노리는 동시 INSERT 를 교착으로 몰기 때문이다. 판정은 유일 제약과 행 잠금에 기대므로 READ COMMITTED 로도 의미가 같다.
       환경변수 `DB_ISOLATION_LEVEL` 로 바꿔 다시 비교할 수 있다(dev·prod 만, 시험 설정은 고정).
-    - 데이터 정렬 utf8mb4_0900_as_cs: 8.4 기본(`_ai_ci`)은 대소문자·악센트를 구분하지 않아 유일 제약과 비교가 SQLite 와 달라진다.
+    - 데이터 정렬 utf8mb4_0900_as_cs: 8.4 기본(`_ai_ci`)은 대소문자·악센트를 구분하지 않아, 대소문자가 의미인 값(키·토큰·사용자 이름)의 유일 제약과 비교가 달라진다.
       DB 를 만들 때 같은 값을 쓴다(README).
-    - CONN_MAX_AGE=0: 요청마다 연결을 닫는다. 영속 연결·풀은 부하 측정(DB-1d) 뒤에 정한다.
+    - CONN_MAX_AGE=0: 요청마다 연결을 닫는다. 150 동시 부하(DB-1d)에서 연결 수 = 동시 요청 수라 서버 `max_connections`(기본 151)에 닿아 일부가 503 + 재시도를 겪었다
+      (앱의 처리는 올바르다). 영속 연결·풀은 배포 구성(워커 수 × 스레드 수)과 인프라의 `max_connections` 가 정해진 뒤에 정한다(계획 7.3.4 #4).
     """
     return {
         "ENGINE": "django.db.backends.mysql",
