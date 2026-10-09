@@ -1,0 +1,26 @@
+---
+# 역할(그룹) 간 허용 관계. 방화벽 규칙은 이 데이터에서만 만든다 (docs/platform/infra-automation-design.md 8장).
+# 키는 허용을 받는 그룹이다.
+#   from:  이 그룹의 서버 IP에서 오는 연결을 허용한다 (SSH(22)를 제외한 모든 포트)
+#   self:  같은 그룹의 노드끼리 허용한다 (SSH(22)를 제외한 모든 포트)
+#   tcp_ports_from_anywhere: 모든 출처에 열 TCP 포트
+# SSH(22)는 포트를 지정하지 않은 규칙에서 제외하고, 아래 firewall_ssh_sources(와 Bastion의 전체 허용)로만 연다.
+firewall_ssh_sources: [bastion, monitoring]
+
+firewall_rules:
+  frontend:
+    tcp_ports_from_anywhere: [80, 443]
+  backend:
+    from: [frontend, spark, bastion]
+  mysql:
+    from: [backend, spark, bastion]
+    self: true
+  mongodb:
+    from: [backend, spark, bastion]
+    self: true
+  kafka:
+    from: [backend, spark, bastion]
+    self: true
+  spark:
+    from: [backend, bastion]
+    self: true

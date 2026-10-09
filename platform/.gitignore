@@ -1,0 +1,10 @@
+# 운영자가 각자 만드는 파일 (저장소에 올리지 않는다)
+.vault*
+inventory/*.yml
+!inventory/hosts.example.yml
+inventory/group_vars/all/vault.yml
+
+# 실행·편집 부산물
+*.retry
+__pycache__/
+.DS_Store

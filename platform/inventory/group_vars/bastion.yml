@@ -1,0 +1,4 @@
+---
+# Bastion은 개발자 PC에서 공인 IP로 직접 접속한다.
+ansible_host: "{{ public_ip }}"
+ansible_ssh_common_args: ""

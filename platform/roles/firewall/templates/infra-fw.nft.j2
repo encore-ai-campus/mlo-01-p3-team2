@@ -1,0 +1,52 @@
+# Ansible로 관리한다 (roles/firewall). 전용 테이블 하나만 관리하며 다른 도구의 규칙은 건드리지 않는다.
+# 테이블을 비우고 다시 만드는 것을 한 번의 트랜잭션으로 적용한다 (nft -f).
+{% set ssh_ips = [] %}
+{% for g in firewall_ssh_sources %}
+{% for h in groups.get(g, []) %}
+{% set _ = ssh_ips.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+table inet infra_fw
+delete table inet infra_fw
+
+table inet infra_fw {
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    ct state established,related accept
+    ct state invalid drop
+    iifname "lo" accept
+    udp sport 67 udp dport 68 accept
+    icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+    # SSH
+{% if firewall_ssh_anywhere %}
+    tcp dport 22 accept
+{% elif ssh_ips | length > 0 %}
+    ip saddr { {{ ssh_ips | unique | join(', ') }} } tcp dport 22 accept
+{% endif %}
+{% for g in group_names if g in firewall_rules %}
+{% set rule = firewall_rules[g] %}
+{% set ips = [] %}
+{% for src in rule.get('from', []) %}
+{% for h in groups.get(src, []) %}
+{% set _ = ips.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% if rule.get('self', false) %}
+{% for h in groups[g] %}
+{% set _ = ips.append(hostvars[h].ip) %}
+{% endfor %}
+{% endif %}
+
+    # {{ g }}
+{% if ips | length > 0 %}
+    ip saddr { {{ ips | unique | join(', ') }} } tcp dport 22 drop
+    ip saddr { {{ ips | unique | join(', ') }} } accept
+{% endif %}
+{% if rule.get('tcp_ports_from_anywhere') %}
+    tcp dport { {{ rule.tcp_ports_from_anywhere | join(', ') }} } accept
+{% endif %}
+{% endfor %}
+  }
+}

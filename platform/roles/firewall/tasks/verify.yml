@@ -1,0 +1,30 @@
+---
+# 이 서버에 새 SSH 연결이 되는 것은 적용 단계에서 확인되고, 이 task들이 실행된 것 자체가 접속 성공이다.
+- name: 방화벽 테이블 조회
+  ansible.builtin.command: nft list table inet infra_fw
+  register: firewall_table
+  changed_when: false
+
+- name: 방화벽 규칙 검증
+  ansible.builtin.assert:
+    that:
+      - "'policy drop' in firewall_table.stdout"
+      - "'tcp dport 22' in firewall_table.stdout"
+    fail_msg: 방화벽 테이블이 기본 차단(policy drop)과 SSH 규칙을 갖고 있지 않다.
+
+- name: 부팅 때 로드 설정 조회
+  ansible.builtin.command: systemctl is-enabled infra-firewall.service
+  register: firewall_boot
+  changed_when: false
+
+- name: 부팅 때 로드 설정 검증
+  ansible.builtin.assert:
+    that: firewall_boot.stdout == 'enabled'
+    fail_msg: infra-firewall 서비스가 부팅 때 로드되도록 활성화되어 있지 않다.
+
+# 복구 타이머가 남아 있으면 곧 방화벽이 지워진다.
+- name: 복구 타이머가 남아 있지 않은지 확인
+  ansible.builtin.command: systemctl is-active infra-fw-rollback.timer
+  register: firewall_rollback
+  changed_when: false
+  failed_when: firewall_rollback.stdout == 'active'

@@ -1,0 +1,36 @@
+---
+# apt 저장소 등록 (Debian 계열). 입력: apt_repo_name, apt_repo_uri, apt_repo_suite, apt_repo_components(목록), apt_repo_key_url
+# 서명 키는 /etc/apt/keyrings에 파일로 두고 Signed-By로 지정한다. 키가 이미 있으면 서버에 요청하지 않는다
+# (get_url은 파일이 있어도 갱신 확인 요청을 보내므로, 인터넷이 없으면 실패한다).
+# deb822_repository 모듈은 대상 서버에 python3-debian이 필요해 쓰지 않는다.
+- name: apt 키 디렉터리
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: "apt 서명 키 확인 ({{ apt_repo_name }})"
+  ansible.builtin.stat:
+    path: "/etc/apt/keyrings/{{ apt_repo_name }}.asc"
+  register: apt_repo_key
+
+- name: "apt 서명 키 ({{ apt_repo_name }})"
+  ansible.builtin.get_url:
+    url: "{{ apt_repo_key_url }}"
+    dest: "/etc/apt/keyrings/{{ apt_repo_name }}.asc"
+    mode: "0644"
+  when: not apt_repo_key.stat.exists
+
+- name: "apt 저장소 ({{ apt_repo_name }})"
+  ansible.builtin.copy:
+    dest: "/etc/apt/sources.list.d/{{ apt_repo_name }}.sources"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Ansible로 관리한다 (roles/pkg).
+      Types: deb
+      URIs: {{ apt_repo_uri }}
+      Suites: {{ apt_repo_suite }}
+      Components: {{ apt_repo_components | join(' ') }}
+      Signed-By: /etc/apt/keyrings/{{ apt_repo_name }}.asc
