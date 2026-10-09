@@ -16,7 +16,7 @@
 | 목적 | 광고 서버가 **어떤 데이터를 어떤 모양으로 갖고, 바깥과 어떤 데이터를 주고받는지**를 한 문서로 고정한다. 구현·계약·파이프라인이 같은 기준을 쓰게 한다 |
 | 범위 | 광고 서버의 저장 데이터(DB·파일), 서버 간 계약(C1~C6)의 데이터 모양, 내부 처리 흐름, 수명주기, 보안 분류, 팀 DRD와의 대응 |
 | 범위 밖 | 매체 서버(메타버스)·데이터 파이프라인의 내부 데이터, 화면 설계, 인프라 구성 |
-| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB**(이벤트 로그)는 DB-2에서 연결하고, outbox는 Step 4에서 MySQL에 둔다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
+| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB 8.0**(이벤트 로그)은 DB-2에서 연결·`ad_events` 컬렉션·색인 준비를 마쳤고(로컬, 2026-10-10), outbox는 Step 4에서 MySQL에 둔다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
 | 엔터티 | 구현 19개(계정·감사 3, 마스터 4, 운영 7, 지갑·원장·결정·반응 4, 파생 1), 계획 1개(outbox) |
 | 핵심 규칙 | **모든 PK는 UUIDv7, 자동 증가 없음** · 자연 키는 업무 규칙용 유일 제약 · 시각은 UTC · 금액은 **정수 포인트** · 이력은 **추가 전용**(입찰·정책·원장·결정·감사) · 삭제 없음 · 판정 규칙은 한 곳(`engine`) |
 | 먼저 볼 것 | §1.2 **광고 도메인은 이 문서가 팀 DRD보다 우선**. §10 열린 이슈, D-1~D-3(2-3)과 PK 규칙의 코드 적용(D-8)은 해결됨. 식별자 방식 차이(D-4)는 해결됨 |
@@ -64,7 +64,7 @@
 | C6 콘솔 | 들어옴 | 광고주·관리자 브라우저 | 세션, 템플릿 | Step 3 |
 | C2 이벤트 내보내기 | — | — | **없음** | V1 범위 밖 |
 
-**DB 전환 (Step DB: DB-1 MySQL 완료, DB-2 MongoDB 연결) → Step 4**
+**DB 전환 (Step DB: DB-1 MySQL 완료, DB-2 MongoDB 연결 로컬 완료) → Step 4**
 
 | 계약 | 방향 | 상대 | 방식 | 상태 |
 |---|---|---|---|---|
@@ -133,7 +133,7 @@ flowchart LR
 | 로컬 디렉터리(`MEDIA_ROOT`) | 소재 이미지(재인코딩된 바이트) | `<해시 앞 2자>/<sha256>.<jpg\|png>`, 임시 파일 → `os.replace`로 원자적 확정, 권한 0640 | [구현] |
 | 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
 | MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, Step 4) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 [계획] Step 4. Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
-| MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장 | [계획] Step DB(연결)·Step 4(쓰기) |
+| MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인, 2026-10-10) · [계획] Step 4(쓰기) |
 | NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나, manifest에 SHA-256·행 수·`schema_version`·`source_kind`·checkpoint | [계획] Step 4 |
 | Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
 
@@ -854,7 +854,7 @@ sequenceDiagram
     P->>DB: RECEIVED 반응 읽기
     P->>P: 규칙 체인 known-decision → same-media → ad-shown → click-source → subject → occurred-at → campaign-open → once-per-type → funnel-window → funnel-order
     alt 앞 단계(노출·클릭)를 기다림
-        P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초, 5초 간격으로 다시 판정)
+        P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초. 앞 단계가 끝나면 깨워 바로, 아니면 30초마다 다시 판정)
     else 거부
         P->>DB: REJECTED + reason_code (지우지 않음)
     else 인정
@@ -1134,6 +1134,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.17 | 2026-10-10 | DB-2(MongoDB 연결) 반영: 저장소 요약·`ad_events` 행을 연결·컬렉션·색인 준비 완료로(이벤트 쓰기는 Step 4). 반응 처리 순서도의 보류 재판정을 깨우기 + 30초 안전망으로(DB-1d) |
 | 0.16 | 2026-10-09 | MySQL 전환 반영(DB-1a~1e): 저장소·현재 단계 표·구성도·순서도의 SQLite를 MySQL 8.4로, 저장소 한계는 연결 한도·단일 노드로. 이력 행은 그대로 |
 | 0.15 | 2026-10-09 | 접수 서술 정정(외부 검토 `2ba7430`): "짧은 INSERT 한 번" → 소유 매체의 접수는 결정 행 잠금 + INSERT, "결정을 조회하지 않는다" → 결정의 존재·소유를 이유로 거절하지 않으며 결정 조회는 잠글지 정하는 소유 확인뿐(구현 `2ba7430`·`7d4df3f`). 접수 이벤트에 판정된 사람·슬롯 성격을 싣지 않는 계약은 그대로 |
 | 0.14 | 2026-10-09 | 2-13 보완(`cfc1810`) 반영: `basis.person`은 확인한 사람만(없는 결정이면 `null`), 앞 단계는 인정 근거(최대 1개, 항상 저장)와 처리 전 후보(상한)로 분리, C2 판정 이벤트의 사람·슬롯 성격은 `basis`에서 읽음 |

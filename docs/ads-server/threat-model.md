@@ -133,7 +133,7 @@
 | 같은 반응 재전송(네트워크 재시도) | 멱등: (매체, `reaction_id`) 유니크 → 한 번만 처리·과금 | 2 |
 | 같은 결정에 노출을 여러 번 보고 | 규칙 `once-per-type` | 2 |
 | 존재하지 않는 결정에 보고 | 규칙 `known-decision`, 접수는 하되 `REJECTED`로 보존 | 2 |
-| 접수 후 유실 | 저장 후 확인(`synchronous=FULL`), inbox 분리, 재처리 | 0-1, 2 |
+| 접수 후 유실 | 커밋한 뒤에 수신 확인(2xx), 커밋마다 디스크에 내리는 MySQL 설정(`innodb_flush_log_at_trx_commit=1`·`sync_binlog=1`, `test_commit_is_durable_on_this_server`), inbox 분리, 재처리. 장애 시험의 강제 종료(SIGKILL)에서 수신 확인한 결정·반응 전부 생존([load-test.md](load-test.md) §7, 단일 노드 — 강제 failover의 유실 범위는 잔여 위험). Step 2까지는 SQLite `synchronous=FULL` | 0-1, 2, DB-1 |
 | 처리 중 장애로 이중 과금 | 과금은 `reaction_id`당 최대 1번(유니크), 별도 트랜잭션. 테스트: `test_charge_idempotent_by_reaction_ref`, `test_charge_concurrent_same_ref_once`, 제약 `test_ledger_db_constraints` | 1-3, 2 |
 | 원장 변조 | 추가 전용(수정·삭제·같은 PK 덮어쓰기·upsert 불가), 잔액=원장 합계 점검. 테스트: `test_ledger_is_append_only_and_cannot_be_overwritten`, `test_check_ledger_detects_tampering`, `test_balance_equals_ledger_sum_after_any_sequence` | 1-3 |
 | 결정 이후 입찰이 바뀌어 과금액이 달라짐 | 과금액은 Decision에 기록된 적용 금액(`test_decision_snapshot_survives_edits`, `test_decision_records_both_versions_and_policy_name`) | 1-5, 2 |
