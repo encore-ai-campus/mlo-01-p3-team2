@@ -17,6 +17,7 @@ from django.utils import timezone
 from billing import api as billing
 
 from . import basis as judgment_basis
+from . import ordering
 from . import facts as fact_gathering
 from .models import Decision, Reaction, ReactionStatus
 from .rules import MANDATORY_RULES, Hold, run_rules
@@ -97,6 +98,7 @@ def process_reaction(inbox_id, now=None):
     """반응 하나를 처리한다. 반환: `ACCEPTED`/`REJECTED`/`PENDING`(앞 단계 반응을 기다리는 보류), 이미 처리됐으면 `None`. 실패하면 되돌리고 실패 횟수를 올린 뒤 예외를 올린다."""
     now = _now(now)
     try:
+        ordering.wait_for_inflight_receipts(inbox_id)  # 판정 전에 진행 중인 접수(더 이른 시각의 반응)가 커밋되길 기다린다 — 잠금은 쥐지 않는다
         with transaction.atomic():
             return _process(inbox_id, now)
     except Exception:

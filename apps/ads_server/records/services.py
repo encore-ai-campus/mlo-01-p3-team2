@@ -14,6 +14,7 @@ from foundation.api import errors, is_unique_violation, parse_uuid
 from masters import api as masters
 
 from .assemble import assemble
+from . import ordering
 from .models import Decision, Reaction, ReactionSource, ReactionType
 from .processing import process_after_receipt
 from .types import ChosenView, DecisionView, ReactionView
@@ -123,7 +124,6 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
     일단 받고 처리 단계가 거부한다(접수한 반응은 지우지 않는다).
     입력(유형·시각·UUID 형식)은 경계가 검증해서 넘긴다.
     """
-    now = _now(now)
     media_id, decision_id, reaction_id = parse_uuid(media_id, "매체"), parse_uuid(decision_id, "결정"), parse_uuid(reaction_id, "반응")
     subject_id = None if subject_id is None else str(subject_id).lower()
     wanted = (decision_id, reaction_type, occurred_at, subject_id)
@@ -141,9 +141,10 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
         return same_or_conflict(row)
     try:
         with transaction.atomic():  # 안전망: 동시에 같은 키가 들어오면 유일 제약이 한쪽만 통과시킨다
+            ordering.lock_for_receipt(decision_id)  # 결정을 잠근 **뒤에** 수신 시각을 정한다: 같은 결정의 접수는 커밋 순서 = 시각 순서(records/ordering.py)
             row = Reaction.objects.create(
                 media_id=media_id, reaction_id=reaction_id, decision_id=decision_id, type=reaction_type, occurred_at=occurred_at,
-                received_at=now, raw=raw, subject_id=subject_id,
+                received_at=_now(now), raw=raw, subject_id=subject_id,
             )
     except IntegrityError as error:
         if not is_unique_violation(error):  # 유일 제약이 아닌 이유(CHECK 등)는, 같은 키의 행이 있어도 숨기지 않는다
@@ -177,7 +178,6 @@ def observe_click(decision_id, viewer_id=None, now=None):
     - 기록의 실패는 이동을 막지 않는다(최종 사용자 경험이 우선이다). 실패는 로그로만 남긴다.
     판정(인정·거부)은 하지 않는다 — 수신함에 `CLICK` 으로 넣으면 처리 단계가 판정한다.
     """
-    now = _now(now)
     try:
         d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"))
     except (Decision.DoesNotExist, errors.NotFound):
@@ -198,8 +198,10 @@ def _record_click(d, person, now):
     reaction_id = click_reaction_id(d.decision_id, person)
     try:
         with transaction.atomic():
+            ordering.lock_for_receipt(d.decision_id)  # 접수와 같은 규약: 잠근 뒤에 시각을 정한다
+            received = _now(now)
             row = Reaction.objects.create(
-                media_id=d.media_id, reaction_id=reaction_id, decision_id=d.decision_id, type=ReactionType.CLICK, occurred_at=now, received_at=now,
+                media_id=d.media_id, reaction_id=reaction_id, decision_id=d.decision_id, type=ReactionType.CLICK, occurred_at=received, received_at=received,
                 raw={"type": "CLICK", "source": "server", "subject_id": person}, source=ReactionSource.SERVER, subject_id=person,
             )
     except IntegrityError as error:

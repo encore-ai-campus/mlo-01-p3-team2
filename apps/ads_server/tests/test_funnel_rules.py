@@ -30,8 +30,7 @@ def at(seconds):
     return NOW + timedelta(seconds=seconds)
 
 
-@override_settings(REACTION_PROCESS_ON_RECEIPT=False)  # 판정 시각은 시험이 정한다
-class FunnelBase(TestCase):
+class FunnelMixin:
     UNIT = "IMPRESSION"  # 광고그룹의 과금 단위 — 금전 영향을 보려면 시험 클래스가 바꾼다
 
     def setUp(self):
@@ -78,6 +77,11 @@ class FunnelBase(TestCase):
         row = self.report("IMPRESSION", decision, when=when, subject=subject)
         self.assertEqual(self.judge(row, when), "ACCEPTED")
         return row
+
+
+@override_settings(REACTION_PROCESS_ON_RECEIPT=False)  # 판정 시각은 시험이 정한다
+class FunnelBase(FunnelMixin, TestCase):
+    pass
 
 
 @tag("security")

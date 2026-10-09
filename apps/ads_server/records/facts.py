@@ -76,6 +76,14 @@ def _arrivals(qs):
 BASIS_LIST_MAX = 20
 
 
+def later_decisions(decision):
+    """같은 표시 단위(개인 슬롯 = 슬롯·사람, 일괄 슬롯 = 슬롯)의 **이후 결정**. 표시 교체 신호를 찾는 범위이고, 접수와 판정의 순서 규약(`ordering`)이 잠그는 범위다."""
+    later = Decision.objects.filter(slot_id=decision.slot_id, subject_id=decision.subject_id) if decision.subject_id else Decision.objects.filter(
+        slot_id=decision.slot_id, subject_id__isnull=True,
+    )
+    return later.filter(Q(decided_at__gt=decision.decided_at) | Q(decided_at=decision.decided_at, decision_id__gt=decision.decision_id))
+
+
 def _evidence(accepted_refs, waiting_refs, signal):
     """판정 근거(`basis`)에 남길 출처. 키는 항상 같다(없으면 `None`·빈 목록)."""
     return {
@@ -93,10 +101,7 @@ def display_signal(decision):
     쓰면 그 광고의 클릭이 `display_ended` 로 거부된다. 노출이 없는 이후 결정은 무시한다 — 끝내 노출이 오지 않으면 "결정 후 300초" 상한이 막는다.
     다른 매체가 보낸 노출, 개인 슬롯에서 다른 사람이라고 보고된 노출은 신호가 아니다(`scoped_reactions`). 질의 한 번(이후 결정을 부분 질의로 묶는다).
     """
-    later = Decision.objects.filter(slot_id=decision.slot_id, subject_id=decision.subject_id) if decision.subject_id else Decision.objects.filter(
-        slot_id=decision.slot_id, subject_id__isnull=True,
-    )
-    later = later.filter(Q(decided_at__gt=decision.decided_at) | Q(decided_at=decision.decided_at, decision_id__gt=decision.decision_id))
+    later = later_decisions(decision)
     first = scoped_reactions(decision, later.values("decision_id")).filter(type=ReactionType.IMPRESSION).order_by("received_at", "inbox_id").values_list("received_at", "inbox_id").first()
     return first
 
