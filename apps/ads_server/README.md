@@ -56,6 +56,17 @@ OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못
 
 `check.sh`는 하나라도 실패하면 비정상 종료한다. `pip-audit`이 네트워크 문제로 못 돌 때와 **실제 취약점이 발견됐을 때**를 구분해 알려준다.
 
+부하·장애 시험(결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md)):
+
+```bash
+python scripts/load_test.py --small           # 20 동시(몇 초). check.sh 가 실행한다
+python scripts/load_test.py --json out.json   # 150 동시. 시험 컨테이너에 이 실행 전용 DB(ads_load_*)를 만들고 끝나면 지운다
+python scripts/failure_test.py                # 장애 시험: DB 재시작·강제 종료·처리 프로세스 강제 종료(수 분)
+python scripts/failure_test.py restart crash  # 시나리오를 골라서. --json out.json 으로 결과 저장
+```
+
+장애 시험은 Docker로 **임시 MySQL 8.4 컨테이너**를 따로 띄운다(이미지 `db-standalone/mysql:8.4-ubuntu24.04`, 무작위 포트·비밀번호, 끝나면 삭제). 공유 시험 DB나 다른 컨테이너는 건드리지 않는다. Docker나 이미지가 없으면 건너뛰지 않고 실패하며, 수 분 걸려 `check.sh`에는 넣지 않았다. 끊김 동안 500이 없고, 재시도가 모두 수신 확인되며, 유실 0·이중 과금 0·잔액=원장·소진액=원장이어야 한다. 또 상시 처리 프로세스가 살아 있고, **복구 뒤 그 프로세스만으로 대기열이 비워져야** 종료 코드 0이다(시험은 접수 직후 처리를 끄고 별도 처리 명령을 쓰지 않는다).
+
 ## `check --deploy`
 
 0-4 이후 prod 설정의 경고는 **0**이다(`python -m django check --deploy --fail-level WARNING`, 테스트로 강제).
