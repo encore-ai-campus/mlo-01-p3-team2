@@ -1,5 +1,5 @@
 """requirements.txt 의 **설치된 의존성 전체(전이 포함)** 를 `name==version` 으로 출력한다. pip-audit 입력용(scripts/check.sh)."""
-import re, sys
+import re
 from importlib.metadata import PackageNotFoundError, requires, version
 from packaging.requirements import Requirement
 seen, todo = {}, []
