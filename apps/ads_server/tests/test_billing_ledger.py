@@ -93,7 +93,7 @@ class LedgerIntegrityTests(TestCase):
                 api.adjust(admin, adv.pk, rng.randint(1, 3_000), "보너스", now=NOW)
             elif wallet_balance:
                 api.adjust(admin, adv.pk, -rng.randint(1, wallet_balance), "회수", now=NOW)
-            self.assertEqual(api.check_ledger(), [], (i, kind))
+            self.assertEqual(api.check_ledger(quiescent=True), [], (i, kind))
         self.assertEqual(sum(w.balance for w in Wallet.objects.all()), sum(e.amount for e in LedgerEntry.objects.all()))
 
     def test_balance_never_below_zero(self):
@@ -103,7 +103,7 @@ class LedgerIntegrityTests(TestCase):
         second = charge(adv, 40, "r2")  # 잔액 0: 0 을 받고 부족분을 기록한다
         self.assertEqual((second.charged, second.shortfall, second.entry.amount), (0, 40, 0))
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 0)
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
         # DB 가 직접 쓰기도 거부한다. 거부 방식은 DB 마다 다르다: MySQL 은 부호 없는 열이라 범위 오류(DataError), 그 밖에는 CHECK(IntegrityError)
         with self.assertRaises((IntegrityError, DataError)), transaction.atomic():
             Wallet.objects.filter(owner=adv).update(balance=-1)
@@ -153,19 +153,19 @@ class LedgerIntegrityTests(TestCase):
     def test_check_ledger_detects_tampering(self):
         adv = funded(500)
         charge(adv, 100, "r1")
-        self.assertEqual(api.check_ledger(), [])
-        call_command("check_ledger")  # 깨끗하면 정상 종료
+        self.assertEqual(api.check_ledger(quiescent=True), [])
+        call_command("check_ledger", quiescent=True)  # 깨끗하면 정상 종료
         with connection.cursor() as cur:  # ORM 우회(추가 전용 가드는 ORM 경로만 막는다): 운영자 실수·DB 직접 수정 모사
             cur.execute("UPDATE billing_wallet SET balance = balance + 5")
-        problems = api.check_ledger()
+        problems = api.check_ledger(quiescent=True)
         self.assertEqual(len(problems), 1)
         self.assertIn("잔액", problems[0])
         with self.assertRaises(CommandError):
-            call_command("check_ledger")
+            call_command("check_ledger", quiescent=True)
         with connection.cursor() as cur:
             cur.execute("UPDATE billing_wallet SET balance = balance - 5")
             cur.execute("UPDATE billing_ledger_entry SET balance_after = balance_after + 1 WHERE entry_type = 'CHARGE'")
-        self.assertTrue(any("balance_after" in p for p in api.check_ledger()))
+        self.assertTrue(any("balance_after" in p for p in api.check_ledger(quiescent=True)))
 
 
 @tag("security")
@@ -183,7 +183,7 @@ class LedgerSequenceTests(TestCase):
         charge(a, 10, "a2")
         self.assertEqual(self.seqs(a), [1, 2, 3, 4])  # 지급·과금·조정·과금
         self.assertEqual(self.seqs(b), [1, 2])  # 다른 지갑의 줄이 번호를 건드리지 않는다
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
 
     def test_a_duplicate_charge_does_not_consume_a_seq(self):
         adv = funded(1000)
@@ -202,10 +202,10 @@ class LedgerSequenceTests(TestCase):
         adv = funded(1000)
         charge(adv, 10, "r1")
         charge(adv, 10, "r2")
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
         with connection.cursor() as cur:  # 가운데 줄의 번호를 비운다(ORM 우회)
             cur.execute("UPDATE billing_ledger_entry SET seq = 7 WHERE seq = 2")
-        problems = api.check_ledger()
+        problems = api.check_ledger(quiescent=True)
         self.assertTrue(any("seq" in p for p in problems), problems)
 
     def test_list_ledger_cursor_is_the_seq(self):

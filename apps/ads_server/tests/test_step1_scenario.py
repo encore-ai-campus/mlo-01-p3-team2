@@ -112,8 +112,8 @@ class Step1ScenarioTests(TestCase):
         self.assertEqual(none_left.candidate_count, 0)
 
         # 7. 정합성: 잔액 = 원장 합계, 감사 로그에 관리자·광고주 행위가 남음
-        self.assertEqual(billing.check_ledger(), [])
-        call_command("check_ledger")
+        self.assertEqual(billing.check_ledger(quiescent=True), [])
+        call_command("check_ledger", quiescent=True)
         seen = set(AuditLog.objects.values_list("action", flat=True))
         for action in ("masters.slot_created", "masters.policy_added", "campaign.suspended", "campaign.ended_early", "bid.added", "creative.created"):
             self.assertIn(action, seen)

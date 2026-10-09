@@ -44,9 +44,10 @@ RETRYABLE = (0, 429, 503)
 
 # ---------------------------------------------------------------- 불변식 검사 (Django 가 설정된 프로세스에서 호출)
 
-def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=True):
+def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=True, quiescent=False):
     """저장소가 약속을 지켰는지 확인한다. 어긋난 곳의 설명 목록(지키면 빈 목록).
 
+    quiescent: 이미 열린 트랜잭션 안(단위 시험)에서 부를 때만 True — 동시에 쓰는 연결이 없다는 호출자의 보장(`billing.check_ledger` 참고). 부하 시험 본체는 트랜잭션 밖에서 부른다.
     acked_decisions: 수신 확인(201)한 결정 ID 들.
     acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
@@ -161,7 +162,7 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     if orphans:
         problems.append(f"인정되지 않은 반응에 대한 과금 {len(orphans)}건")
 
-    problems += billing.check_ledger()  # 잔액 = 원장 합계, balance_after·seq 연속
+    problems += billing.check_ledger(quiescent=quiescent)  # 잔액 = 원장 합계, balance_after·seq 연속
     per_day = {}
     for c in charges:
         key = (c.campaign_id, budget_day_of(c.created_at))
@@ -323,6 +324,8 @@ def now_utc():
 # ---------------------------------------------------------------- 단계
 
 class Harness:
+    quiescent = False  # 단위 시험이 이미 열린 트랜잭션 안에서 부를 때만 True(`verify_invariants` 참고)
+
     def __init__(self, port, ctx, count, tmp, log, rest_scale=1.0):
         self.port, self.ctx, self.n, self.tmp, self.log, self.rest_scale = port, ctx, count, tmp, log, rest_scale
         self.key = ctx["key"]
@@ -395,7 +398,7 @@ class Harness:
             time.sleep(settings.REACTION_HOLD_RECHECK_SECONDS + 0.5)
 
     def verify(self, name, expect_drained=True):
-        problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained)
+        problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained, quiescent=self.quiescent)
         self.check(f"불변식 [{name}]", not problems, "; ".join(problems))
         return not problems
 

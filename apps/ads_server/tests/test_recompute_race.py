@@ -240,6 +240,60 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         self.assertEqual(problems, [])  # 검사 전체가 하나의 읽기 스냅샷이라 서로 다른 시점의 값을 비교하지 않는다
         self.assertEqual(api.check_ledger(), [])
 
+    def interleaved_check(self, call):
+        """검사가 소진액 기대 합계(원장)를 읽은 직후 다른 연결이 정상 과금 20 을 커밋하게 하고 `call()` 의 결과를 돌려준다."""
+        self.charge(10, "m:r1")
+        fired = []
+
+        def hook(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "billing_ledger_entry" in sql and "campaign_id" in sql and "IS NOT NULL" in sql and not fired:
+                fired.append(1)
+                worker = Worker(lambda: self.charge(20, "m:r2"))
+                worker.start()
+                worker.join(WAIT)
+                self.assertEqual(worker.errors, [])
+            return result
+
+        with connection.execute_wrapper(hook):
+            result = call()
+        self.assertTrue(fired)
+        return result
+
+    def test_inside_an_existing_read_committed_transaction_the_check_refuses_instead_of_guessing(self):
+        """검토 c90ebc5→54363b2: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
+        from django.db import transaction
+
+        self.charge(10, "m:r1")
+        with transaction.atomic(), self.assertRaises(api.ConsistentReadUnavailable) as caught:
+            api.check_ledger()
+        self.assertIn("READ COMMITTED", str(caught.exception))
+        self.assertIn("quiescent=True", str(caught.exception))
+
+    def test_inside_a_transaction_whose_session_is_repeatable_read_the_check_stays_consistent(self):
+        from django.db import transaction
+
+        def inside_repeatable_read():
+            with connection.cursor() as cursor:
+                cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            try:
+                with transaction.atomic():
+                    return api.check_ledger()
+            finally:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+
+        self.assertEqual(self.interleaved_check(inside_repeatable_read), [])  # 거짓 불일치가 없다
+
+    def test_quiescent_is_the_explicit_way_to_check_inside_a_transaction_without_concurrent_writers(self):
+        from django.db import transaction
+
+        self.charge(10, "m:r1")
+        with transaction.atomic():
+            self.assertEqual(api.check_ledger(quiescent=True), [])
+            CampaignSpend.objects.filter(campaign_id=self.camp).update(spent=3)
+            self.assertTrue(any("소진액" in p for p in api.check_ledger(quiescent=True)))
+
     def test_the_check_still_reports_a_real_mismatch_inside_its_snapshot(self):
         self.charge(10, "m:r1")
         CampaignSpend.objects.filter(campaign_id=self.camp).update(spent=3)

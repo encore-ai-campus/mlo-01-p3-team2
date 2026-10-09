@@ -42,7 +42,7 @@ class InvariantMixin:
 
     def problems(self, **kw):
         acked = {(str(self.media), str(self.view.reaction_id)): (str(self.decision.decision_id), "IMPRESSION")}
-        return load_test.verify_invariants(kw.pop("decisions", {self.decision.decision_id}), kw.pop("reactions", acked), **kw)
+        return load_test.verify_invariants(kw.pop("decisions", {self.decision.decision_id}), kw.pop("reactions", acked), quiescent=True, **kw)
 
 
 class InvariantBase(InvariantMixin, TestCase):
@@ -93,7 +93,7 @@ class InvariantCheckerTests(InvariantBase):
         sql("UPDATE billing_ledger_entry SET amount = -31, balance_after = balance_after - 1 WHERE entry_type = 'CHARGE'")
         sql("UPDATE billing_wallet SET balance = balance - 1")
         sql("UPDATE billing_campaign_spend SET spent = 31")
-        self.assertEqual(billing.check_ledger(), [])  # 원장만 보면 멀쩡하다
+        self.assertEqual(billing.check_ledger(quiescent=True), [])  # 원장만 보면 멀쩡하다
         self.assertTrue(any("적용 금액" in p for p in self.problems()), self.problems())
 
     def test_a_legitimate_shortfall_is_not_flagged(self):
@@ -110,7 +110,7 @@ class InvariantCheckerTests(InvariantBase):
         sql("UPDATE billing_ledger_entry SET amount = -25, shortfall = 5, balance_after = 49975 WHERE entry_type = 'CHARGE'")
         sql("UPDATE billing_wallet SET balance = 49975")
         sql("UPDATE billing_campaign_spend SET spent = 25")
-        self.assertEqual(billing.check_ledger(), [])
+        self.assertEqual(billing.check_ledger(quiescent=True), [])
         self.assertTrue(any("부족분" in p for p in self.problems()), self.problems())
 
     def test_a_charge_on_another_advertisers_wallet_is_found_even_if_both_ledgers_are_consistent(self):
@@ -120,7 +120,7 @@ class InvariantCheckerTests(InvariantBase):
         sql("UPDATE billing_ledger_entry SET wallet_id = %s, seq = 2, balance_after = 49970 WHERE entry_type = 'CHARGE'", other_wallet)
         sql("UPDATE billing_wallet SET balance = 49970 WHERE wallet_id = %s", other_wallet)
         sql("UPDATE billing_wallet SET balance = 50000 WHERE wallet_id = %s", mine)
-        self.assertEqual(billing.check_ledger(), [])
+        self.assertEqual(billing.check_ledger(quiescent=True), [])
         self.assertTrue(any("광고주" in p for p in self.problems()), self.problems())
 
     def test_a_charge_on_another_campaign_or_time_is_found(self):
@@ -269,6 +269,7 @@ class ResendStormBodyTests(TestCase):
             return load_test.Outcome(201 if len(bodies) == 1 else 200, {}, {}, 0.0, 0.0, [201])
 
         harness = load_test.Harness(0, {"media_id": uuid.uuid4(), "slot_id": uuid.uuid4(), "key": "k", "advertisers": []}, 6, None, lambda *a: None)
+        harness.quiescent = True  # 이 시험은 TestCase 의 열린 트랜잭션 안이고 동시에 쓰는 연결이 없다
         with mock.patch.object(load_test, "call", fake_call), mock.patch.object(load_test, "now_utc", lambda: next(clock)), \
                 mock.patch.object(load_test, "make_decisions", lambda ctx, count: [str(uuid.uuid4())] * count):
             harness.resend_storm()

@@ -37,7 +37,7 @@ class ChargeTests(TestCase):
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 1)
         self.assertEqual(api.spend_today([camp], now=NOW), {camp: 40})  # 소진액도 한 번만
         self.assertEqual(charge(adv, 999, "m1:r1", camp).charged, 40)  # 금액이 달라도 처음 결과(재전송은 같은 내용이어야 한다는 것은 Step 2 의 몫)
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
 
     def test_charge_policy_by_unit(self):
         adv, camp = funded(), uuid.uuid4()
@@ -162,7 +162,7 @@ class ChargeInputValidationTests(TestCase):
             with self.assertRaises(InvalidRequest, msg=bad):
                 charge(adv, bad, f"bad-{bad!r}", camp)
         self.assertEqual(self.snapshot(adv), before)  # 원장·잔액·소진액 모두 그대로
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
         self.assertEqual(charge(adv, 5, "good", camp).charged, 5)  # 이후 정상 호출은 영향 없음
 
     def test_charge_rejects_bad_policy_results_and_changes_nothing(self):
@@ -186,7 +186,7 @@ class ChargeInputValidationTests(TestCase):
             finally:
                 api.unregister_charge_policy("broken/v1")
         self.assertEqual(self.snapshot(adv), before)
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
 
     def test_balance_never_exceeds_max_amount(self):
         from foundation.api import MAX_AMOUNT
@@ -206,7 +206,7 @@ class ChargeInputValidationTests(TestCase):
 
         with self.assertRaises(IntegrityError), transaction.atomic():  # DB 도 같은 범위를 지킨다
             Wallet.objects.filter(owner=adv).update(balance=MAX_AMOUNT + 1)
-        self.assertEqual(api.check_ledger(), [])
+        self.assertEqual(api.check_ledger(quiescent=True), [])
 
     def test_signup_grant_setting_must_be_a_sane_integer(self):
         from django.core.exceptions import ImproperlyConfigured

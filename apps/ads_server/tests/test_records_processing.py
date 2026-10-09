@@ -72,7 +72,7 @@ class RuleChainTests(ProcessingBase):
         self.assertEqual((entry.amount, entry.reaction_ref, entry.charge_policy), (-30, f"{self.media}:{view.reaction_id}", "by-unit/v1"))
         self.assertEqual(self.balance(), 50_000 - 30)
         self.assertEqual(billing.spend_today([self.w.campaign.campaign_id], now=NOW), {self.w.campaign.campaign_id: 30})
-        self.assertEqual(billing.check_ledger(), [])
+        self.assertEqual(billing.check_ledger(quiescent=True), [])
 
     def test_the_amount_is_the_decisions_not_a_recomputation(self):
         """결정 뒤에 입찰·정책이 바뀌어도 과금액은 결정 때의 적용 금액이다."""
@@ -168,7 +168,7 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
         self.assertEqual((row.status, row.attempts, self.charges(), self.balance()), ("RECEIVED", 1, 0, 50_000))  # 과금도 되돌려졌다
         self.assertEqual(CampaignSpend.objects.count(), 0)
         self.assertEqual(self.process(view), "ACCEPTED")
-        self.assertEqual((self.charges(), self.balance(), billing.check_ledger()), (1, 50_000 - 30, []))
+        self.assertEqual((self.charges(), self.balance(), billing.check_ledger(quiescent=True)), (1, 50_000 - 30, []))
 
     def test_a_charge_that_already_exists_is_not_repeated(self):
         """과금이 먼저 일어나 있고 상태만 못 바꾼 상황(다른 경로·수동 조치)에서도 같은 키로 한 번만 차감된다."""
@@ -346,7 +346,7 @@ class CommandSafetyTests(ProcessingBase):
         self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "RECEIVED", "RECEIVED"])
         self.run_command("--once")  # 재기동
         self.assertEqual([self.row(v).status for v in views], ["ACCEPTED", "ACCEPTED", "ACCEPTED"])
-        self.assertEqual((self.charges(), billing.check_ledger()), (3, []))
+        self.assertEqual((self.charges(), billing.check_ledger(quiescent=True)), (3, []))
 
     def test_the_previous_signal_handler_is_restored(self):
         before = signal.getsignal(signal.SIGTERM)

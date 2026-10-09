@@ -246,25 +246,43 @@ def recompute_spend():
     return rows
 
 
+class ConsistentReadUnavailable(RuntimeError):
+    """정합성 점검을 일관된 읽기 스냅샷으로 할 수 없는 곳에서 불렀다(아래 `consistent_read`)."""
+
+
+def _session_isolation():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT @@transaction_isolation")
+        return cursor.fetchone()[0]
+
+
 @contextmanager
-def consistent_read():
+def consistent_read(quiescent=False):
     """이 안의 모든 읽기가 **하나의 스냅샷**을 본다. 기본 격리 수준(`READ COMMITTED`)은 SELECT 마다 새 스냅샷이라, 점검이 여러 조회를 비교하는 동안
     정상 과금이 커밋되면 서로 다른 시점의 값을 비교해 거짓 불일치를 보고한다. 이 점검에만 `REPEATABLE READ` 를 쓴다(읽기만 하므로 잠금이 없고, 전역 설정은 그대로다).
 
-    이미 바깥 트랜잭션 안이면(시험 등) 격리 수준을 바꿀 수 없어 그대로 실행한다 — 그 안에서는 다른 연결의 커밋이 끼어들지 않는다고 본다.
+    - **트랜잭션 밖**에서 부르면(운영 호출: 관리 명령, 부하 검사기) 다음 트랜잭션 하나만 `REPEATABLE READ` 로 열어 그 안에서 읽는다.
+    - **이미 시작한 트랜잭션 안**에서는 격리 수준을 바꿀 수 없다(MySQL). `atomic()` 이라고 다른 연결의 커밋이 막히는 것도 아니다. 그래서
+      세션 격리 수준이 이미 `REPEATABLE READ` 이상이면 그대로 읽고, 아니면 **스냅샷을 보장할 수 없다고 거절한다**(`ConsistentReadUnavailable`) — 조용히 건너뛰지 않는다.
+    - `quiescent=True` 는 호출한 쪽이 **동시에 쓰는 연결이 없음을 보장**할 때(단일 연결 시험)만 쓴다. 보장은 호출한 쪽의 책임이고, 틀리면 거짓 불일치가 날 수 있다.
     """
     if connection.in_atomic_block:
-        yield
-        return
+        if quiescent or _session_isolation() in ("REPEATABLE-READ", "SERIALIZABLE"):
+            yield
+            return
+        raise ConsistentReadUnavailable(
+            "정합성 점검은 일관된 읽기 스냅샷이 필요한데, 이미 시작한 트랜잭션(격리 수준 READ COMMITTED) 안에서는 보장할 수 없습니다. "
+            "트랜잭션 밖에서 부르거나, 세션을 REPEATABLE READ 로 한 뒤 부르거나, 동시에 쓰는 연결이 없다면 quiescent=True 로 부르세요."
+        )
     with connection.cursor() as cursor:
         cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")  # 다음 트랜잭션 하나에만 적용된다
     with transaction.atomic():
         yield
 
 
-def check_ledger():
-    """정합성 점검(한 읽기 스냅샷 안에서): 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
-    with consistent_read():
+def check_ledger(quiescent=False):
+    """정합성 점검(한 읽기 스냅샷 안에서, 보장 조건은 `consistent_read`): 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
+    with consistent_read(quiescent):
         return _check_wallets() + _check_spend()
 
 
