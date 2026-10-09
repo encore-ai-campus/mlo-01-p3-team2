@@ -1,9 +1,10 @@
 """billing 의 규칙. 잔액은 원장 합계이고, 0 밑으로 내려가지 않으며, 같은 반응은 한 번만 과금한다(설계 §4.4-8~11)."""
+from contextlib import contextmanager
 from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
@@ -232,8 +233,10 @@ def recompute_spend():
     rows = 0
     for campaign_id, day in sorted(keys, key=lambda key: (str(key[0]), key[1])):
         with transaction.atomic():
-            spend, _ = CampaignSpend.objects.get_or_create(campaign_id=campaign_id, budget_day=day)
-            spend = CampaignSpend.objects.select_for_update().get(pk=spend.pk)  # 잠근 **뒤에** 읽는다
+            # 행을 얻는 것과 잠그는 것은 **한 문장**이다. 따로 하면 그 사이에 다른 재계산이 합계 0 인 행을 지워 `DoesNotExist` 로 중단된다
+            # (예산 일 경계를 바꾸는 정상 절차에서도 이전 날짜 행을 두 재계산이 함께 만난다). 없으면 만들고, 그 행은 우리가 쥔다.
+            spend, _ = CampaignSpend.objects.select_for_update().get_or_create(campaign_id=campaign_id, budget_day=day)
+            # 잠근 **뒤에** 읽는다
             total = _ledger_spent(campaign_id, day)
             if total > 0:
                 CampaignSpend.objects.filter(pk=spend.pk).update(spent=total)
@@ -243,8 +246,29 @@ def recompute_spend():
     return rows
 
 
+@contextmanager
+def consistent_read():
+    """이 안의 모든 읽기가 **하나의 스냅샷**을 본다. 기본 격리 수준(`READ COMMITTED`)은 SELECT 마다 새 스냅샷이라, 점검이 여러 조회를 비교하는 동안
+    정상 과금이 커밋되면 서로 다른 시점의 값을 비교해 거짓 불일치를 보고한다. 이 점검에만 `REPEATABLE READ` 를 쓴다(읽기만 하므로 잠금이 없고, 전역 설정은 그대로다).
+
+    이미 바깥 트랜잭션 안이면(시험 등) 격리 수준을 바꿀 수 없어 그대로 실행한다 — 그 안에서는 다른 연결의 커밋이 끼어들지 않는다고 본다.
+    """
+    if connection.in_atomic_block:
+        yield
+        return
+    with connection.cursor() as cursor:
+        cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")  # 다음 트랜잭션 하나에만 적용된다
+    with transaction.atomic():
+        yield
+
+
 def check_ledger():
-    """정합성 점검: 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
+    """정합성 점검(한 읽기 스냅샷 안에서): 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
+    with consistent_read():
+        return _check_wallets() + _check_spend()
+
+
+def _check_wallets():
     problems = []
     for wallet in Wallet.objects.all():
         running = 0
@@ -256,7 +280,6 @@ def check_ledger():
                 problems.append(f"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 balance_after={entry.balance_after}, 누적={running}")
         if wallet.balance != running:
             problems.append(f"지갑 {wallet.pk}: 잔액 {wallet.balance} != 원장 합계 {running}")
-    problems += _check_spend()
     return problems
 
 

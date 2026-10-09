@@ -207,6 +207,85 @@ class RecomputeVersusChargeTests(TransactionTestCase):
 
 
 @tag("security")
+class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
+    """검토 DB-1c(c90ebc5) P2 두 건: ① 정합성 검사가 검사 도중 커밋된 정상 과금을 불일치로 오인 ② 재계산 둘이 겹치면 한쪽이 행 삭제 뒤 `DoesNotExist` 로 중단."""
+
+    def setUp(self):
+        self.adv = make_advertiser()
+        with override_settings(SIGNUP_GRANT_POINTS=10_000):
+            api.grant_signup(self.adv, now=NOW)
+        self.camp = uuid.uuid4()
+
+    def charge(self, amount, ref, now=NOW):
+        return api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", "IMPRESSION", amount, ref, now=now)
+
+    def test_a_charge_committed_in_the_middle_of_the_check_is_not_reported_as_a_mismatch(self):
+        self.charge(10, "m:r1")
+        fired, workers = [], []
+
+        def hook(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "billing_ledger_entry" in sql and "campaign_id" in sql and "IS NOT NULL" in sql and not fired:  # 소진액 기대 합계를 읽은 직후
+                fired.append(1)
+                worker = Worker(lambda: self.charge(20, "m:r2"))  # 정상 과금이 커밋된다(원장 30, 소진액 30)
+                worker.start()
+                worker.join(WAIT)
+                workers.append(worker)
+            return result
+
+        with connection.execute_wrapper(hook):
+            problems = api.check_ledger()
+        self.assertTrue(fired)
+        self.assertEqual(workers[0].errors, [])
+        self.assertEqual(problems, [])  # 검사 전체가 하나의 읽기 스냅샷이라 서로 다른 시점의 값을 비교하지 않는다
+        self.assertEqual(api.check_ledger(), [])
+
+    def test_the_check_still_reports_a_real_mismatch_inside_its_snapshot(self):
+        self.charge(10, "m:r1")
+        CampaignSpend.objects.filter(campaign_id=self.camp).update(spent=3)
+        self.assertTrue(any("소진액" in p for p in api.check_ledger()))
+
+    def test_two_recomputes_overlapping_on_a_stale_row_both_finish(self):
+        """지원하는 절차(예산 일 경계 UTC → KST)에서: 이전 날짜 행(합계 0)을 한 재계산이 잡은 채 멈춰 있는 동안 다른 재계산이 같은 행을 정리해도 둘 다 오류 없이 끝난다."""
+        from datetime import datetime, timezone
+
+        late = datetime(2026, 10, 7, 23, 0, tzinfo=timezone.utc)  # UTC 로는 10/7, KST 경계로는 10/8
+        self.charge(10, "m:late", now=late)
+        self.assertEqual(CampaignSpend.objects.get().budget_day, DAY)
+        paused, resume = threading.Event(), threading.Event()
+        state = {"first": None, "selects": 0}
+
+        def pausing_hook(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "billing_campaign_spend" in sql and sql.lstrip().upper().startswith("SELECT") and state["first"] == threading.get_ident() and not paused.is_set():
+                state["selects"] += 1
+                if state["selects"] == 2:  # 1번째는 키 수집, 2번째가 이전 날짜 행을 얻는 조회
+                    paused.set()  # 첫 재계산이 이전 날짜 행을 얻은 직후
+                    resume.wait(WAIT)
+            return result
+
+        def first():
+            state["first"] = threading.get_ident()
+            with connection.execute_wrapper(pausing_hook):
+                return api.recompute_spend()
+
+        with override_settings(BUDGET_DAY_OFFSET_HOURS=9):
+            one = Worker(first)
+            one.start()
+            self.assertTrue(paused.wait(WAIT), one.errors)
+            two = Worker(api.recompute_spend)  # 둘째는 같은 키를 처리하려다 첫째의 잠금을 기다리거나(새 코드), 행을 지우고 끝난다(옛 코드)
+            two.start()
+            two.join(BLOCKED)
+            resume.set()
+            one.join(WAIT)
+            two.join(WAIT)
+        self.assertEqual((one.errors, two.errors), ([], []))
+        with override_settings(BUDGET_DAY_OFFSET_HOURS=9):
+            self.assertEqual(api.check_ledger(), [])
+            self.assertEqual({(row.budget_day, row.spent) for row in CampaignSpend.objects.all()}, {(date(2026, 10, 8), 10)})
+
+
+@tag("security")
 class CheckLedgerSeesSpendDriftTests(TransactionTestCase):
     def test_a_spend_total_that_differs_from_the_ledger_is_reported(self):
         adv = make_advertiser()
