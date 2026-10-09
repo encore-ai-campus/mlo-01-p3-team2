@@ -1,0 +1,153 @@
+---
+# ZooKeeper ensemble. Spark 노드 3대에 올라가며, 대상은 Spark 그룹 전체다 (Spark Master의 recovery 저장소).
+- name: 역할 내부 값 계산
+  ansible.builtin.set_fact:
+    zookeeper_myid: "{{ inventory_hostname | regex_search('[0-9]+$') | int }}"
+    zookeeper_tarball: "{{ zookeeper_urls[0] | basename }}"
+
+# --- 설치 ---
+- name: 서비스 사용자
+  ansible.builtin.user:
+    name: "{{ zookeeper_user }}"
+    system: true
+    shell: /sbin/nologin
+    home: "{{ zookeeper_data_dir }}"
+    create_home: false
+
+- name: 데이터·로그·설정 디렉터리
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ zookeeper_data_dir }}", owner: "{{ zookeeper_user }}", mode: "0750" }
+    - { path: "{{ zookeeper_log_dir }}", owner: "{{ zookeeper_user }}", mode: "0755" }
+    - { path: "{{ zookeeper_config_dir }}", owner: root, mode: "0755" }
+  loop_control:
+    label: "{{ item.path }}"
+
+# 이미 설치되어 있으면 내려받지 않는다 (임시 NAT를 제거한 뒤 재실행해도 동작하게 한다).
+- name: 설치 여부 확인
+  ansible.builtin.stat:
+    path: "{{ zookeeper_install_dir }}/bin/zkServer.sh"
+  register: zookeeper_installed
+
+- name: tarball 내려받기 (sha512 검증, 미러를 차례로 시도)
+  when: not zookeeper_installed.stat.exists
+  block:
+    - name: 첫 번째 미러
+      ansible.builtin.get_url:
+        url: "{{ zookeeper_urls[0] }}"
+        dest: "/var/tmp/{{ zookeeper_tarball }}"
+        checksum: "sha512:{{ zookeeper_sha512 }}"
+        mode: "0644"
+        timeout: 60
+  rescue:
+    - name: 두 번째와 세 번째 미러
+      block:
+        - name: 두 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ zookeeper_urls[1] }}"
+            dest: "/var/tmp/{{ zookeeper_tarball }}"
+            checksum: "sha512:{{ zookeeper_sha512 }}"
+            mode: "0644"
+            timeout: 60
+      rescue:
+        - name: 세 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ zookeeper_urls[2] }}"
+            dest: "/var/tmp/{{ zookeeper_tarball }}"
+            checksum: "sha512:{{ zookeeper_sha512 }}"
+            mode: "0644"
+            timeout: 120
+
+- name: tarball 풀기
+  ansible.builtin.unarchive:
+    src: "/var/tmp/{{ zookeeper_tarball }}"
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ zookeeper_install_dir }}/bin/zkServer.sh"
+  when: not zookeeper_installed.stat.exists
+
+- name: tarball 정리
+  ansible.builtin.file:
+    path: "/var/tmp/{{ zookeeper_tarball }}"
+    state: absent
+
+- name: 버전 없는 경로 링크
+  ansible.builtin.file:
+    src: "{{ zookeeper_install_dir }}"
+    dest: "{{ zookeeper_home }}"
+    state: link
+
+# --- 설정 ---
+# 이미 실행 중인 서비스는 설정이 바뀔 때만 다시 시작한다 (처음 시작할 때는 다시 시작하지 않는다).
+- name: 서비스 현재 상태
+  ansible.builtin.systemd:
+    name: zookeeper
+  register: zookeeper_before
+
+- name: myid
+  ansible.builtin.copy:
+    content: "{{ zookeeper_myid }}\n"
+    dest: "{{ zookeeper_data_dir }}/myid"
+    owner: "{{ zookeeper_user }}"
+    group: "{{ zookeeper_user }}"
+    mode: "0644"
+  register: zookeeper_myid_file
+
+- name: zoo.cfg 배포
+  ansible.builtin.template:
+    src: zoo.cfg.j2
+    dest: "{{ zookeeper_config_dir }}/zoo.cfg"
+    owner: root
+    group: root
+    mode: "0644"
+  register: zookeeper_config
+
+# 로그 설정(logback). ZOOCFGDIR에 있어야 파일 로그(/var/log/zookeeper/zookeeper.log)가 남는다.
+- name: logback 설정
+  ansible.builtin.template:
+    src: logback.xml.j2
+    dest: "{{ zookeeper_config_dir }}/logback.xml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: zookeeper_logback
+
+- name: systemd unit 배포
+  ansible.builtin.template:
+    src: zookeeper.service.j2
+    dest: /etc/systemd/system/zookeeper.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: zookeeper_unit_file
+
+- name: zookeeper 활성화
+  ansible.builtin.systemd:
+    name: zookeeper
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: 설정이 바뀌었으면 다시 시작
+  ansible.builtin.systemd:
+    name: zookeeper
+    state: restarted
+    daemon_reload: true
+  when: (zookeeper_myid_file.changed or zookeeper_config.changed or zookeeper_logback.changed or zookeeper_unit_file.changed) and zookeeper_before.status.ActiveState == 'active'
+
+- name: ZooKeeper 응답 대기
+  ansible.builtin.wait_for:
+    host: "{{ ip }}"
+    port: "{{ zookeeper_client_port }}"
+    timeout: 60
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

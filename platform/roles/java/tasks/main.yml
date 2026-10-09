@@ -1,0 +1,29 @@
+---
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: Corretto apt 저장소
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: apt_repo
+  vars:
+    apt_repo_name: "{{ java_apt_repo.name }}"
+    apt_repo_uri: "{{ java_apt_repo.uri }}"
+    apt_repo_suite: "{{ java_apt_repo.suite }}"
+    apt_repo_components: "{{ java_apt_repo.components }}"
+    apt_repo_key_url: "{{ java_apt_repo.key_url }}"
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: ["{{ java_package }}"]
+
+- name: Java 버전 확인
+  ansible.builtin.command: "{{ java_home }}/bin/java -version"
+  register: java_version
+  changed_when: false
+  failed_when: "'17.' not in java_version.stderr"
+  tags: [verify]

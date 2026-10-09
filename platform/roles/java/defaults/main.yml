@@ -1,0 +1,3 @@
+---
+# Kafka, Spark, ZooKeeper 공용 (AL2023 기본 저장소)
+java_home: /usr/lib/jvm/java-17-amazon-corretto
