@@ -1,0 +1,9 @@
+# Ansible로 관리한다 (roles/monitoring).
+[Unit]
+Description=Infra monitor archive and cleanup
+
+[Service]
+Type=oneshot
+User={{ monitor_collector_user }}
+Group={{ monitor_collector_user }}
+ExecStart={{ monitor_libexec_dir }}/archive.sh
