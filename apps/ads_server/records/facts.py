@@ -70,7 +70,7 @@ def _arrivals(qs):
         else:
             waiting.append(received_at)
             waiting_refs.append(ref)
-    return tuple(sorted(accepted)), tuple(sorted(waiting)), accepted_refs, waiting_refs
+    return tuple(accepted), tuple(waiting), accepted_refs, waiting_refs
 
 
 BASIS_LIST_MAX = 20

@@ -65,7 +65,6 @@ _RULES = {
     "subject": subject.check, "occurred-at": occurred_at.check, "campaign-open": campaign_open.check, "once-per-type": once_per_type.check,
     "funnel-window": funnel_window.check, "funnel-order": funnel_order.check,
 }
-DEFAULT_RULES = tuple(_RULES)
 # 설정과 무관하게 **언제나** 거치는 조건: 과금의 권한·근거(누구의 결정이고 광고가 있었나, 클릭은 서버 관측만, 사람이 하나로 정해짐, 종료 뒤 수신 아님).
 # 정책(`REACTION_RULES`)을 바꿔도 이것들은 빠지지 않는다.
 MANDATORY_RULES = ("known-decision", "same-media", "ad-shown", "click-source", "subject", "campaign-open")

@@ -5,7 +5,6 @@
 from billing import api as billing
 from campaigns import api as campaigns
 from engine.api import Candidate
-from masters import api as masters
 
 
 def assemble(slot, now):

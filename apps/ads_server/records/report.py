@@ -19,18 +19,13 @@ from django.db.models.functions import TruncDate
 
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import Role, errors
+from foundation.api import errors, require_advertiser
 
 from .models import Decision, Reaction, ReactionStatus, ReactionType
 from .processing import reaction_ref
 from .types import DailyReportView, ReportRow, ReportTotals
 
 MAX_DAYS = 92
-
-
-def _require_advertiser(user):
-    if not (getattr(user, "is_authenticated", False) and user.is_active and user.role == Role.ADVERTISER):
-        raise errors.Forbidden("광고주만 볼 수 있습니다.")
 
 
 def _check_window(start, end):
@@ -112,7 +107,7 @@ def daily_report(owner, start, end, campaign_id=None, ad_group_id=None):
 
     `campaign_id`·`ad_group_id` 로 범위를 좁힐 수 있다. 직전의 같은 길이 구간은 `previous_totals` 로 함께 돌려준다.
     """
-    _require_advertiser(owner)
+    require_advertiser(owner, "광고주만 볼 수 있습니다.")
     _check_window(start, end)
     first, last = billing.budget_day_of(start), billing.budget_day_of(end)
     length = last - first

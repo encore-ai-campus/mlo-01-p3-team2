@@ -89,12 +89,11 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
             bid_id=fact.bid_id, bid_policy_id=slot.policy.bid_policy_id,  # 판정에 쓴 바로 그 버전 행
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},
         )
-    with transaction.atomic():
-        decision = Decision.objects.create(
-            media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
-            selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
-            trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
-        )
+    decision = Decision.objects.create(  # INSERT 한 문장이라 따로 트랜잭션을 열지 않는다(응답까지 묶는 트랜잭션은 C1 뷰가 연다)
+        media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
+        selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
+        trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
+    )
     return _view(decision)
 
 
