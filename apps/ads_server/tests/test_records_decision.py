@@ -311,6 +311,8 @@ class ReactionInboxConstraintTests(TestCase):
     def row(self, **kw):
         values = dict(media_id=uuid.uuid4(), reaction_id=uuid.uuid4(), decision_id=uuid.uuid4(), type="CLICK", occurred_at=NOW, raw={})
         values.update(kw)
+        if values.get("status", "RECEIVED") != "RECEIVED":
+            values.setdefault("basis", {"v": 1})  # 판정한 행에는 근거가 있어야 한다(DB 제약) — 근거를 일부러 빼는 경우만 basis=None 으로 넘긴다
         return Reaction(**values)
 
     def test_db_rejects_duplicates_per_media_and_invalid_codes(self):
@@ -323,6 +325,8 @@ class ReactionInboxConstraintTests(TestCase):
             "reason without rejection": self.row(status="ACCEPTED", reason_code="x"),
             "rejection without reason": self.row(status="REJECTED", processed_at=NOW, applied_rule="once-per-type"),
             "processed without a time": self.row(status="ACCEPTED"),
+            "decided without a basis": self.row(status="REJECTED", reason_code="x", applied_rule="x", processed_at=NOW, basis=None),
+            "a basis on a row that is not decided": self.row(status="RECEIVED", basis={"v": 1}),
             "received but already processed": self.row(processed_at=NOW),
             "rejected without a rule": self.row(status="REJECTED", reason_code="x", processed_at=NOW),
             "accepted with a rule": self.row(status="ACCEPTED", processed_at=NOW, applied_rule="x"),

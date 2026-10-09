@@ -206,7 +206,7 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
         with self.assertRaises(RuntimeError):
             from records.processing import _finish
 
-            _finish(self.row(view), "REJECTED", NOW, reason="x", rule="x")
+            _finish(self.row(view), "REJECTED", NOW, {"v": 1}, reason="x", rule="x")
         self.assertEqual(self.row(view).status, "ACCEPTED")
 
 
@@ -317,7 +317,7 @@ class CommandSafetyTests(ProcessingBase):
             return real(inbox_id, now=now)
 
         for batch in ("2", "1", "100"):
-            Reaction.objects.update(status="RECEIVED", reason_code=None, applied_rule=None, processed_at=None, person_id=None, accepted_key=None)
+            Reaction.objects.update(status="RECEIVED", reason_code=None, applied_rule=None, processed_at=None, person_id=None, accepted_key=None, basis=None)
             handlers.clear()
             with mock.patch("records.management.commands.process_reactions.signal.signal", capture), \
                     mock.patch("records.processing.process_reaction", term_during_first):

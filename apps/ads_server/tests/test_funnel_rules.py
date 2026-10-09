@@ -344,7 +344,7 @@ class FunnelWindowTests(FunnelBase):
         from records import facts
 
         with CaptureQueriesContext(connection) as queries:
-            facts.next_display_at(self.decision)
+            facts.display_signal(self.decision)
         self.assertEqual(len(queries), 1)
 
     def test_a_conversion_must_follow_its_click_within_the_conversion_window(self):

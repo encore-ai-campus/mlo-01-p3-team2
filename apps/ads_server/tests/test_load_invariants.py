@@ -85,7 +85,7 @@ class InvariantCheckerTests(InvariantBase):
         self.assertTrue(any("과금이 없다" in p for p in self.problems()))
 
     def test_a_charge_without_an_accepted_reaction_is_found(self):
-        sql("UPDATE records_reaction SET status = 'RECEIVED', processed_at = NULL, reason_code = NULL, applied_rule = NULL, accepted_key = NULL")
+        sql("UPDATE records_reaction SET status = 'RECEIVED', processed_at = NULL, reason_code = NULL, applied_rule = NULL, accepted_key = NULL, basis = NULL")
         self.assertTrue(any("인정되지 않은 반응에 대한 과금" in p for p in self.problems(expect_drained=False)))
 
     def test_a_charge_whose_amount_differs_from_the_decision_is_found_even_if_the_ledger_is_consistent(self):
@@ -158,7 +158,7 @@ class InvariantCheckerTests(InvariantBase):
     def test_two_accepted_reactions_of_the_same_type_are_found(self):
         second, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
         # 유일 제약이 막는 상태를 만들려면 서로 다른 인정 키가 필요하다(제약이 없는 저장소를 가정한 사고 모사)
-        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s, person_id = %s, accepted_key = %s WHERE inbox_id = %s" % (
+        sql("UPDATE records_reaction SET status = 'ACCEPTED', processed_at = %s, person_id = %s, accepted_key = %s, basis = '{\"v\": 1}' WHERE inbox_id = %s" % (
             "'2026-10-07 12:00:00'", "'" + SUBJECT + "'", "'other-key'", "'" + second.inbox_id.hex + "'"))
         self.assertTrue(any("두 번 이상 인정" in p for p in self.problems()))
 
@@ -173,6 +173,7 @@ class FunnelInvariantTests(InvariantBase):
             raw={}, status="ACCEPTED", processed_at=NOW, person_id=SUBJECT, source="server" if rtype == "CLICK" else "media",
         )
         values.update(kw)
+        values.setdefault("basis", None if values["status"] == "RECEIVED" else {"v": 1})  # 판정한 행에는 근거가 있어야 한다(DB 제약)
         if values["status"] == "ACCEPTED" and "accepted_key" not in values:
             values["accepted_key"] = f"{values['decision_id']}:{values['person_id']}:{rtype}"
         return Reaction.objects.create(**values)

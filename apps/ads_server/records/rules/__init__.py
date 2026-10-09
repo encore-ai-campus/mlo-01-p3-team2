@@ -3,7 +3,7 @@
 알 수 없는 이름은 **즉시 오류**다(조용히 건너뛰지 않는다 — 규칙이 빠지면 과금이 열린다). 규칙은 DB 를 모른다: 처리 단계가 모은 사실(`RuleInput`)만 본다.
 `Hold` 는 "아직 판단할 수 없다"(앞 단계 반응을 기다린다)이고, 거부도 인정도 아니다 — 반응은 `RECEIVED` 로 남아 다시 판정된다.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -52,6 +52,8 @@ class RuleInput:
     next_display_at: datetime | None  # 같은 표시 단위의 이후 결정 중 처음으로 노출이 도착한 시각(없으면 아직 표시 중)
     campaign_ends_at: datetime | None  # 판정 시점의 캠페인 종료 시각(없으면 계속 진행)
     limits: Limits
+    # 판정 근거(`basis`)에 남길 출처: 앞 단계 반응과 표시 교체 신호의 inbox_id. 규칙은 읽지 않는다(판정에 쓰는 값은 위의 필드들뿐이다)
+    evidence: dict = field(default_factory=dict)
 
 
 from . import ad_shown, campaign_open, click_source, funnel_order, funnel_window, known_decision, occurred_at, once_per_type, same_media, subject  # noqa: E402

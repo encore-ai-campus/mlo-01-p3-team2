@@ -105,6 +105,8 @@ class Reaction(models.Model):
     applied_rule = models.CharField(max_length=64, null=True, blank=True)  # 거부한 규칙의 이름(REJECTED 일 때만)
     processed_at = models.DateTimeField(null=True, blank=True)  # 처리(인정·거부)한 시각. RECEIVED 면 없다
     attempts = models.PositiveSmallIntegerField(default=0)  # 처리에 실패한 횟수(반복 실패하는 반응이 대기열을 막지 않게)
+    # 판정 근거(설계 §10 "판정 근거 기록"): `ACCEPTED`/`REJECTED` 를 정하는 같은 트랜잭션에서 `processing._finish` 가 한 번 쓰고 바꾸지 않는다. 보류·접수 상태에는 없다
+    basis = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "records_reaction"
@@ -130,6 +132,11 @@ class Reaction(models.Model):
             # **조건 없는 유일 제약**이다: 인정된 행만 `accepted_key` 를 갖고 나머지는 NULL(NULL 끼리는 서로 다른 값이다). 조건부 유일 제약을 지원하지 않는
             # MySQL·MariaDB 에서도 그대로 성립한다(설계 §10 "MySQL 전환 점검").
             models.UniqueConstraint(fields=["accepted_key"], name="records_reaction_one_accepted_per_person_type"),
+            # 판정(인정·거부)한 행에는 근거가 반드시 있고, 아직 판정하지 않은 행에는 없다
+            models.CheckConstraint(
+                condition=(Q(status="RECEIVED", basis__isnull=True) | (~Q(status="RECEIVED") & Q(basis__isnull=False))),
+                name="records_reaction_basis_iff_decided",
+            ),
             # 인정된 행에는 키가 반드시 있고(없으면 위 제약을 빠져나간다), 인정되지 않은 행에는 없다
             models.CheckConstraint(
                 condition=(Q(status="ACCEPTED", accepted_key__isnull=False) | (~Q(status="ACCEPTED") & Q(accepted_key__isnull=True))),

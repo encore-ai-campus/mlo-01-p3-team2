@@ -409,7 +409,7 @@ class GetReactionTests(ReactionApiBase):
     def test_the_reported_status_follows_the_row(self):
         rid = uuid.uuid4()
         self.put(rid)
-        Reaction.objects.filter(reaction_id=rid).update(status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW)
+        Reaction.objects.filter(reaction_id=rid).update(status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW, basis={"v": 1})
         body = self.get(rid).json()
         self.assertEqual((body["status"], body["reason_code"]), ("REJECTED", "duplicate_type"))
         self.assertContract(self.contract, PATH, "get", self.get(rid))
