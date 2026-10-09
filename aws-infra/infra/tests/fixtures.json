@@ -1,0 +1,146 @@
+{
+  "foundations": {
+    "account1": {
+      "account_key": "account1",
+      "account_id": "541308265856",
+      "region": "ap-northeast-2",
+      "vpc_cidr": "10.10.0.0/16",
+      "az_ids": {
+        "a": "apne2-az1",
+        "c": "apne2-az3"
+      },
+      "vpc_id": "vpc-00000000000000001",
+      "subnet_ids": {
+        "private_a": "subnet-00000000000000100",
+        "private_c": "subnet-00000000000000101",
+        "public_a": "subnet-00000000000000102",
+        "public_c": "subnet-00000000000000103"
+      },
+      "route_table_ids": {
+        "private_a": "rtb-00000000000000100",
+        "private_c": "rtb-00000000000000101",
+        "public_a": "rtb-00000000000000102",
+        "public_c": "rtb-00000000000000103"
+      },
+      "sg_ids": {
+        "bastion": "sg-00000000000000100",
+        "frontend": "sg-00000000000000101",
+        "game": "sg-00000000000000102",
+        "alb": "sg-00000000000000103"
+      },
+      "nat_gateway_ids": {}
+    },
+    "account2": {
+      "account_key": "account2",
+      "account_id": "529088287882",
+      "region": "ap-northeast-2",
+      "vpc_cidr": "10.20.0.0/16",
+      "az_ids": {
+        "a": "apne2-az1",
+        "c": "apne2-az3"
+      },
+      "vpc_id": "vpc-00000000000000002",
+      "subnet_ids": {
+        "private_a": "subnet-00000000000000200",
+        "private_c": "subnet-00000000000000201"
+      },
+      "route_table_ids": {
+        "private_a": "rtb-00000000000000200",
+        "private_c": "rtb-00000000000000201"
+      },
+      "sg_ids": {
+        "mongo": "sg-00000000000000200",
+        "spark": "sg-00000000000000201",
+        "ad": "sg-00000000000000202"
+      },
+      "nat_gateway_ids": {}
+    },
+    "account3": {
+      "account_key": "account3",
+      "account_id": "667879771148",
+      "region": "ap-northeast-2",
+      "vpc_cidr": "10.30.0.0/16",
+      "az_ids": {
+        "a": "apne2-az1",
+        "c": "apne2-az3"
+      },
+      "vpc_id": "vpc-00000000000000003",
+      "subnet_ids": {
+        "private_a": "subnet-00000000000000300",
+        "private_c": "subnet-00000000000000301"
+      },
+      "route_table_ids": {
+        "private_a": "rtb-00000000000000300",
+        "private_c": "rtb-00000000000000301"
+      },
+      "sg_ids": {
+        "kafka": "sg-00000000000000300",
+        "mysql": "sg-00000000000000301",
+        "spark": "sg-00000000000000302",
+        "mongo": "sg-00000000000000303"
+      },
+      "nat_gateway_ids": {}
+    },
+    "account4": {
+      "account_key": "account4",
+      "account_id": "688567306400",
+      "region": "ap-northeast-2",
+      "vpc_cidr": "10.40.0.0/16",
+      "az_ids": {
+        "a": "apne2-az1",
+        "c": "apne2-az3"
+      },
+      "vpc_id": "vpc-00000000000000004",
+      "subnet_ids": {
+        "private_a": "subnet-00000000000000400",
+        "private_c": "subnet-00000000000000401"
+      },
+      "route_table_ids": {
+        "private_a": "rtb-00000000000000400",
+        "private_c": "rtb-00000000000000401"
+      },
+      "sg_ids": {
+        "kafka": "sg-00000000000000400",
+        "spark": "sg-00000000000000401"
+      },
+      "nat_gateway_ids": {}
+    },
+    "account5": {
+      "account_key": "account5",
+      "account_id": "217016296352",
+      "region": "ap-northeast-2",
+      "vpc_cidr": "10.50.0.0/16",
+      "az_ids": {
+        "a": "apne2-az1",
+        "c": "apne2-az3"
+      },
+      "vpc_id": "vpc-00000000000000005",
+      "subnet_ids": {
+        "private_a": "subnet-00000000000000500",
+        "private_c": "subnet-00000000000000501"
+      },
+      "route_table_ids": {
+        "private_a": "rtb-00000000000000500",
+        "private_c": "rtb-00000000000000501"
+      },
+      "sg_ids": {
+        "mysql": "sg-00000000000000500",
+        "mongo": "sg-00000000000000501",
+        "kafka": "sg-00000000000000502"
+      },
+      "nat_gateway_ids": {}
+    }
+  },
+  "connections": {
+    "account1-account2": "pcx-00000000000000001",
+    "account1-account3": "pcx-00000000000000002",
+    "account1-account4": "pcx-00000000000000003",
+    "account1-account5": "pcx-00000000000000004",
+    "account2-account3": "pcx-00000000000000005",
+    "account2-account4": "pcx-00000000000000006",
+    "account2-account5": "pcx-00000000000000007",
+    "account3-account4": "pcx-00000000000000008",
+    "account3-account5": "pcx-00000000000000009",
+    "account4-account5": "pcx-00000000000000010"
+  }
+}

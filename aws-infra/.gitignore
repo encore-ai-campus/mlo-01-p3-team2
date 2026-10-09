@@ -1,0 +1,28 @@
+# 계정별 입력값과 Terraform 실행 상태는 로컬에서 관리한다.
+config/*.tfvars
+config/*.tfvars.json
+**/.terraform/
+.terraform-state/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# 인증 자료를 저장소에 포함하지 않는다.
+.env
+.env.*
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+**/credentials
+**/credentials.*
+**/*credentials*.json
+**/*secret*.json
+**/*secret*.tfvars*
+**/secrets/
+**/secrets.*
+config/**/*.tfvars.json
+legacy/

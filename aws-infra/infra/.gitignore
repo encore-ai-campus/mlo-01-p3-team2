@@ -1,0 +1,8 @@
+.local/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.pem
+*.key
+config/*.local.json

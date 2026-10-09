@@ -1,0 +1,6 @@
+{
+  "bucket": "",
+  "region": "ap-northeast-2",
+  "profile": "account1",
+  "key_prefix": "aws-infra-v2"
+}
