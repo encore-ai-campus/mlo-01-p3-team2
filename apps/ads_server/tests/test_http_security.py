@@ -3,9 +3,7 @@ import re
 import sys
 import os
 import subprocess
-from pathlib import Path
 
-from django.core.exceptions import ImproperlyConfigured  # noqa: F401
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings, tag
 from django.urls import reverse
 

@@ -2,7 +2,6 @@
 import sys
 import uuid
 
-from django.conf import settings
 from django.test import SimpleTestCase, tag
 
 from tests.helpers import BASE_DIR

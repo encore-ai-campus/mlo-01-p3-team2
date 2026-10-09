@@ -5,7 +5,6 @@
 """
 import json
 import threading
-import time
 import uuid
 from unittest import mock
 

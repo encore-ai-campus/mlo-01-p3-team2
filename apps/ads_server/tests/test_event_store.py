@@ -3,7 +3,6 @@ import datetime
 import io
 import uuid
 
-import pymongo
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings, tag

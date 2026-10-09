@@ -1,14 +1,13 @@
 import threading
-import time
 import uuid
 
-from django.db import OperationalError, connection
+from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
 from foundation.errors import InvalidRequest, NotFound
-from tests.factories import DAY, NOW, make_advertiser
+from tests.factories import NOW, make_advertiser
 
 IMPRESSION, CLICK = "IMPRESSION", "CLICK"
 

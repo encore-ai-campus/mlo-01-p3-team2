@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404
 from django.test import SimpleTestCase, TestCase, override_settings, tag
-from django.urls import URLPattern, URLResolver, get_resolver, reverse
+from django.urls import URLResolver, get_resolver, reverse
 from django.urls.resolvers import RoutePattern
 
 from config.access_map import validate_admin_path

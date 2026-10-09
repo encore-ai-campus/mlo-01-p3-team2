@@ -10,7 +10,6 @@
 import functools
 import json
 import re
-from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker

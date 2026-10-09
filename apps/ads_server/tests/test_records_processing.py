@@ -5,11 +5,10 @@ import signal
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from random import Random
 from unittest import mock
 
-from django.core.exceptions import ImproperlyConfigured  # noqa: F401
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import OperationalError, connection
@@ -19,7 +18,7 @@ from billing import api as billing
 from billing.models import CampaignSpend, LedgerEntry
 from masters import api as masters
 from records import api as records
-from records.models import Decision, Reaction
+from records.models import Reaction
 from records.rules import UnknownRule
 from serving_api.throttle import buckets
 from tests.factories import DAY, NOW, SUBJECT, World

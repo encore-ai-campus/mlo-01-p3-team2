@@ -13,7 +13,6 @@ from django.test import TestCase, TransactionTestCase, override_settings, tag
 from django.test.utils import CaptureQueriesContext
 
 from billing import api as billing
-from campaigns import api as campaigns_api
 from django.http import Http404
 
 from foundation.errors import Forbidden, InvalidRequest

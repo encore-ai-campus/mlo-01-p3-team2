@@ -4,7 +4,7 @@ from django.test import TestCase, tag
 
 from campaigns import api
 from campaigns.models import ReviewRequest
-from foundation.errors import Conflict, Forbidden, InvalidRequest
+from foundation.errors import Conflict, InvalidRequest
 from foundation.models import AuditLog
 from tests.factories import NOW, World
 

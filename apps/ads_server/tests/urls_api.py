@@ -1,5 +1,4 @@
 """0-4 테스트용 URL 설정: 키 인증 API 접두사(CSRF 예외)와 일반 접두사의 동작을 비교한다."""
-import json
 import logging
 
 from django.contrib.auth.decorators import login_not_required

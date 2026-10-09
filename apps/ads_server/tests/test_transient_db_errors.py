@@ -15,7 +15,7 @@ from foundation.api import is_transient_lock_error
 from records import api as records
 from records.models import Reaction
 from tests.factories import NOW, SUBJECT, World
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
+from tests.test_receipt_ordering import WAIT, Worker
 
 DEADLOCK = OperationalError(1213, "Deadlock found when trying to get lock; try restarting transaction")
 LOCK_TIMEOUT = OperationalError(1205, "Lock wait timeout exceeded; try restarting transaction")

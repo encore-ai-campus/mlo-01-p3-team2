@@ -13,11 +13,10 @@ from billing import api as billing
 from billing.models import LedgerEntry
 from campaigns import api as campaigns
 from campaigns.models import ReviewRequest
-from foundation.errors import Conflict
 from records import api as records
 from records.models import Reaction
 from tests.factories import NOW, SUBJECT, World, make_admin, make_advertiser
-from tests.test_receipt_ordering import WAIT, Worker
+from tests.test_receipt_ordering import WAIT
 
 
 def run_together(jobs, timeout=WAIT):
@@ -89,8 +88,6 @@ class WalletConcurrencyTests(TransactionTestCase):
 class CampaignConcurrencyTests(TransactionTestCase):
     def test_simultaneous_review_requests_leave_one_open_and_the_rest_get_a_clear_answer(self):
         w = World()
-        from campaigns import transitions as tr  # 정지 상태여야 재검토를 요청할 수 있다
-        from masters import api as masters  # noqa: F401
 
         campaigns.suspend_campaign(w.admin, w.campaign.campaign_id, "점검", now=NOW)
         results, errors = run_together([lambda: campaigns.create_review_request(w.adv, w.campaign.campaign_id, "풀어 주세요", now=NOW)] * 5)

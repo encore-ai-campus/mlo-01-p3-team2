@@ -1,11 +1,11 @@
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from django.test import TestCase, TransactionTestCase, override_settings
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
-from tests.factories import DAY, NOW, make_advertiser
+from tests.factories import DAY, make_advertiser
 
 UTC = timezone.utc
 

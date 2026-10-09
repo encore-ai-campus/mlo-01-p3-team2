@@ -4,7 +4,7 @@ from datetime import timedelta
 from engine.api import DEFAULT_FILTERS, UnknownName, decide
 from random import Random
 
-from tests.engine_factory import NOW, SLOT, cand, request
+from tests.engine_factory import NOW, cand, request
 
 
 def run(*candidates, filters=DEFAULT_FILTERS):

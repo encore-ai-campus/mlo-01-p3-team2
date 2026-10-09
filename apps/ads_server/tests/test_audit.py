@@ -1,5 +1,3 @@
-import re
-
 from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 from django.urls import reverse

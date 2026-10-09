@@ -1,6 +1,5 @@
 """C1 인증·요청 제한(2-2). 실제 데코레이터를 붙인 임시 뷰(tests/urls_media_api.py)에 계약 경로로 요청하고, 응답을 계약에 대조한다."""
 import uuid
-from datetime import timedelta
 from unittest import mock
 
 from django.db import OperationalError
@@ -10,7 +9,7 @@ from masters import api as masters
 from serving_api.auth import CHALLENGE
 from serving_api.throttle import buckets
 from tests.contract_support import Contract, ProviderContractMixin, cookie_problems
-from tests.factories import NOW, make_admin
+from tests.factories import make_admin
 
 BASE = "/api/media/v1"
 DID, RID = uuid.uuid4(), uuid.uuid4()

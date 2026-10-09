@@ -12,7 +12,7 @@ from foundation.errors import Forbidden, InvalidRequest, StaleVersion
 from foundation.models import AuditLog
 from masters import api as masters
 from tests import image_factory
-from tests.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, make_slot, png_file
+from tests.factories import DAY, NOW, SUBJECT, World, make_advertiser, make_slot, png_file
 
 
 class CampaignServiceTests(TestCase):

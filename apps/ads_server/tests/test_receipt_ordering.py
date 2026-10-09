@@ -7,7 +7,6 @@
 """
 import threading
 import uuid
-from random import Random
 
 from django.db import connection
 from django.test import TransactionTestCase, override_settings, tag

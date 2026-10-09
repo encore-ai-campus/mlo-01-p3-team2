@@ -15,7 +15,7 @@ from foundation.models import AppendOnlyError
 from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, make_slot, png_file
+from tests.factories import DAY, NOW, SUBJECT, World, png_file
 
 UNIT = "IMPRESSION"
 
