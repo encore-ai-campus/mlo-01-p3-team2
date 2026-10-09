@@ -2,12 +2,13 @@
 import atexit
 import shutil
 import tempfile
+import uuid
 
 from .base import *  # noqa: F401,F403
 from config.access_map import build_access_map
 
-from ._env import env_int, env_str
-from .base import mysql_config
+from ._env import env_int, env_list, env_str
+from .base import mongo_config, mysql_config
 
 SECRET_KEY = "test-only-secret-key-" + "x" * 40
 
@@ -35,6 +36,17 @@ DATABASES = {"default": mysql_config(
     env_str("DB_HOST", default="127.0.0.1"),
     env_int("DB_PORT", 3306),
 )}
+
+# 시험용 MongoDB (DB-2). 접속 값(MONGO_*)만 읽고, 데이터베이스 이름은 프로세스마다 무작위로 정한다(남의 데이터와 겹치지 않게).
+# 만든 데이터베이스는 시험이 끝날 때 tests.mongo_support 가 이 이름만 지운다.
+EVENT_STORE = mongo_config(
+    env_list("MONGO_HOSTS", default=["127.0.0.1:27017"]),
+    f"ads_events_test_{uuid.uuid4().hex}",
+    env_str("MONGO_USER"),
+    env_str("MONGO_PASSWORD"),
+    env_str("MONGO_AUTH_SOURCE", default="admin"),
+    env_str("MONGO_REPLICA_SET"),
+)
 
 # 테스트 출력을 읽기 쉽게: axes 의 INFO 로그만 낮춘다.
 # django.request 는 일부러 일으키는 500 로그로 출력이 어지러워지지 않게 CRITICAL 로 둔다.

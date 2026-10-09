@@ -39,6 +39,16 @@ class ProdSettingsTests(SimpleTestCase):
         r = run_python(SHOW_SECRET, "config.settings.prod", PROD_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_prod_event_store_is_optional_until_events_are_written(self):
+        """DB-2: 이벤트를 아직 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None). 있으면 읽고, 비밀번호는 설정 문자열에 섞지 않는다."""
+        show = "from django.conf import settings; print(settings.EVENT_STORE)"
+        r = run_python(show, "config.settings.prod", PROD_ENV)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "None"), r.stderr)
+        r = run_python(show, "config.settings.prod", dict(PROD_ENV, MONGO_HOSTS="a:1,b:2", MONGO_USER="u", MONGO_PASSWORD="pw", MONGO_REPLICA_SET="rs0"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("'HOSTS': ['a:1', 'b:2']", r.stdout)
+        self.assertIn("'REPLICA_SET': 'rs0'", r.stdout)
+
     def test_prod_debug_cannot_be_enabled_by_env(self):
         r = run_python("from django.conf import settings; print(settings.DEBUG)", "config.settings.prod",
                        dict(PROD_ENV, DJANGO_DEBUG="1"))

@@ -3,7 +3,7 @@ from config.access_map import build_access_map, validate_admin_path
 
 from ._env import env_bool, env_int, env_list, env_str
 from .base import *  # noqa: F401,F403
-from .base import BASE_DIR, INSECURE_DEV_KEY, mysql_config
+from .base import BASE_DIR, INSECURE_DEV_KEY, mongo_config, mysql_config
 
 SECRET_KEY = env_str("SECRET_KEY", default=INSECURE_DEV_KEY)
 DEBUG = env_bool("DJANGO_DEBUG", False)
@@ -27,3 +27,13 @@ DATABASES = {"default": mysql_config(
     env_int("DB_PORT", 3306),
     env_str("DB_ISOLATION_LEVEL", default="read committed"),  # 측정으로 확정한 값(base.mysql_config). 바꿔 비교할 때만 쓴다
 )}
+
+# 이벤트 저장소(MongoDB `ad_events`, DB-2). 아직 이벤트를 쓰지 않으므로 없어도 앱은 동작한다. 확인은 `manage.py check_event_store`.
+EVENT_STORE = mongo_config(
+    env_list("MONGO_HOSTS", default=["127.0.0.1:27017"]),
+    env_str("MONGO_DB", default="ads_events"),
+    env_str("MONGO_USER"),
+    env_str("MONGO_PASSWORD"),
+    env_str("MONGO_AUTH_SOURCE", default="admin"),
+    env_str("MONGO_REPLICA_SET"),
+)

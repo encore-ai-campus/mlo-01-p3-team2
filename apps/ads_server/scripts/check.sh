@@ -5,7 +5,7 @@
 #   OFFLINE_OK=1 scripts/check.sh pip-audit 이 네트워크 문제로 못 돌면 건너뛴다(기본은 실패로 취급)
 #   PYTHON=/path/to/python        사용할 파이썬(기본: python)
 #
-# 단계: MySQL 접속(없으면 명확히 실패 — 시험을 건너뛰지 않는다) → check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
+# 단계: MySQL·MongoDB 접속(없으면 명확히 실패 — 시험을 건너뛰지 않는다) → check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
 #       → 부하 시험(소규모: MySQL·실제 HTTP·별도 처리 프로세스, 불변식) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
 #       150 동시 전체 시험은 `python scripts/load_test.py`(약 40초, docs/ads-server/load-test.md)
 set -uo pipefail
@@ -47,13 +47,14 @@ audit_dependencies() {
 }
 
 run "MySQL 접속 (시험 DB, 없으면 여기서 멈춘다)" "$PY" scripts/mysql_admin.py
-if [ ${#failures[@]} -gt 0 ]; then printf '\n실패: %s\nDB 가 필요한 나머지 단계는 실행하지 않았습니다(README "MySQL 시험 환경").\n' "${failures[*]}"; exit 1; fi
+run "MongoDB 접속 (이벤트 저장소 시험, 없으면 여기서 멈춘다)" "$PY" scripts/mongo_admin.py
+if [ ${#failures[@]} -gt 0 ]; then printf '\n실패: %s\nDB 가 필요한 나머지 단계는 실행하지 않았습니다(README "MySQL 시험 환경"·"MongoDB 시험 환경").\n' "${failures[*]}"; exit 1; fi
 run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test
 run "부하 시험 (20 동시, 불변식)" "$PY" scripts/load_test.py --small
 run "pip-audit (의존성 취약점)" audit_dependencies
-run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing records serving_api
+run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing events records serving_api
 
 printf '\n======== 요약 ========\n'
 [ ${#skipped[@]} -gt 0 ] && printf '건너뜀: %s\n' "${skipped[*]}"

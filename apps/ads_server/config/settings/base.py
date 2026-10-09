@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "masters.apps.MastersConfig",
     "campaigns.apps.CampaignsConfig",
     "billing.apps.BillingConfig",
+    "events.apps.EventsConfig",
     "records.apps.RecordsConfig",
     "serving_api.apps.ServingApiConfig",
     "console.apps.ConsoleConfig",
@@ -231,6 +232,16 @@ def mysql_config(name, user, password, host, port, isolation_level="read committ
         },
         "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_0900_as_cs"},
     }
+
+
+def mongo_config(hosts, database, user=None, password=None, auth_source="admin", replica_set=None):
+    """MongoDB 8.0 이벤트 저장소 접속 설정 (계획 DB-2). 값은 호출한 쪽이 환경변수에서 읽어 넘기고, 연결은 `events/` 가 처음 쓸 때 만든다(기동 때 연결하지 않는다).
+
+    - hosts: `host:port` 목록(레플리카셋이면 구성원 몇 개), replica_set: 레플리카셋 이름(없으면 단일 서버 접속).
+    - 비밀번호는 URI 에 넣지 않고 따로 둔다(로그·오류 메시지에 URI 가 찍혀도 새지 않게).
+    """
+    return {"HOSTS": list(hosts), "NAME": database, "USER": user, "PASSWORD": password,
+            "AUTH_SOURCE": auth_source, "REPLICA_SET": replica_set}
 
 
 # 로깅 원칙: 요청 본문·비밀번호·세션 키·매체 키는 기록하지 않는다(0-6 에서 필터로 강제).
