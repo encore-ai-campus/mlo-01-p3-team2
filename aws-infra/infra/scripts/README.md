@@ -240,3 +240,39 @@ EC2 생성 뒤의 Kafka·MongoDB·MySQL·Spark·Django·Proxy 설치와 실행�
 | 명령 한 번으로 5개 계정을 모두 구축 | 현재 자동 순회 기능 없음. 6절의 순서대로 대상별 실행 |
 | SSH 키가 이미 있음 | 기존 공개키 경로를 설정. `prepare-key.sh`로 다시 만들 필요 없음 |
 
+## 9. 한 줄씩 실행하는 전체 명령어
+
+```powershell
+Set-Location C:\third_project\aws-infra
+.\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Validate
+.\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Validate
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Validate
+.\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Plan
+.\infra\scripts\infra.ps1 -Account account1 -Stage foundation -Action Apply
+.\infra\scripts\infra.ps1 -Account account2 -Stage foundation -Action Plan
+.\infra\scripts\infra.ps1 -Account account2 -Stage foundation -Action Apply
+.\infra\scripts\infra.ps1 -Account account3 -Stage foundation -Action Plan
+.\infra\scripts\infra.ps1 -Account account3 -Stage foundation -Action Apply
+.\infra\scripts\infra.ps1 -Account account4 -Stage foundation -Action Plan
+.\infra\scripts\infra.ps1 -Account account4 -Stage foundation -Action Apply
+.\infra\scripts\infra.ps1 -Account account5 -Stage foundation -Action Plan
+.\infra\scripts\infra.ps1 -Account account5 -Stage foundation -Action Apply
+.\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Plan
+.\infra\scripts\infra.ps1 -Account shared -Stage connectivity -Action Apply
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Plan
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Apply
+.\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Plan
+.\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Apply
+.\infra\scripts\infra.ps1 -Account account3 -Stage workload -Action Plan
+.\infra\scripts\infra.ps1 -Account account3 -Stage workload -Action Apply
+.\infra\scripts\infra.ps1 -Account account4 -Stage workload -Action Plan
+.\infra\scripts\infra.ps1 -Account account4 -Stage workload -Action Apply
+.\infra\scripts\infra.ps1 -Account account5 -Stage workload -Action Plan
+.\infra\scripts\infra.ps1 -Account account5 -Stage workload -Action Apply
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Output
+.\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Output
+.\infra\scripts\infra.ps1 -Account account3 -Stage workload -Action Output
+.\infra\scripts\infra.ps1 -Account account4 -Stage workload -Action Output
+.\infra\scripts\infra.ps1 -Account account5 -Stage workload -Action Output
+```
+
