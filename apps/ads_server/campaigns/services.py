@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from assets.api import store, validate_image
 from engine.api import is_expired
-from foundation.api import MAX_AMOUNT, Role, clean_text, errors, owned_or_404, parse_uuid, record_audit
+from foundation.api import MAX_AMOUNT, clean_text, errors, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
 from masters import api as masters
 
 from . import transitions as tr
@@ -24,16 +24,6 @@ from .types import AdGroupView, BidView, CampaignView, CandidateFacts, CreativeV
 
 def _now(now=None):
     return now if now is not None else timezone.now()
-
-
-def _require_advertiser(user):
-    if not (getattr(user, "is_authenticated", False) and user.is_active and user.role == Role.ADVERTISER):
-        raise errors.Forbidden("광고주만 할 수 있습니다.")
-
-
-def _require_admin(actor):
-    if not (getattr(actor, "is_authenticated", False) and actor.is_active and actor.role == Role.ADMIN):
-        raise errors.Forbidden("관리자만 할 수 있습니다.")
 
 
 def _audit(actor, action, target, detail=None):
@@ -57,10 +47,6 @@ def _utc_time(value, pointer):
         return value.astimezone(dt_timezone.utc)
     except (OverflowError, ValueError):  # 표현 범위 밖(예: datetime.min 에 +09:00)
         raise _problem(pointer, "표현할 수 없는 시각입니다.")
-
-
-def _limit(name):
-    return getattr(settings, name)
 
 
 # ---------------------------------------------------------------- 조회 도우미
@@ -132,7 +118,7 @@ def _review_view(r):
 # ---------------------------------------------------------------- 캠페인
 
 def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None):
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     name = clean_text(name, "캠페인 이름", "/name")
     starts_at = _utc_time(starts_at, "/starts_at")
@@ -141,7 +127,7 @@ def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None):
     if ends_at is not None and not (ends_at > starts_at and ends_at > now):
         raise _problem("/ends_at", "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다.")
     with transaction.atomic():
-        if Campaign.objects.filter(owner=user).count() >= _limit("MAX_CAMPAIGNS_PER_ADVERTISER"):
+        if Campaign.objects.filter(owner=user).count() >= settings.MAX_CAMPAIGNS_PER_ADVERTISER:
             raise LimitExceeded("캠페인 개수 상한에 도달했습니다.")
         c = Campaign.objects.create(owner=user, name=name, starts_at=starts_at, ends_at=ends_at, daily_budget=daily_budget, created_at=now, updated_at=now)
         _audit(user, "campaign.created", ("campaigns.campaign", c.campaign_id), {"name": name, "daily_budget": daily_budget})
@@ -164,7 +150,7 @@ CAMPAIGN_FIELDS = {"name", "ends_at", "daily_budget", "status"}
 
 def update_campaign(user, campaign_id, changes, now=None):
     """`changes` 는 바꿀 필드만 담는다(name·ends_at·daily_budget·status). status 는 ACTIVE↔PAUSED 만."""
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CAMPAIGN_FIELDS
     if unknown or not changes:
@@ -201,7 +187,7 @@ def update_campaign(user, campaign_id, changes, now=None):
 
 def end_campaign(user, campaign_id, now=None):
     """조기 종료. 되돌릴 수 없고 `ends_at` 을 현재로 확정한다."""
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     with transaction.atomic():
         c = _campaign(user, campaign_id)
@@ -212,19 +198,13 @@ def end_campaign(user, campaign_id, now=None):
 
 def campaign_ids_of(user):
     """이 광고주의 모든 캠페인 ID(보고서 범위용). 광고주만."""
-    _require_advertiser(user)
+    require_advertiser(user)
     return list(Campaign.objects.filter(owner=user).values_list("campaign_id", flat=True))
 
 
 def campaign_end_times(campaign_ids):
     """캠페인 ID들의 종료 시각(`ends_at`, 미포함 경계) 하나의 질의로. 끝이 없으면 값이 `None`, 없는 ID는 결과에 없다. 반응 판정이 쓴다."""
-    ids = []
-    for campaign_id in campaign_ids:
-        try:
-            ids.append(parse_uuid(campaign_id, "캠페인"))
-        except errors.NotFound:
-            pass
-    return dict(Campaign.objects.filter(pk__in=ids).values_list("campaign_id", "ends_at"))
+    return dict(Campaign.objects.filter(pk__in=parse_uuids(campaign_ids)).values_list("campaign_id", "ends_at"))
 
 
 def end_expired_campaigns(now=None):
@@ -238,7 +218,7 @@ def end_expired_campaigns(now=None):
 
 
 def suspend_campaign(actor, campaign_id, reason, now=None):
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     reason = clean_text(reason, "중단 사유", "/reason", 500)
     with transaction.atomic():
@@ -251,7 +231,7 @@ def suspend_campaign(actor, campaign_id, reason, now=None):
 
 
 def release_campaign(actor, campaign_id, now=None):
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     with transaction.atomic():
         c = Campaign.objects.filter(pk=parse_uuid(campaign_id, "캠페인")).first()
@@ -268,7 +248,7 @@ def release_campaign(actor, campaign_id, now=None):
 # ---------------------------------------------------------------- 재검토 요청
 
 def create_review_request(user, campaign_id, message="", now=None):
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     message = clean_text(message, "메모", "/message", 500) if message else ""
     try:
@@ -293,7 +273,7 @@ def list_review_requests(user, campaign_id):
 
 def reject_review_request(actor, review_request_id, note, now=None):
     """반려: 정지는 유지하고 요청만 닫는다. 사유는 필수."""
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     note = clean_text(note, "반려 사유", "/note", 500)
     with transaction.atomic():
@@ -330,7 +310,7 @@ def _validated_slots(slot_ids, pricing_unit):
 
 
 def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=None, now=None):
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     name = clean_text(name, "광고그룹 이름", "/name")
     if pricing_unit not in masters.PricingUnit.values:
@@ -341,7 +321,7 @@ def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=
     with transaction.atomic():
         c = _campaign(user, campaign_id)
         tr.assert_open(c, now)
-        if AdGroup.objects.filter(campaign__owner=user).count() >= _limit("MAX_AD_GROUPS_PER_ADVERTISER"):
+        if AdGroup.objects.filter(campaign__owner=user).count() >= settings.MAX_AD_GROUPS_PER_ADVERTISER:
             raise LimitExceeded("광고그룹 개수 상한에 도달했습니다.")
         group = AdGroup.objects.create(campaign=c, name=name, pricing_unit=pricing_unit, created_at=now)
         AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=group, slot_id=s) for s in ids])
@@ -364,7 +344,7 @@ AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit"}
 
 
 def update_ad_group(user, ad_group_id, changes, now=None):
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - AD_GROUP_FIELDS
     if unknown or not changes:
@@ -392,7 +372,7 @@ def update_ad_group(user, ad_group_id, changes, now=None):
 
 def add_bid(user, ad_group_id, amount, expected_version, now=None):
     """새 입찰 버전. 하한 미만·상한 초과도 저장한다. `expected_version`(첫 입찰이면 None)이 현재와 다르면 StaleVersion."""
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     _amount(amount)
     with transaction.atomic():
@@ -435,9 +415,9 @@ def _redirect_url(value):
 
 
 def _check_creative_count(user, group):
-    if Creative.objects.filter(ad_group=group).count() >= _limit("MAX_CREATIVES_PER_AD_GROUP"):
+    if Creative.objects.filter(ad_group=group).count() >= settings.MAX_CREATIVES_PER_AD_GROUP:
         raise LimitExceeded("광고그룹의 소재 개수 상한에 도달했습니다.")
-    if Creative.objects.filter(ad_group__campaign__owner=user).count() >= _limit("MAX_CREATIVES_PER_ADVERTISER"):
+    if Creative.objects.filter(ad_group__campaign__owner=user).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
         raise LimitExceeded("소재 개수 상한에 도달했습니다.")
 
 
@@ -445,13 +425,13 @@ def _check_image_quota(user, image):
     """광고주가 **보유한 이미지 파일 총량**(현재 + 과거 교체분)이 상한을 넘지 않는지. 이미 보유한 같은 파일은 더하지 않는다."""
     held = dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=user).values_list("image_name", "image_bytes"))
     added = 0 if image.name in held else len(image.data)
-    if sum(held.values()) + added > _limit("MAX_UPLOAD_BYTES_PER_ADVERTISER"):
+    if sum(held.values()) + added > settings.MAX_UPLOAD_BYTES_PER_ADVERTISER:
         raise LimitExceeded("업로드 총량 상한을 넘습니다.")
 
 
 def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None):
     """이미지는 검증·재인코딩해 저장한다(`ImageRejected` 는 그대로 전달). 광고그룹당 개수는 설정으로 제한(V1 = 1)."""
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     title = clean_text(title, "제목", "/title", 200)
     redirect_url = _redirect_url(redirect_url)
@@ -481,7 +461,7 @@ CREATIVE_FIELDS = {"title", "redirect_url", "enabled"}
 
 
 def update_creative(user, creative_id, changes, now=None):
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CREATIVE_FIELDS
     if unknown or not changes:
@@ -505,7 +485,7 @@ def update_creative(user, creative_id, changes, now=None):
 
 def replace_creative_image(user, creative_id, image_file, now=None):
     """이미지 교체. 새 이름으로 바꾸고 이전 파일은 지우지 않는다(과거 결정이 참조할 수 있다)."""
-    _require_advertiser(user)
+    require_advertiser(user)
     now = _now(now)
     image = validate_image(image_file)
     with transaction.atomic():
@@ -527,11 +507,11 @@ def candidate_facts_for_slot(slot_id):
     기간·금액 판정은 넣지 않는다(판정은 engine 한 곳). 상태 갱신이 늦은 종료 캠페인이 섞여 와도 engine 이 거른다.
     입찰이 없는 광고그룹은 후보가 아니다.
     """
+    slot_id = parse_uuid(slot_id, "게재 위치")
     latest = Bid.objects.filter(ad_group=OuterRef("ad_group")).order_by("-bid_version")
     rows = (
         Creative.objects.filter(
-            enabled=True, ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE,
-            ad_group__slot_links__slot_id=parse_uuid(slot_id, "게재 위치"),
+            enabled=True, ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__slot_links__slot_id=slot_id,
         )
         .select_related("ad_group", "ad_group__campaign")
         .annotate(
@@ -546,7 +526,7 @@ def candidate_facts_for_slot(slot_id):
     return [
         CandidateFacts(
             owner_id=c.ad_group.campaign.owner_id, campaign_id=c.ad_group.campaign_id, ad_group_id=c.ad_group_id,
-            creative_id=c.creative_id, slot_id=parse_uuid(slot_id, "게재 위치"), pricing_unit=c.ad_group.pricing_unit,
+            creative_id=c.creative_id, slot_id=slot_id, pricing_unit=c.ad_group.pricing_unit,
             bid_id=c.bid_id, bid_amount=c.bid_amount, bid_version=c.bid_version, bid_created_at=c.bid_created_at,
             campaign_status=c.ad_group.campaign.status, ad_group_enabled=c.ad_group.enabled,
             period_start=c.ad_group.campaign.starts_at, period_end=c.ad_group.campaign.ends_at,

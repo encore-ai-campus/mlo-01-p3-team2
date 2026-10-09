@@ -1,18 +1,9 @@
 """관리자 화면 등록. **읽기 전용**: 잔액·원장은 서비스 함수(조정·과금)로만 바뀐다."""
 from django.contrib import admin
 
+from foundation.api import ReadOnlyAdmin
+
 from .models import CampaignSpend, LedgerEntry, Wallet
-
-
-class ReadOnlyAdmin(admin.ModelAdmin):
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(Wallet)

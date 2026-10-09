@@ -8,7 +8,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit
+from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit, require_admin
 
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
@@ -77,8 +77,7 @@ def grant_signup(user, now=None):
 def adjust(actor, user_id, amount, note, now=None):
     """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수."""
     now = _now(now)
-    if not (getattr(actor, "is_authenticated", False) and actor.is_active and actor.role == Role.ADMIN):
-        raise errors.Forbidden("관리자만 할 수 있습니다.")
+    require_admin(actor)
     note = clean_text(note, "사유", "/note", 200)
     if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0 or abs(amount) > MAX_AMOUNT:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"0이 아닌 정수(절댓값 {MAX_AMOUNT} 이하)여야 합니다."}])

@@ -1,18 +1,9 @@
 """관리자 화면 등록. **읽기 전용**: 서비스 규칙(상태 전이·종료 가드·검증·감사)을 우회하지 않도록 변경은 서비스 함수로만 한다."""
 from django.contrib import admin
 
+from foundation.api import ReadOnlyAdmin
+
 from .models import AdGroup, Bid, Campaign, Creative, ReviewRequest
-
-
-class ReadOnlyAdmin(admin.ModelAdmin):
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(Campaign)
