@@ -54,6 +54,8 @@ class RuleInput:
     limits: Limits
     # 판정 근거(`basis`)에 남길 출처: 앞 단계 반응과 표시 교체 신호의 inbox_id. 규칙은 읽지 않는다(판정에 쓰는 값은 위의 필드들뿐이다)
     evidence: dict = field(default_factory=dict)
+    # 같은 판정 단위·같은 유형으로 **이 반응보다 먼저 접수**됐는데 아직 처리 전(`RECEIVED`)인 반응이 있나. 있으면 '인정된 대표'가 정해지지 않았으므로 기다린다
+    earlier_unprocessed: bool = False
 
 
 from . import ad_shown, campaign_open, click_source, funnel_order, funnel_window, known_decision, occurred_at, once_per_type, same_media, subject  # noqa: E402

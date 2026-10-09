@@ -3,12 +3,13 @@
 시각은 모두 고정한다. 결정은 `NOW`(2026-10-07 12:00 UTC)를 기준으로 며칠 앞뒤에 만들고, 반응은 결정 1초 뒤에 수신해 바로 처리한다.
 예산 일은 기본 UTC 자정이라 `NOW` 의 날은 2026-10-07 이다.
 """
+import threading
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from random import Random
 
 from django.db import connection
-from django.test import TestCase, override_settings, tag
+from django.test import TestCase, TransactionTestCase, override_settings, tag
 from django.test.utils import CaptureQueriesContext
 
 from billing import api as billing
@@ -31,8 +32,7 @@ def window(days=3, start=D7):
     return start, start + timedelta(days=days)
 
 
-@override_settings(REACTION_PROCESS_ON_RECEIPT=False)
-class ReportBase(TestCase):
+class ReportMixin:
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
@@ -68,6 +68,11 @@ class ReportBase(TestCase):
 
     def by_date(self, report):
         return {row.date: (row.totals.impressions, row.totals.clicks, row.totals.conversions, row.totals.spent) for row in report.rows}
+
+
+@override_settings(REACTION_PROCESS_ON_RECEIPT=False)
+class ReportBase(ReportMixin, TestCase):
+    pass
 
 
 @tag("security")
@@ -343,3 +348,55 @@ class DailyReportCostTests(ReportBase):
             report = self.report_for(ad_group_id=self.w.group.ad_group_id)
         self.assertEqual(report.totals.impressions, 12)
         self.assertLessEqual(len(queries), 9)  # 소유 확인 몇 번 + 반응 1 + 원장 1(500건 이하)
+
+
+@override_settings(REACTION_PROCESS_ON_RECEIPT=False)
+@tag("security")
+class ReportSnapshotTests(ReportMixin, TransactionTestCase):
+    """검토 2-13 후속 P2-2: 보고서를 읽는 도중 다른 연결이 새 퍼널을 인정해도 **분자(전환으로 이어진 클릭)와 분모(클릭)가 같은 데이터 상태**를 본다.
+
+    `READ COMMITTED` 에서는 SELECT 마다 새 스냅샷이므로, 분자·분모를 따로 읽으면 사이에 커밋된 퍼널이 한쪽에만 들어가 전환율이 1 을 넘는다.
+    그래서 반응 집계는 **SQL 한 번**이다. 시험은 첫 반응 SELECT 가 끝난 직후 다른 연결(스레드)에서 퍼널 하나를 커밋하게 해 순서를 고정한다.
+    """
+
+    def commit_a_funnel_from_another_connection(self):
+        errors = []
+
+        def work():
+            try:
+                self.full_funnel(NOW + 5 * HOUR, subject=B)
+            except BaseException as error:  # noqa: BLE001 — 스레드 안의 실패를 시험 실패로 올린다
+                errors.append(error)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        thread.join(30)
+        self.assertEqual(errors, [])
+        self.assertFalse(thread.is_alive())
+
+    def test_a_funnel_committed_mid_report_cannot_split_the_numerator_from_the_denominator(self):
+        self.full_funnel(NOW, subject=A)  # 보고서가 시작될 때 이미 있는 퍼널
+        fired = []
+
+        def after_first_reaction_select(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "records_reaction" in sql and sql.lstrip().upper().startswith("SELECT") and not fired:
+                fired.append(sql)
+                self.commit_a_funnel_from_another_connection()  # 첫 반응 조회와 (있다면) 둘째 조회 사이에 새 퍼널이 커밋된다
+            return result
+
+        with connection.execute_wrapper(after_first_reaction_select):
+            totals = self.report_for(window(1)).totals
+        self.assertEqual(len(fired), 1)
+        self.assertLessEqual(totals.converted_clicks, totals.clicks)
+        self.assertLessEqual(totals.conversion_rate, 1.0)
+        self.assertEqual(self.report_for(window(1)).totals.clicks, 2)  # 새 퍼널은 다음 조회에 보인다
+
+    def test_the_reaction_counts_are_one_select(self):
+        self.full_funnel(NOW, subject=A)
+        with CaptureQueriesContext(connection) as queries:
+            self.report_for(window(1))
+        reaction_selects = [q["sql"] for q in queries if "records_reaction" in q["sql"]]
+        self.assertEqual(len(reaction_selects), 1)

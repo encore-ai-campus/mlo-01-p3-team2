@@ -710,3 +710,84 @@ class ConversionBeforeClickTests(TimingBase):
         self.assertEqual(self.judge(click, 61), "ACCEPTED")
         self.assertEqual(self.judge(conversion, 62), "PENDING")
         self.assertEqual(self.judge(conversion, 1 + 300), "REJECTED")
+
+
+@tag("security")
+class ProcessingOrderTests(TimingBase):
+    """검토 2-13 후속 P2-1 — **같은 접수 사실이면 처리 순서와 무관하게 같은 판정**(설계 §10 "판정 설계 기준" ②).
+
+    같은 (결정, 사람)의 노출이 둘 접수됐을 때 어느 쪽이 '인정된 노출'(클릭의 전제)이 되는지가 처리 순서가 아니라 **접수 순서**로 정해져야 한다.
+    """
+
+    UNIT = "CLICK"
+
+    def scenario(self, order):
+        """클릭 t+1, 이른 노출 t+250, 늦은 노출 t+302 를 접수하고, 두 노출을 `order` 순서로 t+303 에, 클릭을 t+304 에 판정한다."""
+        self.w = World(unit=self.UNIT)
+        self.media = self.w.slot.media_id
+        self.decision = self.decide(self.w.slot, SUBJECT)
+        click = self.click(when=1)
+        early, late = self.report("IMPRESSION", when=250), self.report("IMPRESSION", when=302)
+        for name in order:
+            self.judge({"early": early, "late": late}[name], 303)
+        for row in (early, late):  # 기다리던 쪽은 다음 주기에 다시 판정된다
+            if row.status == "RECEIVED":
+                self.judge(row, 304)
+        self.judge(click, 304)
+        return {"click": self.verdict(click), "early": self.verdict(early), "late": self.verdict(late), "balance": self.balance()}
+
+    def test_which_duplicate_impression_is_processed_first_does_not_change_the_clicks_verdict_or_the_charge(self):
+        results = {order: self.scenario(order) for order in (("early", "late"), ("late", "early"))}
+        self.assertEqual(results[("early", "late")], results[("late", "early")])
+        outcome = results[("early", "late")]
+        self.assertEqual(outcome["click"], ("ACCEPTED", None, None))  # 제때 도착한 이른 노출이 전제다
+        self.assertEqual(outcome["early"], ("ACCEPTED", None, None))
+        self.assertEqual(outcome["late"], ("REJECTED", "duplicate_type", "once-per-type"))
+        self.assertEqual(outcome["balance"], 50_000 - 30)
+
+    def test_a_later_duplicate_waits_for_the_earlier_one_instead_of_taking_its_place(self):
+        early, late = self.report("IMPRESSION", when=250), self.report("IMPRESSION", when=302)
+        self.assertEqual(self.judge(late, 303), "PENDING")  # 먼저 접수된 같은 유형이 아직 처리 전이다
+        self.assertEqual((late.status, late.basis, late.attempts), ("RECEIVED", None, 0))  # 보류는 판정도 실패도 아니다
+        self.assertEqual(self.judge(early, 303), "ACCEPTED")
+        self.assertEqual(self.judge(late, 304), "REJECTED")
+        self.assertEqual(late.reason_code, "duplicate_type")
+
+    def test_an_earlier_report_that_is_itself_invalid_does_not_take_the_place_of_a_valid_later_one(self):
+        """먼저 접수됐지만 거부된 노출(감지 시각이 터무니없음)은 대표가 아니다 — 다음 유효한 노출이 인정되고 클릭의 전제가 된다. 처리 순서와 무관하다."""
+        for order in (("bad", "good"), ("good", "bad")):
+            with self.subTest(order=order):
+                self.w = World(unit=self.UNIT)
+                self.media = self.w.slot.media_id
+                self.decision = self.decide(self.w.slot, SUBJECT)
+                click = self.click(when=1)
+                rows = {"bad": self.report("IMPRESSION", when=10, occurred=at(10) + 3600 * SEC), "good": self.report("IMPRESSION", when=20)}
+                for name in order:
+                    self.judge(rows[name], 21)
+                self.judge(rows["good"], 22)
+                self.judge(click, 23)
+                self.assertEqual(self.verdict(rows["bad"])[:2], ("REJECTED", "invalid_occurred_at"))
+                self.assertEqual(self.verdict(rows["good"]), ("ACCEPTED", None, None))
+                self.assertEqual(click.status, "ACCEPTED")
+
+    def test_an_earlier_report_that_cannot_be_processed_keeps_the_later_ones_waiting_and_is_visible(self):
+        """처리가 반복 실패해 자동 재처리에서 빠진 이른 반응(`stuck`)은 뒤의 같은 유형을 기다리게 한다 — `stuck_count` 로 드러난다(알려진 한계)."""
+        from records.models import Reaction as Row
+        from records.processing import stuck_count
+
+        early, late = self.report("IMPRESSION", when=10), self.report("IMPRESSION", when=20)
+        Row.objects.filter(pk=early.pk).update(attempts=5)
+        self.assertEqual(self.judge(late, 30), "PENDING")
+        self.assertEqual(stuck_count(), 1)
+
+    def test_other_people_and_other_types_do_not_wait_for_each_other(self):
+        """같은 유형이어도 다른 사람(일괄 슬롯)이나 다른 매체의 먼저 접수된 반응은 기다림의 대상이 아니다."""
+        slot, decision = self.shared()
+        a = self.report("IMPRESSION", decision, when=1, subject=A)
+        b = self.report("IMPRESSION", decision, when=2, subject=B)
+        self.assertEqual(self.judge(b, 3), "ACCEPTED")  # A 의 먼저 접수된 노출이 처리 전이어도 B 는 기다리지 않는다
+        self.assertEqual(a.status, "RECEIVED")
+        foreign = World()
+        records.receive_reaction(foreign.slot.media_id, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", at(0), {}, now=at(0))  # 다른 매체의 먼저 접수된 노출
+        mine = self.report("IMPRESSION", when=5)
+        self.assertEqual(self.judge(mine, 6), "ACCEPTED")

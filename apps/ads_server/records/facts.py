@@ -1,7 +1,7 @@
 """반응 판정에 쓰는 사실을 모은다(읽기 전용). **판정은 하지 않는다** — 규칙(`records/rules/`)이 이 사실만 보고 정한다.
 
 판정 단위의 사람: 개인(`individual`) 슬롯은 결정의 `subject_id` 하나, 일괄(`shared`) 슬롯은 보고에 실린 사람이다(없으면 `None` —
-`subject` 규칙이 `subject_required` 로 거부한다). 질의는 필요한 만큼만 한다: 결정 1, 캠페인 종료 1, 인정된 유형 1, (클릭) 노출 상태 1·교체 신호(이후 결정의 첫 노출) 1, (전환) 클릭 상태 1.
+`subject` 규칙이 `subject_required` 로 거부한다). 질의는 필요한 만큼만 한다: 결정 1, 캠페인 종료 1, 인정된 유형 1, 먼저 접수된 같은 유형의 처리 전 반응 1, (클릭) 노출 상태 1·교체 신호(이후 결정의 첫 노출) 1, (전환) 클릭 상태 1.
 
 **판정 사실로 읽는 모든 반응은 `scoped_reactions` 를 거친다**(설계 §10 "판정 사실의 범위"). 접수는 존재를 알리지 않으려고 남의 결정에 대한 보고도 저장하므로,
 범위가 없으면 다른 매체의 보고가 이 결정의 판정을 바꾼다. 범위는 **접수 때 정해지는 값**(`media_id`·보고된 `subject_id`)으로만 건다 — 판정 상태로 거르면 처리 순서에 따라 결과가 흔들린다.
@@ -119,6 +119,11 @@ def gather(row, decision, now):
         accepted = frozenset(
             scoped_reactions(decision).filter(person_id=person, status=ReactionStatus.ACCEPTED).values_list("type", flat=True)
         )
+    earlier_unprocessed = False
+    if person is not None:
+        earlier_unprocessed = _of_person(scoped_reactions(decision), decision, person).filter(
+            type=row.type, status=ReactionStatus.RECEIVED,
+        ).filter(Q(received_at__lt=row.received_at) | Q(received_at=row.received_at, inbox_id__lt=row.inbox_id)).exists()
     prereq_accepted = prereq_waiting = ()
     accepted_refs, waiting_refs, signal = [], [], None
     if decision.creative_id is not None and person is not None:
@@ -133,5 +138,5 @@ def gather(row, decision, now):
         **common, decision_exists=True, decision_media_id=decision.media_id, ad_was_shown=decision.creative_id is not None,
         audience=decision.audience, decision_subject_id=decision.subject_id, decided_at=decision.decided_at, accepted_types=accepted,
         prereq_accepted=prereq_accepted, prereq_waiting=prereq_waiting, next_display_at=None if signal is None else signal[0], campaign_ends_at=ends,
-        evidence=_evidence(accepted_refs, waiting_refs, signal),
+        evidence=_evidence(accepted_refs, waiting_refs, signal), earlier_unprocessed=earlier_unprocessed,
     )

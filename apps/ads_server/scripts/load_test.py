@@ -376,6 +376,24 @@ class Harness:
             raise RuntimeError(out.stderr[-500:])
         return out.stdout.strip()
 
+    def drain_until(self, settled, what, limit_seconds=60):
+        """처리를 돌리고 `settled()` 가 참이 될 때까지 재확인 간격마다 다시 돌린다.
+
+        같은 유형의 반응이 동시에 처리되면 뒤쪽은 먼저 접수된 쪽이 끝나길 **기다린다**(보류, 2-13 후속: 인정되는 쪽은 처리 순서가 아니라 접수 순서가 정한다).
+        보류분은 `REACTION_HOLD_RECHECK_SECONDS` 가 지나야 다시 판정되므로 한 번의 `--once` 로는 덜 끝날 수 있다 — 운영의 상시 처리 프로세스가 하는 일이다.
+        """
+        from django.conf import settings
+
+        deadline = time.perf_counter() + limit_seconds
+        while True:
+            self.drain()
+            if settled():
+                return
+            if time.perf_counter() > deadline:
+                self.check(f"처리가 끝난다: {what}", False, f"{limit_seconds}초 안에 끝나지 않았다")
+                return
+            time.sleep(settings.REACTION_HOLD_RECHECK_SECONDS + 0.5)
+
     def verify(self, name, expect_drained=True):
         problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained)
         self.check(f"불변식 [{name}]", not problems, "; ".join(problems))
@@ -416,8 +434,9 @@ class Harness:
         self.acked_decisions.add(decision)
         outcomes, wall = run_concurrent(self.n, lambda i: self.put_reaction(decision, "IMPRESSION"))
         self.phase("C 같은 유형 동시", outcomes, wall)
-        self.drain()
         from records.models import Reaction
+
+        self.drain_until(lambda: not Reaction.objects.filter(decision_id=decision, status="RECEIVED").exists(), "같은 유형 동시 노출")
 
         states = {}
         for r in Reaction.objects.filter(decision_id=decision):
@@ -429,7 +448,7 @@ class Harness:
         kinds = ["IMPRESSION", "CLICK", "CONVERSION"]
         outcomes, wall = run_concurrent(three, lambda i: self.put_reaction(decision2, kinds[i % 3]))
         self.phase("C' 세 유형 동시", outcomes, wall)
-        self.drain()
+        self.drain_until(lambda: set(Reaction.objects.filter(decision_id=decision2, status="RECEIVED").values_list("type", flat=True)) <= {"CONVERSION"}, "세 유형 동시")
         by_type = {}
         for r in Reaction.objects.filter(decision_id=decision2):
             by_type.setdefault(r.type, []).append(r.status)
