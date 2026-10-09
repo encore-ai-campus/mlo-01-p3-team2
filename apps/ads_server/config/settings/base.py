@@ -159,7 +159,7 @@ REACTION_RULES = (  # 순서가 곧 판정 순서. 되돌릴 수 없는 거부(�
     "funnel-window", "funnel-order",
 )
 REACTION_CLICK_WINDOW_SECONDS = 300  # 클릭은 결정 후 이 안에 있어야 한다(설계 §10 "반응 퍼널 규칙")
-REACTION_DISPLAY_GRACE_SECONDS = 5  # 같은 표시 단위의 다음 결정이 만들어진 뒤에도 이만큼은 이전 광고의 클릭을 인정한다(화면 반영 여유)
+REACTION_DISPLAY_GRACE_SECONDS = 5  # 이전 광고의 표시 끝 = 같은 표시 단위의 이후 결정 중 **처음으로 노출이 도착한(접수된) 시각** + 이 값. 그 안의 클릭까지 인정한다(화면 반영 여유). 결정이 만들어진 시각은 쓰지 않는다(records/facts.py display_signal)
 REACTION_CONVERSION_WINDOW_SECONDS = 30 * 24 * 3600  # 전환은 클릭 후 이 안에 있어야 한다
 REACTION_OCCURRED_AT_TOLERANCE_SECONDS = 60  # 매체가 보낸 감지 시각이 수신 시각보다 이만큼 넘게 미래면 거부
 REACTION_HOLD_SECONDS = 300  # 전제(노출·클릭)를 기다리며 보류하는 최대 시간. 끝내 오지 않으면 missing_prerequisite
