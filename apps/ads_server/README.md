@@ -45,6 +45,20 @@ python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제
 - `check --deploy`와 `makemigrations --check`는 이제 **DB 연결이 필요하다**(MySQL 에서는 모델 검사가 서버 정보를 읽는다).
 - 이 컨테이너와 인프라 서버의 차이: 컨테이너는 GTID가 꺼져 있고 서버 기본 정렬이 `_ai_ci`다(인프라의 `infra.cnf` 핵심은 DB-1d의 인프라 서버 통합 확인에서 맞춘다).
 
+## MongoDB 시험 환경
+
+이벤트 로그(MongoDB `ad_events`, Step 4에서 씀)는 **MongoDB 8.0**이다. 같은 `intake/db-standalone` 컨테이너(`mongodb` 서비스, Standalone·인증)를 쓴다. 접속 값은 `.env`의 `MONGO_*`(`.env.example`)이고,
+시험 설정은 접속 값만 읽고 데이터베이스 이름은 시험마다 무작위로 정해 **그 이름만** 지운다. `check.sh`가 맨 앞에서 `scripts/mongo_admin.py`로 접속·쓰기를 점검한다(MongoDB가 없으면 시험을 건너뛰지 않고 멈춘다).
+
+```bash
+python manage.py ensure_event_store    # ad_events 컬렉션(봉투 검증)과 색인을 만든다(멱등, 배포 때 한 번)
+python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기 권한·컬렉션·색인 확인(하나라도 실패하면 비정상 종료)
+```
+
+- 레플리카셋 접속(운영과 같은 방식)을 시험하려면 임시 단일 노드 레플리카셋(인증 켜짐)을 띄운다. 포트·비밀번호는 무작위이고 공유 컨테이너는 건드리지 않는다:
+  `eval "$(python scripts/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.test_event_store` → `python scripts/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
+- 저장소가 죽어 있어도 앱은 영향을 받지 않는다: 아직 이벤트를 쓰지 않고, 연결은 처음 쓸 때 만든다.
+
 ## 테스트와 점검
 
 ```bash
