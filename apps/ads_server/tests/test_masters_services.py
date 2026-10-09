@@ -149,6 +149,13 @@ class PolicyServiceTests(TestCase):
         self.assertEqual(result[slots[0].slot_id].policy.policy_version, 2)  # 현재 = 최대 버전
         self.assertEqual(result[slots[1].slot_id].policy.policy_version, 1)
 
+    def test_bulk_lookups_drop_ids_that_are_not_uuids(self):
+        """여러 ID 를 한 번에 찾는 조회는 형식이 틀린 값을 오류 없이 버린다(없는 ID 와 같다). 대문자 표기도 같은 ID 다."""
+        slot = new_slot(self.admin)
+        ids = ["not-a-uuid", "", None, str(slot.slot_id).upper(), slot.slot_id]
+        self.assertEqual(set(api.get_slots_with_policy(ids)), {slot.slot_id})
+        self.assertEqual(api.slot_names(ids), {slot.slot_id: slot.name})
+
     def test_api_returns_frozen_values_not_models(self):
         slot = new_slot(self.admin)
         for value in (slot, slot.policy, api.get_slot(slot.slot_id), api.create_media(self.admin, "값 매체"), api.list_slots()[0]):

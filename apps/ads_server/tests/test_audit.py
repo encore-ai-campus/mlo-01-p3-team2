@@ -166,6 +166,26 @@ class AdminAuditTests(TestCase):
         self.assertEqual(self.client.post(f"/test-admin/foundation/auditlog/{entry.pk}/delete/", {"post": "yes"}).status_code, 403)
         self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.readonly")
 
+    def test_every_project_model_admin_except_users_is_read_only(self):
+        """관리자 화면은 프로젝트 모델을 직접 추가·수정·삭제하지 못한다(변경은 서비스 함수로만). 사용자 관리만 예외다."""
+        from django.apps import apps
+        from django.contrib import admin
+        from django.test import RequestFactory
+
+        from tests.boundaries.test_layers import LAYERS
+
+        request = RequestFactory().get("/")
+        request.user = self.admin
+        checked = []
+        for model in apps.get_models():
+            if model._meta.app_label not in LAYERS or model is User or not admin.site.is_registered(model):
+                continue
+            model_admin = admin.site.get_model_admin(model)
+            permissions = (model_admin.has_add_permission(request), model_admin.has_change_permission(request), model_admin.has_delete_permission(request))
+            self.assertEqual(permissions, (False, False, False), model.__name__)
+            checked.append(model.__name__)
+        self.assertEqual(len(checked), 14, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 4, 캠페인 5, 지갑·원장 3, 결정 1
+
     def test_user_admin_lists_users_with_kst_column(self):
         r = self.client.get("/test-admin/foundation/user/")
         self.assertEqual(r.status_code, 200)

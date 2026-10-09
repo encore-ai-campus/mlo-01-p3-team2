@@ -392,6 +392,12 @@ class CandidateFactsTests(TestCase):
         w = World()
         self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 1)  # 기간 판정은 조회에 넣지 않는다(engine 한 곳)
 
+    def test_campaign_end_times_drop_ids_that_are_not_uuids(self):
+        """여러 캠페인을 한 번에 찾는 조회는 형식이 틀린 값을 오류 없이 버린다(없는 ID 와 같다)."""
+        w = World()
+        ids = ["not-a-uuid", "", None, str(uuid.uuid4()), w.campaign.campaign_id]
+        self.assertEqual(api.campaign_end_times(ids), {w.campaign.campaign_id: NOW + 10 * DAY})
+
 
 @tag("security")
 class AssetServableTests(TestCase):
