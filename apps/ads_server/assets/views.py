@@ -6,7 +6,7 @@ from django.http import FileResponse, Http404
 from django.utils.module_loading import import_string
 from django.views.decorators.http import condition, require_safe
 
-from .storage import NAME_RE  # noqa: F401  (URL 컨버터와 같은 형식)
+from .api import asset_exists, open_asset
 
 CONTENT_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
 
@@ -16,8 +16,6 @@ def _ensure_servable(name):
 
     assets 는 campaigns 를 import 하지 않는다. 연결은 settings 로 한다(설계 R1·R4).
     """
-    from .api import asset_exists
-
     check = settings.ASSET_SERVABLE_CHECK
     if check and not import_string(check)(name):
         raise Http404
@@ -48,7 +46,5 @@ def _asset_headers(view):
 @_asset_headers
 @condition(etag_func=_etag)
 def serve_asset(request, name):
-    from .api import open_asset
-
     ext = name.rsplit(".", 1)[1]
     return FileResponse(open_asset(name), content_type=CONTENT_TYPES[ext])

@@ -25,6 +25,6 @@ def decide(candidates, request: AdRequest, rng: Random, policy=DEFAULT_POLICY, f
 
 
 __all__ = [
-    "decide", "effect_of", "is_expired", "register_policy", "unregister_policy", "get_policy", "UnknownName",
+    "decide", "effect_of", "is_expired", "register_policy", "unregister_policy", "UnknownName",
     "DEFAULT_POLICY", "DEFAULT_FILTERS", "AdRequest", "Candidate", "Eligible", "Effect", "Selection", "DecisionResult",
 ]

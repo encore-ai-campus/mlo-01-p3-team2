@@ -10,15 +10,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit
+from foundation.api import MAX_AMOUNT, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
 
 from .models import Audience, BidPolicy, Media, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
-
-
-def _require_admin(actor):
-    if not (getattr(actor, "is_authenticated", False) and actor.is_active and actor.role == Role.ADMIN):
-        raise errors.Forbidden("관리자만 할 수 있습니다.")
 
 
 def _validate_policy(floor, base, cap):
@@ -68,7 +63,7 @@ def _get_slot(slot_id):
 
 
 def create_media(actor, name):
-    _require_admin(actor)
+    require_admin(actor)
     name = clean_text(name, "매체 이름", "/name")
     try:
         with transaction.atomic():
@@ -80,7 +75,7 @@ def create_media(actor, name):
 
 
 def set_media_active(actor, media_id, active):
-    _require_admin(actor)
+    require_admin(actor)
     media_id = parse_uuid(media_id, "매체")
     with transaction.atomic():
         if not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
@@ -98,7 +93,7 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
 
     `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
     """
-    _require_admin(actor)
+    require_admin(actor)
     name = clean_text(name, "게재 위치 이름", "/name")
     reason = clean_text(reason, "사유", "/reason", 200)
     if pricing_unit not in PricingUnit.values:
@@ -144,7 +139,7 @@ def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
 
 
 def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_version):
-    _require_admin(actor)
+    require_admin(actor)
     reason = clean_text(reason, "사유", "/reason", 200)
     _validate_policy(floor, base, cap)
     with transaction.atomic():
@@ -153,7 +148,7 @@ def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_versio
 
 def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
     """같은 값을 여러 슬롯에 새 버전으로. `expected_versions` = {slot_id: 본 버전}. 하나라도 어긋나면 전부 취소."""
-    _require_admin(actor)
+    require_admin(actor)
     reason = clean_text(reason, "사유", "/reason", 200)
     _validate_policy(floor, base, cap)
     if not expected_versions:
@@ -166,7 +161,7 @@ def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
 
 
 def set_slot_active(actor, slot_id, active):
-    _require_admin(actor)
+    require_admin(actor)
     slot_id = parse_uuid(slot_id, "게재 위치")
     with transaction.atomic():
         if not Slot.objects.filter(pk=slot_id).update(is_active=bool(active)):
@@ -184,13 +179,7 @@ def get_slot(slot_id):
 
 def slot_names(slot_ids):
     """슬롯 이름(**표시용**, 바뀔 수 있다)을 질의 한 번으로. 없는·형식이 틀린 ID 는 결과에 없다."""
-    valid = []
-    for slot_id in slot_ids:
-        try:
-            valid.append(parse_uuid(slot_id, "게재 위치"))
-        except errors.NotFound:
-            pass
-    return dict(Slot.objects.filter(pk__in=valid).values_list("pk", "name"))
+    return dict(Slot.objects.filter(pk__in=parse_uuids(slot_ids)).values_list("pk", "name"))
 
 
 def list_slots(active_only=True, media_id=None):
@@ -203,14 +192,8 @@ def list_slots(active_only=True, media_id=None):
 
 
 def get_slots_with_policy(slot_ids):
-    """여러 슬롯의 현재 정책을 **질의 한 번**으로(결정 조립용). 없는 ID 는 결과에 없다."""
-    valid = []
-    for slot_id in slot_ids:
-        try:
-            valid.append(parse_uuid(slot_id, "게재 위치"))
-        except errors.NotFound:
-            pass  # 형식이 틀린 ID 는 없는 것과 같다
-    rows = _current_policies().filter(slot_id__in=valid)
+    """여러 슬롯의 현재 정책을 **질의 한 번**으로(결정 조립용). 없는·형식이 틀린 ID 는 결과에 없다."""
+    rows = _current_policies().filter(slot_id__in=parse_uuids(slot_ids))
     return {row.slot_id: _slot_view(row.slot, row) for row in rows}
 
 
@@ -254,7 +237,7 @@ def _media_for_key_admin(media_id):
 
 def issue_media_key(actor, media_id, label="", now=None):
     """새 키를 발급한다. 평문은 반환값에만 있다. 기존 키는 그대로 유효하다."""
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     label = clean_text(label, "라벨", "/label") if label else ""
     with transaction.atomic():
@@ -266,7 +249,7 @@ def rotate_media_key(actor, media_id, grace_seconds, label="", now=None):
 
     `grace_seconds` 는 0 이상 30일 이하의 정수. 0 이면 기존 키가 바로 만료된다. 이미 더 일찍 만료될 키는 그대로 둔다.
     """
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     if isinstance(grace_seconds, bool) or not isinstance(grace_seconds, int) or not 0 <= grace_seconds <= MAX_GRACE.total_seconds():
         raise errors.InvalidRequest(errors=[{"pointer": "/grace_seconds", "message": "0 이상 30일(초) 이하의 정수여야 합니다."}])
@@ -284,7 +267,7 @@ def rotate_media_key(actor, media_id, grace_seconds, label="", now=None):
 
 def revoke_media_key(actor, key_id, now=None):
     """키를 즉시 폐기한다(유출 대응). 이미 폐기된 키는 변화 없음."""
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     with transaction.atomic():
         try:
@@ -297,7 +280,7 @@ def revoke_media_key(actor, key_id, now=None):
 
 
 def list_media_keys(actor, media_id, now=None):
-    _require_admin(actor)
+    require_admin(actor)
     now = _now(now)
     return [_key_view(k, now) for k in MediaKey.objects.filter(media_id=parse_uuid(media_id, "매체")).order_by("-created_at")]
 

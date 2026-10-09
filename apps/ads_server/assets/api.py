@@ -2,7 +2,6 @@
 from django.conf import settings
 from django.utils.module_loading import import_string
 
-from .storage import NAME_RE
 from .validation import ImageRejected, ValidatedImage, validate_image
 
 
@@ -31,5 +30,4 @@ def asset_url(name: str) -> str:
 
 __all__ = [
     "ImageRejected", "ValidatedImage", "validate_image", "store", "asset_exists", "open_asset", "asset_url",
-    "get_storage", "NAME_RE",
 ]
