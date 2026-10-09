@@ -276,3 +276,21 @@ Set-Location C:\third_project\aws-infra
 .\infra\scripts\infra.ps1 -Account account5 -Stage workload -Action Output
 ```
 
+## 10. S3 상태 버킷 설정 복원
+
+```powershell
+Set-Location C:\third_project\aws-infra
+
+# 기존 설정을 읽고 이전 배포의 S3 상태 버킷 이름을 채웁니다.
+$backendPath = 'C:\third_project\aws-infra\infra\config\backend.json'
+$backendConfig = Get-Content -Raw -LiteralPath $backendPath | ConvertFrom-Json
+$backendConfig.bucket = 'aws-infra-tfstate-541308265856'
+
+# JSON을 UTF-8(BOM 없음) 형식으로 저장합니다.
+$backendJson = $backendConfig | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText($backendPath, $backendJson, [System.Text.UTF8Encoding]::new($false))
+
+# 저장된 값을 확인합니다.
+Get-Content -LiteralPath $backendPath
+```
+
