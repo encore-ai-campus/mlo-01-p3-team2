@@ -5,7 +5,7 @@ from django.test import TestCase, tag
 from django.urls import reverse
 
 from foundation.api import record_audit
-from foundation.models import AuditImmutableError, AuditLog, User
+from foundation.models import AppendOnlyError, AuditLog, User
 
 PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
@@ -20,35 +20,35 @@ class AuditLogModelTests(TestCase):
     def test_audit_log_is_append_only(self):
         entry = record_audit(None, "test.event")
         entry.action = "changed"
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             entry.save()
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             entry.delete()
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog.objects.update(action="x")
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog.objects.all().delete()
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog.objects.filter(pk=entry.pk).delete()
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog.objects.bulk_update([entry], ["action"])
         self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.event")
 
     def test_existing_row_cannot_be_overwritten_by_a_new_instance_or_upsert(self):
         """`_state.adding` 은 Python 인스턴스 상태일 뿐이다. 같은 PK 의 새 인스턴스·upsert 로 기존 행을 바꿀 수 없어야 한다."""
         entry = record_audit(None, "test.original")
-        with self.assertRaises((IntegrityError, AuditImmutableError)), transaction.atomic():
+        with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             AuditLog(pk=entry.pk, action="review.overwritten").save()
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog(pk=entry.pk, action="review.overwritten").save(force_update=True)
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog(pk=entry.pk, action="review.overwritten").save(update_fields=["action"])
-        with self.assertRaises(AuditImmutableError):
+        with self.assertRaises(AppendOnlyError):
             AuditLog.objects.bulk_create(
                 [AuditLog(pk=entry.pk, action="review.overwritten")],
                 update_conflicts=True, update_fields=["action"], unique_fields=["log_id"],
             )
-        with self.assertRaises((IntegrityError, AuditImmutableError)), transaction.atomic():
+        with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
             AuditLog.objects.update_or_create(pk=entry.pk, defaults={"action": "review.overwritten"})
         AuditLog.objects.bulk_create([AuditLog(pk=entry.pk, action="review.overwritten")], ignore_conflicts=True)  # 건너뛸 뿐 덮어쓰지 않는다
         self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.original")

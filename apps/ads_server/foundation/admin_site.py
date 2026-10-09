@@ -7,6 +7,19 @@ from django.contrib import admin
 from .audit import record_audit
 
 
+class ReadOnlyAdmin(admin.ModelAdmin):
+    """읽기 전용 관리자 화면. 서비스 규칙(검증·버전·상태 전이·감사)을 우회하지 않도록 모델 변경은 서비스 함수로만 한다."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 class AuditedAdminSite(admin.AdminSite):
     def password_change(self, request, extra_context=None):
         response = super().password_change(request, extra_context)

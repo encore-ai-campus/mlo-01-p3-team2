@@ -77,9 +77,6 @@ class AppendOnlyError(Exception):
     """추가 전용 기록은 INSERT 만 허용한다. 수정·삭제·덮어쓰기 시도는 예외다."""
 
 
-AuditImmutableError = AppendOnlyError  # 감사 로그 쪽 기존 이름
-
-
 class AppendOnlyQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise AppendOnlyError("추가 전용 기록은 수정할 수 없다.")

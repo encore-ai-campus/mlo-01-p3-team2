@@ -49,6 +49,17 @@ def parse_uuid(value, what):
         raise NotFound(f"{what}을(를) 찾을 수 없습니다.")
 
 
+def parse_uuids(values):
+    """UUID 로 읽히는 값만 UUID 로 돌려준다. 형식이 틀린 값은 없는 ID 와 같아 버린다(여러 ID 를 한 번에 조회할 때)."""
+    valid = []
+    for value in values:
+        try:
+            valid.append(parse_uuid(value, "ID"))
+        except NotFound:
+            pass
+    return valid
+
+
 def clean_text(value, label, pointer, max_len=100):
     """서비스 입력용 문자열 검증(1~max_len자, 보이지 않는 서식·제어 문자 금지). 틀리면 400 `InvalidRequest`."""
     value = unicodedata.normalize("NFC", value.strip()) if isinstance(value, str) else ""

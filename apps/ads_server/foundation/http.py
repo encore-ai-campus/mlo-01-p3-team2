@@ -46,7 +46,8 @@ def _no_duplicate_keys(pairs):
     return seen
 
 
-def _depth(value):
+def json_depth(value):
+    """JSON 값의 중첩 깊이(객체·배열만 센다). 다른 입력 검증(예: C1 context 의 깊이 제한)도 같은 기준을 쓴다."""
     deepest, stack = 0, [(value, 1)]
     while stack:
         node, depth = stack.pop()
@@ -55,9 +56,6 @@ def _depth(value):
             children = node.values() if isinstance(node, dict) else node
             stack.extend((child, depth + 1) for child in children)
     return deepest
-
-
-json_depth = _depth  # 공개 이름: 다른 입력 검증(예: C1 context 의 깊이 제한)이 같은 기준을 쓴다
 
 
 def _has_unpaired_surrogate(value):
@@ -108,7 +106,7 @@ def parse_json(request, max_bytes=DEFAULT_MAX_BYTES, max_depth=DEFAULT_MAX_DEPTH
         raise InvalidRequest("최상위는 JSON 객체여야 합니다.")
     if _has_unpaired_surrogate(value):
         raise InvalidRequest("유효하지 않은 유니코드(짝 없는 서로게이트)가 있습니다.")
-    if _depth(value) > max_depth:
+    if json_depth(value) > max_depth:
         raise InvalidRequest(f"중첩 깊이는 최대 {max_depth} 입니다.")
     return value
 
@@ -139,7 +137,7 @@ def problem_response(request, error):
     return response
 
 
-def _html_error(request, status, title, message):
+def _html_error(status, title, message):
     html = render_to_string("foundation/error.html", {"status": status, "title": title, "message": message})
     return HttpResponse(html, status=status)
 
@@ -147,7 +145,7 @@ def _html_error(request, status, title, message):
 def _respond(request, error, message):
     if is_api_path(request.path):
         return problem_response(request, error)
-    return _html_error(request, error.status, error.title, message)
+    return _html_error(error.status, error.title, message)
 
 
 def bad_request(request, exception=None):

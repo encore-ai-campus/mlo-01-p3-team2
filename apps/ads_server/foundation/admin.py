@@ -2,9 +2,9 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserCreationForm
-from django.utils.html import format_html  # noqa: F401
 from django.contrib.admin.utils import unquote
 
+from .admin_site import ReadOnlyAdmin
 from .audit import record_audit
 from .models import AuditLog, User
 from .templatetags.kst import kst
@@ -55,7 +55,7 @@ class UserAdmin(BaseUserAdmin):
 
 
 @admin.register(AuditLog)
-class AuditLogAdmin(admin.ModelAdmin):
+class AuditLogAdmin(ReadOnlyAdmin):
     """읽기 전용. 추가·수정·삭제를 모두 막는다."""
 
     list_display = ("created_kst", "action", "actor_username", "target_type", "target_id", "ip", "request_id")
@@ -69,12 +69,3 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return [f.name for f in self.model._meta.fields]
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
