@@ -8,7 +8,7 @@ from pathlib import Path
 from random import Random
 
 from django.db import connection
-from django.test import TestCase, tag
+from django.test import TestCase, TransactionTestCase, tag
 
 from billing import api as billing
 from billing.models import CampaignSpend, LedgerEntry
@@ -32,7 +32,7 @@ def sql(statement, *params):
         cur.execute(statement, params)
 
 
-class InvariantBase(TestCase):
+class InvariantMixin:
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
@@ -43,6 +43,32 @@ class InvariantBase(TestCase):
     def problems(self, **kw):
         acked = {(str(self.media), str(self.view.reaction_id)): (str(self.decision.decision_id), "IMPRESSION")}
         return load_test.verify_invariants(kw.pop("decisions", {self.decision.decision_id}), kw.pop("reactions", acked), **kw)
+
+
+class InvariantBase(InvariantMixin, TestCase):
+    pass
+
+
+@tag("security")
+class DoubleChargeCheckerTests(InvariantMixin, TransactionTestCase):
+    """유일 제약을 빼는 DDL 은 MySQL 에서 트랜잭션을 끝내 버리므로(암묵적 커밋) 롤백에 기댈 수 없다 — 이 시험만 TransactionTestCase 로 하고, 뺀 제약은 반드시 되돌린다."""
+
+    def test_a_double_charge_is_found(self):
+        charge = LedgerEntry.objects.get(entry_type="CHARGE")
+        sql("ALTER TABLE billing_ledger_entry DROP INDEX billing_charge_once_per_reaction")  # 유일 제약이 없는 저장소를 가정하고 같은 키를 한 번 더 넣는다
+        duplicate = uuid.uuid4().hex
+
+        def restore():  # 같은 키가 두 줄이면 제약을 다시 걸 수 없으므로 넣은 줄부터 지운다
+            sql("DELETE FROM billing_ledger_entry WHERE entry_id = %s", duplicate)
+            sql("ALTER TABLE billing_ledger_entry ADD CONSTRAINT billing_charge_once_per_reaction UNIQUE (reaction_ref)")
+
+        self.addCleanup(restore)
+        sql(
+            "INSERT INTO billing_ledger_entry (entry_id, wallet_id, seq, entry_type, amount, balance_after, campaign_id, reaction_ref, charge_policy, shortfall, note, created_at) "
+            "SELECT %s, wallet_id, seq + 1, entry_type, amount, balance_after, campaign_id, reaction_ref, charge_policy, shortfall, note, created_at FROM billing_ledger_entry WHERE entry_id = %s",
+            duplicate, charge.entry_id.hex,
+        )
+        self.assertTrue(any("이중 과금" in p for p in self.problems()))
 
 
 @tag("security")
@@ -61,16 +87,6 @@ class InvariantCheckerTests(InvariantBase):
     def test_a_charge_without_an_accepted_reaction_is_found(self):
         sql("UPDATE records_reaction SET status = 'RECEIVED', processed_at = NULL, reason_code = NULL, applied_rule = NULL, accepted_key = NULL")
         self.assertTrue(any("인정되지 않은 반응에 대한 과금" in p for p in self.problems(expect_drained=False)))
-
-    def test_a_double_charge_is_found(self):
-        charge = LedgerEntry.objects.get(entry_type="CHARGE")
-        sql("DROP INDEX billing_charge_once_per_reaction")  # 유일 제약이 없는 저장소를 가정하고 같은 키를 한 번 더 넣는다
-        sql(
-            "INSERT INTO billing_ledger_entry (entry_id, wallet_id, seq, entry_type, amount, balance_after, campaign_id, reaction_ref, charge_policy, shortfall, note, created_at) "
-            "SELECT ?, wallet_id, seq + 1, entry_type, amount, balance_after, campaign_id, reaction_ref, charge_policy, shortfall, note, created_at FROM billing_ledger_entry WHERE entry_id = ?",
-            uuid.uuid4().hex, charge.entry_id.hex,
-        )
-        self.assertTrue(any("이중 과금" in p for p in self.problems()))
 
     def test_a_charge_whose_amount_differs_from_the_decision_is_found_even_if_the_ledger_is_consistent(self):
         """원장 내부 수치(잔액·balance_after·소진액)를 맞춰 놓아도 결정의 적용 금액(30)과 다르면 잡는다."""

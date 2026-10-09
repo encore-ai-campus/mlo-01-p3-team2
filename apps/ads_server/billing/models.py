@@ -3,7 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import Case, F, Q, When
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
@@ -42,14 +42,19 @@ class LedgerEntry(AppendOnlyModel):
     shortfall = models.PositiveBigIntegerField(default=0)  # 잔액이 모자라 못 받은 금액
     note = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # MySQL 은 조건부 유일 제약을 만들지 않으므로(W036) DB 가 **계산하는 열**로 같은 일을 한다: 가입 지급 줄에만 지갑 ID, 나머지는 NULL(NULL 끼리는 서로 다르다).
+    signup_grant_wallet = models.GeneratedField(
+        expression=Case(When(entry_type="SIGNUP_GRANT", then=F("wallet")), default=None, output_field=models.UUIDField(null=True)),
+        output_field=models.UUIDField(null=True), db_persist=True,
+    )
 
     class Meta:
         db_table = "billing_ledger_entry"
         constraints = [
             models.UniqueConstraint(fields=["wallet", "seq"], name="billing_entry_seq_per_wallet"),
             models.CheckConstraint(condition=Q(seq__gte=1), name="billing_entry_seq_from_one"),
-            models.UniqueConstraint(fields=["wallet"], condition=Q(entry_type="SIGNUP_GRANT"), name="billing_one_signup_grant_per_wallet"),
-            models.UniqueConstraint(fields=["reaction_ref"], condition=Q(reaction_ref__isnull=False), name="billing_charge_once_per_reaction"),
+            models.UniqueConstraint(fields=["signup_grant_wallet"], name="billing_one_signup_grant_per_wallet"),
+            models.UniqueConstraint(fields=["reaction_ref"], name="billing_charge_once_per_reaction"),  # reaction_ref 가 NULL 인 줄(지급·충전·조정)은 서로 다른 값으로 취급된다
             models.CheckConstraint(
                 condition=(
                     Q(entry_type="CHARGE", amount__lte=0, amount__gte=-MAX_AMOUNT)

@@ -74,5 +74,31 @@ class FunnelBackfillTests(TransactionTestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "사람을 알 수 없는 인정된 반응 1건"):
             self.migrate(AFTER)
+        self.assertSchemaUntouched()  # MySQL 의 DDL 은 되돌릴 수 없다 — 멈추기 전에 스키마를 바꾸지 않았어야 같은 DB 에서 다시 실행할 수 있다
         Reaction.objects.filter(pk=orphan.pk).delete()  # 운영자가 정리한 뒤에는 이행된다(시험 정리)
         self.migrate(AFTER)
+        self.assertIn("accepted_key", self.columns())
+
+    def test_two_accepted_rows_with_the_same_key_stop_the_migration_before_any_schema_change(self):
+        """같은 (결정, 사람, 유형)에 인정된 행이 둘이면 새 유일 제약을 걸 수 없다 — 이것도 스키마를 바꾸기 전에 알린다."""
+        old = self.migrate(BEFORE)
+        Decision, Reaction = old.get_model("records", "Decision"), old.get_model("records", "Reaction")
+        media, person = uuid.uuid4(), "0197a5c0-0000-7000-8000-000000000001"
+        decision = self.decision(Decision, "individual", person, media)
+        twins = [
+            Reaction.objects.create(media_id=media, reaction_id=uuid.uuid4(), decision_id=decision.decision_id, occurred_at=WHEN, raw={}, type="IMPRESSION", status="ACCEPTED", processed_at=WHEN)
+            for _ in range(2)
+        ]
+        with self.assertRaisesRegex(RuntimeError, "인정된 반응이 둘 이상"):
+            self.migrate(AFTER)
+        self.assertSchemaUntouched()
+        Reaction.objects.filter(pk=twins[1].pk).delete()
+        self.migrate(AFTER)
+        self.assertIn("accepted_key", self.columns())
+
+    def columns(self):
+        with connection.cursor() as cur:
+            return {c.name for c in connection.introspection.get_table_description(cur, "records_reaction")}
+
+    def assertSchemaUntouched(self):
+        self.assertTrue({"accepted_key", "person_id", "checked_at"}.isdisjoint(self.columns()))

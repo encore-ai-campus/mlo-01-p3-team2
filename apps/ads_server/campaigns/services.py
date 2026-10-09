@@ -281,7 +281,7 @@ def create_review_request(user, campaign_id, message="", now=None):
                 raise ReviewPending()
             review = ReviewRequest.objects.create(campaign=c, message=message, created_at=now)
             _audit(user, "campaign.review_requested", ("campaigns.campaign", c.campaign_id), {"review_request_id": str(review.review_request_id)})
-    except IntegrityError:  # 동시에 두 요청이 들어온 경우의 안전망(부분 유니크 제약)
+    except IntegrityError:  # 동시에 두 요청이 들어온 경우의 안전망(열린 요청의 유일 제약)
         raise ReviewPending()
     return _review_view(review)
 

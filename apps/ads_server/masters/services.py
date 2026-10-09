@@ -135,7 +135,7 @@ def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
                 slot=slot, policy_version=current.policy_version + 1, floor_amount=floor, base_amount=base,
                 cap_amount=cap, changed_by=actor.pk, reason=reason,
             )
-    except IntegrityError:  # 다른 DB 로 옮겼을 때의 안전망(SQLite 는 쓰기가 직렬이라 위 검사가 먼저 막는다)
+    except IntegrityError:  # 같은 버전을 동시에 만든 쪽의 충돌은 유일 제약이 막는다(MySQL 은 쓰기가 병렬이라 실제로 이 경로를 탄다 — DB-1c 에서 동시 시험)
         raise errors.StaleVersion()
     _audit(actor, "masters.policy_added", ("masters.slot", slot.slot_id),
            {"version": policy.policy_version, "floor": floor, "base": base, "cap": cap, "reason": reason,

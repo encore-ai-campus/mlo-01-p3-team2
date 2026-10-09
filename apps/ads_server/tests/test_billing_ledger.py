@@ -4,7 +4,7 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError, connection, transaction
+from django.db import DataError, IntegrityError, connection, transaction
 from django.test import Client, TestCase, override_settings, tag
 from django.urls import reverse
 
@@ -104,8 +104,10 @@ class LedgerIntegrityTests(TestCase):
         self.assertEqual((second.charged, second.shortfall, second.entry.amount), (0, 40, 0))
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 0)
         self.assertEqual(api.check_ledger(), [])
-        with self.assertRaises(IntegrityError), transaction.atomic():  # DB 가 직접 쓰기도 거부
+        # DB 가 직접 쓰기도 거부한다. 거부 방식은 DB 마다 다르다: MySQL 은 부호 없는 열이라 범위 오류(DataError), 그 밖에는 CHECK(IntegrityError)
+        with self.assertRaises((IntegrityError, DataError)), transaction.atomic():
             Wallet.objects.filter(owner=adv).update(balance=-1)
+        self.assertEqual(Wallet.objects.get(owner=adv).balance, 0)  # 어느 쪽이든 값은 그대로다
 
     def test_ledger_is_append_only_and_cannot_be_overwritten(self):
         adv = funded(500)

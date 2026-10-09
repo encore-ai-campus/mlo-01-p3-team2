@@ -195,8 +195,8 @@ def charged_amounts(reaction_refs):
 
 def recompute_spend():
     """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수를 돌려준다."""
-    # 원장 읽기부터 교체까지 **한 쓰기 트랜잭션**이다. SQLite 는 시작할 때(IMMEDIATE) 쓰기 잠금을 잡으므로, 읽은 뒤 다른 연결의 과금이 끼어들어
-    # 새 과금이 파생값에서 빠지는 일이 없다(과금은 이 트랜잭션이 끝날 때까지 기다린다).
+    # 주의(DB-1c 에서 고친다): MySQL 에서는 이 atomic() 이 다른 연결의 과금을 막지 못한다. 읽은 뒤 교체하기 전에 커밋된 과금은 파생값에서 빠진다
+    # (원장 합계와 CampaignSpend 가 어긋나고 check_ledger 는 이를 잡지 못한다). 과금과 재계산이 공유하는 잠금이 생기기 전에는 **과금을 멈춘 상태에서만** 실행한다.
     with transaction.atomic():
         totals = {}
         for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False).values_list("campaign_id", "created_at", "amount"):

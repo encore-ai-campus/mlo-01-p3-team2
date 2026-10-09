@@ -3,7 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import Case, F, Q, When
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
@@ -138,9 +138,13 @@ class ReviewRequest(models.Model):
     response_note = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     closed_at = models.DateTimeField(null=True, blank=True)
+    # MySQL 은 조건부 유일 제약을 만들지 않으므로(W036) DB 가 **계산하는 열**로 같은 일을 한다: 열려 있는 요청에만 캠페인 ID, 닫히면 NULL.
+    # 상태를 바꾸는 코드(닫기·일괄 종료)는 이 열을 신경 쓰지 않는다 — DB 가 알아서 비운다.
+    open_campaign = models.GeneratedField(
+        expression=Case(When(status="OPEN", then=F("campaign")), default=None, output_field=models.UUIDField(null=True)),
+        output_field=models.UUIDField(null=True), db_persist=True,
+    )
 
     class Meta:
         db_table = "campaigns_review_request"
-        constraints = [
-            models.UniqueConstraint(fields=["campaign"], condition=Q(status="OPEN"), name="campaigns_one_open_review_per_campaign"),
-        ]
+        constraints = [models.UniqueConstraint(fields=["open_campaign"], name="campaigns_one_open_review_per_campaign")]
