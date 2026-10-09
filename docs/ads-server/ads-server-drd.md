@@ -16,7 +16,7 @@
 | 목적 | 광고 서버가 **어떤 데이터를 어떤 모양으로 갖고, 바깥과 어떤 데이터를 주고받는지**를 한 문서로 고정한다. 구현·계약·파이프라인이 같은 기준을 쓰게 한다 |
 | 범위 | 광고 서버의 저장 데이터(DB·파일), 서버 간 계약(C1~C6)의 데이터 모양, 내부 처리 흐름, 수명주기, 보안 분류, 팀 DRD와의 대응 |
 | 범위 밖 | 매체 서버(메타버스)·데이터 파이프라인의 내부 데이터, 화면 설계, 인프라 구성 |
-| 저장소 | Step 2까지 **SQLite 한 파일 + 로컬 파일**(소재 이미지). Step 2 직후 **Step DB**에서 **MySQL**(업무 데이터 + outbox)·**MongoDB**(이벤트 로그)로 옮긴다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
+| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB**(이벤트 로그)는 DB-2에서 연결하고, outbox는 Step 4에서 MySQL에 둔다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
 | 엔터티 | 구현 19개(계정·감사 3, 마스터 4, 운영 7, 지갑·원장·결정·반응 4, 파생 1), 계획 1개(outbox) |
 | 핵심 규칙 | **모든 PK는 UUIDv7, 자동 증가 없음** · 자연 키는 업무 규칙용 유일 제약 · 시각은 UTC · 금액은 **정수 포인트** · 이력은 **추가 전용**(입찰·정책·원장·결정·감사) · 삭제 없음 · 판정 규칙은 한 곳(`engine`) |
 | 먼저 볼 것 | §1.2 **광고 도메인은 이 문서가 팀 DRD보다 우선**. §10 열린 이슈, D-1~D-3(2-3)과 PK 규칙의 코드 적용(D-8)은 해결됨. 식별자 방식 차이(D-4)는 해결됨 |
@@ -53,7 +53,7 @@
 
 단계마다 표를 따로 둔다. 뒤 단계의 행은 **계획이나 조건부 확장**이며 지금 확정된 구조가 아니다.
 
-**V1 (지금, Step 2까지 · SQLite)**
+**V1 (지금 · MySQL 8.4 단일 노드. Step 2까지는 SQLite였음)**
 
 | 계약 | 방향 | 상대 | 방식 | 상태 |
 |---|---|---|---|---|
@@ -64,12 +64,12 @@
 | C6 콘솔 | 들어옴 | 광고주·관리자 브라우저 | 세션, 템플릿 | Step 3 |
 | C2 이벤트 내보내기 | — | — | **없음** | V1 범위 밖 |
 
-**DB 전환 (Step DB, Step 2 직후 · MySQL + MongoDB) → Step 4**
+**DB 전환 (Step DB: DB-1 MySQL 완료, DB-2 MongoDB 연결) → Step 4**
 
 | 계약 | 방향 | 상대 | 방식 | 상태 |
 |---|---|---|---|---|
 | C1·C3·클릭 | (V1과 같음) | | | 변경 없음 |
-| 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [계획] Step DB |
+| 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [구현] DB-1(업무 데이터), outbox는 [계획] Step 4 |
 | C2 이벤트 | 나감 | 파이프라인 쪽(읽기) | outbox → 중계 → MongoDB `ad_events`(멱등). 이 컬렉션과 이벤트 스키마(§5.6)가 계약 면이고 MySQL 테이블은 읽게 하지 않는다 | [계획] Step 4 |
 | 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum) | [계획] Step 4 |
 | 퍼널 집계 | 내부 | 콘솔 | `records.api`(MySQL 조회) | 변경 없음 |
@@ -107,7 +107,7 @@ flowchart LR
     end
 
     subgraph STORE[저장소]
-        DB[(SQLite<br/>WAL·synchronous=FULL)]
+        DB[(MySQL 8.4<br/>InnoDB·READ COMMITTED)]
         FILES[(MEDIA_ROOT<br/>소재 이미지)]
     end
 
@@ -130,15 +130,14 @@ flowchart LR
 
 | 저장소 | 담는 것 | 형식 | 상태 |
 |---|---|---|---|
-| SQLite 파일(`DATABASE_PATH`) | 아래 §4의 모든 엔터티, 세션, 로그인 잠금 기록 | WAL, `synchronous=FULL`, 쓰기 트랜잭션 `IMMEDIATE`, busy timeout 5초 | [구현] |
 | 로컬 디렉터리(`MEDIA_ROOT`) | 소재 이미지(재인코딩된 바이트) | `<해시 앞 2자>/<sha256>.<jpg\|png>`, 임시 파일 → `os.replace`로 원자적 확정, 권한 0640 | [구현] |
 | 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
-| MySQL | 정합성이 필요한 것 전부(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함) + **outbox**(같은 트랜잭션) | InnoDB. UUIDv7 PK(§3 R-2) | [계획] Step DB |
+| MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, Step 4) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 [계획] Step 4. Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
 | MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장 | [계획] Step DB(연결)·Step 4(쓰기) |
 | NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나, manifest에 SHA-256·행 수·`schema_version`·`source_kind`·checkpoint | [계획] Step 4 |
 | Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
 
-**저장소를 고르는 기준 [확정, 2026-10-08]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 쓰고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
+**저장소를 고르는 기준 [확정, 2026-10-08, MySQL 전환 2026-10-09]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 썼고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
 
 ### 2.3 분석 계층 대응 [확정, 2026-10-08]
 
@@ -345,7 +344,7 @@ erDiagram
 
 ### 4.3 엔터티별 컬럼
 
-표기: **N** = NOT NULL, **Y** = NULL 허용. 타입은 Django 필드 기준(SQLite 저장 형태는 괄호).
+표기: **N** = NOT NULL, **Y** = NULL 허용. 타입은 Django 필드 기준(DB 저장 형태는 괄호).
 
 #### A1. 사용자 `foundation_user` [구현]
 
@@ -792,7 +791,7 @@ sequenceDiagram
     participant C as campaigns
     participant B as billing
     participant E as engine
-    participant DB as SQLite
+    participant DB as MySQL
 
     M->>S: POST /decisions (X-Media-Key)
     S->>S: 키 → media_id (P1), 본문 검증
@@ -841,7 +840,7 @@ sequenceDiagram
 sequenceDiagram
     participant M as 매체 서버
     participant S as serving_api
-    participant DB as SQLite
+    participant DB as MySQL
     participant P as 반응 처리(process_reactions)
     participant B as billing
 
@@ -1052,7 +1051,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 원장 `CHARGE` 행 수 | 인정된 반응 중 과금 단위가 맞는 것 | `by-unit/v1` |
 | 결정 한 건의 DB 작업 | 읽기 4번(후보 수와 무관) + 쓰기 1번 | `test_assemble_query_count_independent_of_candidates` |
 | 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(`trace`의 동점 후보 목록이 가장 큼) | 추정. 부하 테스트(2-6)에서 확인 |
-| SQLite 한계 | 쓰기 직렬. 초당 수백 건 수준 | 운영 수준 테스트 때 MySQL·MongoDB로(설계서 §7-10) |
+| 저장소 한계 | MySQL 단일 노드. 요청마다 연결을 닫아 연결 수 = 동시 요청 수 — 서버 `max_connections`(기본 151)에 닿으면 넘친 요청은 503 + 재시도(150 동시에서 발생, 처리는 올바름) | 설계서 §6.5-7, [load-test.md](load-test.md) §2·§4·§7. 영속 연결·풀은 배포 구성이 정해진 뒤 |
 | PK 쓰기 위치 | UUIDv7은 시각이 앞이라 새 행이 인덱스 뒤에 붙는다 | MySQL(InnoDB) 전환 대비. UUID 저장 형식(32자 문자 vs 16바이트 이진)은 전환 시점에 데이터량을 보고 정한다 |
 
 ---
@@ -1126,7 +1125,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | §7-7 C5 계정 연결 | 사용자 테이블의 외부 연결 열(`external_ref`) |
 | §7-8 보존 기간 | §6의 [열림] 칸 전부 |
 | §7-9 주기 작업 실행 | `end_expired_campaigns`·`process_reactions` 지연 → 표시 상태와 저장 상태가 다른 구간의 길이 |
-| §7-10 DB 전환 | SQLite 고유 동작(쓰기 직렬, 부분 인덱스)에 기대는 곳 재확인 |
+| §7-10 DB 전환 | ~~SQLite 고유 동작(쓰기 직렬, 부분 인덱스)에 기대는 곳 재확인~~ **해결(DB-1, 2026-10-09)**: 조건부 유일 제약 3곳·반응 인정 키를 조건 없는 유일 제약 + NULL 키로, 재계산·접수 순서는 행 잠금 규약으로 |
 
 ---
 
@@ -1135,6 +1134,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.16 | 2026-10-09 | MySQL 전환 반영(DB-1a~1e): 저장소·현재 단계 표·구성도·순서도의 SQLite를 MySQL 8.4로, 저장소 한계는 연결 한도·단일 노드로. 이력 행은 그대로 |
 | 0.15 | 2026-10-09 | 접수 서술 정정(외부 검토 `2ba7430`): "짧은 INSERT 한 번" → 소유 매체의 접수는 결정 행 잠금 + INSERT, "결정을 조회하지 않는다" → 결정의 존재·소유를 이유로 거절하지 않으며 결정 조회는 잠글지 정하는 소유 확인뿐(구현 `2ba7430`·`7d4df3f`). 접수 이벤트에 판정된 사람·슬롯 성격을 싣지 않는 계약은 그대로 |
 | 0.14 | 2026-10-09 | 2-13 보완(`cfc1810`) 반영: `basis.person`은 확인한 사람만(없는 결정이면 `null`), 앞 단계는 인정 근거(최대 1개, 항상 저장)와 처리 전 후보(상한)로 분리, C2 판정 이벤트의 사람·슬롯 성격은 `basis`에서 읽음 |
 | 0.13 | 2026-10-09 | 외부 검토(`bf132c0`) 반영: 접수 이벤트는 보고된 사실만(사람·슬롯 성격 없음), 판정 이벤트에 `basis`와 `null` 규칙, `records_reaction.basis` [구현 2-13], 판정 사실은 결정 소유 매체의 반응으로 한정 [구현 2-13] |
