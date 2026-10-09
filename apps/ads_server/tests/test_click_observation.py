@@ -310,12 +310,7 @@ class ConcurrentClickTests(ProviderContractMixin, TransactionTestCase):
         def worker():
             try:
                 barrier.wait(timeout=10)
-                for _ in range(200):
-                    status = Client().get(path).status_code
-                    if status != 503:  # 저장소 일시 장애는 사용자가 다시 여는 것과 같다
-                        statuses.append(status)
-                        return
-                    time.sleep(0.003)
+                statuses.append(Client().get(path).status_code)  # 재시도하지 않는다: 정상 경쟁에서 503 이 나면 안 된다
             finally:
                 connection.close()
 

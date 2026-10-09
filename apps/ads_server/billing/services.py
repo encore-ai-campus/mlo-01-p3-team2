@@ -103,9 +103,22 @@ def _charge(owner_id, campaign_id, amount, reaction_ref, policy_name, now):
         charge_policy=policy_name, shortfall=amount - charged,
     )
     if charged:
-        spend, _ = CampaignSpend.objects.get_or_create(campaign_id=campaign_id, budget_day=budget_day_of(now))
-        CampaignSpend.objects.filter(pk=spend.pk).update(spent=F("spent") + charged)
+        _add_spend(campaign_id, budget_day_of(now), charged)
     return ChargeResult(_entry_view(entry), charged=charged, shortfall=amount - charged, duplicate=False)
+
+
+def _add_spend(campaign_id, day, charged):
+    """그날 소진액에 `charged` 를 더한다. **행의 키로 갱신하고 없을 때만 만든다** — 재계산이 행을 지우거나 새로 만드는 중이어도 이 증가분이 사라지지 않는다.
+
+    (행의 PK 로 갱신하면, 그 사이에 재계산이 행을 지웠을 때 갱신이 0 행에 닿아 증가분이 조용히 없어진다.)
+    """
+    if CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged):
+        return
+    try:
+        with transaction.atomic():
+            CampaignSpend.objects.create(campaign_id=campaign_id, budget_day=day, spent=charged)
+    except IntegrityError:  # 동시에 다른 과금이 먼저 만들었다 → 그 행에 더한다
+        CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged)
 
 
 def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, applied_amount, reaction_ref, now=None):
@@ -193,18 +206,41 @@ def charged_amounts(reaction_refs):
     return found
 
 
+def _ledger_spent(campaign_id, day):
+    """원장의 CHARGE 줄로 센 그 (캠페인, 예산 일)의 받은 포인트."""
+    start = day_start(day)
+    total = LedgerEntry.objects.filter(
+        entry_type=EntryType.CHARGE, campaign_id=campaign_id, created_at__gte=start, created_at__lt=start + timedelta(days=1),
+    ).aggregate(s=Sum("amount"))["s"] or 0
+    return -total
+
+
 def recompute_spend():
-    """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수를 돌려준다."""
-    # 주의(DB-1c 에서 고친다): MySQL 에서는 이 atomic() 이 다른 연결의 과금을 막지 못한다. 읽은 뒤 교체하기 전에 커밋된 과금은 파생값에서 빠진다
-    # (원장 합계와 CampaignSpend 가 어긋나고 check_ledger 는 이를 잡지 못한다). 과금과 재계산이 공유하는 잠금이 생기기 전에는 **과금을 멈춘 상태에서만** 실행한다.
-    with transaction.atomic():
-        totals = {}
-        for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False).values_list("campaign_id", "created_at", "amount"):
-            key = (campaign_id, budget_day_of(created_at))
-            totals[key] = totals.get(key, 0) - amount
-        CampaignSpend.objects.all().delete()
-        CampaignSpend.objects.bulk_create([CampaignSpend(campaign_id=c, budget_day=d, spent=s) for (c, d), s in totals.items() if s > 0])
-    return len([1 for s in totals.values() if s > 0])
+    """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수(받은 포인트가 있는 행)를 돌려준다.
+
+    **과금과 함께 돌려도 안전하다**(MySQL 에서는 `atomic()` 만으로 다른 연결의 과금을 막지 못해, 한 트랜잭션에서 읽고 덮어쓰는 방식은 그 사이에 커밋된 과금을 잃는다).
+    (캠페인, 예산 일)마다 따로 한 트랜잭션으로, **소진액 행을 잠근 뒤에** 원장 합계를 읽어 그 값으로 맞춘다:
+    - 과금은 원장 줄을 넣은 뒤 같은 트랜잭션에서 소진액 행에 더한다. 이 행 잠금이 둘을 줄 세운다 — 과금이 먼저 커밋됐으면 재계산의 합계에 들어 있고,
+      재계산이 먼저 잠갔으면 과금은 기다렸다가 재계산이 맞춘 값 위에 더한다(그 원장 줄은 아직 안 보이므로 이중으로 세지 않는다).
+    - 키는 먼저 모은다(원장의 과금이 있는 (캠페인, 날) + 지금 있는 소진액 행 = 경계 설정이 바뀌기 전의 날도 포함). 재계산 도중 새로 생기는 (캠페인, 날)은
+      그 과금이 스스로 쌓으므로 건드리지 않는다. 받은 포인트가 없는 행은 지운다(과금은 키로 갱신하고 없을 때만 만들므로 지워도 증가분을 잃지 않는다).
+    """
+    keys = {(campaign_id, budget_day_of(created_at)) for campaign_id, created_at in LedgerEntry.objects.filter(
+        entry_type=EntryType.CHARGE, campaign_id__isnull=False, amount__lt=0,
+    ).values_list("campaign_id", "created_at")}
+    keys |= set(CampaignSpend.objects.values_list("campaign_id", "budget_day"))
+    rows = 0
+    for campaign_id, day in sorted(keys, key=lambda key: (str(key[0]), key[1])):
+        with transaction.atomic():
+            spend, _ = CampaignSpend.objects.get_or_create(campaign_id=campaign_id, budget_day=day)
+            spend = CampaignSpend.objects.select_for_update().get(pk=spend.pk)  # 잠근 **뒤에** 읽는다
+            total = _ledger_spent(campaign_id, day)
+            if total > 0:
+                CampaignSpend.objects.filter(pk=spend.pk).update(spent=total)
+                rows += 1
+            else:
+                spend.delete()
+    return rows
 
 
 def check_ledger():
@@ -220,4 +256,19 @@ def check_ledger():
                 problems.append(f"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 balance_after={entry.balance_after}, 누적={running}")
         if wallet.balance != running:
             problems.append(f"지갑 {wallet.pk}: 잔액 {wallet.balance} != 원장 합계 {running}")
+    problems += _check_spend()
+    return problems
+
+
+def _check_spend():
+    """일 소진액(`CampaignSpend`)이 원장의 CHARGE 합계와 같은지. 재계산·과금이 서로의 증가분을 잃으면 여기서 드러난다(지갑·원장은 맞아도 소진액만 어긋날 수 있다)."""
+    expected = {}
+    for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False, amount__lt=0).values_list("campaign_id", "created_at", "amount"):
+        key = (campaign_id, budget_day_of(created_at))
+        expected[key] = expected.get(key, 0) - amount
+    stored = {(campaign_id, day): spent for campaign_id, day, spent in CampaignSpend.objects.values_list("campaign_id", "budget_day", "spent")}
+    problems = []
+    for key in sorted(expected.keys() | stored.keys(), key=lambda k: (str(k[0]), k[1])):
+        if expected.get(key, 0) != stored.get(key, 0):
+            problems.append(f"캠페인 {key[0]} {key[1]} 의 소진액 {stored.get(key, 0)} != 원장 합계 {expected.get(key, 0)}")
     return problems

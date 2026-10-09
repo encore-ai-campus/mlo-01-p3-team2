@@ -89,7 +89,8 @@ class SpendTests(TestCase):
 
 class RecomputeIsOneWriteTransactionTests(TransactionTestCase):
     def test_recompute_reads_the_ledger_inside_the_write_transaction(self):
-        """원장 읽기가 트랜잭션 밖이면 그 사이에 커밋된 새 과금이 파생값에서 빠진다. 읽기부터 교체까지 한 트랜잭션이어야 한다."""
+        """원장 읽기가 트랜잭션 밖이면 그 사이에 커밋된 새 과금이 파생값에서 빠진다. (캠페인, 날)마다 읽기부터 교체까지 한 트랜잭션이어야 한다(경쟁은 test_recompute_race.py).
+        키를 모으는 첫 읽기는 쓰기 전이라 트랜잭션 밖이어도 되고, 합계를 읽는 나머지는 모두 안이어야 한다."""
         from django.db import connection
 
         from billing import services
@@ -112,5 +113,6 @@ class RecomputeIsOneWriteTransactionTests(TransactionTestCase):
             api.recompute_spend()
         finally:
             services.LedgerEntry = real
-        self.assertEqual(seen, [True])
+        self.assertGreaterEqual(len(seen), 2)
+        self.assertTrue(all(seen[1:]), seen)  # 키 수집 이후의 원장 읽기는 모두 쓰기 트랜잭션 안
         self.assertEqual(CampaignSpend.objects.get().spent, 10)

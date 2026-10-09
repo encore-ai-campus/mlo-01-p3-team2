@@ -452,5 +452,5 @@ class ConcurrentBidTests(TransactionTestCase):
         threads = [threading.Thread(target=worker, args=(a,)) for a in (31, 32)]
         [t.start() for t in threads]
         [t.join(timeout=15) for t in threads]
-        self.assertEqual(results.count("ok"), 1, results)
+        self.assertEqual(sorted(results), ["StaleVersion", "ok"], results)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
         self.assertEqual([b.bid_version for b in api.list_bids(w.adv, w.group.ad_group_id)], [2, 1])

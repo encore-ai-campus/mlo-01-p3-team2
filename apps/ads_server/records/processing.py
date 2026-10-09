@@ -15,6 +15,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from billing import api as billing
+from foundation.api import is_transient_lock_error
 
 from . import basis as judgment_basis
 from . import ordering
@@ -101,8 +102,9 @@ def process_reaction(inbox_id, now=None):
         ordering.wait_for_inflight_receipts(inbox_id)  # 판정 전에 진행 중인 접수(더 이른 시각의 반응)가 커밋되길 기다린다 — 잠금은 쥐지 않는다
         with transaction.atomic():
             return _process(inbox_id, now)
-    except Exception:
-        _note_failure(inbox_id)
+    except Exception as error:
+        if not is_transient_lock_error(error):  # 교착·잠금 초과는 실패가 아니다: 서버가 되돌렸을 뿐이라 횟수를 올리면 정상 반응이 자동 재처리에서 빠진다(상한 5)
+            _note_failure(inbox_id)
         raise
 
 
@@ -131,15 +133,19 @@ def process_pending(limit=100, now=None, should_stop=None):
         Reaction.objects.filter(due, status=ReactionStatus.RECEIVED, attempts__lt=settings.REACTION_MAX_ATTEMPTS)
         .order_by("received_at", "inbox_id").values_list("inbox_id", flat=True)[:limit]
     )
-    counts = {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0}
+    counts = {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0, "transient": 0}
     for inbox_id in ids:
         if should_stop is not None and should_stop():
             break
         try:
             outcome = process_reaction(inbox_id, now=now)
-        except Exception:  # noqa: BLE001
-            logger.exception("반응 처리 실패 inbox=%s", inbox_id)
-            counts["failed"] += 1
+        except Exception as error:  # noqa: BLE001
+            if is_transient_lock_error(error):  # 다음 주기에 다시 한다(실패 횟수는 그대로)
+                logger.warning("반응 처리가 교착·잠금 초과로 되돌려졌다(다음 주기에 다시) inbox=%s", inbox_id)
+                counts["transient"] += 1
+            else:
+                logger.exception("반응 처리 실패 inbox=%s", inbox_id)
+                counts["failed"] += 1
             continue
         counts["skipped" if outcome is None else outcome.lower()] += 1
     return counts

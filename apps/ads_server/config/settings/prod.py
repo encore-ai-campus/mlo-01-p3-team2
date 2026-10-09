@@ -46,4 +46,5 @@ DATABASES = {"default": mysql_config(
     env_str("DB_PASSWORD", required=True),
     env_str("DB_HOST", required=True),
     env_int("DB_PORT", 3306),
+    env_str("DB_ISOLATION_LEVEL", default="read committed"),  # 측정으로 확정한 값(base.mysql_config). 바꿔 비교할 때만 쓴다
 )}

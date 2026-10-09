@@ -236,7 +236,7 @@ class QueueTests(ProcessingBase):
         # 실패한 반응은 횟수가 쌓이다가 한도에서 자동 처리 대상에서 빠진다(거부·삭제하지 않는다)
         with override_settings(REACTION_MAX_ATTEMPTS=3):
             Reaction.objects.filter(pk=bad.inbox_id).update(attempts=3)
-            self.assertEqual(records.process_pending(now=NOW), {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0})
+            self.assertEqual(records.process_pending(now=NOW), {"accepted": 0, "rejected": 0, "pending": 0, "skipped": 0, "failed": 0, "transient": 0})
             self.assertEqual(records.stuck_count(), 1)
             self.assertEqual(self.row(bad).status, "RECEIVED")
             self.assertEqual(records.reset_stuck(), 1)
@@ -369,12 +369,11 @@ class ConcurrentProcessingTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=10)
                 for _ in range(300):
-                    try:  # 처리뿐 아니라 대기열 조회도 테스트 DB(인메모리 공유 캐시)의 테이블 잠금을 받을 수 있다 → 같은 재시도 범위
-                        records.process_pending(limit=100, now=NOW)
-                        if not Reaction.objects.filter(status="RECEIVED").exists():
-                            return
-                    except OperationalError:
-                        pass
+                    counts = records.process_pending(limit=100, now=NOW)
+                    if counts["failed"] or counts["transient"]:  # 정상 경쟁에서 실패·교착·잠금 초과가 나면 안 된다(MySQL 행 잠금) — 드러낸다
+                        errors.append(f"처리 중 실패/일시 오류: {counts}")
+                    if not Reaction.objects.filter(status="RECEIVED").exists():
+                        return
                     time.sleep(0.003)
             except Exception as error:  # noqa: BLE001
                 errors.append(repr(error))
@@ -385,7 +384,7 @@ class ConcurrentProcessingTests(TransactionTestCase):
         [t.start() for t in threads]
         [t.join(timeout=60) for t in threads]
         self.assertEqual(errors, [])
-        # 재시도 사이에 일시적인 실패(테스트 DB 의 테이블 잠금)가 났더라도, 끝난 뒤에는 남김없이 처리되고 이중 과금이 없다
+        # 끝난 뒤에는 남김없이 처리되고 이중 과금이 없다
         records.process_pending(limit=100, now=NOW)
         self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 0)
         self.assertEqual(Reaction.objects.filter(status="ACCEPTED").count(), 6)

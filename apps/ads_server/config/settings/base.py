@@ -201,11 +201,15 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영 웹서버가 서빙한다(prod 는 환경변수로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-def mysql_config(name, user, password, host, port):
+def mysql_config(name, user, password, host, port, isolation_level="read committed"):
     """MySQL 8.4 접속 설정 (계획 §7.3 S5·S7). 값은 호출한 쪽이 환경변수에서 읽어 넘긴다.
 
     - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다(SQLite 에서는 없던 검사).
-    - READ COMMITTED: 같은 유일 키를 노리는 동시 쓰기의 간격 잠금·교착을 줄인다(DB-1c 에서 측정으로 확정).
+    - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`scripts/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
+      READ COMMITTED 는 두 번 모두 교착 0·잠금 초과 0·불변식 전부 통과, REPEATABLE READ 는 교착 8건(1213)이 나고 불변식 2건이 실패했다
+      (같은 `reaction_id` 재전송 폭주에서 201 이 하나가 아니었고, 결정마다 퍼널이 인정되지 않은 결정이 있었다).
+      간격 잠금이 같은 유일 키를 노리는 동시 INSERT 를 교착으로 몰기 때문이다. 판정은 유일 제약과 행 잠금에 기대므로 READ COMMITTED 로도 의미가 같다.
+      환경변수 `DB_ISOLATION_LEVEL` 로 바꿔 다시 비교할 수 있다(dev·prod 만, 시험 설정은 고정).
     - 데이터 정렬 utf8mb4_0900_as_cs: 8.4 기본(`_ai_ci`)은 대소문자·악센트를 구분하지 않아 유일 제약과 비교가 SQLite 와 달라진다.
       DB 를 만들 때 같은 값을 쓴다(README).
     - CONN_MAX_AGE=0: 요청마다 연결을 닫는다. 영속 연결·풀은 부하 측정(DB-1d) 뒤에 정한다.
@@ -221,7 +225,7 @@ def mysql_config(name, user, password, host, port):
         "OPTIONS": {
             "charset": "utf8mb4",
             "init_command": "SET SESSION sql_mode='STRICT_ALL_TABLES'",
-            "isolation_level": "read committed",
+            "isolation_level": isolation_level,
             "connect_timeout": 5,
         },
         "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_0900_as_cs"},

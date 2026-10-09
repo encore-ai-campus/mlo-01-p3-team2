@@ -133,14 +133,7 @@ class ConcurrentChargeTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=5)
                 for i in range(3):
-                    for _attempt in range(200):  # 테스트 DB(인메모리 공유 캐시)는 테이블 잠금이 바로 오류가 된다. 매체처럼 재시도한다
-                        try:
-                            charge(adv, 10, f"w{n}-{i}", camp)
-                            break
-                        except OperationalError:
-                            time.sleep(0.002)
-                    else:
-                        raise AssertionError("재시도 한도 초과")
+                    charge(adv, 10, f"w{n}-{i}", camp)  # 재시도하지 않는다: MySQL 은 행 잠금이라 정상 경쟁에서 오류가 나면 안 된다(교착도 포함해 드러낸다)
             except Exception as e:  # noqa: BLE001
                 errors.append(repr(e))
             finally:

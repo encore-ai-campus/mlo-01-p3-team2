@@ -340,11 +340,11 @@ class CommitFailureTests(ReactionApiMixin, TransactionTestCase):
 
 @tag("security")
 class ConcurrentReceiptTests(ReactionApiMixin, TransactionTestCase):
-    """같은 (매체, reaction_id) 가 동시에 들어와도 행은 하나다. 매체처럼 503/429 는 재시도한다."""
+    """같은 (매체, reaction_id) 가 동시에 들어와도 행은 하나다. 503/429 는 재시도하지만 **몇 번 났는지 센다** — 정상 경쟁에서는 0 이어야 한다(MySQL 행 잠금)."""
 
     def send_all(self, jobs):
         """jobs: [(reaction_id, body)]. 각 작업을 스레드 하나로 동시에 시작하고, 2xx/409 가 나올 때까지 재시도한 최종 상태를 모은다."""
-        barrier, results = threading.Barrier(len(jobs)), [None] * len(jobs)
+        barrier, results, self.retried = threading.Barrier(len(jobs)), [None] * len(jobs), []
 
         def worker(index, reaction_id, body):
             client = Client()
@@ -355,6 +355,7 @@ class ConcurrentReceiptTests(ReactionApiMixin, TransactionTestCase):
                     if response.status_code not in (503, 429):
                         results[index] = (response.status_code, response.json())
                         return
+                    self.retried.append(response.status_code)
                     time.sleep(0.003)
             finally:
                 connection.close()
@@ -362,6 +363,7 @@ class ConcurrentReceiptTests(ReactionApiMixin, TransactionTestCase):
         threads = [threading.Thread(target=worker, args=(i, *job)) for i, job in enumerate(jobs)]
         [t.start() for t in threads]
         [t.join(timeout=60) for t in threads]
+        self.assertEqual(self.retried, [], "정상 경쟁에서 503/429 가 났다(교착·잠금 초과?)")
         return results
 
     @override_settings(MEDIA_RATE_LIMITS={"decisions": (1000, 1000), "reactions": (100000, 100000), "reads": (1000, 1000)})
