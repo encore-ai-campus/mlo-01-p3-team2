@@ -1,0 +1,23 @@
+---
+# MongoDB 저장소 등록 (AL2023, RPM)
+# rpm_key는 매번 URL에서 키를 받아 비교하므로, 이미 등록되어 있으면 건너뛴다 (임시 NAT를 제거한 뒤 재실행해도 동작하게 한다).
+- name: MongoDB GPG 키 등록 여부 확인
+  ansible.builtin.command: rpm -q gpg-pubkey-{{ mongodb_gpg_key_id }}
+  register: mongodb_gpg_key_installed
+  changed_when: false
+  failed_when: false
+
+- name: MongoDB GPG 키 등록
+  ansible.builtin.rpm_key:
+    key: "{{ mongodb_gpg_key_url }}"
+    state: present
+  when: mongodb_gpg_key_installed.rc != 0
+
+- name: MongoDB 저장소 등록
+  ansible.builtin.yum_repository:
+    name: mongodb-org-8.0
+    description: MongoDB 8.0 Repository
+    baseurl: "{{ mongodb_repo_baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ mongodb_gpg_key_url }}"
+    enabled: true

@@ -1,0 +1,22 @@
+// mongosh 스크립트 (roles/mongodb). 첫 번째 서버에서 localhost exception으로 실행한다: Replica Set 초기화와 root 계정 생성.
+// 비밀번호는 환경변수(MONGO_ROOT_PASSWORD)로 받는다.
+try {
+  const c = connect('mongodb://127.0.0.1:{{ mongodb_port }}/admin');
+{% if mongodb_replset %}
+  if (!c.hello().setName) {
+    c.adminCommand({replSetInitiate: {_id: '{{ mongodb_replset_name }}', members: [
+{% for h in groups['mongodb'] %}
+      {_id: {{ h | regex_search('[0-9]+$') | int }}, host: '{{ hostvars[h].ip }}:{{ mongodb_port }}'},
+{% endfor %}
+    ]}});
+    print('INFRA_INITIATED');
+  }
+  for (let i = 0; i < 60 && !c.hello().isWritablePrimary; i++) sleep(1000);
+  if (!c.hello().isWritablePrimary) throw new Error('Primary가 선출되지 않았다');
+{% endif %}
+  c.createUser({user: 'root', pwd: process.env.MONGO_ROOT_PASSWORD, roles: [{role: 'root', db: 'admin'}]});
+  print('INFRA_ROOT_CREATED');
+} catch (e) {
+  print(String(e));
+  quit(1);
+}

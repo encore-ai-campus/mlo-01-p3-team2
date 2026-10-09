@@ -1,0 +1,12 @@
+---
+# MongoDB 저장소 등록 (Ubuntu, APT)
+- name: MongoDB apt 저장소
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: apt_repo
+  vars:
+    apt_repo_name: "{{ mongodb_apt_repo.name }}"
+    apt_repo_uri: "{{ mongodb_apt_repo.uri }}"
+    apt_repo_suite: "{{ mongodb_apt_repo.suite }}"
+    apt_repo_components: "{{ mongodb_apt_repo.components }}"
+    apt_repo_key_url: "{{ mongodb_gpg_key_url }}"

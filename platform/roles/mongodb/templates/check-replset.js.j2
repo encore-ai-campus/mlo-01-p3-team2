@@ -1,0 +1,33 @@
+// mongosh 스크립트 (roles/mongodb). 첫 번째 서버에서 Replica Set 상태와 복제를 확인한다. 실패하면 비정상 종료한다.
+try {
+  const root = connect('{{ mongodb_uri }}');
+  root.auth('root', process.env.MONGO_ROOT_PASSWORD);
+  const members = root.adminCommand({replSetGetStatus: 1}).members;
+  const states = members.map((m) => m.stateStr).sort().join(',');
+  const expected = ['PRIMARY'].concat(Array({{ groups['mongodb'] | length - 1 }}).fill('SECONDARY')).join(',');
+  if (states !== expected) throw new Error('멤버 상태가 기대와 다르다: ' + states);
+
+  // Primary에 쓴 문서가 모든 노드에서 dev로 읽히는지 확인하고 지운다.
+  const dev = connect('{{ mongodb_uri }}');
+  dev.auth('dev', process.env.MONGO_DEV_PASSWORD);
+  const coll = dev.getSiblingDB('infra_check').ping;
+  coll.insertOne({_id: 'check'}, {writeConcern: {w: 'majority'}});
+  try {
+    for (const m of members) {
+      const n = connect('mongodb://' + m.name + '/admin?directConnection=true');
+      n.auth('dev', process.env.MONGO_DEV_PASSWORD);
+      let found = null;
+      for (let i = 0; i < 30 && !found; i++) {
+        found = n.getSiblingDB('infra_check').ping.findOne({_id: 'check'});
+        if (!found) sleep(1000);
+      }
+      if (!found) throw new Error(m.name + '에 복제되지 않았다');
+    }
+  } finally {
+    coll.deleteOne({_id: 'check'});
+  }
+  print('INFRA_REPLSET_OK');
+} catch (e) {
+  print(String(e));
+  quit(1);
+}

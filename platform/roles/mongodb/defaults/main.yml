@@ -1,0 +1,19 @@
+---
+# 설치 출처: MongoDB 8.0 공식 저장소 (AL2023은 Yum, Ubuntu는 APT. OS별 값은 vars/<배포판>.yml)
+mongodb_gpg_key_url: https://pgp.mongodb.com/server-8.0.asc
+mongodb_gpg_key_id: 4e7dca05   # 위 키의 key ID 끝 8자리 (rpm의 gpg-pubkey 이름. AL2023에서만 쓴다)
+mongodb_packages: [mongodb-org-server, mongodb-mongosh]
+
+# 이 버전 이상의 Linux 커널에서는 mongod가 시작하지 않는다 (SERVER-121912). Ubuntu에서만 바꾼다 (tasks/kernel-debian.yml).
+mongodb_kernel_blocked_from: "6.19"
+
+mongodb_port: 27017
+mongodb_keyfile: /etc/mongod.keyfile
+mongodb_replset_name: infra
+
+# WiredTiger 캐시 = 전체 RAM의 비율 (서버 타입에 의존하지 않도록 RAM에서 계산한다)
+mongodb_cache_ratio: 0.4
+mongodb_cache_min_gb: 0.25
+
+# 비밀번호가 들어가는 task의 출력을 숨긴다. 문제를 찾을 때만 -e mongodb_no_log=false 로 끈다.
+mongodb_no_log: true

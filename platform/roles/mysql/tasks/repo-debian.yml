@@ -1,0 +1,12 @@
+---
+# MySQL 저장소 등록 (Ubuntu, APT). 컴포넌트: Server·Shell·Router는 mysql-8.4-lts, Shell·Router의 도구는 mysql-tools.
+- name: MySQL apt 저장소
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: apt_repo
+  vars:
+    apt_repo_name: "{{ mysql_apt_repo.name }}"
+    apt_repo_uri: "{{ mysql_apt_repo.uri }}"
+    apt_repo_suite: "{{ mysql_apt_repo.suite }}"
+    apt_repo_components: "{{ mysql_apt_repo.components }}"
+    apt_repo_key_url: "{{ mysql_gpg_key_url }}"
