@@ -18,7 +18,8 @@ check.sh 에는 넣지 않는다(Docker 가 필요하고 수 분 걸린다).
   1. 끊김 동안 API 는 503(또는 연결 실패)으로 답하고 **500 은 없다**. 시험이 공회전이 아니다(끊김을 실제로 겪은 요청이 있다).
   2. 클라이언트의 재시도가 모두 끝내 수신 확인된다(복구 뒤 정상).
   3. 수신 확인한 결정·반응은 전부 저장돼 있다(유실 0), 이중 과금 0, 잔액 = 원장 합계, 일 소진액 = 원장 합계(`load_test.verify_invariants`).
-  4. 상시 처리 프로세스는 DB 가 끊겼다 돌아와도 죽지 않고 이어서 처리한다.
+  4. 상시 처리 프로세스는 DB 가 끊겼다 돌아와도 죽지 않고 이어서 처리한다. **접수 직후 처리를 끄고**, 복구 뒤 상시 처리 프로세스**만으로** 대기열이 비워지는지
+     (별도 `process_reactions --once` 없이) 최종 불변식 전에 판정한다 — 다른 곳이 처리할 수 없으므로 상시 프로세스가 일하지 않으면 실패한다.
 
 한계: 단일 노드다. ReplicaSet 의 **강제 failover**(비동기 복제 지연분 유실)와 Router 경유 전환은 인프라 서버에서 확인할 일이다(계획 7.3.4 #6).
 """
@@ -132,6 +133,7 @@ def run_scenario(name, db, log):
         server = load_test.ThreadedServer(("127.0.0.1", 0), load_test.QuietHandler)
         server.set_app(get_wsgi_application())
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        settings.REACTION_PROCESS_ON_RECEIPT = False  # 접수 직후 처리를 꺼서, 반응을 처리할 수 있는 것은 **상시 처리 프로세스뿐**이 되게 한다(복구를 가리지 않는다)
         harness = load_test.Harness(server.server_address[1], ctx, 8, tmp, log, rest_scale=0.1)
         harness.quiescent = False
         env = dict(os.environ)
@@ -182,13 +184,25 @@ def run_scenario(name, db, log):
         alive = [p.poll() is None for p in processors]
         check("상시 처리 프로세스가 죽지 않았다", all(alive), f"살아 있음 {alive}")
 
+        # 복구 판정: 별도 처리 명령을 쓰기 **전에**, 상시 처리 프로세스만으로 대기열이 비워지는지 본다(접수 직후 처리는 꺼져 있다)
+        connections.close_all()  # 주입 전에 열었던 연결은 끊겼을 수 있다
+        from datetime import datetime, timezone
+
+        recovered_dt = datetime.fromtimestamp(timeline["recovered_at"], timezone.utc)
+        deadline = time.time() + 90
+        while time.time() < deadline and _received_left():
+            time.sleep(0.5)
+        left = _received_count()
+        by_standing = _processed_since(recovered_dt)
+        check("복구 뒤 상시 처리 프로세스만으로 대기열이 비워진다(별도 처리 명령 없이)", left == 0, f"남은 RECEIVED {left}건")
+        check("복구 뒤에 상시 처리 프로세스가 반응을 처리했다(공회전이 아니다)", by_standing > 0, f"{by_standing}건")
+
         for proc in processors:
             if proc.poll() is None:
                 proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=30)
             proc.log_handle.close()
-        connections.close_all()  # 주입 전에 열었던 연결은 끊겼을 수 있다
-        harness.drain_until(lambda: not _received_left(), "남은 반응 처리", limit_seconds=120)
+        connections.close_all()
         problems = load_test.verify_invariants(harness.acked_decisions, harness.acked_reactions, expect_drained=True)
         check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음", not problems, "; ".join(problems[:3]))
         result.update(requests=len(outcomes), attempts=len(statuses), unavailable=unavailable, acked_decisions=len(harness.acked_decisions), acked_reactions=len(harness.acked_reactions))
@@ -213,6 +227,19 @@ def _received_left():
     from records.models import Reaction
 
     return Reaction.objects.filter(status="RECEIVED").exists()
+
+
+def _received_count():
+    from records.models import Reaction
+
+    return Reaction.objects.filter(status="RECEIVED").count()
+
+
+def _processed_since(moment):
+    """`moment` 이후에 처리(인정·거부)된 반응 수. 접수 직후 처리를 껐으므로 처리한 것은 상시 처리 프로세스뿐이다."""
+    from records.models import Reaction
+
+    return Reaction.objects.filter(processed_at__gte=moment).count()
 
 
 def main(argv=None):

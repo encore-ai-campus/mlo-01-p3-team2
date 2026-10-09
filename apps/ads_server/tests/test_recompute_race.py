@@ -267,23 +267,40 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         self.charge(10, "m:r1")
         with transaction.atomic(), self.assertRaises(api.ConsistentReadUnavailable) as caught:
             api.check_ledger()
-        self.assertIn("READ COMMITTED", str(caught.exception))
+        self.assertIn("확인할 수 없", str(caught.exception))
         self.assertIn("quiescent=True", str(caught.exception))
 
-    def test_inside_a_transaction_whose_session_is_repeatable_read_the_check_stays_consistent(self):
+    def test_a_session_default_of_repeatable_read_does_not_vouch_for_the_current_transaction(self):
+        """검토 f095d64: 세션 기본값이 `REPEATABLE READ` 여도 `SET TRANSACTION` 으로 **다음 트랜잭션 하나만** `READ COMMITTED` 로 시작할 수 있고,
+        `@@transaction_isolation`(세션 값)은 그것을 알려 주지 않는다. 현재 트랜잭션의 읽기 보장을 확인할 수 없으므로 기존 트랜잭션 안의 호출은 거절한다."""
         from django.db import transaction
 
-        def inside_repeatable_read():
+        self.charge(10, "m:r1")
+        with connection.cursor() as cursor:
+            cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        try:
             with connection.cursor() as cursor:
-                cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")  # 다음 트랜잭션만
+            with transaction.atomic(), self.assertRaises(api.ConsistentReadUnavailable):
+                api.check_ledger()  # 허용했다면 검사 도중 커밋된 정상 과금을 불일치로 오인했을 것이다(검토에서 재현)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+
+    def test_no_session_isolation_level_lets_an_existing_transaction_through(self):
+        """세션 격리 수준과 무관하게, 이미 시작한 트랜잭션 안에서는 `quiescent=True` 가 아니면 거절한다."""
+        from django.db import transaction
+
+        self.charge(10, "m:r1")
+        for level in ("READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"):
+            with connection.cursor() as cursor:
+                cursor.execute(f"SET SESSION TRANSACTION ISOLATION LEVEL {level}")
             try:
-                with transaction.atomic():
-                    return api.check_ledger()
+                with transaction.atomic(), self.assertRaises(api.ConsistentReadUnavailable, msg=level):
+                    api.check_ledger()
             finally:
                 with connection.cursor() as cursor:
                     cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
-
-        self.assertEqual(self.interleaved_check(inside_repeatable_read), [])  # 거짓 불일치가 없다
 
     def test_quiescent_is_the_explicit_way_to_check_inside_a_transaction_without_concurrent_writers(self):
         from django.db import transaction
