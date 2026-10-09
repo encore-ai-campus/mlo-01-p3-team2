@@ -72,7 +72,7 @@ def _process(inbox_id, now):
     if verdict is not None and isinstance(verdict[1], Hold):
         _hold(row, now)
         return PENDING
-    person = fact_gathering.person_of(decision, row.subject_id) if decision is not None else row.subject_id
+    person = fact_gathering.person_of(decision, row.subject_id) if decision is not None else None  # 없는 결정에는 판정 단위의 사람이 없다(보고된 값은 basis.reaction 에만 남는다)
     if verdict is not None:
         basis = judgment_basis.build(facts, rule=verdict[0], reason=verdict[1], person=person, judged_at=now)
         _finish(row, ReactionStatus.REJECTED, now, basis, reason=verdict[1], rule=verdict[0])

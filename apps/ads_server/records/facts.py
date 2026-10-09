@@ -54,20 +54,35 @@ def _of_person(qs, decision, person):
 
 
 def _arrivals(qs):
-    """앞 단계 후보 반응의 수신 시각: (인정된 것들, 처리 전인 것들, 근거 목록). 거부된 것은 없는 것과 같다 — 질의 한 번.
+    """앞 단계 후보 반응의 수신 시각: (인정된 것들, 처리 전인 것들, 근거 목록 둘). 거부된 것은 없는 것과 같다 — 질의 한 번.
 
-    근거 목록은 판정 근거(`basis`)에 남길 `inbox_id`·수신 시각·상태다(많아도 `BASIS_LIST_MAX` 개까지, 총 개수는 따로 센다).
+    근거 목록은 판정 근거(`basis`)에 남길 `inbox_id`·수신 시각이다. **인정된 것**은 (결정, 사람, 유형)당 인정 1건 유일 제약 때문에 최대 하나라 상한 없이 항상 남기고,
+    **처리 전인 것**은 매체가 얼마든지 보낼 수 있으므로 `BASIS_LIST_MAX` 개까지만 남기고 총 개수를 따로 센다.
     """
-    accepted, waiting, refs = [], [], []
+    accepted, waiting, accepted_refs, waiting_refs = [], [], [], []
     for inbox_id, status, received_at in qs.filter(status__in=[ReactionStatus.ACCEPTED, ReactionStatus.RECEIVED]).order_by("received_at", "inbox_id").values_list(
         "inbox_id", "status", "received_at",
     ):
-        (accepted if status == ReactionStatus.ACCEPTED else waiting).append(received_at)
-        refs.append({"inbox_id": str(inbox_id), "status": status, "received_at": received_at.isoformat()})
-    return tuple(sorted(accepted)), tuple(sorted(waiting)), refs
+        ref = {"inbox_id": str(inbox_id), "received_at": received_at.isoformat()}
+        if status == ReactionStatus.ACCEPTED:
+            accepted.append(received_at)
+            accepted_refs.append(ref)
+        else:
+            waiting.append(received_at)
+            waiting_refs.append(ref)
+    return tuple(sorted(accepted)), tuple(sorted(waiting)), accepted_refs, waiting_refs
 
 
 BASIS_LIST_MAX = 20
+
+
+def _evidence(accepted_refs, waiting_refs, signal):
+    """판정 근거(`basis`)에 남길 출처. 키는 항상 같다(없으면 `None`·빈 목록)."""
+    return {
+        "prerequisite_accepted": accepted_refs[0] if accepted_refs else None,  # 인정된 앞 단계 반응(유일 제약으로 최대 1개)
+        "prerequisites_waiting": waiting_refs[:BASIS_LIST_MAX], "prerequisites_waiting_count": len(waiting_refs), "prerequisites_waiting_limit": BASIS_LIST_MAX,
+        "display_signal": None if signal is None else {"received_at": signal[0].isoformat(), "inbox_id": str(signal[1])},
+    }
 
 
 def display_signal(decision):
@@ -96,6 +111,7 @@ def gather(row, decision, now):
         return RuleInput(
             **common, decision_exists=False, decision_media_id=None, ad_was_shown=False, audience=None, decision_subject_id=None, decided_at=None,
             accepted_types=frozenset(), prereq_accepted=(), prereq_waiting=(), next_display_at=None, campaign_ends_at=None,
+            evidence=_evidence([], [], None),
         )
     person = person_of(decision, row.subject_id)
     accepted = frozenset()
@@ -104,22 +120,18 @@ def gather(row, decision, now):
             scoped_reactions(decision).filter(person_id=person, status=ReactionStatus.ACCEPTED).values_list("type", flat=True)
         )
     prereq_accepted = prereq_waiting = ()
-    refs, signal = [], None
+    accepted_refs, waiting_refs, signal = [], [], None
     if decision.creative_id is not None and person is not None:
         if row.type == ReactionType.CLICK:
-            prereq_accepted, prereq_waiting, refs = _arrivals(_of_person(scoped_reactions(decision).filter(type=ReactionType.IMPRESSION), decision, person))
+            prereq_accepted, prereq_waiting, accepted_refs, waiting_refs = _arrivals(_of_person(scoped_reactions(decision).filter(type=ReactionType.IMPRESSION), decision, person))
             signal = display_signal(decision)
         elif row.type == ReactionType.CONVERSION:
             clicks = scoped_reactions(decision).filter(type=ReactionType.CLICK, source=ReactionSource.SERVER)
-            prereq_accepted, prereq_waiting, refs = _arrivals(_of_person(clicks, decision, person))
+            prereq_accepted, prereq_waiting, accepted_refs, waiting_refs = _arrivals(_of_person(clicks, decision, person))
     ends = campaigns.campaign_end_times([decision.campaign_id]).get(decision.campaign_id) if decision.campaign_id is not None else None
-    evidence = {
-        "prerequisites": refs[:BASIS_LIST_MAX], "prerequisite_count": len(refs),
-        "display_signal": None if signal is None else {"received_at": signal[0].isoformat(), "inbox_id": str(signal[1])},
-    }
     return RuleInput(
         **common, decision_exists=True, decision_media_id=decision.media_id, ad_was_shown=decision.creative_id is not None,
         audience=decision.audience, decision_subject_id=decision.subject_id, decided_at=decision.decided_at, accepted_types=accepted,
         prereq_accepted=prereq_accepted, prereq_waiting=prereq_waiting, next_display_at=None if signal is None else signal[0], campaign_ends_at=ends,
-        evidence=evidence,
+        evidence=_evidence(accepted_refs, waiting_refs, signal),
     )
