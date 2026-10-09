@@ -190,3 +190,75 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         view, created = later.result
         self.assertTrue(created)
         self.assertGreaterEqual(view.received_at, released[0])  # 기다리기 전에 시각을 정했다면 이보다 이르다
+
+
+@override_settings(REACTION_PROCESS_ON_RECEIPT=False)
+@tag("security")
+class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTestCase):
+    """검토 2-13 후속 P2(2ba7430): 접수는 남의 결정에 대한 보고도 저장하지만, 그런 보고가 **결정 소유 매체**의 접수·판정을 기다리게 하거나 막으면 안 된다.
+
+    잠금은 소유 매체의 접수만 잡고(소유 확인은 잠금 전 일반 조회), 판정 앞 대기도 반응의 매체와 결정 소유 매체가 같을 때만 한다.
+    """
+
+    UNIT = "CLICK"
+
+    def setUp(self):
+        super().setUp()
+        self.other = World()  # 다른 매체
+        self.foreign = self.other.slot.media_id
+
+    def foreign_receive(self, when):
+        return records.receive_reaction(self.foreign, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", at(when), {}, now=at(when))
+
+    def own_receive(self, when):
+        return records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", at(when), {}, now=at(when))
+
+    def finishes(self, work, what, seconds=10):
+        worker = Worker(work)
+        worker.start()
+        worker.join(seconds)
+        self.assertFalse(worker.is_alive(), f"{what}: 남의 보고가 끝나지 않은 접수에 막혔다")
+        self.assertEqual(worker.errors, [])
+        return worker.result
+
+    def test_the_owners_receipt_does_not_wait_for_another_medias_in_flight_report(self):
+        with InFlightReceipt(lambda: self.foreign_receive(10)):
+            view, created = self.finishes(lambda: self.own_receive(11), "소유 매체의 접수")
+        self.assertTrue(created)
+
+    def test_judging_a_foreign_report_does_not_wait_for_the_owners_in_flight_receipt(self):
+        foreign_view, _ = self.foreign_receive(10)
+        with InFlightReceipt(lambda: self.own_receive(11)):
+            outcome = self.finishes(lambda: records.process_reaction(foreign_view.inbox_id, now=at(12)), "남의 보고의 판정")
+        self.assertEqual(outcome, "REJECTED")
+        self.assertEqual(Reaction.objects.get(pk=foreign_view.inbox_id).reason_code, "media_mismatch")
+
+    def test_the_owners_judgment_does_not_wait_for_another_medias_in_flight_report_and_does_not_count_a_failure(self):
+        """잠금 대기 초과로 소유 매체의 정상 반응에 실패 횟수가 쌓이면 안 된다(자동 재처리에서 빠진다). 판정 연결의 잠금 대기 제한을 1초로 줄여도 기다리지 않는다."""
+        mine, _ = self.own_receive(10)
+        with InFlightReceipt(lambda: self.foreign_receive(11)):
+            def judge():
+                with connection.cursor() as cur:
+                    cur.execute("SET SESSION innodb_lock_wait_timeout = 1")
+                return records.process_reaction(mine.inbox_id, now=at(12))
+
+            outcome = self.finishes(judge, "소유 매체의 판정")
+        self.assertEqual(outcome, "ACCEPTED")
+        self.assertEqual(Reaction.objects.get(pk=mine.inbox_id).attempts, 0)
+
+    def test_a_report_for_a_missing_decision_takes_no_lock_and_is_still_stored(self):
+        view, created = self.finishes(
+            lambda: records.receive_reaction(self.media, uuid.uuid4(), uuid.uuid4(), "IMPRESSION", at(1), {}, now=at(1)), "없는 결정에 대한 접수",
+        )
+        self.assertTrue(created)  # 존재 여부를 이유로 접수를 거절하지 않는다(계약)
+
+    def test_the_owners_own_receipts_still_queue_behind_each_other(self):
+        """소유 매체의 접수끼리는 여전히 줄을 선다(순서 규약이 유지된다)."""
+        with InFlightReceipt(lambda: self.own_receive(10)) as early:
+            later = Worker(lambda: self.own_receive(11))
+            later.start()
+            later.join(BLOCKED)
+            self.assertTrue(later.is_alive())
+            early.commit()
+        later.join(WAIT)
+        self.assertEqual(later.errors, [])

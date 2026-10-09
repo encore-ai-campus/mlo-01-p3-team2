@@ -141,7 +141,7 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
         return same_or_conflict(row)
     try:
         with transaction.atomic():  # 안전망: 동시에 같은 키가 들어오면 유일 제약이 한쪽만 통과시킨다
-            ordering.lock_for_receipt(decision_id)  # 결정을 잠근 **뒤에** 수신 시각을 정한다: 같은 결정의 접수는 커밋 순서 = 시각 순서(records/ordering.py)
+            ordering.lock_for_receipt(decision_id, media_id)  # 결정을 잠근 **뒤에** 수신 시각을 정한다: 같은 결정의 접수는 커밋 순서 = 시각 순서(records/ordering.py)
             row = Reaction.objects.create(
                 media_id=media_id, reaction_id=reaction_id, decision_id=decision_id, type=reaction_type, occurred_at=occurred_at,
                 received_at=_now(now), raw=raw, subject_id=subject_id,
@@ -198,7 +198,7 @@ def _record_click(d, person, now):
     reaction_id = click_reaction_id(d.decision_id, person)
     try:
         with transaction.atomic():
-            ordering.lock_for_receipt(d.decision_id)  # 접수와 같은 규약: 잠근 뒤에 시각을 정한다
+            ordering.lock_for_receipt(d.decision_id, d.media_id)  # 접수와 같은 규약: 잠근 뒤에 시각을 정한다
             received = _now(now)
             row = Reaction.objects.create(
                 media_id=d.media_id, reaction_id=reaction_id, decision_id=d.decision_id, type=ReactionType.CLICK, occurred_at=received, received_at=received,

@@ -5,7 +5,7 @@
 판정이 그것을 모른 채 뒤의 반응을 대표로 굳혀 버린다(최종 데이터에는 더 이른 유효 반응이 있는데도).
 
 그래서 접수와 판정이 **결정 행의 잠금**을 공유한다.
-- 접수(`lock_for_receipt`): 트랜잭션 안에서 결정 행을 `FOR UPDATE` 로 잠근 **뒤에** 수신 시각을 정하고 INSERT 한다. 잠금은 커밋까지 간다.
+- 접수(`lock_for_receipt`): 트랜잭션 안에서 결정 행을 `FOR UPDATE` 로 잠근 **뒤에** 수신 시각을 정하고 INSERT 한다(**결정 소유 매체의 접수만** — 남의 보고는 잠그지도 기다리지도 않는다). 잠금은 커밋까지 간다.
   같은 결정의 접수는 이 잠금으로 줄을 서므로 커밋 순서 = 시각 순서다.
 - 판정(`wait_for_inflight_receipts`): 판정을 시작하기 전에 같은 잠금을 한 번 지나간다. 진행 중인 접수가 있으면 그 커밋까지 기다리고, 지나간 뒤에 시작하는 접수는
   (시각이 잠근 뒤에 정해지므로) 이 반응보다 늦은 `received_at` 을 갖는다. 클릭은 표시 교체 신호가 **이후 결정**의 노출이므로 그 결정들(클릭 접수 시각까지, 클릭 기간 안)도 지나간다.
@@ -21,20 +21,32 @@ from .facts import later_decisions
 from .models import Decision, Reaction, ReactionStatus, ReactionType
 
 
-def lock_for_receipt(decision_id):
-    """접수 트랜잭션의 **첫 일**: 결정 행을 잠근다(커밋까지). 이 호출 **뒤에** 수신 시각을 정해야 한다. 결정이 없으면 잠글 것이 없다(어차피 거부될 보고다)."""
+def _owner(decision_id):
+    """결정을 만든 매체(없으면 `None`) — **잠금 없는 일반 조회**."""
+    return Decision.objects.filter(pk=decision_id).values_list("media_id", flat=True).first()
+
+
+def lock_for_receipt(decision_id, reporting_media_id):
+    """접수 트랜잭션의 **첫 일**: 결정 행을 잠근다(커밋까지). 이 호출 **뒤에** 수신 시각을 정해야 한다.
+
+    **결정 소유 매체의 접수만** 잠근다. 접수는 없는 결정·남의 결정에 대한 보고도 저장하지만(존재를 알리지 않으려고) 그런 보고는 어차피 거부되고 판정에 쓰이지도 않는다
+    (`scoped_reactions`) — 그런 보고가 소유 매체의 접수·판정을 기다리게 하거나 막으면 안 된다. 소유 확인은 잠금 **전**의 일반 조회로 한다:
+    `FOR UPDATE` 질의에 `media_id` 조건만 더하면 InnoDB 는 조건에 걸리기 전에 행을 잠그므로 남의 보고도 같은 잠금을 기다린다.
+    """
+    if _owner(decision_id) != reporting_media_id:
+        return
     list(Decision.objects.select_for_update().filter(pk=decision_id).values_list("pk", flat=True))
 
 
 def wait_for_inflight_receipts(inbox_id):
     """반응을 판정하기 전에, 이 반응의 판정에 영향을 줄 수 있는 **진행 중인 접수**가 커밋될 때까지 기다린다. 잠금은 바로 놓는다."""
-    row = Reaction.objects.filter(pk=inbox_id, status=ReactionStatus.RECEIVED).values("decision_id", "type", "received_at").first()
+    row = Reaction.objects.filter(pk=inbox_id, status=ReactionStatus.RECEIVED).values("media_id", "decision_id", "type", "received_at").first()
     if row is None:
         return
     with transaction.atomic():
         decision = Decision.objects.filter(pk=row["decision_id"]).first()
-        if decision is None:
-            return
+        if decision is None or decision.media_id != row["media_id"]:
+            return  # 없는 결정·남의 결정에 대한 보고는 어차피 거부된다 — 소유 매체의 접수를 기다릴 이유가 없다
         ids = [decision.decision_id]
         click_window = settings.REACTION_CLICK_WINDOW_SECONDS
         if row["type"] == ReactionType.CLICK and (row["received_at"] - decision.decided_at).total_seconds() <= click_window:  # 기간 밖 클릭은 어차피 거부된다
