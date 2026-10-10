@@ -39,6 +39,28 @@ def callers_of(tree, target):
     return names
 
 
+WRITES_WITH_KEYWORD = {"update", "create", "update_or_create", "bulk_create"}  # `basis=` 키워드를 받으면 쓰기
+WRITES_WITH_FIELDS = {"bulk_update": "fields", "bulk_create": "update_fields"}  # 필드 목록에 "basis" 가 있으면 쓰기(위치 인자 또는 이 키워드)
+
+
+def basis_writes(tree):
+    """판정 근거를 쓰는 꼴(계획 4-4b): `basis=` 키워드를 받는 `update`·`create`·`update_or_create`·`bulk_create`, `bulk_update`(·`bulk_create` 의 `update_fields`)
+    필드 목록의 `"basis"`, `.basis =` 대입. 줄 번호 목록을 돌려준다. 쿼리셋이 `Reaction` 인지는 정적으로 가리지 않는다 — 이 꼴의 쓰기가 있는 파일 자체를 제한한다."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "basis" and isinstance(node.ctx, ast.Store):
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            method = node.func.attr
+            if method in WRITES_WITH_KEYWORD and any(k.arg == "basis" for k in node.keywords):
+                lines.append(node.lineno)
+            elif method in WRITES_WITH_FIELDS:
+                lists = [*node.args[1:2], *(k.value for k in node.keywords if k.arg == WRITES_WITH_FIELDS[method])]
+                if any(isinstance(c, ast.Constant) and c.value == "basis" for value in lists for c in ast.walk(value)):
+                    lines.append(node.lineno)
+    return lines
+
+
 @tag("security")
 class JudgmentFactsScopeTests(SimpleTestCase):
     def tree(self):
@@ -63,7 +85,7 @@ class JudgmentFactsScopeTests(SimpleTestCase):
         self.assertNotIn("connection", source)  # 원시 SQL 우회
 
     def test_the_basis_is_written_only_by_the_processor(self):
-        """판정 근거(`basis`)를 쓰는 곳은 `processing._finish` 하나다(모델 정의 제외). 다른 곳이 쓰면 '한 번 쓰고 바꾸지 않는다'가 깨진다."""
-        write = re.compile(r"\bbasis\s*=(?!=)")
-        sites = {path.name for path in project_files("records") if "migrations" not in path.parts and write.search(path.read_text(encoding="utf-8"))}
-        self.assertEqual(sites, {"models.py", "processing.py"})
+        """판정 근거(`basis`)를 쓰는 곳은 `processing._finish` 하나다. 다른 곳이 쓰면 '한 번 쓰고 바꾸지 않는다'가 깨진다.
+        글자(`basis=`)가 아니라 실제 쓰기의 꼴을 본다(`basis_writes`) — 읽은 값을 키워드 인자로 넘기는 것은 쓰기가 아니다. 모델 정의는 쓰기 꼴이 아니므로 저절로 빠지고, 마이그레이션은 보지 않는다."""
+        sites = {path.name for path in project_files("records") if "migrations" not in path.parts and basis_writes(ast.parse(path.read_text(encoding="utf-8")))}
+        self.assertEqual(sites, {"processing.py"})  # 검사가 공회전이 아니다: 실제로 쓰는 곳 하나를 찾는다

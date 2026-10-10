@@ -36,7 +36,7 @@ def expected_events():
             events.NAMES["reaction_received"], r.decision_id, r.received_at, events.reaction_received_payload(raw=r.raw, **common))
         if r.status != "RECEIVED":
             expected[events.event_id_for(events.NAMES["reaction"], r.inbox_id)] = (events.NAMES["reaction"], r.decision_id, r.processed_at, events.reaction_payload(
-                status=r.status, reason_code=r.reason_code, applied_rule=r.applied_rule, **{"basis": r.basis}, **common))  # (읽기만 한다 — basis 를 쓰는 곳은 processing 하나라는 소스 검사에 걸리지 않게 키워드 대신 풀어서 넘긴다)
+                status=r.status, reason_code=r.reason_code, applied_rule=r.applied_rule, basis=r.basis, **common))
     for e in billing.charge_entries(billing.charge_entry_ids()):
         decision_id = decision_of.get(e.reaction_ref)  # 원장의 멱등 키(<매체>:<reaction_id>)로 반응을 거쳐 결정을 찾는다
         expected[events.event_id_for(events.NAMES["charge"], e.entry_id)] = (events.NAMES["charge"], decision_id, processed_of.get(e.reaction_ref), events.charge_payload(
