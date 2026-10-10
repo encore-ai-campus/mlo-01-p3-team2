@@ -1,0 +1,55 @@
+{# 계정 SQL. 기본 노드(첫 번째 서버)는 전체 계정을 만들고, 나머지 노드는 AdminAPI가 접속할 failover 계정만 복제 없이 만든다. #}
+{% set pw = vault_mysql_passwords %}
+{% set node_ips = [] %}
+{% for h in groups['mysql'] %}
+{% set _ = node_ips.append(hostvars[h].ip) %}
+{% endfor %}
+{% set dev_hosts = ['localhost'] %}
+{% for g in mysql_dev_source_groups %}
+{% for h in groups.get(g, []) %}
+{% set _ = dev_hosts.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% set failover_hosts = node_ips[:] %}
+{% for g in mysql_failover_extra_source_groups %}
+{% for h in groups.get(g, []) %}
+{% set _ = failover_hosts.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% macro account(user, host, password) %}
+CREATE USER IF NOT EXISTS '{{ user }}'@'{{ host }}' IDENTIFIED BY '{{ password }}';
+ALTER USER '{{ user }}'@'{{ host }}' IDENTIFIED BY '{{ password }}';
+{% endmacro %}
+{% if not mysql_is_primary %}
+SET sql_log_bin = 0;
+{% endif %}
+
+{# failover: ReplicaSet 관리와 failover용 원격 관리 계정 #}
+{% for h in failover_hosts | unique %}
+{{ account('failover', h, pw.failover) }}
+GRANT ALL PRIVILEGES ON *.* TO 'failover'@'{{ h }}' WITH GRANT OPTION;
+{% endfor %}
+{% if mysql_is_primary %}
+
+{# dev: 개발자와 애플리케이션용 (관리 권한 없음) #}
+{% for h in dev_hosts | unique %}
+{{ account('dev', h, pw.dev) }}
+GRANT {{ mysql_dev_privileges }}, SHOW DATABASES ON *.* TO 'dev'@'{{ h }}';
+{# 업무 DB는 아직 정해지지 않아 전역으로 부여하고, 시스템 스키마(계정·권한 정보 포함)는 부분 revoke(partial_revokes)로 뺀다. #}
+{% for schema in mysql_system_schemas %}
+REVOKE {{ mysql_dev_privileges }} ON {{ schema }}.* FROM 'dev'@'{{ h }}';
+{% endfor %}
+{% endfor %}
+
+{# replication: 복제용 #}
+{% for h in node_ips | unique %}
+{{ account('replication', h, pw.replication) }}
+GRANT REPLICATION SLAVE ON *.* TO 'replication'@'{{ h }}';
+{% endfor %}
+
+{# monitor: 모니터링용 읽기 전용. Monitoring이 SSH로 서버에 들어와 서버 안에서 조회하므로 localhost만 허용한다. #}
+{{ account('monitor', 'localhost', pw.monitor) }}
+GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitor'@'localhost';
+GRANT SELECT ON performance_schema.* TO 'monitor'@'localhost';
+GRANT SELECT ON sys.* TO 'monitor'@'localhost';
+{% endif %}

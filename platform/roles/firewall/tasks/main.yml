@@ -1,0 +1,106 @@
+---
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ firewall_packages }}"
+
+- name: Ubuntu 전용 설정
+  ansible.builtin.include_tasks: os-debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: 규칙 디렉터리
+  ansible.builtin.file:
+    path: /etc/nftables
+    state: directory
+    mode: "0755"
+
+# 새 규칙은 후보 파일로 만들어 문법을 검사하고, 새 SSH 연결이 확인된 뒤에만 정식 파일로 바꾼다.
+# 정식 파일은 부팅 때 로드되므로, 접속이 안 되는 규칙이 재부팅 후에 되살아나지 않게 하기 위함이다.
+- name: 후보 규칙 파일 생성
+  ansible.builtin.template:
+    src: infra-fw.nft.j2
+    dest: /etc/nftables/infra-fw.nft.new
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /usr/sbin/nft -c -f %s
+  changed_when: false
+
+- name: 현재 규칙 파일과 비교
+  ansible.builtin.command: cmp -s /etc/nftables/infra-fw.nft.new /etc/nftables/infra-fw.nft
+  register: firewall_diff
+  changed_when: false
+  failed_when: false
+
+- name: 적용된 테이블 조회
+  ansible.builtin.command: nft list table inet infra_fw
+  register: firewall_loaded
+  changed_when: false
+  failed_when: false
+
+- name: 적용 대상 판단
+  ansible.builtin.set_fact:
+    firewall_needs_apply: "{{ firewall_diff.rc != 0 or firewall_loaded.rc != 0 }}"
+
+# 적용: 복구 타이머 예약 → 원자적 적용 → 새 SSH 연결 확인 → 타이머 해제 → 정식 파일로 교체.
+# 새 연결이 안 되면 타이머가 방화벽 테이블을 지워 접속을 복구하고, 정식 파일은 그대로 남는다.
+- name: 방화벽 적용
+  when: firewall_needs_apply
+  block:
+    - name: 남아 있는 복구 타이머 정리
+      ansible.builtin.command: systemctl stop infra-fw-rollback.timer infra-fw-rollback.service
+      changed_when: false
+      failed_when: false
+
+    - name: 복구 타이머 예약
+      ansible.builtin.command: >-
+        systemd-run --unit=infra-fw-rollback --on-active={{ firewall_rollback_seconds }}
+        /usr/sbin/nft delete table inet infra_fw
+      changed_when: true
+
+    - name: 규칙 적용
+      ansible.builtin.command: nft -f /etc/nftables/infra-fw.nft.new
+      changed_when: true
+
+    # 기존 연결은 established 규칙으로 유지되므로, 연결을 끊고 새로 접속해서 확인한다.
+    - name: 연결 초기화
+      ansible.builtin.meta: reset_connection
+
+    - name: 새 연결 확인
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+
+    - name: 복구 타이머 해제
+      ansible.builtin.command: systemctl stop infra-fw-rollback.timer
+      changed_when: true
+
+    - name: 정식 규칙 파일로 교체
+      ansible.builtin.command: mv /etc/nftables/infra-fw.nft.new /etc/nftables/infra-fw.nft
+      changed_when: true
+
+- name: 후보 규칙 파일 정리
+  ansible.builtin.command: rm -f /etc/nftables/infra-fw.nft.new
+  changed_when: false
+
+- name: 부팅 때 로드하는 서비스 배포
+  ansible.builtin.template:
+    src: infra-firewall.service.j2
+    dest: /etc/systemd/system/infra-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 부팅 때 로드하는 서비스 활성화
+  ansible.builtin.systemd_service:
+    name: infra-firewall.service
+    enabled: true
+    daemon_reload: true
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

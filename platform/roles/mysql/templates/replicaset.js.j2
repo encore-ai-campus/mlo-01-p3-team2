@@ -1,0 +1,25 @@
+// MySQL Shell 스크립트 (roles/mysql). 기본 노드에서 실행한다.
+shell.connect({user: 'failover', password: '{{ vault_mysql_passwords.failover }}', host: '{{ ip }}', port: 3306});
+var rs;
+try {
+  rs = dba.getReplicaSet();
+} catch (e) {
+  rs = dba.createReplicaSet('{{ mysql_replicaset_name }}');
+  print('INFRA_CREATED');
+}
+var topology = rs.status().replicaSet.topology;
+{% for h in mysql_secondary_ips %}
+if (!('{{ h }}:3306' in topology)) {
+  // addInstance는 접속 정보를 문자열로만 받으므로 비밀번호를 URI에 넣고, 특수문자는 퍼센트 인코딩한다(Jinja urlencode는 '/'를 남겨 두므로 따로 바꾼다).
+  rs.addInstance('failover:{{ vault_mysql_passwords.failover | urlencode | replace('/', '%2F') }}@{{ h }}:3306', {recoveryMethod: 'clone'});
+  print('INFRA_ADDED {{ h }}');
+}
+{% endfor %}
+{% for h in groups.get('backend', []) %}
+// Router용 전용 계정: Backend에서만 접속하고, 메타데이터 읽기·라우터 등록 권한만 가진다 (bootstrap에 --account로 쓴다).
+// 이미 있으면 건드리지 않는다.
+if (shell.getSession().runSql("SELECT COUNT(*) FROM mysql.user WHERE user = 'router' AND host = '{{ hostvars[h].ip }}'").fetchOne()[0] == 0) {
+  rs.setupRouterAccount('router@{{ hostvars[h].ip }}', {password: '{{ vault_mysql_passwords.router }}'});
+  print('INFRA_ROUTER_CREATED {{ hostvars[h].ip }}');
+}
+{% endfor %}

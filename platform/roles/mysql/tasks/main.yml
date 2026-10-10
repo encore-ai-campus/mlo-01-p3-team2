@@ -1,0 +1,147 @@
+---
+# MySQL: Standalone(1대) 또는 InnoDB ReplicaSet(2대). 모드는 서버 대수에서 정해진다.
+# 첫 번째 서버(YAML 순서)가 초기 Primary다.
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: Secret 확인
+  ansible.builtin.assert:
+    that:
+      - vault_mysql_passwords is defined
+      - vault_mysql_passwords.keys() | sort | list == ['dev', 'failover', 'monitor', 'replication', 'root', 'router']
+      - vault_mysql_passwords.values() | select('equalto', '') | list | length == 0
+      - vault_mysql_passwords.values() | select('search', "['\"\\\\$`]") | list | length == 0
+    fail_msg: >-
+      vault_mysql_passwords에 root, dev, replication, monitor, failover, router가 모두 있고 값이 비어 있지 않아야 하며,
+      작은따옴표·큰따옴표·백슬래시·달러·백틱은 쓸 수 없다 (inventory/group_vars/all/vault.example.yml 참고).
+  no_log: true
+
+- name: 역할 내부 값 계산
+  ansible.builtin.set_fact:
+    mysql_server_id: "{{ inventory_hostname | regex_search('[0-9]+$') | int }}"
+    mysql_buffer_pool_mb: "{{ [(ansible_facts['memtotal_mb'] * mysql_buffer_pool_ratio) | int, mysql_buffer_pool_min_mb] | max }}"
+    mysql_is_primary: "{{ inventory_hostname == groups['mysql'][0] }}"
+    mysql_secondary_ips: "{{ groups['mysql'][1:] | map('extract', hostvars, 'ip') | list }}"
+
+# --- 설치 ---
+- name: 저장소 등록 (repo.yml)
+  ansible.builtin.import_tasks: repo.yml
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ mysql_packages }}"
+
+# --- 설정과 시작 ---
+# AL2023은 설정 디렉터리를 /etc/my.cnf가 포함하게 해야 한다. Ubuntu는 /etc/mysql/my.cnf가 이미 mysql.conf.d를 포함한다.
+- name: 설정 디렉터리
+  ansible.builtin.file:
+    path: /etc/my.cnf.d
+    state: directory
+    mode: "0755"
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: 설정 디렉터리 포함
+  ansible.builtin.lineinfile:
+    path: /etc/my.cnf
+    line: "!includedir /etc/my.cnf.d"
+    regexp: '^!includedir /etc/my\.cnf\.d'
+    insertafter: EOF
+  notify: Restart mysqld
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: MySQL 설정 배포
+  ansible.builtin.template:
+    src: infra.cnf.j2
+    dest: "{{ mysql_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mysqld
+
+- name: mysqld 활성화
+  ansible.builtin.service:
+    name: "{{ mysql_service }}"
+    state: started
+    enabled: true
+
+# 첫 시작 직후의 불필요한 재시작과 이후 단계의 접속 문제를 막기 위해 여기서 반영한다.
+- name: 설정 반영
+  ansible.builtin.meta: flush_handlers
+
+- name: mysqld 응답 대기
+  ansible.builtin.command: mysqladmin -S {{ mysql_socket }} ping
+  register: mysql_ping
+  until: mysql_ping.rc == 0
+  retries: 40
+  delay: 3
+  changed_when: false
+
+# --- root 비밀번호 ---
+- name: root 비밀번호 설정
+  ansible.builtin.include_tasks: "root-password-{{ ansible_facts['os_family'] | lower }}.yml"
+
+# --- 계정 ---
+# ReplicaSet에 합류한 노드는 읽기 전용(super_read_only)이라 계정을 만들 수 없다. 이런 노드는 건너뛴다.
+# (두 번째 노드의 계정은 합류할 때 Primary에서 복제되어 온다.)
+- name: 쓰기 가능 여부 확인
+  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }} -N -e "SELECT @@global.super_read_only"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  register: mysql_super_read_only
+  changed_when: false
+  no_log: "{{ mysql_no_log }}"
+
+# 계정 SQL은 CREATE USER와 ALTER USER(비밀번호 재설정)를 쓰므로 실행할 때마다 DB가 바뀐다(바이너리 로그에도 남는다).
+# 그래서 마지막으로 적용한 SQL의 해시를 서버에 남겨 두고, 같으면 건너뛴다.
+# DB를 직접 바꿨다면 해시 파일을 지우고 다시 실행해 되돌린다.
+- name: 계정 SQL 해시 계산
+  ansible.builtin.set_fact:
+    mysql_accounts_sql: "{{ lookup('ansible.builtin.template', 'accounts.sql.j2') }}"
+  when: mysql_super_read_only.stdout == '0'
+  no_log: "{{ mysql_no_log }}"
+
+- name: 적용된 계정 SQL 해시 조회
+  ansible.builtin.slurp:
+    src: "{{ mysql_accounts_stamp }}"
+  register: mysql_accounts_stamp_current
+  failed_when: false
+  when: mysql_super_read_only.stdout == '0'
+
+- name: 계정 생성과 권한 부여
+  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }}
+  args:
+    stdin: "{{ mysql_accounts_sql }}"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  changed_when: true
+  when:
+    - mysql_super_read_only.stdout == '0'
+    - (mysql_accounts_stamp_current.content | default('') | b64decode) != (mysql_accounts_sql | hash('sha256'))
+  no_log: "{{ mysql_no_log }}"
+
+# 위 task가 성공한 뒤에만 기록하므로, 실패하면 다음 실행에서 다시 적용한다.
+- name: 적용한 계정 SQL 해시 기록
+  ansible.builtin.copy:
+    content: "{{ mysql_accounts_sql | hash('sha256') }}"
+    dest: "{{ mysql_accounts_stamp }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: mysql_super_read_only.stdout == '0'
+
+# --- ReplicaSet (2대 이상일 때, 기본 노드에서만) ---
+- name: ReplicaSet 구성
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'replicaset.js.j2') }}"
+  register: mysql_replicaset
+  changed_when: "'INFRA_' in mysql_replicaset.stdout"
+  when: mysql_is_primary and mysql_secondary_ips | length > 0
+  no_log: "{{ mysql_no_log }}"
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

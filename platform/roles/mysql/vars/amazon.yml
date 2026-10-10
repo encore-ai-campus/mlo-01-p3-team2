@@ -1,0 +1,6 @@
+---
+# AL2023: el9 RPM 저장소를 쓴다 (공식 저장소 목록에 AL2023은 없지만 el9 패키지가 동작한다).
+mysql_service: mysqld
+mysql_socket: /var/lib/mysql/mysql.sock
+mysql_error_log: /var/log/mysqld.log
+mysql_config_file: /etc/my.cnf.d/infra.cnf

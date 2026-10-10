@@ -1,0 +1,16 @@
+# Ansible로 관리한다 (roles/zookeeper).
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir={{ zookeeper_data_dir }}
+clientPort={{ zookeeper_client_port }}
+clientPortAddress={{ ip }}
+# 내장 관리 서버(8080)는 Spark Master UI와 포트가 겹치므로 끈다.
+admin.enableServer=false
+# Monitoring이 상태를 조회할 수 있도록 허용한다.
+4lw.commands.whitelist=ruok,srvr,mntr,stat
+autopurge.snapRetainCount=3
+autopurge.purgeInterval=1
+{% for h in groups[zookeeper_group] %}
+server.{{ h | regex_search('[0-9]+$') }}={{ hostvars[h].ip }}:{{ zookeeper_peer_port }}:{{ zookeeper_election_port }}
+{% endfor %}

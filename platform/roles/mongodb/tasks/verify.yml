@@ -1,0 +1,32 @@
+---
+# 모든 노드: 로그인 필수, monitor는 읽기만, dev는 계정 정보를 못 읽는다.
+# accounts task가 첫 번째 서버에서만 돌므로 나머지 서버가 끝나기 전에 확인하지 않도록, 계정이 복제될 시간을 재시도로 준다.
+- name: 노드 확인
+  ansible.builtin.command: mongosh --nodb --quiet
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'check-node.js.j2') }}"
+  environment:
+    MONGO_DEV_PASSWORD: "{{ vault_mongodb_passwords.dev }}"
+    MONGO_MONITOR_PASSWORD: "{{ vault_mongodb_passwords.monitor }}"
+  register: mongodb_check_node
+  until: mongodb_check_node.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+  no_log: "{{ mongodb_no_log }}"
+
+# Replica Set: 첫 번째 서버에서 멤버 상태와 복제 확인
+- name: Replica Set 상태와 복제 확인
+  ansible.builtin.command: mongosh --nodb --quiet
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'check-replset.js.j2') }}"
+  environment:
+    MONGO_ROOT_PASSWORD: "{{ vault_mongodb_passwords.root }}"
+    MONGO_DEV_PASSWORD: "{{ vault_mongodb_passwords.dev }}"
+  register: mongodb_check_replset
+  until: mongodb_check_replset.rc == 0
+  retries: 10
+  delay: 6
+  changed_when: false
+  when: mongodb_is_first and mongodb_replset
+  no_log: "{{ mongodb_no_log }}"

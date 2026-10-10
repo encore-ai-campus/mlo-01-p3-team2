@@ -1,0 +1,4 @@
+---
+# AL2023: 시스템 Python은 3.9이므로 python3.12를 따로 설치하고 시스템 Python은 그대로 둔다.
+spark_packages: [python3.12]
+spark_python: /usr/bin/python3.12

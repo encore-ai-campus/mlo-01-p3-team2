@@ -1,0 +1,44 @@
+---
+# SSH 키 접속은 Ansible이 이 서버에 접속한 것으로 이미 확인된다.
+# 비밀번호·root 접속 거부는 sshd가 실제로 쓰는 유효 설정으로 확인한다.
+- name: sshd 유효 설정 조회
+  ansible.builtin.command: sshd -T
+  register: common_sshd_effective
+  changed_when: false
+
+- name: sshd 유효 설정 검증
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in common_sshd_effective.stdout_lines"
+      - "'permitrootlogin no' in common_sshd_effective.stdout_lines"
+      - "'pubkeyauthentication yes' in common_sshd_effective.stdout_lines"
+      - "'bastion' not in group_names or 'allowtcpforwarding yes' in common_sshd_effective.stdout_lines"
+    fail_msg: sshd 유효 설정이 기대와 다르다 (drop-in이 적용되지 않았을 수 있다).
+
+# chrony를 막 켠 직후에는 동기화까지 시간이 걸리므로 재시도한다.
+- name: 시간 상태 조회
+  ansible.builtin.command: timedatectl show
+  register: common_timedatectl
+  until: "'NTPSynchronized=yes' in common_timedatectl.stdout_lines"
+  retries: 12
+  delay: 5
+  changed_when: false
+
+- name: 시간대 검증
+  ansible.builtin.assert:
+    that: "'Timezone=UTC' in common_timedatectl.stdout_lines"
+    fail_msg: 시간대가 UTC가 아니다.
+
+- name: chrony 시간원 조회
+  ansible.builtin.command: chronyc sources
+  register: common_chrony_sources
+  until: common_chrony_sources.stdout is search('(?m)^\^\* 169\.254\.169\.123')
+  retries: 12
+  delay: 5
+  changed_when: false
+
+- name: chrony 동기화 상태 조회
+  ansible.builtin.command: chronyc tracking
+  register: common_chrony_tracking
+  changed_when: false
+  failed_when: common_chrony_tracking.stdout is not search('Leap status\s*:\s*Normal')

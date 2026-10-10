@@ -1,0 +1,38 @@
+---
+# 모든 노드: ruok에 imok, srvr의 Mode 확인
+- name: ruok
+  ansible.builtin.shell: |
+    exec 3<>/dev/tcp/{{ ip }}/{{ zookeeper_client_port }}
+    printf ruok >&3
+    cat <&3
+  args:
+    executable: /bin/bash
+  register: zookeeper_ruok
+  until: zookeeper_ruok.rc == 0 and zookeeper_ruok.stdout == 'imok'
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: 노드 역할(Mode) 조회
+  ansible.builtin.shell: |
+    exec 3<>/dev/tcp/{{ ip }}/{{ zookeeper_client_port }}
+    printf srvr >&3
+    cat <&3 | grep '^Mode:' | cut -d' ' -f2
+  args:
+    executable: /bin/bash
+  register: zookeeper_mode
+  until: zookeeper_mode.stdout in ['leader', 'follower']
+  retries: 20
+  delay: 3
+  changed_when: false
+
+# ensemble 전체: leader 1, follower 나머지
+- name: ensemble 상태 검증
+  ansible.builtin.assert:
+    that:
+      - zookeeper_modes | select('equalto', 'leader') | list | length == 1
+      - zookeeper_modes | select('equalto', 'follower') | list | length == groups[zookeeper_group] | length - 1
+    fail_msg: "ZooKeeper ensemble이 정상이 아니다: {{ zookeeper_modes }}"
+  vars:
+    zookeeper_modes: "{{ groups[zookeeper_group] | map('extract', hostvars, ['zookeeper_mode', 'stdout']) | list }}"
+  run_once: true

@@ -1,0 +1,28 @@
+---
+# 모든 서버에 두는 읽기 전용 수집 사용자
+monitor_user: monitor
+monitor_remote_dir: /usr/local/libexec/infra-monitor   # 대상 서버의 원격 수집 스크립트
+
+# 대상 서버의 시스템 로그(journald) 보존 한도
+monitor_journal_max_use: 200M
+
+# 상태를 확인할 서비스 목록, 수집·회전할 서비스 로그, 로그 읽기 그룹, MySQL 소켓은 OS마다 달라 vars/<배포판>.yml에 있다.
+
+# 서버의 logrotate: 일 단위, 3일 보관
+monitor_logrotate_days: 3
+
+# --- Monitoring 서버 ---
+monitor_collector_user: infra-monitor
+monitor_config_dir: /etc/infra-monitor
+monitor_data_dir: /var/lib/infra-monitor     # metrics/, logs/, state/
+monitor_archive_dir: /var/archive/infra
+monitor_libexec_dir: /usr/local/libexec/infra-monitor
+
+monitor_resource_interval: 10      # 초: 리소스와 로그 수집 주기
+monitor_service_every: 3           # 서비스 상태는 리소스 주기의 몇 배마다 (3 × 10초 = 30초)
+monitor_fail_limit: 3              # 연속 실패가 이만큼이면 down
+monitor_collect_keep_days: 4       # 수집 폴더 보관 (서버 3일 < 수집 폴더 4일 < 보관 폴더 14일)
+monitor_archive_keep_days: 14
+
+# 비밀번호가 들어가는 task의 출력을 숨긴다.
+monitor_no_log: true
