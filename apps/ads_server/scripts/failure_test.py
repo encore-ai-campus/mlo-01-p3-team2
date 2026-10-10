@@ -178,6 +178,8 @@ def run_scenario(name, db, mongo_container, log):
 
         threading.Thread(target=sample_backlog, daemon=True).start()
 
+        lag = load_test.LagSampler()
+        lag.start()  # 이벤트가 생성 시각 뒤 얼마 만에 보이는지(장애 중 포함)를 잰다
         stop, outcomes, lock, timeline = threading.Event(), [], threading.Lock(), {}
 
         def client():
@@ -264,10 +266,22 @@ def run_scenario(name, db, mongo_container, log):
                 proc.wait(timeout=30)
             proc.log_handle.close()
         connections.close_all()
+        lag.stop()
+        report = lag.report(settings.EVENTS_HOP_GRACE_SECONDS)
+        result["event_lag"] = report
+        check(f"이벤트가 생성 시각 뒤 창 닫힘 여유({settings.EVENTS_HOP_GRACE_SECONDS}초) 안에 모두 보인다(장애 중 포함)", report["late"] == 0 and report["unobserved"] == 0,
+              f"이벤트 {report['events']}건, 관찰된 최대 지연 {report['max_lag_s']}초, 여유 초과 {report['late']}건, 관찰 못 한 것 {report['unobserved']}건")
+        harness.tmp = tmp
+        harness.hop_check(name)  # 복구 뒤 구간별 정합 manifest(원본 기대 = outbox = MongoDB)가 일치해야 한다 — 복구 중의 어긋남은 중계 지연 후보로 분류되지만 여기서는 모두 끝난 뒤다
+        result["checks"].extend(harness.checks[-1:])  # (harness.check 는 harness 쪽 목록에 쌓는다 — 이 시나리오의 결과에도 넣는다)
         problems = load_test.verify_invariants(harness.acked_decisions, harness.acked_reactions, expect_drained=True) + load_test.verify_events(relayed=True)
         check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음·이벤트=원본 행(일대일)·MongoDB=outbox", not problems, "; ".join(problems[:3]))
         result.update(requests=len(outcomes), attempts=len(statuses), unavailable=unavailable, acked_decisions=len(harness.acked_decisions), acked_reactions=len(harness.acked_reactions))
     finally:
+        try:
+            lag.stop()
+        except NameError:
+            pass
         for proc in processors + relays:
             if proc.poll() is None:
                 proc.kill()

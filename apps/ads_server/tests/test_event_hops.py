@@ -94,6 +94,13 @@ class SummaryTests(SimpleTestCase):
         self.assertEqual(sorted(l["event_name"] for l in lines), ["ad.charge", "ad.decision"])
         self.assertEqual(hops.summarize([], self.NOW, 120), ([], []))
 
+    def test_hour_windows_are_utc_hours(self):
+        at = datetime(2026, 10, 9, 5, 30, tzinfo=UTC)
+        lines, open_windows = hops.summarize([self.doc(1, at), self.doc(2, at + timedelta(minutes=45))], self.NOW, 120, size=hops.HOUR)
+        self.assertEqual([(l["window_start"], l["window_end"], l["count"]) for l in lines], [("2026-10-09T05:00:00Z", "2026-10-09T06:00:00Z", 1), ("2026-10-09T06:00:00Z", "2026-10-09T07:00:00Z", 1)])
+        self.assertEqual(hops.summarize([self.doc(1, datetime(2026, 10, 10, 11, 59, tzinfo=UTC))], datetime(2026, 10, 10, 12, 1, tzinfo=UTC), 120, size=hops.HOUR), ([], [datetime(2026, 10, 10, 11, tzinfo=UTC)]))  # 여유 2분이 안 됐다
+        self.assertEqual(hops.unsent_counts([(self.doc(1, at), False)], size=hops.HOUR), {("2026-10-09T05:00:00Z", "ad.decision"): 1})
+
     def test_since_drops_older_windows(self):
         old, new = datetime(2026, 10, 1, 5, tzinfo=UTC), datetime(2026, 10, 9, 5, tzinfo=UTC)
         lines, _ = hops.summarize([self.doc(1, old), self.doc(2, new)], self.NOW, 120, since=datetime(2026, 10, 5, tzinfo=UTC))
@@ -237,6 +244,18 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertFalse((self.dir / "out").exists())
+
+    def test_window_option_and_as_of(self):
+        relay_batch()
+        self.assertTrue(self.export("--window", "hour", out="h")[0])
+        line = self.lines("hop_source", out="h")[0][0]
+        self.assertEqual((line["window_start"], line["window_end"]), ("2026-10-07T12:00:00Z", "2026-10-07T13:00:00Z"))
+        self.assertEqual(self.lines("hop_source", out="h")[1]["checkpoint"]["window"], "utc-hour")
+        # 재현용 기준 시각: 과거로 잡으면 어떤 창도 아직 닫히지 않았다
+        self.export("--as-of", "2026-10-07T12:30:00Z", out="early")
+        self.assertEqual(self.lines("hop_source", out="early")[0], [])
+        self.assertEqual(len(self.lines("hop_source", out="early")[1]["checkpoint"]["open_windows"]), 1)
+        self.assertFalse(self.export("--as-of", "내일", out="bad")[0])
 
     def test_since_option(self):
         ok, _ = self.export("--since", "2026-10-08")

@@ -40,11 +40,11 @@ SCHEMA_VERSION = schemas.SCHEMA_VERSION
 decision_payload, reaction_received_payload, reaction_payload, charge_payload = (
     schemas.decision_payload, schemas.reaction_received_payload, schemas.reaction_payload, schemas.charge_payload)
 normal_document, summarize, window_start, canonical_json = hops.normal_document, hops.summarize, hops.window_start, hops.canonical_json
-outbox_documents, mongo_documents, unsent_counts = hops.outbox_documents, hops.mongo_documents, hops.unsent_counts
+outbox_documents, mongo_documents, unsent_counts, WINDOWS = hops.outbox_documents, hops.mongo_documents, hops.unsent_counts, hops.WINDOWS
 
 __all__ = [
     "SCHEMA_VERSION", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
-    "normal_document", "summarize", "window_start", "canonical_json", "outbox_documents", "mongo_documents", "unsent_counts",
+    "normal_document", "summarize", "window_start", "canonical_json", "outbox_documents", "mongo_documents", "unsent_counts", "WINDOWS",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
     "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_sha256", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured",
 ]

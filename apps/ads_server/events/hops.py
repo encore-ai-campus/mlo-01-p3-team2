@@ -18,6 +18,8 @@ from .models import EventOutbox
 from . import store
 
 DAY = timedelta(days=1)
+HOUR = timedelta(hours=1)
+WINDOWS = {"day": DAY, "hour": HOUR}  # 창의 크기: UTC 자정 고정 하루(기본), 옵션으로 UTC 정시 고정 한 시간
 
 
 # ---------------------------------------------------------------- 정규화 (RFC 8785)
@@ -76,24 +78,24 @@ def normal_document(event_id, event_name, schema_version, produced_at, payload):
 
 # ---------------------------------------------------------------- 창과 요약
 
-def window_start(moment):
+def window_start(moment, size=DAY):
     moment = moment.astimezone(timezone.utc)
-    return moment.replace(hour=0, minute=0, second=0, microsecond=0)
+    return moment.replace(minute=0, second=0, microsecond=0) if size == HOUR else moment.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def is_closed(start, now, grace_seconds):
-    return start + DAY + timedelta(seconds=grace_seconds) <= now
+def is_closed(start, now, grace_seconds, size=DAY):
+    return start + size + timedelta(seconds=grace_seconds) <= now
 
 
-def summarize(documents, now, grace_seconds, since=None):
+def summarize(documents, now, grace_seconds, since=None, size=DAY):
     """정규화 문서(`normal_document`) 들을 (창, 이벤트 이름)별로 요약한다. 반환: (줄 목록, 열린 창 시작 목록). 열린 창은 줄에 넣지 않는다."""
     groups, open_windows = {}, set()
     for doc in documents:
         produced = datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-        start = window_start(produced)
+        start = window_start(produced, size)
         if since is not None and start < since:
             continue
-        if not is_closed(start, now, grace_seconds):
+        if not is_closed(start, now, grace_seconds, size):
             open_windows.add(start)
             continue
         groups.setdefault((start, doc["event_name"]), []).append(doc)
@@ -101,7 +103,7 @@ def summarize(documents, now, grace_seconds, since=None):
     for (start, name), docs in sorted(groups.items()):
         docs.sort(key=lambda d: d["event_id"])
         lines.append({
-            "window_start": _z(start), "window_end": _z(start + DAY), "event_name": name, "count": len(docs),
+            "window_start": _z(start), "window_end": _z(start + size), "event_name": name, "count": len(docs),
             "ids_sha256": hashlib.sha256("\n".join(d["event_id"] for d in docs).encode("utf-8")).hexdigest(),
             "content_sha256": hashlib.sha256("\n".join(canonical_json(d) for d in docs).encode("utf-8")).hexdigest(),
         })
@@ -123,12 +125,12 @@ def mongo_documents():
         yield normal_document(doc["_id"], doc["event_name"], doc["schema_version"], doc["produced_at"], doc["payload"])
 
 
-def unsent_counts(pairs):
+def unsent_counts(pairs, size=DAY):
     """outbox 문서 쌍 `(문서, 보냈는가)` 에서 (창 시작, 이벤트 이름)별 미전송 건수. 중계 지연 후보를 가리는 데 쓴다."""
     counts = {}
     for doc, sent in pairs:
         if not sent:
             produced = datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-            key = (_z(window_start(produced)), doc["event_name"])
+            key = (_z(window_start(produced, size)), doc["event_name"])
             counts[key] = counts.get(key, 0) + 1
     return counts

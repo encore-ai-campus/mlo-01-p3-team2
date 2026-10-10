@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from random import Random
 
-from django.test import TestCase, tag
+from django.test import TestCase, TransactionTestCase, tag
 
 from events import schemas, store
 from events.models import EventOutbox
@@ -180,3 +180,50 @@ class EventContentTests(MongoDatabaseMixin, TestCase):
         self.assertEqual(created["ad.charge"], reaction.processed_at)
         self.assertNotEqual(reaction.processed_at, reaction.received_at)
         self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").created_at, reaction.received_at)  # (원장 시각은 수신 시각 — 과금 이벤트의 기준과 다르다)
+
+
+@tag("security")
+class LagSamplerTests(TransactionTestCase):
+    """4-3d: 이벤트가 생성 시각 뒤 얼마 만에 보이는지 재는 표본기가 정확히 재고, 여유를 넘은 이벤트와 못 본 이벤트를 센다."""
+
+    def add(self, age_seconds):
+        import datetime as dt
+
+        from django.db import transaction
+        from django.utils import timezone
+
+        with transaction.atomic():
+            row = EventOutbox.objects.create(event_id=uuid.uuid4(), event_name="ad.decision", schema_version=1, aggregate_id=uuid.uuid4(), payload={},
+                                             created_at=timezone.now() - dt.timedelta(seconds=age_seconds))
+        return row
+
+    def sample(self, ages, grace=120, horizon=150.0):
+        import time
+
+        sampler = load_test.LagSampler(interval=0.05, horizon=horizon)
+        sampler.start()
+        time.sleep(0.2)
+        for age in ages:
+            self.add(age)
+        time.sleep(0.4)
+        sampler.stop()
+        import datetime as dt
+
+        from django.utils import timezone
+
+        sampler.started = timezone.now() - dt.timedelta(seconds=1000)  # (시험이 일부러 과거의 생성 시각으로 만든 이벤트도 보고 범위에 넣는다)
+        return sampler.report(grace)
+
+    def test_measures_the_gap_between_production_and_visibility(self):
+        report = self.sample([3.0, 10.0])
+        self.assertEqual((report["events"], report["late"], report["unobserved"]), (2, 0, 0))
+        self.assertGreaterEqual(report["max_lag_s"], 10.0)
+        self.assertLess(report["max_lag_s"], 11.5)
+
+    def test_events_that_became_visible_after_the_grace_are_counted_late(self):
+        report = self.sample([30.0, 3.0], grace=20)
+        self.assertEqual((report["late"], report["unobserved"]), (1, 0))
+
+    def test_an_event_older_than_the_scan_horizon_is_counted_as_unobserved_not_hidden(self):
+        report = self.sample([3.0, 400.0], horizon=60.0)
+        self.assertEqual((report["events"], report["unobserved"]), (2, 1))  # 훑는 범위보다 늦게 나타난 이벤트도 놓치지 않고 센다

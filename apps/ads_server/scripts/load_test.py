@@ -181,6 +181,48 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     return problems
 
 
+class LagSampler(threading.Thread):
+    """이벤트가 outbox 에서 **처음 보인 시각 − 생성 시각(produced_at)** 을 잰다 = 생성 시각을 잡은 뒤 커밋돼 보이기까지의 지연(설계 §10 H11).
+    구간별 정합 manifest 의 창 닫힘 여유(`EVENTS_HOP_GRACE_SECONDS`, 기본 120초)가 이 지연의 상한보다 큰지 확인하는 증거다.
+    주기적으로 최근 `horizon` 초의 이벤트를 훑어 처음 보인 시각을 기록한다(자기 연결을 쓴다). 끝나고 `report()` 가 한 번도 못 본 이벤트까지 센다."""
+
+    def __init__(self, interval=0.3, horizon=150.0):
+        super().__init__(daemon=True)
+        self.interval, self.horizon, self.seen, self.stop_event = interval, horizon, {}, threading.Event()
+        self.started = None
+
+    def run(self):
+        from django.db import connection
+        from django.utils import timezone
+
+        from events.models import EventOutbox
+
+        self.started = timezone.now()
+        while not self.stop_event.is_set():
+            try:
+                polled = timezone.now()
+                for event_id, created_at in EventOutbox.objects.filter(created_at__gte=polled - timedelta(seconds=self.horizon)).values_list("event_id", "created_at"):
+                    if event_id not in self.seen:
+                        self.seen[event_id] = (polled - created_at).total_seconds()
+            except Exception:  # noqa: BLE001 — DB 가 끊긴 순간은 건너뛴다(장애 시험)
+                connection.close()
+            self.stop_event.wait(self.interval)
+        connection.close()
+
+    def stop(self):
+        self.stop_event.set()
+        self.join(timeout=10)
+
+    def report(self, grace_seconds):
+        """{"events", "max_lag_s", "late", "unobserved"}. `late`: 지연이 여유보다 컸던 이벤트, `unobserved`: 훑는 범위 안에서 한 번도 못 본 이벤트(= 지연이 훑는 범위보다 컸다)."""
+        from django.conf import settings  # noqa: F401
+        from events.models import EventOutbox
+
+        every = set(EventOutbox.objects.filter(created_at__gte=self.started - timedelta(seconds=5)).values_list("event_id", flat=True))
+        lags = list(self.seen.values())
+        return {"events": len(every), "max_lag_s": round(max(lags), 3) if lags else 0.0, "late": sum(1 for lag in lags if lag > grace_seconds), "unobserved": len(every - self.seen.keys())}
+
+
 def _differing_keys(stored, wanted):
     keys = sorted(k for k in set(stored) | set(wanted) if json.dumps(stored.get(k), sort_keys=True, default=str) != json.dumps(wanted.get(k), sort_keys=True, default=str))
     return keys or ["(타입)"]  # 값의 JSON 모양은 같고 타입만 다른 경우
@@ -464,6 +506,70 @@ class Harness:
                     proc.kill()
         out = subprocess.run([sys.executable, "manage.py", "relay_events", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
         self.check("남은 이벤트를 --once 로 비운다", out.returncode == 0, out.stderr[-200:])
+
+    # ------------------------------------------------------------ H. Step 4-3 (구간 manifest·백필)
+    def _manage(self, *args, timeout=300):
+        return subprocess.run([sys.executable, "manage.py", *args], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=timeout)
+
+    @staticmethod
+    def _as_of():
+        """내일 00:02:01 UTC — 오늘의 창이 모두 닫힌(창 끝 + 여유 뒤) 시점을 재현한다. 시험이 실제 자정을 기다리지 않게 한다."""
+        tomorrow = (datetime.now(UTC) + timedelta(days=1)).replace(hour=0, minute=2, second=1, microsecond=0)
+        return tomorrow.isoformat()
+
+    def hop_lines(self, directory):
+        from events import ndjson
+
+        out = {}
+        for hop in ("hop_source", "hop_outbox", "hop_mongo"):
+            manifest = ndjson.read_manifest(ndjson.manifest_path(directory, hop))
+            out[hop] = (directory / manifest["file"]).read_text()
+        return out
+
+    def hop_check(self, label):
+        """`export_hop_manifests`(오늘의 창을 닫아서) → `verify_hops`: 세 구간·모든 창이 일치해야 한다. 반환: 구간별 줄."""
+        directory = self.tmp / "hops"
+        exported = self._manage("export_hop_manifests", "--out", str(directory), "--as-of", self._as_of())
+        verified = self._manage("verify_hops", "--dir", str(directory), "--out", str(self.tmp / f"hop-report-{label}"))
+        clean = exported.returncode == 0 and verified.returncode == 0 and "mismatch" not in verified.stdout and "relay_lag_candidate" not in verified.stdout
+        self.check(f"구간별 정합 manifest 가 일치한다 [{label}]: 원본 기대 = outbox = MongoDB(모든 창, 세대 사슬·감사 고정점 확인)", clean,
+                   (exported.stderr + verified.stdout)[-300:])
+        return self.hop_lines(directory) if exported.returncode == 0 else {}
+
+    def backfill_drill(self, count=60):
+        """백필 훈련: 이벤트를 일부러 지워(outbox 와 MongoDB 에서) '이벤트가 없는 원본 행'을 만들고, 목록 → 백필 → 중계 → 점검이 모두 맞물려 원래대로 돌아오는지 본다."""
+        import random
+
+        from events import ndjson, store
+        from events.models import EventOutbox
+
+        before = self.hop_check("백필 전")
+        ids = random.Random(7).sample(list(EventOutbox.objects.values_list("event_id", flat=True)), min(count, EventOutbox.objects.count()))
+        EventOutbox.objects.filter(pk__in=ids).delete()
+        store.collection().delete_many({"_id": {"$in": ids}})
+        self.check("(훈련) 지운 이벤트를 이벤트 검사기가 잡는다", bool(verify_events(relayed=True)))
+        gaps_dir, result_dir, clean_dir = self.tmp / "gaps", self.tmp / "backfill", self.tmp / "clean"
+        found = self._manage("export_integrity", "--out", str(gaps_dir))
+        rows = ndjson.read_manifest(ndjson.manifest_path(gaps_dir, "event_gaps"))["rows"]
+        self.check("(훈련) 누락 목록(event_gaps)이 지운 만큼 나온다", found.returncode != 0 and rows == len(ids), f"{rows}/{len(ids)}건")
+        dry = self._manage("backfill_events", "--input", str(ndjson.manifest_path(gaps_dir, "event_gaps")), "--out", str(self.tmp / "dry"))
+        self.check("백필 --dry-run 은 아무것도 쓰지 않는다", dry.returncode == 0 and EventOutbox.objects.filter(pk__in=ids).count() == 0, dry.stderr[-200:])
+        done = self._manage("backfill_events", "--input", str(ndjson.manifest_path(gaps_dir, "event_gaps")), "--out", str(result_dir), "--apply")
+        self.check("백필 --apply 가 성공한다", done.returncode == 0, (done.stdout + done.stderr)[-300:])
+        relayed = self._manage("relay_events", "--once")
+        self.check("백필한 이벤트를 중계가 MongoDB 로 보낸다", relayed.returncode == 0, relayed.stderr[-200:])
+        clean = self._manage("export_integrity", "--out", str(clean_dir))
+        self.check("백필 뒤 점검(export_integrity)에 누락이 없다", clean.returncode == 0, (clean.stdout + clean.stderr)[-300:])
+        problems = verify_events(relayed=True)
+        self.check("백필한 이벤트가 원본·봉투·내용 대조와 MongoDB 대조를 특별 처리 없이 통과한다", not problems, "; ".join(problems))
+        again = self._manage("backfill_events", "--input", str(ndjson.manifest_path(gaps_dir, "event_gaps")), "--out", str(self.tmp / "again"), "--apply")
+        self.check("백필을 다시 돌려도 이벤트가 늘지 않는다", again.returncode == 0 and EventOutbox.objects.filter(pk__in=ids).count() == len(ids), again.stderr[-200:])
+        after = self.hop_check("백필 뒤")
+        self.check("백필 뒤 구간 manifest 의 요약값이 지우기 전과 같다(같은 창·같은 이벤트·같은 내용)", bool(before) and before == after, "요약값이 달라졌다" if before != after else "")
+        from events import api as events_api
+
+        chain = events_api.verify_chain(events_api.manifest_path(self.tmp / "hops", "hop_source"))
+        self.check("구간 manifest 세대 사슬이 이어진다(백필 전 → 후)", not chain, "; ".join(chain))
 
     def verify(self, name, expect_drained=True, events_relayed=False):
         problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained, quiescent=self.quiescent) + verify_events(events_relayed)
@@ -886,6 +992,10 @@ def run(args, count, tmp, db_name, res):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     res["serving"] = True
     harness = Harness(server.server_address[1], ctx, count, tmp, log, rest_scale=0.1 if args.small else 1.0)
+    from django.conf import settings
+
+    lag = LagSampler()
+    lag.start()  # 이벤트가 생성 시각으로부터 얼마 뒤에 보이는지 처음부터 끝까지 잰다
     try:
         harness.decisions()
         harness.rest()
@@ -909,7 +1019,14 @@ def run(args, count, tmp, db_name, res):
         harness.drain()
         harness.settle_events(res["relays"])
         harness.verify("최종", events_relayed=True)
+        lag.stop()
+        harness.event_lag = lag.report(settings.EVENTS_HOP_GRACE_SECONDS)
+        r = harness.event_lag
+        harness.check(f"이벤트가 생성 시각 뒤 창 닫힘 여유({settings.EVENTS_HOP_GRACE_SECONDS}초) 안에 모두 보인다(설계 H11 A안의 근거)", r["late"] == 0 and r["unobserved"] == 0,
+                      f"이벤트 {r['events']}건, 관찰된 최대 지연 {r['max_lag_s']}초, 여유 초과 {r['late']}건, 관찰 못 한 것 {r['unobserved']}건")
+        harness.backfill_drill()
     finally:
+        lag.stop()
         ok = all(c["ok"] for c in harness.checks)
         from billing.models import LedgerEntry
         from records.models import Decision, Reaction
@@ -918,7 +1035,7 @@ def run(args, count, tmp, db_name, res):
         log(f"\n저장된 행: {totals}")
         log("결과: " + ("모든 불변식 충족" if ok else "실패 항목 있음 — " + ", ".join(c["check"] for c in harness.checks if not c["ok"])))
         if args.json:
-            Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "hold_resolution_s": getattr(harness, "hold_seconds", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
+            Path(args.json).write_text(json.dumps({"concurrency": count, "ok": ok, "phases": harness.phases, "checks": harness.checks, "cost": getattr(harness, "cost", None), "sigterm": getattr(harness, "exits", None), "hold_resolution_s": getattr(harness, "hold_seconds", None), "event_lag": getattr(harness, "event_lag", None), "totals": totals}, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if ok else 1
 
 

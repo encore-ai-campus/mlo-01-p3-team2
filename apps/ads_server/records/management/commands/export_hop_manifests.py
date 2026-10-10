@@ -25,6 +25,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--out", required=True, help="결과를 쓸 폴더")
         parser.add_argument("--since", help="이 날짜(UTC, YYYY-MM-DD) 이후의 창만")
+        parser.add_argument("--window", choices=sorted(events.WINDOWS), default="day", help="창의 크기: day(UTC 자정 고정 하루, 기본) 또는 hour(UTC 정시 고정 한 시간)")
+        parser.add_argument("--as-of", help="재현용: 이 시각(ISO 8601, UTC)을 '지금'으로 보고 창을 닫는다(기본은 실제 지금). 시험이 날짜가 바뀐 뒤의 점검을 재현할 때 쓴다")
 
     def handle(self, *args, **options):
         since = None
@@ -33,7 +35,12 @@ class Command(BaseCommand):
                 since = datetime.combine(date.fromisoformat(options["since"]), datetime.min.time(), tzinfo=timezone.utc)
             except ValueError:
                 raise CommandError("--since 는 YYYY-MM-DD 형식이어야 합니다.")
-        now, grace = datetime.now(timezone.utc), settings.EVENTS_HOP_GRACE_SECONDS
+        size = events.WINDOWS[options["window"]]
+        try:
+            now = datetime.fromisoformat(options["as_of"]).astimezone(timezone.utc) if options["as_of"] else datetime.now(timezone.utc)
+        except ValueError:
+            raise CommandError("--as-of 는 ISO 8601 시각이어야 합니다.")
+        grace = settings.EVENTS_HOP_GRACE_SECONDS
         try:
             with consistent_read():  # 원본(①)과 outbox(②)는 같은 스냅샷을 본다
                 source = list(source_documents())
@@ -43,11 +50,11 @@ class Command(BaseCommand):
             raise CommandError(f"MongoDB 를 읽지 못했습니다: {type(error).__name__}: {str(error)[:200]}")
         comparable_from = events.window_start(now - timedelta(days=settings.EVENTS_OUTBOX_RETENTION_DAYS))  # 보존 정리가 닿지 않은 창만 outbox 와 대조한다
         outbox = [doc for doc, _ in outbox_pairs]
-        unsent = events.unsent_counts(outbox_pairs)
+        unsent = events.unsent_counts(outbox_pairs, size)
         out = Path(options["out"])
         anchors = {}
         for hop, docs in (("hop_source", source), ("hop_outbox", outbox), ("hop_mongo", mongo)):
-            lines, open_windows = events.summarize(docs, now, grace, since)
+            lines, open_windows = events.summarize(docs, now, grace, since, size)
             extra = {}
             if hop == "hop_outbox":
                 skipped = sorted({line["window_start"] for line in lines if _parse(line["window_start"]) < comparable_from})
@@ -56,7 +63,7 @@ class Command(BaseCommand):
                     line["unsent"] = unsent.get((line["window_start"], line["event_name"]), 0)  # 중계 지연 후보를 가리는 데 쓴다
                 extra = {"not_comparable_windows": skipped, "comparable_from": comparable_from.strftime("%Y-%m-%dT%H:%M:%SZ")}
             checkpoint = {
-                "scope": SCOPE if hop != "hop_mongo" else "mongodb-read-outside-snapshot", "hop": hop, "window": "utc-day", "grace_seconds": grace, "started_at": now.isoformat(),
+                "scope": SCOPE if hop != "hop_mongo" else "mongodb-read-outside-snapshot", "hop": hop, "window": f"utc-{options['window']}", "grace_seconds": grace, "started_at": now.isoformat(),
                 "since": options["since"], "open_windows": [w.strftime("%Y-%m-%dT%H:%M:%SZ") for w in open_windows], "scanned_events": len(docs), **extra,
             }
             manifest = events.write_ndjson(out, hop, lines, hop, SCHEMA_VERSION, checkpoint=checkpoint, now=now, chain=True)
