@@ -9,17 +9,18 @@
 """
 import secrets
 import socket
-import subprocess
 import sys
 import time
 import uuid
+from functools import partial
+
+import docker_cli
 
 IMAGE = "db-standalone/mongodb:8.0-ubuntu24.04"
 REPLICA_SET = "rs0"
 
 
-def docker(*args, check=True, timeout=120):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, check=check, timeout=timeout)
+docker = partial(docker_cli.docker, timeout=120)  # 이 스크립트의 시간 제한(R5)
 
 
 def start():

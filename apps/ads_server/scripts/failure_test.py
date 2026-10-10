@@ -48,13 +48,15 @@ import tempfile
 import threading
 import time
 import uuid
+from functools import partial
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 
-import mongo_temp_rs  # noqa: E402 — scripts/ 가 경로에 있다
+import docker_cli  # noqa: E402 — scripts/ 가 경로에 있다
+import mongo_temp_rs  # noqa: E402
 import mysql_cluster  # noqa: E402
 
 IMAGE = "db-standalone/mysql:8.4-ubuntu24.04"
@@ -62,8 +64,7 @@ SCENARIOS = ("restart", "crash", "processor-kill", "mongo-restart", "relay-kill"
 CLUSTER_SCENARIOS = ("primary-kill", "primary-restart", "switchover", "secondary-kill", "router-restart", "processor-kill", "mongo-restart", "relay-kill")  # --mysql cluster
 
 
-def docker(*args, check=True, timeout=180):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, check=check, timeout=timeout)
+docker = partial(docker_cli.docker, timeout=180)  # 이 스크립트의 시간 제한(R5)
 
 
 class DbContainer:

@@ -12,11 +12,13 @@
 import json
 import secrets
 import socket
-import subprocess
 import sys
 import time
 import uuid
+from functools import partial
 from pathlib import Path
+
+import docker_cli
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 IMAGE = "ads-innodb-cluster:8.4"
@@ -24,8 +26,7 @@ CLUSTER_NAME = "ads"
 NODES = 3
 
 
-def docker(*args, check=True, timeout=300, input=None):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, check=check, timeout=timeout, input=input)
+docker = partial(docker_cli.docker, timeout=300)  # 이 스크립트의 시간 제한(R5)
 
 
 def ensure_image():
