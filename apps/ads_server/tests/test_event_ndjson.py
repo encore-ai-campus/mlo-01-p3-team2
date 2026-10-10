@@ -244,6 +244,49 @@ class WriteAndVerifyTests(TempDirMixin, SimpleTestCase):
         self.assertEqual(calls, ["fsync", "replace:.ndjson", "fsync", "fsync", "replace:.json", "fsync"])  # 데이터(파일·폴더) 다음에 manifest(파일·교체·폴더)
 
 
+    def test_a_failure_at_any_step_keeps_a_verifiable_pointer_and_leaves_no_temporary_file(self):
+        """계획 4-4i: 데이터 파일과 manifest 각각의 쓰기·파일 동기화·교체·폴더 동기화 중 어디서 실패해도 예외가 올라가고, 포인터는 온전한 게시본(교체 전이면 이전 것)을 가리키며, 임시 파일이 남지 않는다."""
+
+        class FailingWrites:
+            def __init__(self, handle):
+                self.handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.handle.close()
+
+            def write(self, data):
+                raise OSError("쓰기 실패")
+
+        def failing(name, nth):
+            real, seen = getattr(os, name), []
+
+            def call(*args):
+                seen.append(1)
+                if len(seen) != nth:
+                    return real(*args)
+                if name == "fdopen":
+                    return FailingWrites(real(*args))
+                raise OSError(f"{name} 실패")
+            return mock.patch(f"events.ndjson.os.{name}", call)
+
+        # 호출 순서: 데이터 fdopen·fsync·replace·폴더 fsync → manifest fdopen·fsync·replace·폴더 fsync
+        steps = [("fdopen", 1, "old"), ("fsync", 1, "old"), ("replace", 1, "old"), ("fsync", 2, "old"),
+                 ("fdopen", 2, "old"), ("fsync", 3, "old"), ("replace", 2, "old"), ("fsync", 4, "new")]
+        for name, nth, pointer in steps:
+            with self.subTest(step=f"{name}#{nth}"):
+                directory = self.tmpdir()
+                old = self.publish(directory, [{"old": 1}])
+                with failing(name, nth), self.assertRaises(OSError):
+                    self.publish(directory, [{"new": 1}])
+                manifest_file = ndjson.manifest_path(directory, "check")
+                self.assertEqual(ndjson.verify(manifest_file), [])
+                current = ndjson.read_manifest(manifest_file)["file"]
+                self.assertEqual(current == old["file"], pointer == "old", current)
+                self.assertEqual([p.name for p in directory.iterdir() if p.name.endswith(".tmp")], [])
+
 @tag("security")
 class EventGapTests(MongoDatabaseMixin, TestCase):
     def setUp(self):

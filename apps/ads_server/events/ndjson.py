@@ -41,6 +41,12 @@ def _fsync_directory(directory):
         os.close(fd)
 
 
+def _replace_durably(tmp, final):
+    """완성·동기화된 임시 파일을 같은 폴더의 최종 이름으로 바꾸고, 이름 바꾸기도 디스크에 남긴다(폴더 동기화). 데이터 파일과 manifest·세대 사본이 같은 단계를 쓴다."""
+    os.replace(tmp, final)
+    _fsync_directory(Path(final).parent)
+
+
 def _publish(path, write):
     """같은 폴더의 임시 파일에 쓰고 동기화한 뒤 최종 이름으로 바꾼다. 실패하면 임시 파일을 지운다."""
     path = Path(path)
@@ -50,8 +56,7 @@ def _publish(path, write):
             write(handle)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
-        _fsync_directory(path.parent)
+        _replace_durably(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
@@ -126,8 +131,7 @@ def write(directory, name, records, source_kind, schema_version, checkpoint=None
             os.fsync(handle.fileno())
         sha256 = digest.hexdigest()
         data_name = f"{name}.{sha256[:16]}.ndjson"
-        os.replace(tmp, directory / data_name)
-        _fsync_directory(directory)
+        _replace_durably(tmp, directory / data_name)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
