@@ -71,7 +71,7 @@
 | C1·C3·클릭 | (V1과 같음) | | | 변경 없음 |
 | 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [구현] DB-1(업무 데이터), Step 4-1(outbox) |
 | C2 이벤트 | 나감 | 파이프라인 쪽(읽기) | outbox → 중계 → MongoDB `ad_events`(멱등). 이 컬렉션과 이벤트 스키마(§5.6)가 계약 면이고 MySQL 테이블은 읽게 하지 않는다 | [구현] Step 4-1(2026-10-10) |
-| 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum): `export_integrity`·`verify_ndjson` | [구현] Step 4-2(목록까지, 백필 실행은 필요할 때) |
+| 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum): `export_integrity`·`verify_ndjson` | [구현] Step 4-2(백필 대상 목록), Step 4-3(백필 실행·구간별 정합 manifest·구간 대조, 2026-10-10, §5.6·§5.9) |
 | 퍼널 집계 | 내부 | 콘솔 | `records.api`(MySQL 조회) | 변경 없음 |
 
 **확장 (서버가 감당하지 못할 때 · 판단 지표: 조회 시간·부하, 수치는 나중에)**
@@ -134,7 +134,7 @@ flowchart LR
 | 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
 | MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, P3) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 Step 4-1(2026-10-10). Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
 | MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인) · Step 4-1(중계가 쓰기, 2026-10-10) |
-| NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나. **게시 = 내용 해시가 이름에 들어간 불변 데이터 파일(`<이름>.<SHA-256 앞 16자>.ndjson`) + manifest(`<이름>.manifest.json`, 현재 게시본을 가리키는 포인터)의 원자적 교체**. manifest에 데이터 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·`checkpoint`(범위 서술: 스냅샷 종류·시작 시각·훑은 행 수, 재개 위치 아님)·만든 시각. manifest가 가리키는 파일은 언제나 완결 | [구현] Step 4-2(2026-10-10, 외부 검토 보완 반영) |
+| NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나. **게시 = 내용 해시가 이름에 들어간 불변 데이터 파일(`<이름>.<SHA-256 앞 16자>.ndjson`) + manifest(`<이름>.manifest.json`, 현재 게시본을 가리키는 포인터)의 원자적 교체**. manifest에 데이터 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·`checkpoint`(범위 서술: 스냅샷 종류·시작 시각·훑은 행 수, 재개 위치 아님)·만든 시각. manifest가 가리키는 파일은 언제나 완결. 파일 종류: `ledger_check`·`event_gaps`·`event_delivery`(점검 결과) [구현]. 4-3 [구현]: `backfill_result`(백필 결과), `hop_source`·`hop_outbox`·`hop_mongo`(구간별 정합 manifest), `hop_report`(구간 대조 결과) | [구현] Step 4-2(2026-10-10, 외부 검토 보완 반영) |
 | Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
 
 **저장소를 고르는 기준 [확정, 2026-10-08, MySQL 전환 2026-10-09]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 썼고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
@@ -916,6 +916,8 @@ sequenceDiagram
 | 관리자 정책 변경 | M3 새 버전 | `masters.policy_added`(이전 값 포함) |
 | 관리자 중단·해제·반려 | O1 상태, O6 상태 | `campaign.suspended`·`released`·`review_rejected` |
 | 관리자 포인트 조정 | B2 `ADMIN_ADJUST` + B1 | `billing.adjusted` |
+| 이벤트 백필(`--apply`, 청크마다) | P3 | `events.backfilled`(입력 manifest SHA-256·건수) |
+| 구간별 정합 manifest 게시 | — | `events.hop_manifests_exported`(세 구간 최신 manifest의 SHA-256 — 고정점) |
 
 C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘솔이 조합한다: 입찰 `effects`·`bid-preview`(`masters` 정책 + `engine.effect_of`), 캠페인 `today`(`billing.spend_today` + `next_reset`). 대조표는 구현 계획 §6.8.1.
 
@@ -982,6 +984,21 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 지갑 잔액·광고주 계정 정보는 어느 이벤트에도 넣지 않는다 [구현](파이프라인에 필요하지 않고 개인 연결 위험만 늘어남).
 
+**구간별 manifest 계약** [구현 Step 4-3b·c, 2026-10-10 — 결정은 설계서 §10 "Step 4-3 백필·구간 manifest 결정", 규칙의 원본은 `apps/ads_server/events/hops.py`]. 파이프라인 쪽이 같은 규칙으로 manifest를 만들어 광고 서버의 manifest와 대조할 수 있게 하는 **언어 중립 규칙**이다.
+
+| 항목 | 규칙 |
+|---|---|
+| 구간 | ① 원본 기대(`hop_source`, 업무 DB 원본 행에서 재구성) ② outbox(`hop_outbox`) ③ MongoDB(`hop_mongo`) ④ 파이프라인 수령(확장 — 같은 규칙으로 만든 manifest를 `verify_hops --pipeline`이 ③과 대조) |
+| 창 | `produced_at` 기준 **UTC 자정 고정 하루**(예산 일 설정과 무관). 옵션으로 UTC 정시 고정 한 시간. 창 시작 + 크기 + 여유 ≤ 지금이면 닫힌 창이다. 여유는 120초(설정 `EVENTS_HOP_GRACE_SECONDS`, 설계서 H11 A안). 늦은 이벤트가 보이면 잠금 대기 제한으로 상한을 정해 여유를 다시 정한다(B안) |
+| 정규화 문서 | 키 `event_id`·`event_name`·`schema_version`·`produced_at`·`payload`. `event_id`는 **소문자 하이픈 UUID 문자열**, `produced_at`은 **`YYYY-MM-DDTHH:MM:SS.mmmZ`**(UTC, 밀리초는 반올림하지 않고 자름 — MongoDB 날짜 정밀도), `payload`는 저장된 JSON 그대로 |
+| JSON 정규화 | **RFC 8785(JCS)**: 객체 키는 UTF-16 코드 단위 순 정렬, 공백 없음, UTF-8, 문자열은 JSON 이스케이프(비 ASCII는 그대로), 불리언·`null`은 그대로, 정수는 10진수, 실수는 ECMAScript 숫자 표기. **주의**: `300.0`은 `300`이 되므로 정수와 같은 값의 실수는 구분되지 않는다(타입 구분은 중계의 충돌 판정과 `verify_events`가 맡는다) |
+| 한 줄 | (창, `event_name`) 하나: `window_start`·`window_end`(`YYYY-MM-DDTHH:MM:SSZ`), `event_name`, `count`, `ids_sha256`, `content_sha256`. 이벤트가 없는 (창, 이벤트 이름)은 줄이 없다(= 0건). outbox 구간의 줄에는 `unsent`(미전송 건수)를 더 싣는다 |
+| `ids_sha256` | 이벤트 ID 문자열을 오름차순 정렬해 `\n`으로 이은(끝 줄바꿈 없음) UTF-8 바이트의 SHA-256 |
+| `content_sha256` | 정규화 문서를 JCS로 만든 문자열을 이벤트 ID 순으로 `\n`으로 이은 UTF-8 바이트의 SHA-256 |
+| 파일과 세대 | 실행마다 구간 하나가 NDJSON 파일 하나(닫힌 창 전부)이고, 게시는 기존 규약(불변 데이터 파일 + manifest 포인터)이다. 세대는 파일 게시본 단위이고 manifest에 직전 manifest의 `previous_sha256`을 싣는다. 각 세대 manifest의 불변 사본(내용 해시 이름)으로 사슬을 거슬러 확인한다. 최신 manifest의 SHA-256은 감사 로그 `events.hop_manifests_exported`에도 남는다 |
+| `checkpoint` | 범위 서술(재개 위치 아님): `scope`(원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖), `hop`, `window`(`utc-day`·`utc-hour`), `grace_seconds`, `started_at`, `open_windows`(줄에 넣지 않은 열린 창), `not_comparable_windows`(outbox 보존 정리가 닿아 outbox를 대조하지 않는 창) |
+| 대조 결과 분류 | `match`(세 값이 같음) / `mismatch`(확정 불일치, 다른 필드를 적음) / `relay_lag_candidate`(하류가 적고 outbox에 미전송이 남아 있음 — 실패가 아니라 다시 낸 manifest로 확인) / `open_window` / `not_comparable`. 원본 → outbox는 같은 스냅샷이라 지연으로 보지 않는다. 결과 파일은 `hop_report` |
+
 ### 5.7 C4 Insight 입력 [예약, 제안]
 
 파이프라인이 만든 결과가 광고 서버로 들어오는 길. **자문 값이지 명령이 아니다** — 입찰 정책을 자동으로 바꾸지 않고, 서빙 경로는 이 값을 실시간으로 기다리지 않는다(설계서 §3).
@@ -1015,6 +1032,13 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `process_reactions` | P2 `RECEIVED` | P2 상태, B1·B2·B3 | 예(`reaction_ref`) | [구현] 2-5 |
 | `recompute_spend` | B2 `CHARGE` | B3 전체 재작성 | 예 | 예산 경계 설정을 바꾼 뒤 |
 | `check_ledger` | B1, B2 | 없음(불일치 목록) | 읽기 전용 | 수시. 불일치 시 비정상 종료 |
+| `relay_events` | P3 미전송(`sent_at` 없음) | MongoDB `ad_events`, P3 `sent_at` | 예(결정적 `_id`, 같은 내용은 통과·다른 내용은 멈춤) | [구현] 4-1e. 상시 |
+| `purge_sent_events` | P3 보낸 행 | P3 삭제(보낸 지 7일 지난 행만) | 예 | [구현] 4-1e. 주기 |
+| `export_integrity` | B1·B2·B3, R1, P2, P3, MongoDB(한 MySQL 읽기 스냅샷) | NDJSON `ledger_check`·`event_gaps`·`event_delivery` + manifest | 읽기 전용(결과 게시만) | [구현] 4-2. 수시, 문제가 있으면 비정상 종료 |
+| `verify_ndjson` | manifest와 가리키는 데이터 파일 | 없음 | 읽기 전용 | [구현] 4-2 |
+| `backfill_events` | 검증된 `event_gaps` manifest(어느 원본 행인지만), R1·P2·B2 원본 행 | P3(outbox, 원본 행에서 다시 만든 이벤트), NDJSON `backfill_result` + manifest, A3 감사 | 예(결정적 이벤트 ID, 있으면 바꾸지 않음) | [구현] 4-3a. 운영자가 필요할 때, 기본 `--dry-run`(`--apply`로 씀). 해석 불가가 있으면 비정상 종료 |
+| `export_hop_manifests` | 원본 행(재구성)·P3(한 MySQL 읽기 스냅샷), MongoDB(스냅샷 밖) | `hop_source`·`hop_outbox`·`hop_mongo` NDJSON + manifest(새 세대, `previous_sha256`), A3 감사(`events.hop_manifests_exported`, 고정점) | 같은 데이터면 같은 요약값 | [구현] 4-3b. 주기, 창이 닫힌 뒤 |
+| `verify_hops` | 세 구간의 manifest(+ 파이프라인 쪽 manifest), 세대 사슬, A3 고정점 | `hop_report` NDJSON + manifest(`--out`을 줄 때) | 읽기 전용 | [구현] 4-3c. manifest를 낸 뒤. 확정 불일치·검증 실패·사슬 오류·고정점 불일치는 비정상 종료, 지연 후보만 있으면 정상 종료 |
 
 ---
 
@@ -1152,6 +1176,8 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.22 | 2026-10-10 | Step 4-3 구현 반영: §5.6 구간별 manifest 계약을 실제 규칙으로(정규화 문서의 키·`event_id`·`produced_at` 형식, JCS와 숫자 표기의 한계, 줄 필드와 `unsent`, 파일·세대, `checkpoint` 필드, 대조 분류), §5.9의 4-3 작업을 [구현]으로, 감사 행동 `events.backfilled`·`events.hop_manifests_exported`, NDJSON 파일 종류 |
+| 0.21 | 2026-10-10 | Step 4-3 계획 반영: §5.9에 Step 4 작업(`relay_events`·`purge_sent_events`·`export_integrity`·`verify_ndjson`)과 4-3 작업(`backfill_events`·`export_hop_manifests`·`verify_hops`), §5.6에 구간별 manifest 계약(규칙 확정, 창 닫힘 여유 2분), 저장소 표의 NDJSON 파일 종류 |
 | 0.20 | 2026-10-10 | 외부 검토(Step 4-2 시점) 반영: NDJSON 게시를 불변 세대 파일 + manifest 포인터로, `checkpoint`는 범위 서술(재개 위치 아님), MongoDB 장애 문장을 보장과 관찰로 나눔, 뒤처진 상태 표시 정리(§5.1 C2, §4.2 P2 처리, L3 매체 키), 이벤트별 `produced_at` 기준(결정·접수·판정·과금)과 과금 이벤트의 원장 시각과의 차이 |
 | 0.19 | 2026-10-10 | Step 4(이벤트 내보내기) 반영: P3 outbox를 [구현]으로 하고 실제 열·색인을 적음, §5.6 이벤트 필드를 [제안]에서 구현으로 확정(이름 표기, 결정적 이벤트 ID, 메시지 키, 순서 비보장, 싣지 않는 값), D-6 해결(과금 이벤트가 `decision_id`를 실음), outbox 보존 7일, L2 데이터가 MongoDB에 쌓이는 점, R-2의 예외(outbox `event_id` UUIDv5), 반응 처리 순서도에 outbox |
 | 0.18 | 2026-10-10 | 콘솔 화면 행에 경로와 루트 주소 `/`(로그인 화면으로 임시 이동하는 공개 주소)를 추가 |
