@@ -1,6 +1,7 @@
 """Step 4-1e: 중계 — outbox 의 미전송 이벤트를 MongoDB `ad_events` 로 멱등 저장하고 `sent_at` 을 표시한다."""
 import datetime
 import io
+import signal
 import threading
 import uuid
 from datetime import timedelta
@@ -11,6 +12,7 @@ from django.core.management.base import CommandError
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase, override_settings, tag
 from django.utils import timezone
+from pymongo.errors import ServerSelectionTimeoutError
 
 from events import api as events
 from events import mongo, relay, store
@@ -232,6 +234,62 @@ class RelayCommandTests(RelayBase):
         self.assertFalse(self.run_command("--interval", "0")[0])
         self.assertFalse(self.run_command("--interval", "nan")[0])
 
+
+class StandingRelayTests(RelayBase):
+    """상시 중계(`--once` 없이)의 동작 중 다른 시험이 덮지 않는 것(계획 4-4e): 실패하면 점점 길게 쉬고(최대 30초) 성공하면 처음으로, 충돌이면 쉬지 않고 멈춤, 신호 처리기 복원."""
+
+    def run_standing(self, relay, stop_after_sleeps, interval="1"):
+        handlers, sleeps, err = {}, [], io.StringIO()
+
+        def capture(signum, handler):
+            handlers[signum] = handler
+            return signal.SIG_DFL
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == stop_after_sleeps:
+                handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+        with mock.patch("events.management.commands.relay_events.relay_batch", relay), \
+                mock.patch("events.management.commands.relay_events.signal.signal", capture), \
+                mock.patch("events.management.commands.relay_events.time.sleep", fake_sleep):
+            call_command("relay_events", "--interval", interval, stdout=io.StringIO(), stderr=err)
+        return sleeps, err.getvalue()
+
+    def test_failures_back_off_up_to_30_seconds_and_a_success_starts_over(self):
+        calls = []
+
+        def flaky(**kwargs):
+            calls.append(1)
+            if len(calls) <= 6 or len(calls) == 8:  # 여섯 번 실패 → 성공 → 다시 실패
+                raise ServerSelectionTimeoutError("down")
+            return relay_batch(**kwargs)
+
+        sleeps, err = self.run_standing(flaky, stop_after_sleeps=8)
+        self.assertEqual(sleeps, [2, 4, 8, 16, 30, 30, 1.0, 2])  # interval × 2^min(실패 횟수, 5), 최대 30초 / 성공하면 주기대로 쉬고 실패 횟수는 처음부터
+        self.assertEqual(err.count("이번 주기를 건너뛴다"), 7)
+        self.assertIn("(6번째, 30초 뒤 다시)", err)
+        self.assertIn("(1번째, 2초 뒤 다시)", err)
+
+    def test_the_interval_scales_the_back_off(self):
+        sleeps, _ = self.run_standing(mock.Mock(side_effect=ServerSelectionTimeoutError("down")), stop_after_sleeps=3, interval="0.25")
+        self.assertEqual(sleeps, [0.5, 1.0, 2.0])
+
+    def test_a_conflict_stops_the_standing_relay_without_retrying(self):
+        relay = mock.Mock(side_effect=EventConflict([uuid.uuid4()]))
+        with self.assertRaisesRegex(CommandError, "충돌로 중계를 멈춥니다"):
+            self.run_standing(relay, stop_after_sleeps=99)
+        self.assertEqual(relay.call_count, 1)  # 다시 시도하지 않는다
+
+    def test_the_previous_signal_handler_is_restored(self):
+        before = signal.getsignal(signal.SIGTERM)
+        call_command("relay_events", "--once", stdout=io.StringIO())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+        with mock.patch("events.management.commands.relay_events.relay_batch", side_effect=EventConflict([uuid.uuid4()])), \
+                mock.patch("events.management.commands.relay_events.time.sleep", side_effect=AssertionError("충돌이면 쉬지 않고 멈춰야 한다")), \
+                self.assertRaises(CommandError):  # (충돌 처리가 깨지면 이 시험이 매달리지 않고 실패한다)
+            call_command("relay_events", stdout=io.StringIO())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
 @tag("security")
 class PurgeTests(TestCase):
