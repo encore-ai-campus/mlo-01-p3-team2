@@ -1,4 +1,5 @@
 import inspect
+import uuid
 from datetime import timedelta
 
 from django.test import TestCase, tag
@@ -41,6 +42,12 @@ class SignupTests(TestCase):
         self.assertEqual(u.role, Role.ADVERTISER)
         self.assertFalse(u.is_superuser)
         self.assertFalse(u.is_staff)
+
+    def test_usernames_for_display(self):
+        from foundation.api import usernames
+
+        u = create_advertiser("name_lookup", PW, "닉네임", "1반")
+        self.assertEqual(usernames([u.pk, uuid.uuid4(), "not-a-uuid"]), {u.pk: "name_lookup"})  # 없는·형식이 틀린 ID 는 빠진다
 
     def test_service_has_no_role_parameter(self):
         self.assertNotIn("role", inspect.signature(create_advertiser).parameters)

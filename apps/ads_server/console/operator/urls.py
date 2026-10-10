@@ -12,5 +12,7 @@ urlpatterns = [
     path("media/<str:media_id>/keys/issue", views.key_issue, name="key_issue"),
     path("media/<str:media_id>/keys/rotate", views.key_rotate, name="key_rotate"),
     path("slots/<str:slot_id>/active", views.slot_active, name="slot_active"),
+    path("slots/<str:slot_id>/policy", views.slot_policy, name="slot_policy"),
+    path("policies/", views.policy_bulk, name="policy_bulk"),
     path("keys/<str:key_id>/revoke", views.key_revoke, name="key_revoke"),
 ]

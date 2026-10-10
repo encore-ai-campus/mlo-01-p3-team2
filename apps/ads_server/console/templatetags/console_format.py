@@ -24,3 +24,9 @@ def points(value):
     if value is None or value == "":
         return ""
     return f"{value:,} 포인트"
+
+
+@register.filter
+def get_item(mapping, key):
+    """사전에서 키로 꺼낸다(템플릿은 변수 키로 사전을 못 읽는다)."""
+    return mapping.get(key) if mapping else None

@@ -137,7 +137,7 @@ def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
     slot = _get_slot(slot_id)
     current = BidPolicy.objects.filter(slot=slot).order_by("-policy_version").first()
     if current.policy_version != expected_version:
-        raise errors.StaleVersion(f"현재 버전은 {current.policy_version} 입니다.")
+        raise errors.StaleVersion(f"{slot.name}: 다른 곳에서 먼저 바뀌었습니다(현재 버전 {current.policy_version}).")
     try:
         with transaction.atomic():
             policy = BidPolicy.objects.create(
@@ -172,6 +172,13 @@ def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
             _add_version(actor, slot_id, floor, base, cap, reason, version)
             for slot_id, version in expected_versions.items()
         ]
+
+
+def list_policy_versions(actor, slot_id):
+    """슬롯의 입찰 정책 이력(최신 버전부터). 관리자 화면용."""
+    require_admin(actor)
+    slot = _get_slot(slot_id)
+    return [_policy_view(p) for p in BidPolicy.objects.filter(slot=slot).order_by("-policy_version")]
 
 
 def set_slot_active(actor, slot_id, active):

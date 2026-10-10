@@ -60,6 +60,11 @@ def form_errors(form, error, pointers=None, image_field=None):
         form.add_error(None, message_of(error))
 
 
+def status_of(error):
+    """폼을 다시 그릴 때의 응답 코드: 상태 충돌(낙관적 잠금 등)은 409, 그 밖의 입력 오류는 400."""
+    return error.status if isinstance(error, errors.ApiError) else 400
+
+
 def message_of(error):
     """폼이 없는 동작(목록의 버튼 등)의 결과 메시지 한 줄."""
     _not_shown(error)

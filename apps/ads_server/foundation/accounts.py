@@ -10,7 +10,7 @@ from django.db import IntegrityError, transaction
 from .access import require_advertiser
 from .audit import record_audit
 from .models import Role, User
-from .validators import clean_class_label, clean_nickname, validate_username
+from .validators import clean_class_label, clean_nickname, parse_uuids, validate_username
 
 
 def create_advertiser(username, password, nickname, class_label):
@@ -62,6 +62,11 @@ class ProfileView:
 
 def _profile_view(user):
     return ProfileView(user.pk, user.username, user.nickname, user.class_label, user.created_at)
+
+
+def usernames(user_ids):
+    """표시용 아이디(질의 한 번). 없는·형식이 틀린 ID 는 결과에 없다. 이력의 `changed_by` 같은 사용자 ID 를 화면에 보일 때 쓴다."""
+    return dict(User.objects.filter(pk__in=parse_uuids(user_ids)).values_list("pk", "username"))
 
 
 def update_profile(user, nickname=None, class_label=None):

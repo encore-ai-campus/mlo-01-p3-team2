@@ -10,8 +10,10 @@ from django.views.decorators.http import require_POST
 from masters import api as masters
 
 from .. import once
-from ..errors import HANDLED, fetch, form_errors, message_of
-from .forms import KeyIssueForm, KeyRotateForm, MediaForm, SlotForm
+from foundation.api import usernames
+
+from ..errors import HANDLED, fetch, form_errors, message_of, status_of
+from .forms import BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, SlotForm
 
 
 def _render(request, template, title, status=200, **context):
@@ -77,6 +79,46 @@ def slot_active(request, slot_id):
     except HANDLED as e:
         messages.error(request, message_of(e))
     return redirect("operator:media_detail", media_id=slot.media_id)
+
+
+def slot_policy(request, slot_id):
+    """슬롯 하나의 입찰 정책 새 버전(Step 3-1b). 폼은 현재값으로 시작하고, 본 버전을 숨김 칸으로 실어 그 사이 바뀌었으면 거절된다."""
+    slot = fetch(masters.get_slot, slot_id)
+    current = slot.policy
+    form = PolicyForm(request.POST or None, initial={
+        "floor": current.floor, "base": current.base, "cap": current.cap, "expected_version": current.policy_version,
+    })
+    status = 200
+    if request.method == "POST" and form.is_valid():
+        try:
+            masters.add_policy_version(request.user, slot.slot_id, **form.cleaned_data)
+        except HANDLED as e:
+            form_errors(form, e)
+            status = status_of(e)
+        else:
+            messages.success(request, f"‘{slot.name}’의 입찰 정책을 새 버전으로 바꿨습니다.")
+            return redirect("operator:slot_policy", slot_id=slot.slot_id)
+    history = masters.list_policy_versions(request.user, slot.slot_id)
+    return _render(request, "operator/slot_policy.html", f"입찰 정책: {slot.name}", status=400 if status == 200 and form.errors else status,
+                   slot=slot, form=form, history=history, names=usernames([p.changed_by for p in history]))
+
+
+def policy_bulk(request):
+    """여러 슬롯에 같은 값으로 새 버전(Step 3-1b). 하나라도 어긋나면 전부 취소된다(서비스가 한 트랜잭션)."""
+    form = BulkPolicyForm(request.POST or None)
+    status = 200
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            changed = masters.add_policy_version_bulk(request.user, data["slots"], data["floor"], data["base"], data["cap"], data["reason"])
+        except HANDLED as e:
+            form_errors(form, e)
+            status = status_of(e)
+        else:
+            messages.success(request, f"게재 위치 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
+            return redirect("operator:policy_bulk")
+    return _render(request, "operator/policy_bulk.html", "입찰 정책 일괄 변경", status=400 if status == 200 and form.errors else status,
+                   slots=masters.list_slots(active_only=False), form=form)
 
 
 def _issue_key(request, media_id, form_class, issue):

@@ -144,6 +144,21 @@ class PolicyServiceTests(TestCase):
             with self.assertRaises(NotFound):
                 api.get_media(self.admin, missing)
 
+    def test_policy_history_newest_first(self):
+        slot = new_slot(self.admin)
+        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "버전 2", expected_version=1)
+        history = api.list_policy_versions(self.admin, slot.slot_id)
+        self.assertEqual([(p.policy_version, p.floor, p.reason) for p in history], [(2, 11, "버전 2"), (1, 10, "초기 설정")])
+        with self.assertRaises(NotFound):
+            api.list_policy_versions(self.admin, uuid.uuid4())
+
+    def test_a_stale_bulk_change_names_the_slot(self):
+        """일괄 변경이 충돌로 전부 취소될 때 어느 게재 위치 때문인지 알 수 있다."""
+        a, b = new_slot(self.admin, name="첫 배너"), new_slot(self.admin, name="둘째 배너")
+        with self.assertRaises(StaleVersion) as e:
+            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 5}, 5, 6, 7, "일괄")
+        self.assertIn("둘째 배너", str(e.exception.detail))
+
     def test_list_slots_filters_by_media(self):
         a, b = new_slot(self.admin), new_slot(self.admin)
         self.assertEqual([s.slot_id for s in api.list_slots(media_id=a.media_id)], [a.slot_id])
@@ -190,6 +205,7 @@ class MastersAuthorizationAndAuditTests(TestCase):
             lambda: api.add_policy_version_bulk(actor, {s.slot_id: 1}, 1, 2, 3, "사유"),
             lambda: api.set_slot_active(actor, s.slot_id, False),
             lambda: api.list_media(actor),
+            lambda: api.list_policy_versions(actor, s.slot_id),
             lambda: api.get_media(actor, s.media_id),
         ]
 

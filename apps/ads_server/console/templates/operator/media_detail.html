@@ -14,7 +14,7 @@
         <td>{{ s.name }}</td>
         <td>{{ s.pricing_unit|unit_label }}</td>
         <td>{{ s.audience|audience_label }}</td>
-        <td>{{ s.policy.floor|points }} / {{ s.policy.base|points }} / {{ s.policy.cap|points }} (버전 {{ s.policy.policy_version }})</td>
+        <td>{{ s.policy.floor|points }} / {{ s.policy.base|points }} / {{ s.policy.cap|points }} (버전 {{ s.policy.policy_version }}) · <a href="{% url 'operator:slot_policy' s.slot_id %}">바꾸기·이력</a></td>
         <td>{% if s.is_active %}활성{% else %}비활성{% endif %}</td>
         <td>
           <form method="post" action="{% url 'operator:slot_active' s.slot_id %}">{% csrf_token %}
