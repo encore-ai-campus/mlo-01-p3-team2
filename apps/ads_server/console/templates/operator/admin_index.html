@@ -1,0 +1,13 @@
+{% extends "admin/index.html" %}
+{# 관리자 첫 화면에 운영 동작(서비스를 부르는 화면)을 먼저 보인다. 모델 목록은 읽기 전용이다. #}
+{% block content %}
+<div id="content-main">
+  <div class="module">
+    <table>
+      <caption>운영 동작</caption>
+      <tr><th scope="row"><a href="{% url 'operator:media_list' %}">매체 · 게재 위치 · 매체 키</a></th><td></td></tr>
+    </table>
+  </div>
+</div>
+{{ block.super }}
+{% endblock %}

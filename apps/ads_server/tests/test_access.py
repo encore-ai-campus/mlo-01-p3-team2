@@ -62,7 +62,7 @@ class UrlSweepTests(SimpleTestCase):
 
     def test_admin_site_is_mounted_under_a_role_prefix(self):
         paths = [p for p, cb in iter_routes(get_resolver().url_patterns) if cb is None]
-        self.assertEqual(paths, ["/" + settings.ADMIN_URL_PATH])
+        self.assertEqual(paths, ["/" + settings.ADMIN_URL_PATH + "operator/", "/" + settings.ADMIN_URL_PATH])  # 운영 화면(Step 3-1)도 관리자 경로 아래
 
 
 @tag("security")

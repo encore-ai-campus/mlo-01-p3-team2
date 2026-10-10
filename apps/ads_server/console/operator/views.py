@@ -1,0 +1,122 @@
+"""관리자 운영 화면(Step 3-1a: 매체·슬롯·키). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 masters 서비스, 예외의 화면 변환은 console/errors.
+
+화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
+예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 한 번 쓰는 폼 토큰으로 다시 제출을 막는다.
+"""
+from django.contrib import admin, messages
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
+
+from masters import api as masters
+
+from .. import once
+from ..errors import HANDLED, fetch, form_errors, message_of
+from .forms import KeyIssueForm, KeyRotateForm, MediaForm, SlotForm
+
+
+def _render(request, template, title, status=200, **context):
+    return render(request, template, {**admin.site.each_context(request), "title": title, **context}, status=status)
+
+
+def media_list(request):
+    form = MediaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            media = masters.create_media(request.user, form.cleaned_data["name"])
+        except HANDLED as e:
+            form_errors(form, e)
+        else:
+            messages.success(request, f"매체 ‘{media.name}’을(를) 등록했습니다.")
+            return redirect("operator:media_list")
+    return _render(request, "operator/media_list.html", "매체", status=400 if form.errors else 200,
+                   media=masters.list_media(request.user), form=form)
+
+
+def _detail(request, media_id, status=200, slot_form=None):
+    media = fetch(masters.get_media, request.user, media_id)
+    return _render(
+        request, "operator/media_detail.html", f"매체: {media.name}", status=status, media=media,
+        slots=masters.list_slots(active_only=False, media_id=media.media_id), keys=masters.list_media_keys(request.user, media.media_id),
+        slot_form=slot_form or SlotForm(), issue_form=KeyIssueForm(), rotate_form=KeyRotateForm(),
+        issue_once=once.issue(request, f"key:{media.media_id}"), rotate_once=once.issue(request, f"key:{media.media_id}"),
+    )
+
+
+def media_detail(request, media_id):
+    return _detail(request, media_id)
+
+
+@require_POST
+def media_active(request, media_id):
+    try:
+        masters.set_media_active(request.user, media_id, request.POST.get("active") == "1")
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    return redirect("operator:media_list")
+
+
+@require_POST
+def slot_create(request, media_id):
+    form = SlotForm(request.POST)
+    if form.is_valid():
+        try:
+            masters.create_slot(request.user, media_id, **form.cleaned_data)
+        except HANDLED as e:
+            form_errors(form, e)
+        else:
+            messages.success(request, f"게재 위치 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
+            return redirect("operator:media_detail", media_id=media_id)
+    return _detail(request, media_id, status=400, slot_form=form)
+
+
+@require_POST
+def slot_active(request, slot_id):
+    slot = fetch(masters.get_slot, slot_id)
+    try:
+        masters.set_slot_active(request.user, slot.slot_id, request.POST.get("active") == "1")
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    return redirect("operator:media_detail", media_id=slot.media_id)
+
+
+def _issue_key(request, media_id, form_class, issue):
+    media = fetch(masters.get_media, request.user, media_id)
+    if not once.consume(request, f"key:{media.media_id}", request.POST.get("once")):
+        messages.warning(request, "이미 처리했거나 오래된 요청입니다. 키가 더 필요하면 다시 발급하세요.")
+        return redirect("operator:media_detail", media_id=media.media_id)
+    form = form_class(request.POST)
+    if form.is_valid():
+        try:
+            issued = issue(media, form.cleaned_data)
+        except HANDLED as e:
+            messages.error(request, message_of(e))
+        else:
+            response = _render(request, "operator/key_issued.html", "발급한 매체 키", media=media, issued=issued)
+            response["Cache-Control"] = "no-store"  # 평문 키가 든 유일한 응답: 어디에도 남기지 않는다
+            return response
+    else:
+        messages.error(request, "입력이 올바르지 않습니다.")
+    return redirect("operator:media_detail", media_id=media.media_id)
+
+
+@require_POST
+def key_issue(request, media_id):
+    return _issue_key(request, media_id, KeyIssueForm, lambda media, data: masters.issue_media_key(request.user, media.media_id, data["label"]))
+
+
+@require_POST
+def key_rotate(request, media_id):
+    return _issue_key(request, media_id, KeyRotateForm,
+                      lambda media, data: masters.rotate_media_key(request.user, media.media_id, data["grace_seconds"], data["label"]))
+
+
+@require_POST
+def key_revoke(request, key_id):
+    media = fetch(masters.get_media, request.user, request.POST.get("media_id"))
+    try:
+        masters.revoke_media_key(request.user, key_id)
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        messages.success(request, "키를 폐기했습니다.")
+    return redirect("operator:media_detail", media_id=media.media_id)

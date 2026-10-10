@@ -1,6 +1,21 @@
 from django import template
 
+from masters.api import Audience, PricingUnit
+
 register = template.Library()
+_UNITS, _AUDIENCES = dict(PricingUnit.choices), dict(Audience.choices)
+
+
+@register.filter
+def unit_label(value):
+    """과금 단위 코드 → 화면 이름(노출·클릭·전환)."""
+    return _UNITS.get(value, value)
+
+
+@register.filter
+def audience_label(value):
+    """슬롯 성격 코드 → 화면 이름(개인·일괄)."""
+    return _AUDIENCES.get(value, value)
 
 
 @register.filter

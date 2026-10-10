@@ -135,6 +135,15 @@ class PolicyServiceTests(TestCase):
         with self.assertRaises(NotFound):
             api.set_media_active(self.admin, uuid.uuid4(), True)
 
+    def test_list_and_get_media_for_the_operator_screens(self):
+        a, b = api.create_media(self.admin, "나 매체"), api.create_media(self.admin, "가 매체")
+        api.set_media_active(self.admin, a.media_id, False)
+        self.assertEqual([m.name for m in api.list_media(self.admin)], ["가 매체", "나 매체"])  # 이름순, 비활성 포함
+        self.assertEqual(api.get_media(self.admin, a.media_id), dataclasses.replace(a, is_active=False))
+        for missing in (uuid.uuid4(), "not-a-uuid"):
+            with self.assertRaises(NotFound):
+                api.get_media(self.admin, missing)
+
     def test_list_slots_filters_by_media(self):
         a, b = new_slot(self.admin), new_slot(self.admin)
         self.assertEqual([s.slot_id for s in api.list_slots(media_id=a.media_id)], [a.slot_id])
@@ -180,6 +189,8 @@ class MastersAuthorizationAndAuditTests(TestCase):
             lambda: api.add_policy_version(actor, s.slot_id, 1, 2, 3, "사유", expected_version=1),
             lambda: api.add_policy_version_bulk(actor, {s.slot_id: 1}, 1, 2, 3, "사유"),
             lambda: api.set_slot_active(actor, s.slot_id, False),
+            lambda: api.list_media(actor),
+            lambda: api.get_media(actor, s.media_id),
         ]
 
     def test_non_admin_actor_rejected(self):

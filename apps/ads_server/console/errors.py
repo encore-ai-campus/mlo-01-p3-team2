@@ -10,6 +10,18 @@ from assets.api import ImageRejected
 from foundation.api import errors
 
 
+HANDLED = (ValidationError, ImageRejected, errors.ApiError)  # 뷰가 잡아서 여기로 넘기는 예외(그 밖의 것은 버그라 잡지 않는다)
+
+
+def fetch(read, *args, **kwargs):
+    """화면을 그리려고 읽는 서비스 호출. 없음·권한 없음은 404·403 응답으로 바꾼다."""
+    try:
+        return read(*args, **kwargs)
+    except errors.ApiError as e:
+        _not_shown(e)
+        raise
+
+
 def _not_shown(error):
     """화면에 적지 않을 예외면 알맞게 던진다."""
     if isinstance(error, errors.NotFound):

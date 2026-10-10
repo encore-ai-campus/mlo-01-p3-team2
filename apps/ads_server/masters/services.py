@@ -74,6 +74,20 @@ def create_media(actor, name):
     return _media_view(media)
 
 
+def list_media(actor):
+    """관리자 화면용 매체 목록(비활성 포함, 이름순)."""
+    require_admin(actor)
+    return [_media_view(m) for m in Media.objects.order_by("name")]
+
+
+def get_media(actor, media_id):
+    require_admin(actor)
+    try:
+        return _media_view(Media.objects.get(pk=parse_uuid(media_id, "매체")))
+    except Media.DoesNotExist:
+        raise errors.NotFound("매체를 찾을 수 없습니다.")
+
+
 def set_media_active(actor, media_id, active):
     require_admin(actor)
     media_id = parse_uuid(media_id, "매체")
