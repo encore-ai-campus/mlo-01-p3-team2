@@ -52,8 +52,8 @@ python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제
 기본 게이트는 단일 노드 MySQL에서 도는 `scripts/check.sh`다. 운영 후보 구성인 **InnoDB Cluster**(MySQL 3노드 그룹 복제, 단일 primary, 자동 failover + MySQL Router)에서 같은 점검을 돌릴 때는 아래를 쓴다(Docker 필요, 수 분).
 
 ```bash
-scripts/cluster_check.sh              # 클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
-scripts/cluster_check.sh --failure    # 거기에 클러스터 장애 시험 8개(자체 클러스터를 따로 띄운다)
+env -u DB_NAME scripts/cluster_check.sh              # 클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
+env -u DB_NAME scripts/cluster_check.sh --failure    # 거기에 클러스터 장애 시험 8개(자체 클러스터를 따로 띄운다)
 eval "$(python scripts/mysql_cluster.py start)"   # 손으로 띄우기: MYSQL_CLUSTER_ID·DB_HOST·DB_PORT(Router 포트)·DB_USER·DB_PASSWORD 를 export
 python scripts/mysql_cluster.py status "$MYSQL_CLUSTER_ID"
 python scripts/mysql_cluster.py stop "$MYSQL_CLUSTER_ID"
@@ -63,6 +63,7 @@ python scripts/failure_test.py --mysql cluster primary-kill switchover   # 클�
 - **이미지** `ads-innodb-cluster:8.4`(`docker/innodb-cluster/`, 처음 한 번 빌드에 수 분): 서버 8.4.11(인프라 이미지와 같은 generic tarball), Shell·Router 8.4.10(arm64 tarball이 8.4.10까지).
 - **구성**: 노드 3개(GTID·ROW 바이너리 로그, 일관성 `BEFORE_ON_PRIMARY_FAILOVER`, `expelTimeout` 5초, 자동 재합류) + Router 1대. 앱은 **Router 읽기·쓰기 포트로만** 접속한다. 계정은 운영처럼 나눈다: `root`(노드 안), `failover`(클러스터 관리), `router`(부트스트랩이 만듦), `dev`(앱·시험).
 - 포트·비밀번호는 무작위이고 공유 컨테이너(`db-standalone-*`)는 건드리지 않는다. 시험이 실패해도 클러스터 컨테이너와 네트워크를 지운다. `cluster_check.sh`는 시작 전에 환경에 남은 이전 클러스터 값을 비우고, 기동 명령의 종료 코드를 직접 확인한다. 기동에 실패하면 후속 시험 없이 비정상 종료하고, 정리는 **이번 실행이 만든 클러스터에만** 건다(이전 ID를 지우지 않는다).
+- `env -u DB_NAME`: 클러스터에는 `ads_server` 데이터베이스만 만들어지고, `cluster_check.sh`가 비우는 값은 접속 값(`DB_HOST`·`DB_PORT`·`DB_USER`·`DB_PASSWORD`)뿐이다. 동시 시험 때문에 셸에 `DB_NAME`을 따로 정해 두었다면 빼고 돌린다(클러스터는 따로 띄우므로 이름을 나눌 필요가 없다).
 - **장애 시나리오**: `primary-kill`(자동 failover 뒤 죽은 노드 재합류), `primary-restart`, `switchover`(계획된 전환), `secondary-kill`, `router-restart`, `processor-kill`, `mongo-restart`, `relay-kill`. 끝에서 모든 노드 ONLINE·primary 하나·모든 노드의 GTID 집합과 표별 행 수가 같은지 확인한다.
 - **그룹 복제는 기본 키 없는 표를 거부한다**(오류 3098). 시험에서 표를 만들 때도 기본 키를 둔다. 결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md) §9, 전제는 설계 §10 "그룹 복제(InnoDB Cluster) 전제".
 
