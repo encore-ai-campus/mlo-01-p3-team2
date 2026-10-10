@@ -62,7 +62,7 @@ python scripts/failure_test.py --mysql cluster primary-kill switchover   # 클�
 
 - **이미지** `ads-innodb-cluster:8.4`(`docker/innodb-cluster/`, 처음 한 번 빌드에 수 분): 서버 8.4.11(인프라 이미지와 같은 generic tarball), Shell·Router 8.4.10(arm64 tarball이 8.4.10까지).
 - **구성**: 노드 3개(GTID·ROW 바이너리 로그, 일관성 `BEFORE_ON_PRIMARY_FAILOVER`, `expelTimeout` 5초, 자동 재합류) + Router 1대. 앱은 **Router 읽기·쓰기 포트로만** 접속한다. 계정은 운영처럼 나눈다: `root`(노드 안), `failover`(클러스터 관리), `router`(부트스트랩이 만듦), `dev`(앱·시험).
-- 포트·비밀번호는 무작위이고 공유 컨테이너(`db-standalone-*`)는 건드리지 않는다. 실패해도 클러스터 컨테이너와 네트워크를 지운다.
+- 포트·비밀번호는 무작위이고 공유 컨테이너(`db-standalone-*`)는 건드리지 않는다. 시험이 실패해도 클러스터 컨테이너와 네트워크를 지운다. `cluster_check.sh`는 시작 전에 환경에 남은 이전 클러스터 값을 비우고, 기동 명령의 종료 코드를 직접 확인한다. 기동에 실패하면 후속 시험 없이 비정상 종료하고, 정리는 **이번 실행이 만든 클러스터에만** 건다(이전 ID를 지우지 않는다).
 - **장애 시나리오**: `primary-kill`(자동 failover 뒤 죽은 노드 재합류), `primary-restart`, `switchover`(계획된 전환), `secondary-kill`, `router-restart`, `processor-kill`, `mongo-restart`, `relay-kill`. 끝에서 모든 노드 ONLINE·primary 하나·모든 노드의 GTID 집합과 표별 행 수가 같은지 확인한다.
 - **그룹 복제는 기본 키 없는 표를 거부한다**(오류 3098). 시험에서 표를 만들 때도 기본 키를 둔다. 결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md) §9, 전제는 설계 §10 "그룹 복제(InnoDB Cluster) 전제".
 
