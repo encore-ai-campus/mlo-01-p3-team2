@@ -182,7 +182,11 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
 
 
 def _expected_events():
-    """원본 행에서 **독립적으로** 다시 만든 이벤트: {event_id: (이벤트 이름, 메시지 키, 페이로드)}. 형식은 `events.schemas` 의 빌더를 쓰되 값은 원본 행에서 직접 옮긴다."""
+    """원본 행에서 **독립적으로** 다시 만든 이벤트: {event_id: (이벤트 이름, 메시지 키, 페이로드, 생성 시각)}. 형식은 `events.schemas` 의 빌더를 쓰되 값은 원본 행에서 직접 옮긴다.
+
+    생성 시각(`produced_at`)은 이벤트 종류마다 생성 규약이 정한 원본 시각이다: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각(`processed_at`),
+    과금 = 그 과금을 일으킨 반응의 처리 시각(과금과 판정은 같은 처리 트랜잭션의 같은 `now` 를 쓴다).
+    """
     from billing.budget_day import budget_day_of
     from billing.models import LedgerEntry
     from events import schemas
@@ -194,22 +198,23 @@ def _expected_events():
             "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
             "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
         }
-        expected[schemas.event_id_of(schemas.DECISION, d.decision_id)] = (schemas.DECISION, d.decision_id, schemas.decision_payload(
+        expected[schemas.event_id_of(schemas.DECISION, d.decision_id)] = (schemas.DECISION, d.decision_id, d.decided_at, schemas.decision_payload(
             decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, decided_at=d.decided_at, audience=d.audience, subject_id=d.subject_id,
             selected=selected, selection_policy=d.selection_policy, candidate_count=d.candidate_count, rejected_counts=d.rejected_counts,
         ))
-    decision_of = {}
+    decision_of, processed_of = {}, {}
     for r in Reaction.objects.all():
         decision_of[f"{r.media_id}:{r.reaction_id}"] = r.decision_id
+        processed_of[f"{r.media_id}:{r.reaction_id}"] = r.processed_at
         common = dict(inbox_id=r.inbox_id, reaction_id=r.reaction_id, media_id=r.media_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at,
                       received_at=r.received_at, subject_id=r.subject_id, source=r.source)
-        expected[schemas.event_id_of(schemas.REACTION_RECEIVED, r.inbox_id)] = (schemas.REACTION_RECEIVED, r.decision_id, schemas.reaction_received_payload(raw=r.raw, **common))
+        expected[schemas.event_id_of(schemas.REACTION_RECEIVED, r.inbox_id)] = (schemas.REACTION_RECEIVED, r.decision_id, r.received_at, schemas.reaction_received_payload(raw=r.raw, **common))
         if r.status != "RECEIVED":
-            expected[schemas.event_id_of(schemas.REACTION, r.inbox_id)] = (schemas.REACTION, r.decision_id, schemas.reaction_payload(
+            expected[schemas.event_id_of(schemas.REACTION, r.inbox_id)] = (schemas.REACTION, r.decision_id, r.processed_at, schemas.reaction_payload(
                 status=r.status, reason_code=r.reason_code, applied_rule=r.applied_rule, basis=r.basis, **common))
     for e in LedgerEntry.objects.filter(entry_type="CHARGE"):
         decision_id = decision_of.get(e.reaction_ref)  # 원장의 멱등 키(<매체>:<reaction_id>)로 반응을 거쳐 결정을 찾는다
-        expected[schemas.event_id_of(schemas.CHARGE, e.entry_id)] = (schemas.CHARGE, decision_id, schemas.charge_payload(
+        expected[schemas.event_id_of(schemas.CHARGE, e.entry_id)] = (schemas.CHARGE, decision_id, processed_of.get(e.reaction_ref), schemas.charge_payload(
             entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, created_at=e.created_at, reaction_ref=e.reaction_ref, decision_id=decision_id,
             requested_amount=-e.amount + e.shortfall, charged_amount=-e.amount, shortfall=e.shortfall, budget_day=budget_day_of(e.created_at),
         ))
@@ -224,11 +229,11 @@ def _differing_keys(stored, wanted):
 def verify_events(relayed=False):
     """이벤트 검증(Step 4). 어긋난 곳의 설명 목록(맞으면 빈 목록).
 
-    ① 원본 행 ↔ outbox: 이벤트가 **정확히 하나**씩 있고(빠짐·남음), 내용(이벤트 이름·메시지 키·**페이로드 전체**)이 원본 행에서 다시 만든 것과 JSON 타입까지 같다.
+    ① 원본 행 ↔ outbox: 이벤트가 **정확히 하나**씩 있고(빠짐·남음), 내용(이벤트 이름·메시지 키·**봉투의 스키마 버전·생성 시각**·**페이로드 전체**)이 원본 행에서 다시 만든 것과 JSON 타입까지 같다.
     ② `relayed`(중계가 모두 끝난 시점): 미전송 0, MongoDB 의 ID 집합 = outbox, 그리고 **MongoDB 문서 전체(봉투 + 페이로드)가 outbox 와 같다**.
     outbox 와 MongoDB 를 같은 잘못된 값으로 바꿔도 ①이 잡고, MongoDB 만 바꿔도 ②가 잡는다.
     """
-    from events import relay, store
+    from events import relay, schemas, store
     from events.models import EventOutbox
 
     expected = _expected_events()
@@ -240,10 +245,12 @@ def verify_events(relayed=False):
         problems.append(f"원본 행이 없는 이벤트 {len(outbox.keys() - expected.keys())}건")
     wrong = {}
     for event_id in expected.keys() & outbox.keys():
-        name, key, payload = expected[event_id]
+        name, key, produced_at, payload = expected[event_id]
         row = outbox[event_id]
-        if (row.event_name, row.aggregate_id) != (name, key) or not relay.same_document({"p": row.payload}, {"p": payload}):
-            wrong.setdefault(name, []).append((event_id, _differing_keys(row.payload, payload)))
+        envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSION), "produced_at": (row.created_at, produced_at)}
+        bad_envelope = [k for k, (got, want) in envelope.items() if got != want]
+        if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not relay.same_document({"p": row.payload}, {"p": payload}):
+            wrong.setdefault(name, []).append((event_id, bad_envelope + (_differing_keys(row.payload, payload) if not relay.same_document({"p": row.payload}, {"p": payload}) else [])))
     for name, items in sorted(wrong.items()):
         problems.append(f"원본 행과 내용이 다른 {name} 이벤트 {len(items)}건 (예: {items[0][0]} 의 {items[0][1]})")
     if relayed:

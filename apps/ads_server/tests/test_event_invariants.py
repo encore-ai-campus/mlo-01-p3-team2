@@ -1,4 +1,5 @@
 """부하·장애 시험의 **이벤트 검사기 자체**(`scripts/load_test.py` 의 `verify_events`)를 시험한다: 일대일이면 통과시키고, 빠진 이벤트·남는 이벤트·미전송·MongoDB 불일치를 잡는다."""
+import datetime
 import importlib.util
 import uuid
 from pathlib import Path
@@ -68,7 +69,7 @@ class EventContentTests(MongoDatabaseMixin, TestCase):
         w = World()
         decision = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         view, _ = records.receive_reaction(w.slot.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)
-        records.process_reaction(view.inbox_id, now=NOW)
+        records.process_reaction(view.inbox_id, now=NOW + datetime.timedelta(seconds=7))  # 처리 시각이 수신 시각과 다르다 — 이벤트 생성 시각의 기준을 구분해 본다
         relay_batch()
 
     def problems(self):
@@ -136,3 +137,46 @@ class EventContentTests(MongoDatabaseMixin, TestCase):
         row = EventOutbox.objects.get(event_name="ad.decision")
         store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": 2}})
         self.assertIn("MongoDB 문서가 outbox 와 내용이 다른 이벤트 1건", " ".join(self.problems()))
+
+    def test_envelope_changed_identically_in_outbox_and_mongodb_is_caught(self):
+        """재검토 재현: outbox 와 MongoDB 의 봉투를 같은 잘못된 값으로 바꾸면 두 사본의 비교는 통과한다 — 현재 계약·원본 시각과 맞는지는 원본 대조가 본다."""
+        from events import schemas
+
+        for name in ("ad.decision", "ad.reaction_received", "ad.reaction", "ad.charge"):
+            with self.subTest(name=name, field="schema_version"):
+                row = EventOutbox.objects.get(event_name=name)
+                EventOutbox.objects.filter(pk=row.pk).update(schema_version=9999)
+                store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": 9999}})
+                problems = " ".join(self.problems())
+                self.assertIn(f"원본 행과 내용이 다른 {name} 이벤트 1건", problems)
+                self.assertIn("schema_version", problems)
+                self.assertNotIn("MongoDB 문서가 outbox 와", problems)  # 두 사본은 서로 같다
+                EventOutbox.objects.filter(pk=row.pk).update(schema_version=schemas.SCHEMA_VERSION)
+                store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": schemas.SCHEMA_VERSION}})
+                self.assertEqual(self.problems(), [])
+            with self.subTest(name=name, field="produced_at"):
+                row = EventOutbox.objects.get(event_name=name)
+                later = row.created_at + datetime.timedelta(days=1)
+                EventOutbox.objects.filter(pk=row.pk).update(created_at=later)
+                store.collection().update_one({"_id": row.event_id}, {"$set": {"produced_at": later.replace(microsecond=later.microsecond // 1000 * 1000)}})
+                problems = " ".join(self.problems())
+                self.assertIn(f"원본 행과 내용이 다른 {name} 이벤트 1건", problems)
+                self.assertIn("produced_at", problems)
+                self.assertNotIn("MongoDB 문서가 outbox 와", problems)
+                EventOutbox.objects.filter(pk=row.pk).update(created_at=row.created_at)
+                store.collection().update_one({"_id": row.event_id}, {"$set": {"produced_at": row.created_at.replace(microsecond=row.created_at.microsecond // 1000 * 1000)}})
+                self.assertEqual(self.problems(), [])
+
+    def test_the_envelope_time_is_the_origin_time_per_kind(self):
+        """생성 시각의 기준: 결정 = 결정 시각, 접수 = 수신 시각, 판정·과금 = 처리 시각."""
+        from billing.models import LedgerEntry
+        from records.models import Decision, Reaction
+
+        decision, reaction = Decision.objects.get(), Reaction.objects.get()
+        created = {e.event_name: e.created_at for e in EventOutbox.objects.all()}
+        self.assertEqual(created["ad.decision"], decision.decided_at)
+        self.assertEqual(created["ad.reaction_received"], reaction.received_at)
+        self.assertEqual(created["ad.reaction"], reaction.processed_at)
+        self.assertEqual(created["ad.charge"], reaction.processed_at)
+        self.assertNotEqual(reaction.processed_at, reaction.received_at)
+        self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").created_at, reaction.received_at)  # (원장 시각은 수신 시각 — 과금 이벤트의 기준과 다르다)
