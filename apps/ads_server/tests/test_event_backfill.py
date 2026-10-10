@@ -264,6 +264,12 @@ class BackfillTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(result.counts()["written"], 2)
         self.assertEqual(snapshot(EventOutbox.objects.all()), self.live)
 
+    def test_each_chunk_has_its_own_audit_entry_numbered_from_zero(self):
+        self.wipe()
+        records.backfill_events(self.gaps_manifest(), apply=True, chunk=3)  # 4건 → 3 + 1(덜 찬 마지막 청크)
+        audits = AuditLog.objects.filter(action="events.backfilled").order_by("created_at", "log_id")
+        self.assertEqual([(a.detail["chunk"], a.detail["written"]) for a in audits], [(0, 3), (1, 1)])
+
     def test_the_audit_log_records_the_input_and_the_counts(self):
         self.wipe()
         manifest = self.gaps_manifest()
