@@ -1,6 +1,6 @@
 """foundation 의 외부 공개 면. 다른 모듈은 이 파일만 import 한다(설계 R2)."""
 from .access import owned_or_404, owned_queryset, require_admin, require_advertiser
-from .accounts import create_advertiser
+from .accounts import ProfileView, change_password, create_advertiser, update_profile
 from .admin_site import ReadOnlyAdmin
 from .dberrors import is_transient_lock_error, is_unique_violation
 from .audit import latest_detail as latest_audit_detail, record_audit
@@ -12,7 +12,7 @@ from .signup_limit import SignupRateLimited, register_attempt
 from .validators import MAX_AMOUNT, clean_text, parse_uuid, parse_uuids
 
 __all__ = [
-    "create_advertiser", "Role", "User", "client_ip", "SignupRateLimited", "register_attempt",
+    "create_advertiser", "ProfileView", "update_profile", "change_password", "Role", "User", "client_ip", "SignupRateLimited", "register_attempt",
     "owned_or_404", "owned_queryset", "require_admin", "require_advertiser", "is_unique_violation", "is_transient_lock_error", "json_depth", "parse_json",
     "errors", "record_audit", "latest_audit_detail", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError", "clean_text", "parse_uuid", "parse_uuids", "ReadOnlyAdmin",
 ]
