@@ -85,12 +85,26 @@ def _process(inbox_id, now):
         basis = judgment_basis.build(facts, rule=verdict[0], reason=verdict[1], person=person, judged_at=now)
         _finish(row, ReactionStatus.REJECTED, now, basis, reason=verdict[1], rule=verdict[0])
         return ReactionStatus.REJECTED
-    billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
+    charge = billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
         decision.owner_id, decision.campaign_id, row.type, decision.pricing_unit, decision.applied_amount,
         reaction_ref(row.media_id, row.reaction_id), now=row.received_at,
     )
+    if charge is not None:
+        _record_charge_event(charge, row, now)
     _finish(row, ReactionStatus.ACCEPTED, now, judgment_basis.build(facts, rule=None, reason=None, person=person, judged_at=now), person=person)
     return ReactionStatus.ACCEPTED
+
+
+def _record_charge_event(charge, row, now):
+    """과금 이벤트(`ad.charge`): 원장 `CHARGE` 한 줄마다 한 건, 과금과 **같은 트랜잭션**에서. 과금은 이 파일에서만 일어나므로(경계 검사) 원장에 이벤트 없는 `CHARGE` 가 생기지 않는다.
+    결정 ID 는 원장에 열을 더하지 않고 이 반응의 결정에서 가져온다(원장은 추가 전용이고 결정은 반응이 알고 있다). 이미 과금된 반응을 다시 처리한 경우(`duplicate`)에도
+    같은 이벤트 ID 라 한 줄만 남는다."""
+    entry = charge.entry
+    events.record_charge(
+        now=now, entry_id=entry.entry_id, campaign_id=entry.campaign_id, charge_policy=entry.charge_policy, created_at=entry.created_at,
+        reaction_ref=reaction_ref(row.media_id, row.reaction_id), decision_id=row.decision_id, requested_amount=charge.charged + charge.shortfall,
+        charged_amount=charge.charged, shortfall=charge.shortfall, budget_day=billing.budget_day_of(entry.created_at),
+    )
 
 
 def _note_failure(inbox_id):
