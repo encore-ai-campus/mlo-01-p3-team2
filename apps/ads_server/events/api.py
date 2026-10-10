@@ -2,7 +2,7 @@
 
 각 함수는 **호출한 쪽의 트랜잭션 안에서** outbox 에 이벤트 한 건을 쓴다. 필드 이름·형식은 `schemas.py` 가 정한다.
 """
-from . import ndjson, schemas
+from . import hops, ndjson, schemas
 from .mongo import NotConfigured
 from .outbox import OutsideTransaction, enqueue
 from .relay import missing_event_ids, sent_but_not_in_mongo
@@ -34,8 +34,17 @@ def event_id_for(event_name, source_id):
 
 NAMES = {"decision": schemas.DECISION, "reaction_received": schemas.REACTION_RECEIVED, "reaction": schemas.REACTION, "charge": schemas.CHARGE}
 write_ndjson, verify_ndjson, read_manifest, NdjsonError = ndjson.write, ndjson.verify, ndjson.read_manifest, ndjson.NdjsonError
+manifest_sha256, verify_chain, manifest_path = ndjson.manifest_sha256, ndjson.verify_chain, ndjson.manifest_path
+
+SCHEMA_VERSION = schemas.SCHEMA_VERSION
+decision_payload, reaction_received_payload, reaction_payload, charge_payload = (
+    schemas.decision_payload, schemas.reaction_received_payload, schemas.reaction_payload, schemas.charge_payload)
+normal_document, summarize, window_start, canonical_json = hops.normal_document, hops.summarize, hops.window_start, hops.canonical_json
+outbox_documents, mongo_documents, unsent_counts = hops.outbox_documents, hops.mongo_documents, hops.unsent_counts
 
 __all__ = [
+    "SCHEMA_VERSION", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
+    "normal_document", "summarize", "window_start", "canonical_json", "outbox_documents", "mongo_documents", "unsent_counts",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
-    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "NdjsonError", "NotConfigured",
+    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_sha256", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured",
 ]

@@ -181,46 +181,6 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     return problems
 
 
-def _expected_events():
-    """원본 행에서 **독립적으로** 다시 만든 이벤트: {event_id: (이벤트 이름, 메시지 키, 페이로드, 생성 시각)}. 형식은 `events.schemas` 의 빌더를 쓰되 값은 원본 행에서 직접 옮긴다.
-
-    생성 시각(`produced_at`)은 이벤트 종류마다 생성 규약이 정한 원본 시각이다: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각(`processed_at`),
-    과금 = 그 과금을 일으킨 반응의 처리 시각(과금과 판정은 같은 처리 트랜잭션의 같은 `now` 를 쓴다).
-    """
-    from billing.budget_day import budget_day_of
-    from billing.models import LedgerEntry
-    from events import schemas
-    from records.models import Decision, Reaction
-
-    expected = {}
-    for d in Decision.objects.all():
-        selected = None if d.creative_id is None else {
-            "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
-            "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
-        }
-        expected[schemas.event_id_of(schemas.DECISION, d.decision_id)] = (schemas.DECISION, d.decision_id, d.decided_at, schemas.decision_payload(
-            decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, decided_at=d.decided_at, audience=d.audience, subject_id=d.subject_id,
-            selected=selected, selection_policy=d.selection_policy, candidate_count=d.candidate_count, rejected_counts=d.rejected_counts,
-        ))
-    decision_of, processed_of = {}, {}
-    for r in Reaction.objects.all():
-        decision_of[f"{r.media_id}:{r.reaction_id}"] = r.decision_id
-        processed_of[f"{r.media_id}:{r.reaction_id}"] = r.processed_at
-        common = dict(inbox_id=r.inbox_id, reaction_id=r.reaction_id, media_id=r.media_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at,
-                      received_at=r.received_at, subject_id=r.subject_id, source=r.source)
-        expected[schemas.event_id_of(schemas.REACTION_RECEIVED, r.inbox_id)] = (schemas.REACTION_RECEIVED, r.decision_id, r.received_at, schemas.reaction_received_payload(raw=r.raw, **common))
-        if r.status != "RECEIVED":
-            expected[schemas.event_id_of(schemas.REACTION, r.inbox_id)] = (schemas.REACTION, r.decision_id, r.processed_at, schemas.reaction_payload(
-                status=r.status, reason_code=r.reason_code, applied_rule=r.applied_rule, basis=r.basis, **common))
-    for e in LedgerEntry.objects.filter(entry_type="CHARGE"):
-        decision_id = decision_of.get(e.reaction_ref)  # 원장의 멱등 키(<매체>:<reaction_id>)로 반응을 거쳐 결정을 찾는다
-        expected[schemas.event_id_of(schemas.CHARGE, e.entry_id)] = (schemas.CHARGE, decision_id, processed_of.get(e.reaction_ref), schemas.charge_payload(
-            entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, created_at=e.created_at, reaction_ref=e.reaction_ref, decision_id=decision_id,
-            requested_amount=-e.amount + e.shortfall, charged_amount=-e.amount, shortfall=e.shortfall, budget_day=budget_day_of(e.created_at),
-        ))
-    return expected
-
-
 def _differing_keys(stored, wanted):
     keys = sorted(k for k in set(stored) | set(wanted) if json.dumps(stored.get(k), sort_keys=True, default=str) != json.dumps(wanted.get(k), sort_keys=True, default=str))
     return keys or ["(타입)"]  # 값의 JSON 모양은 같고 타입만 다른 경우
@@ -236,7 +196,9 @@ def verify_events(relayed=False):
     from events import relay, schemas, store
     from events.models import EventOutbox
 
-    expected = _expected_events()
+    from records.api import expected_events
+
+    expected = expected_events()
     outbox = {row.pk: row for row in EventOutbox.objects.all()}
     problems = []
     if expected.keys() - outbox.keys():

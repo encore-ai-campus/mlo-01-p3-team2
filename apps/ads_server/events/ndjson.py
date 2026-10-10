@@ -55,8 +55,21 @@ def _publish(path, write):
         raise
 
 
-def write(directory, name, records, source_kind, schema_version, checkpoint=None, now=None):
-    """레코드(JSON 으로 만들 수 있는 dict 들)를 새 세대의 데이터 파일로 쓰고 manifest 를 그 파일로 교체한다. 반환: manifest(dict)."""
+def manifest_sha256(path):
+    """manifest 파일(포인터) 바이트의 SHA-256. 세대 연결(`previous_sha256`)과 폴더 밖 고정점(감사 로그)이 이 값을 쓴다."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _generation_copy(directory, name, digest):
+    return Path(directory) / f"{name}.manifest.{digest[:16]}.json"
+
+
+def write(directory, name, records, source_kind, schema_version, checkpoint=None, now=None, chain=False):
+    """레코드(JSON 으로 만들 수 있는 dict 들)를 새 세대의 데이터 파일로 쓰고 manifest 를 그 파일로 교체한다. 반환: manifest(dict).
+
+    `chain=True` 면 manifest 에 직전 게시본 manifest 의 SHA-256(`previous_sha256`, 처음이면 `null`)을 싣고, 각 세대의 manifest 를 내용 해시 이름의 불변 사본으로도 남긴다
+    (`<이름>.manifest.<해시 앞 16자>.json`) — 세대 사슬(`verify_chain`)이 거슬러 올라갈 수 있도록. 데이터 파일처럼 사본은 지우거나 바꾸지 않는다.
+    """
     if not NAME.fullmatch(name):
         raise NdjsonError(f"이름은 영문·숫자·밑줄·하이픈 1~64자여야 한다: {name!r}")
     directory = Path(directory)
@@ -84,7 +97,19 @@ def write(directory, name, records, source_kind, schema_version, checkpoint=None
         "manifest_version": SCHEMA_VERSION, "file": data_name, "sha256": sha256, "rows": rows, "schema_version": schema_version,
         "source_kind": source_kind, "checkpoint": checkpoint, "created_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
     }
-    _publish(manifest_path(directory, name), lambda handle: handle.write((json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")))
+    pointer = manifest_path(directory, name)
+    if chain:
+        previous = None
+        if pointer.exists():
+            previous = manifest_sha256(pointer)
+            copy = _generation_copy(directory, name, previous)
+            if not copy.exists():  # 사슬이 아닌 게시본 위에 처음 사슬을 이을 때: 직전 manifest 도 사본으로 남긴다
+                _publish(copy, lambda handle: handle.write(pointer.read_bytes()))
+        manifest["previous_sha256"] = previous
+    body = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    if chain:
+        _publish(_generation_copy(directory, name, hashlib.sha256(body).hexdigest()), lambda handle: handle.write(body))  # 포인터를 바꾸기 전에 이 세대의 사본을 먼저 확정한다
+    _publish(pointer, lambda handle: handle.write(body))
     return manifest
 
 
@@ -131,3 +156,30 @@ def verify(path):
             problems.append(f"{number}번째 줄이 JSON 이 아니다")
             break
     return problems
+
+
+def verify_chain(path):
+    """세대 사슬 확인: 포인터 manifest 에서 `previous_sha256` 을 따라 처음까지 거슬러 올라가며, 직전 세대 manifest 사본이 있고 SHA-256 이 맞는지 본다.
+    반환: 어긋난 곳의 설명 목록. 사슬 전체를 다시 쓰는 것은 막지 못한다 — 그 고정점은 폴더 밖(감사 로그)에 있다(설계 §10 H12)."""
+    path = Path(path)
+    name = path.name.removesuffix(".manifest.json")
+    problems, seen = [], set()
+    current = path.read_bytes()
+    while True:
+        try:
+            manifest = json.loads(current)
+        except ValueError:
+            return problems + ["manifest 를 읽을 수 없다"]
+        previous = manifest.get("previous_sha256")
+        if previous is None:
+            return problems  # 처음 세대
+        if previous in seen:
+            return problems + ["세대 사슬이 순환한다"]
+        seen.add(previous)
+        copy = _generation_copy(path.parent, name, previous)
+        if not copy.exists():
+            return problems + [f"직전 세대 manifest 가 없다: {copy.name}"]
+        data = copy.read_bytes()
+        if hashlib.sha256(data).hexdigest() != previous:
+            return problems + [f"직전 세대 manifest 가 바뀌었다: {copy.name}"]
+        current = data
