@@ -2,8 +2,10 @@
 
 각 함수는 **호출한 쪽의 트랜잭션 안에서** outbox 에 이벤트 한 건을 쓴다. 필드 이름·형식은 `schemas.py` 가 정한다.
 """
-from . import schemas
+from . import ndjson, schemas
+from .mongo import NotConfigured
 from .outbox import OutsideTransaction, enqueue
+from .relay import missing_event_ids, sent_but_not_in_mongo
 
 
 def record_decision(*, now=None, **fields):
@@ -26,4 +28,14 @@ def record_charge(*, now=None, **fields):
     return enqueue(schemas.CHARGE, fields["entry_id"], fields["decision_id"], payload, now)
 
 
-__all__ = ["OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge"]
+def event_id_for(event_name, source_id):
+    return schemas.event_id_of(event_name, source_id)
+
+
+NAMES = {"decision": schemas.DECISION, "reaction_received": schemas.REACTION_RECEIVED, "reaction": schemas.REACTION, "charge": schemas.CHARGE}
+write_ndjson, verify_ndjson, NdjsonError = ndjson.write, ndjson.verify, ndjson.NdjsonError
+
+__all__ = [
+    "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
+    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "NdjsonError", "NotConfigured",
+]

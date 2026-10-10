@@ -82,3 +82,39 @@ def outbox_status(now=None):
     pending = EventOutbox.objects.filter(sent_at__isnull=True)
     oldest = pending.order_by("created_at").values_list("created_at", flat=True).first()
     return {"pending": pending.count(), "oldest_age_seconds": None if oldest is None else (now - oldest).total_seconds()}
+
+
+def missing_event_ids(event_ids, chunk=1000):
+    """주어진 이벤트 ID 중 **outbox 에도 MongoDB 에도 없는** 것. 보낸 행은 보존 기간 뒤 outbox 에서 지워지므로 둘 다 본다. MongoDB 에 닿지 못하면 예외를 올린다(없다고 잘못 말하지 않으려고)."""
+    wanted = list(event_ids)
+    missing = []
+    for start in range(0, len(wanted), chunk):
+        part = wanted[start:start + chunk]
+        found = set(EventOutbox.objects.filter(pk__in=part).values_list("pk", flat=True))
+        rest = [i for i in part if i not in found]
+        if rest:
+            found |= {d["_id"] for d in store.collection().find({"_id": {"$in": rest}}, {"_id": 1})}
+        missing += [i for i in part if i not in found]
+    return missing
+
+
+def sent_but_not_in_mongo(limit=1000):
+    """outbox 에 보냈다고 표시돼 있는데 MongoDB 에 없는 이벤트 ID(최대 `limit`). 중계가 거짓으로 표시했거나 MongoDB 가 데이터를 잃은 경우다."""
+    gone = []
+    rows = EventOutbox.objects.filter(sent_at__isnull=False).values_list("pk", flat=True).iterator(chunk_size=1000)
+    batch = []
+    for pk in rows:
+        batch.append(pk)
+        if len(batch) == 1000:
+            gone += _absent_from_mongo(batch)
+            batch = []
+            if len(gone) >= limit:
+                return gone[:limit]
+    return (gone + _absent_from_mongo(batch))[:limit]
+
+
+def _absent_from_mongo(ids):
+    if not ids:
+        return []
+    present = {d["_id"] for d in store.collection().find({"_id": {"$in": ids}}, {"_id": 1})}
+    return [i for i in ids if i not in present]

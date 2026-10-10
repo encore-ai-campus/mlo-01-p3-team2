@@ -206,6 +206,11 @@ def charged_amounts(reaction_refs):
     return found
 
 
+def charge_entry_ids():
+    """원장 `CHARGE` 항목 ID 를 훑는다(이벤트 누락 점검용 읽기). 큰 표를 한꺼번에 메모리에 올리지 않는다."""
+    return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE).values_list("entry_id", flat=True).iterator(chunk_size=2000)
+
+
 def _ledger_spent(campaign_id, day):
     """원장의 CHARGE 줄로 센 그 (캠페인, 예산 일)의 받은 포인트."""
     start = day_start(day)
