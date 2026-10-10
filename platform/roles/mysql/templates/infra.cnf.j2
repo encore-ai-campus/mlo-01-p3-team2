@@ -1,0 +1,11 @@
+# Ansible로 관리한다 (roles/mysql).
+[mysqld]
+bind-address = {{ ip }}
+report_host = {{ ip }}
+skip-name-resolve = ON
+server-id = {{ mysql_server_id }}
+gtid_mode = ON
+enforce_gtid_consistency = ON
+partial_revokes = ON
+plugin-load-add = mysql_clone.so
+innodb_buffer_pool_size = {{ mysql_buffer_pool_mb }}M

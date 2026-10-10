@@ -1,0 +1,207 @@
+---
+# Spark Standalone: Master 2대(ZooKeeper 기반 이중화) + Worker 전체. ZooKeeper는 roles/zookeeper가 같은 노드에 먼저 올린다.
+- name: 역할 내부 값 계산
+  ansible.builtin.set_fact:
+    spark_services: "{{ ['spark-master', 'spark-worker'] if inventory_hostname in groups['spark'][:spark_master_count] else ['spark-worker'] }}"
+    spark_tarball: "{{ spark_urls[0] | basename }}"
+    spark_is_master: "{{ inventory_hostname in groups['spark'][:spark_master_count] }}"
+    spark_master_url: "spark://{{ groups['spark'][:spark_master_count] | map('extract', hostvars, 'ip') | map('regex_replace', '$', ':' ~ spark_master_port) | join(',') }}"
+    spark_zookeeper_url: "{{ groups['spark'] | map('extract', hostvars, 'ip') | map('regex_replace', '$', ':' ~ zookeeper_client_port) | join(',') }}"
+
+# Worker 메모리를 서버 RAM에서 계산한다. RAM이 부족하면 중단한다.
+- name: 메모리 계산
+  ansible.builtin.set_fact:
+    spark_worker_mb: >-
+      {{ ansible_facts['memtotal_mb'] - spark_os_reserve_mb
+         - spark_daemon_mb * (2 if spark_is_master else 1) - zookeeper_heap_mb }}
+
+- name: 메모리 확인
+  ansible.builtin.assert:
+    that: spark_worker_mb | int >= spark_worker_min_mb
+    fail_msg: >-
+      Spark 노드의 RAM({{ ansible_facts['memtotal_mb'] }}MB)이 부족하다. OS {{ spark_os_reserve_mb }}MB, 데몬, ZooKeeper를 빼면
+      Worker 메모리가 {{ spark_worker_mb }}MB가 되어 최소값 {{ spark_worker_min_mb }}MB보다 작다.
+
+# SPARK_LOCAL_IP가 서버에 실제로 할당된 IP가 아니면 데몬이 뜨지 않는다.
+- name: 사설 IP 확인
+  ansible.builtin.assert:
+    that: ip in ansible_facts['all_ipv4_addresses']
+    fail_msg: "{{ ip }}는 이 서버에 할당된 IP가 아니다 ({{ ansible_facts['all_ipv4_addresses'] }})."
+
+# --- 설치 ---
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 패키지 설치 (Python)
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ spark_packages }}"
+
+- name: 서비스 사용자
+  ansible.builtin.user:
+    name: "{{ spark_user }}"
+    system: true
+    shell: /sbin/nologin
+    home: "{{ spark_data_dir }}"
+    create_home: false
+
+- name: 데이터·로그·설정 디렉터리
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ spark_data_dir }}", owner: "{{ spark_user }}", mode: "0750" }
+    - { path: "{{ spark_data_dir }}/work", owner: "{{ spark_user }}", mode: "0750" }
+    - { path: "{{ spark_log_dir }}", owner: "{{ spark_user }}", mode: "0755" }
+    - { path: "{{ spark_config_dir }}", owner: root, mode: "0755" }
+  loop_control:
+    label: "{{ item.path }}"
+
+# 이미 설치되어 있으면 내려받지 않는다 (임시 NAT를 제거한 뒤 재실행해도 동작하게 한다).
+- name: 설치 여부 확인
+  ansible.builtin.stat:
+    path: "{{ spark_install_dir }}/bin/spark-class"
+  register: spark_installed
+
+- name: tarball 내려받기 (sha512 검증, 미러를 차례로 시도)
+  when: not spark_installed.stat.exists
+  block:
+    - name: 첫 번째 미러
+      ansible.builtin.get_url:
+        url: "{{ spark_urls[0] }}"
+        dest: "/var/tmp/{{ spark_tarball }}"
+        checksum: "sha512:{{ spark_sha512 }}"
+        mode: "0644"
+        timeout: 60
+  rescue:
+    - name: 두 번째와 세 번째 미러
+      block:
+        - name: 두 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ spark_urls[1] }}"
+            dest: "/var/tmp/{{ spark_tarball }}"
+            checksum: "sha512:{{ spark_sha512 }}"
+            mode: "0644"
+            timeout: 60
+      rescue:
+        - name: 세 번째 미러
+          ansible.builtin.get_url:
+            url: "{{ spark_urls[2] }}"
+            dest: "/var/tmp/{{ spark_tarball }}"
+            checksum: "sha512:{{ spark_sha512 }}"
+            mode: "0644"
+            timeout: 120
+
+- name: tarball 풀기
+  ansible.builtin.unarchive:
+    src: "/var/tmp/{{ spark_tarball }}"
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ spark_install_dir }}/bin/spark-class"
+  when: not spark_installed.stat.exists
+
+- name: tarball 정리
+  ansible.builtin.file:
+    path: "/var/tmp/{{ spark_tarball }}"
+    state: absent
+
+- name: 버전 없는 경로 링크
+  ansible.builtin.file:
+    src: "{{ spark_install_dir }}"
+    dest: "{{ spark_home }}"
+    state: link
+
+# --- 커넥터 JAR ---
+- name: 커넥터 JAR 설치 여부 확인
+  ansible.builtin.stat:
+    path: "{{ spark_install_dir }}/jars/{{ item.path | basename }}"
+  loop: "{{ spark_connector_jars }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: spark_jar_stats
+
+- name: 커넥터 JAR 내려받기 (sha256 검증)
+  ansible.builtin.get_url:
+    url: "{{ spark_maven_url }}/{{ item.item.path }}"
+    dest: "{{ spark_install_dir }}/jars/{{ item.item.path | basename }}"
+    checksum: "sha256:{{ item.item.sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ spark_jar_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  when: not item.stat.exists
+
+# --- 설정 ---
+# 이미 실행 중인 서비스는 설정이 바뀔 때만 다시 시작한다 (처음 시작할 때는 다시 시작하지 않는다).
+- name: 서비스 현재 상태
+  ansible.builtin.systemd:
+    name: spark-worker
+  register: spark_before
+
+- name: spark-env.sh 배포
+  ansible.builtin.template:
+    src: spark-env.sh.j2
+    dest: "{{ spark_config_dir }}/spark-env.sh"
+    owner: root
+    group: root
+    mode: "0644"
+  register: spark_env
+
+- name: spark-defaults.conf 배포
+  ansible.builtin.template:
+    src: spark-defaults.conf.j2
+    dest: "{{ spark_config_dir }}/spark-defaults.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  register: spark_defaults
+
+- name: Worker systemd unit 배포
+  ansible.builtin.template:
+    src: spark-worker.service.j2
+    dest: /etc/systemd/system/spark-worker.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: spark_worker_unit
+
+- name: Master systemd unit 배포
+  ansible.builtin.template:
+    src: spark-master.service.j2
+    dest: /etc/systemd/system/spark-master.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: spark_master_unit
+  when: spark_is_master
+
+- name: 서비스 시작과 활성화
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: "{{ spark_services }}"
+
+- name: 설정이 바뀌었으면 다시 시작
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop: "{{ spark_services }}"
+  when: >-
+    (spark_env.changed or spark_defaults.changed or spark_worker_unit.changed or spark_master_unit.changed | default(false))
+    and spark_before.status.ActiveState == 'active'
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

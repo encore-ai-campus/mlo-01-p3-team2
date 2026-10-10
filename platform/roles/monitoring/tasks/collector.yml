@@ -1,0 +1,119 @@
+---
+# --- Monitoring 서버: 수집 루프와 일 단위 정리 ---
+- name: Secret 확인
+  ansible.builtin.assert:
+    that:
+      - vault_mysql_passwords.monitor | default('') | length > 0
+      - vault_mongodb_passwords.monitor | default('') | length > 0
+      - vault_monitor_ssh_private_key | default('') | length > 0
+    fail_msg: Vault에 vault_mysql_passwords.monitor, vault_mongodb_passwords.monitor, vault_monitor_ssh_private_key가 있어야 한다.
+  no_log: true
+
+- name: 수집 사용자
+  ansible.builtin.user:
+    name: "{{ monitor_collector_user }}"
+    system: true
+    shell: /sbin/nologin
+    home: "{{ monitor_data_dir }}"
+    create_home: false
+
+- name: 디렉터리
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ monitor_collector_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ monitor_config_dir }}", owner: root, mode: "0750" }
+    - { path: "{{ monitor_data_dir }}", owner: "{{ monitor_collector_user }}", mode: "0750" }
+    - { path: "{{ monitor_data_dir }}/metrics", owner: "{{ monitor_collector_user }}", mode: "0750" }
+    - { path: "{{ monitor_data_dir }}/logs", owner: "{{ monitor_collector_user }}", mode: "0750" }
+    - { path: "{{ monitor_data_dir }}/state", owner: "{{ monitor_collector_user }}", mode: "0750" }
+    - { path: "{{ monitor_archive_dir | dirname }}", owner: root, mode: "0755" }
+    - { path: "{{ monitor_archive_dir }}", owner: "{{ monitor_collector_user }}", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: 수집 스크립트 디렉터리
+  ansible.builtin.file:
+    path: "{{ monitor_libexec_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 수집 스크립트
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ monitor_libexec_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop: [collector.sh, archive.sh]
+  register: monitor_scripts
+
+- name: 설정 파일
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ monitor_config_dir }}/{{ item.dest }}"
+    owner: root
+    group: "{{ monitor_collector_user }}"
+    mode: "0640"
+  loop:
+    - { src: monitor.conf.j2, dest: monitor.conf }
+    - { src: hosts.conf.j2, dest: hosts.conf }
+  register: monitor_confs
+
+- name: SSH 개인키
+  ansible.builtin.copy:
+    content: "{{ vault_monitor_ssh_private_key | trim }}\n"
+    dest: "{{ monitor_config_dir }}/id_ed25519"
+    owner: "{{ monitor_collector_user }}"
+    group: "{{ monitor_collector_user }}"
+    mode: "0400"
+  no_log: "{{ monitor_no_log }}"
+
+# DB monitor 비밀번호. 수집 사용자만 읽을 수 있다.
+- name: DB 비밀번호 파일
+  ansible.builtin.copy:
+    content: |
+      mysql={{ vault_mysql_passwords.monitor }}
+      mongodb={{ vault_mongodb_passwords.monitor }}
+    dest: "{{ monitor_config_dir }}/secrets"
+    owner: "{{ monitor_collector_user }}"
+    group: "{{ monitor_collector_user }}"
+    mode: "0400"
+  no_log: "{{ monitor_no_log }}"
+
+- name: 수집 루프 현재 상태
+  ansible.builtin.systemd:
+    name: infra-monitor.service
+  register: monitor_before
+
+- name: systemd unit
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [infra-monitor.service, infra-monitor-archive.service, infra-monitor-archive.timer]
+  register: monitor_units_file
+
+- name: 수집 루프와 정리 타이머 시작
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: [infra-monitor.service, infra-monitor-archive.timer]
+
+# 이미 실행 중인 루프는 스크립트, unit, monitor.conf(시작 때 읽는다)가 바뀔 때만 다시 시작한다. hosts.conf는 매 주기 읽는다.
+- name: 바뀌었으면 수집 루프 다시 시작
+  ansible.builtin.systemd:
+    name: infra-monitor.service
+    state: restarted
+  when: >-
+    (monitor_scripts.changed or monitor_units_file.changed or monitor_confs.results[0].changed)
+    and monitor_before.status.ActiveState == 'active'

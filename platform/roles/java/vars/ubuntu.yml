@@ -1,0 +1,9 @@
+---
+# Ubuntu는 Corretto를 Amazon Corretto APT 저장소에서 받는다 (headless 패키지는 없고 JDK 하나다).
+java_package: java-17-amazon-corretto-jdk
+java_apt_repo:
+  name: corretto
+  uri: https://apt.corretto.aws
+  suite: stable
+  components: [main]
+  key_url: https://apt.corretto.aws/corretto.key

@@ -1,0 +1,16 @@
+---
+- name: MySQL 저장소 등록
+  ansible.builtin.include_role:
+    name: mysql
+    tasks_from: repo
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ backend_packages }}"
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

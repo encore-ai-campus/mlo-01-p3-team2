@@ -1,0 +1,9 @@
+---
+mongodb_apt_repo:
+  name: mongodb-org-8.0
+  uri: https://repo.mongodb.org/apt/ubuntu
+  suite: noble/mongodb-org/8.0
+  components: [multiverse]
+mongodb_user: mongodb
+mongodb_group: mongodb
+mongodb_data_dir: /var/lib/mongodb

@@ -1,0 +1,43 @@
+#!/bin/bash
+# 서비스 상태 한 줄(키=값)을 출력한다. 읽기 전용이며 Monitoring이 SSH로 실행한다 (roles/monitoring).
+# 표준입력의 첫 줄은 이 서버 DB의 monitor 비밀번호다 (DB가 없는 서버는 빈 줄).
+IFS= read -r -t 3 PW
+out=""
+add() { out="$out $1=$2"; }
+unit() { systemctl cat "$1" >/dev/null 2>&1 && add "unit_$1" "$(systemctl is-active "$1")"; }
+tcp() { (: </dev/tcp/{{ ip }}/"$1") 2>/dev/null; }
+{% for u in monitor_service_units %}
+unit {{ u }}
+{% endfor %}
+{% if 'mysql' in group_names %}
+
+if r=$(MYSQL_PWD="$PW" timeout 5 mysql -umonitor -S {{ monitor_mysql_socket }} -N -B -e "SELECT @@global.super_read_only, (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Threads_connected')" 2>/dev/null) && [ -n "$r" ]; then
+  set -- $r
+  add mysql_read_only "$1"
+  add mysql_threads "$2"
+else
+  add mysql_check fail
+fi
+{% endif %}
+{% if 'mongodb' in group_names %}
+
+r=$(MONGO_PW="$PW" timeout 8 mongosh --nodb --quiet --eval 'try { const c = connect("mongodb://127.0.0.1:27017/admin"); c.auth("monitor", process.env.MONGO_PW); const h = c.hello(); print("mongo_primary=" + (h.isWritablePrimary ? 1 : 0) + " mongo_secondary=" + (h.secondary ? 1 : 0) + " mongo_set=" + (h.setName || "-")); } catch (e) { print("mongo_check=fail"); }' 2>/dev/null)
+out="$out ${r:-mongo_check=fail}"
+{% endif %}
+{% if 'kafka' in group_names %}
+
+tcp 9092 && add kafka_port up || add kafka_port down
+{% endif %}
+{% if 'spark' in group_names %}
+
+r=$( (exec 3<>/dev/tcp/{{ ip }}/2181; printf srvr >&3; timeout 3 cat <&3) 2>/dev/null | awk '/^Mode:/ {print $2}')
+add zk_mode "${r:-down}"
+tcp 8081 && add spark_worker_ui up || add spark_worker_ui down
+if systemctl cat spark-master >/dev/null 2>&1; then
+  r=$(curl -sf -m 3 http://{{ ip }}:8080/json/ | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("aliveworkers", 0))' 2>/dev/null)
+  set -- $r
+  add spark_master "${1:-down}"
+  add spark_workers "${2:-0}"
+fi
+{% endif %}
+echo "${out# }"

@@ -1,0 +1,10 @@
+---
+- name: Reload sshd
+  ansible.builtin.service:
+    name: "{{ common_ssh_service }}"
+    state: reloaded
+
+- name: Restart chrony
+  ansible.builtin.service:
+    name: "{{ common_chrony_service }}"
+    state: restarted

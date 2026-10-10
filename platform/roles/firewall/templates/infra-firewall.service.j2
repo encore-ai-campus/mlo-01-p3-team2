@@ -1,0 +1,12 @@
+# Ansible로 관리한다 (roles/firewall). 부팅 때 전용 방화벽 테이블을 로드한다.
+[Unit]
+Description=Infra firewall (nftables table infra_fw)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables/infra-fw.nft
+
+[Install]
+WantedBy=multi-user.target

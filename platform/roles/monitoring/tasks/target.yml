@@ -1,0 +1,112 @@
+---
+# --- 모든 서버: monitor 읽기 전용 사용자, 원격 수집 스크립트, 로그 회전 ---
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: [rsync, logrotate]
+
+# 서비스 로그를 읽으려면 서비스 그룹(AL2023: mysql, mongod / Ubuntu: adm, mysql, mongodb)에 속해야 한다. 아직 없는 그룹은 건너뛴다.
+- name: 그룹 목록 조회
+  ansible.builtin.getent:
+    database: group
+
+- name: monitor 사용자
+  ansible.builtin.user:
+    name: "{{ monitor_user }}"
+    shell: /bin/bash
+    groups: "{{ ['systemd-journal'] + (monitor_group_candidates | select('in', getent_group) | list) }}"
+    append: true
+
+# Monitoring 서버에서만, 명령 실행 용도로만 쓸 수 있게 제한한다.
+- name: monitor 공개키 등록
+  ansible.posix.authorized_key:
+    user: "{{ monitor_user }}"
+    key: "{{ vault_monitor_ssh_public_key }}"
+    key_options: 'from="{{ monitoring_ips | join(",") }}",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty'
+    exclusive: true
+
+- name: 그룹 읽기가 필요한 로그 파일 확인
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ monitor_group_readable_logs }}"
+  register: monitor_log_files
+
+- name: 로그 파일을 그룹 읽기(0640)로
+  ansible.builtin.file:
+    path: "{{ item.item }}"
+    mode: "0640"
+  loop: "{{ monitor_log_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+
+- name: 원격 수집 스크립트 디렉터리
+  ansible.builtin.file:
+    path: "{{ monitor_remote_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 리소스 수집 스크립트
+  ansible.builtin.copy:
+    src: resource.sh
+    dest: "{{ monitor_remote_dir }}/resource.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 서비스 상태 수집 스크립트
+  ansible.builtin.template:
+    src: service.sh.j2
+    dest: "{{ monitor_remote_dir }}/service.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+# logrotate: 서비스 로그가 있는 서버만
+- name: 회전할 로그 경로 계산
+  ansible.builtin.set_fact:
+    monitor_server_logs: "{{ group_names | select('in', monitor_logrotate_paths) | map('extract', monitor_logrotate_paths) | flatten | list }}"
+
+- name: logrotate 설정
+  ansible.builtin.template:
+    src: logrotate.j2
+    dest: /etc/logrotate.d/infra
+    owner: root
+    group: root
+    mode: "0644"
+  when: monitor_server_logs | length > 0
+
+- name: logrotate 타이머 활성화
+  ansible.builtin.systemd:
+    name: logrotate.timer
+    state: started
+    enabled: true
+
+# journald: 재부팅 뒤에도 cursor가 이어지도록 디스크에 저장하고, 용량 한도를 둔다.
+- name: journald 설정 디렉터리
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: journald 설정
+  ansible.builtin.copy:
+    content: |
+      # Ansible로 관리한다 (roles/monitoring).
+      [Journal]
+      Storage=persistent
+      SystemMaxUse={{ monitor_journal_max_use }}
+    dest: /etc/systemd/journald.conf.d/infra.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: 설정 반영
+  ansible.builtin.meta: flush_handlers

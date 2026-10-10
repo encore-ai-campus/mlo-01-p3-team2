@@ -1,0 +1,32 @@
+---
+# AL2023: sshd/chronyd/mysqld, MySQL 로그 /var/log/mysqld.log(mysql:mysql 0640), MongoDB 로그 그룹 mongod
+
+monitor_units:
+  all: [sshd, chronyd]
+  mysql: [mysqld]
+  mongodb: [mongod]
+  kafka: [kafka]
+  spark: [zookeeper, spark-master, spark-worker]
+
+# 수집할 서비스 로그 (그룹별). 디렉터리는 끝에 /를 붙인다.
+monitor_log_paths:
+  mysql: [/var/log/mysqld.log]
+  mongodb: [/var/log/mongodb/]
+  kafka: [/var/log/kafka/]
+  spark: [/var/log/spark/, /var/log/zookeeper/]
+
+# 서버의 logrotate가 회전할 파일 (그룹별). 복사 후 비우는 방식(copytruncate)은 O_APPEND로 쓰는 로그에만 안전하다.
+# Kafka의 GC 로그(kafkaServer-gc.log)는 JVM이 직접 회전하므로 뺀다.
+monitor_logrotate_paths:
+  mysql: [/var/log/mysqld.log]
+  mongodb: [/var/log/mongodb/*.log]
+  kafka: [/var/log/kafka/server.log]
+  spark: [/var/log/spark/*.log, /var/log/zookeeper/*.log]
+
+# monitor가 서비스 로그를 읽기 위해 속할 수 있는 그룹 (서버에 있는 것만 추가한다. systemd-journal은 항상 추가)
+monitor_group_candidates: [mysql, mongod]
+
+monitor_mysql_socket: /var/lib/mysql/mysql.sock
+
+# AL2023의 서비스 로그는 처음부터 그룹 읽기 권한이다.
+monitor_group_readable_logs: []

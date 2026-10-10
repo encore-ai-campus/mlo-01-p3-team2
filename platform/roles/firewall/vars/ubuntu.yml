@@ -1,0 +1,3 @@
+---
+# Ubuntu 24.04: nftables는 기본으로 설치되어 있다.
+firewall_packages: [nftables]

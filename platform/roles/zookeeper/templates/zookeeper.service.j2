@@ -1,0 +1,20 @@
+# Ansible로 관리한다 (roles/zookeeper).
+[Unit]
+Description=Apache ZooKeeper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ zookeeper_user }}
+Group={{ zookeeper_user }}
+Environment=JAVA_HOME={{ java_home }}
+Environment=ZOOCFGDIR={{ zookeeper_config_dir }}
+Environment=ZOO_LOG_DIR={{ zookeeper_log_dir }}
+Environment="JVMFLAGS=-Xms{{ zookeeper_heap_mb }}m -Xmx{{ zookeeper_heap_mb }}m"
+ExecStart={{ zookeeper_home }}/bin/zkServer.sh start-foreground
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
