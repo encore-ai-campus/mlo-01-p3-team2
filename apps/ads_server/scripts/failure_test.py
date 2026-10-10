@@ -5,7 +5,7 @@
     python scripts/failure_test.py restart crash         # 골라서
     python scripts/failure_test.py --json out.json
 
-환경: **임시 MySQL 8.4 컨테이너**를 따로 띄운다(이미지는 `intake/db-standalone` 이 만든 `db-standalone/mysql:8.4-ubuntu24.04`, 포트·비밀번호는 무작위).
+환경: **임시 MySQL 8.4 컨테이너와 임시 MongoDB 8.0 레플리카셋 컨테이너**를 따로 띄운다(이미지는 `intake/db-standalone` 이 만든 `db-standalone/mysql:8.4-ubuntu24.04`·`mongodb:8.0-ubuntu24.04`, 포트·비밀번호는 무작위).
 공유 시험 DB(`ads_server`)나 다른 사람이 쓰는 컨테이너는 건드리지 않는다. 끝나면 컨테이너를 지운다. Docker 가 없거나 이미지가 없으면 **건너뛰지 않고 실패**한다.
 check.sh 에는 넣지 않는다(Docker 가 필요하고 수 분 걸린다).
 
@@ -13,11 +13,14 @@ check.sh 에는 넣지 않는다(Docker 가 필요하고 수 분 걸린다).
   restart          `docker restart`(정상 종료 → 기동): 계획된 재시작·전환에 가까운 끊김
   crash            `docker kill`(SIGKILL) → 기동: 강제 종료. InnoDB 충돌 복구. **수신 확인(2xx)한 것은 전부 살아 있어야 한다**(커밋마다 디스크 동기화 설정 하에서)
   processor-kill   처리 프로세스 하나를 SIGKILL 하고 새로 띄운다(DB 는 그대로): 처리 도중 죽어도 이중 과금·유실이 없다
+  mongo-restart    임시 MongoDB(레플리카셋)를 재시작한다: **요청은 전혀 영향이 없고**(503 도 없다) outbox 에 이벤트가 쌓였다가 복구 뒤 상시 중계 프로세스가 비운다
+  relay-kill       중계 프로세스 하나를 SIGKILL 하고 새로 띄운다: 보낸 뒤 표시 전에 죽어도 같은 내용의 중복으로 통과해 이벤트가 늘거나 줄지 않는다
 
 확인하는 것(종료 코드 0 = 모두 충족):
   1. 끊김 동안 API 는 503(또는 연결 실패)으로 답하고 **500 은 없다**. 시험이 공회전이 아니다(끊김을 실제로 겪은 요청이 있다).
   2. 클라이언트의 재시도가 모두 끝내 수신 확인된다(복구 뒤 정상).
   3. 수신 확인한 결정·반응은 전부 저장돼 있다(유실 0), 이중 과금 0, 잔액 = 원장 합계, 일 소진액 = 원장 합계(`load_test.verify_invariants`).
+  5. 이벤트(Step 4): 결정·접수·판정·과금마다 outbox 에 정확히 하나(원본 행과 일대일), 복구 뒤 **상시 중계 프로세스만으로** 미전송이 0 이 되고 MongoDB 의 이벤트가 outbox 와 같다.
   4. 상시 처리 프로세스는 DB 가 끊겼다 돌아와도 죽지 않고 이어서 처리한다. **접수 직후 처리를 끄고**, 복구 뒤 상시 처리 프로세스**만으로** 대기열이 비워지는지
      (별도 `process_reactions --once` 없이) 최종 불변식 전에 판정한다 — 다른 곳이 처리할 수 없으므로 상시 프로세스가 일하지 않으면 실패한다.
 
@@ -42,8 +45,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 
+import mongo_temp_rs  # noqa: E402 — scripts/ 가 경로에 있다
+
 IMAGE = "db-standalone/mysql:8.4-ubuntu24.04"
-SCENARIOS = ("restart", "crash", "processor-kill")
+SCENARIOS = ("restart", "crash", "processor-kill", "mongo-restart", "relay-kill")
 
 
 def docker(*args, check=True, timeout=180):
@@ -100,7 +105,17 @@ def start_processor(env, tmp, name):
     return proc
 
 
-def run_scenario(name, db, log):
+def start_relay(env, tmp, name):
+    log = open(tmp / f"{name}.log", "w")
+    proc = subprocess.Popen([sys.executable, "manage.py", "relay_events", "--batch", "50", "--interval", "0.3"], cwd=BASE_DIR, env=env, stdout=log, stderr=log)
+    proc.log_handle = log
+    deadline = time.time() + 60
+    while time.time() < deadline and "started" not in (tmp / f"{name}.log").read_text():
+        time.sleep(0.1)
+    return proc
+
+
+def run_scenario(name, db, mongo_container, log):
     import load_test
     import mysql_admin
 
@@ -120,15 +135,22 @@ def run_scenario(name, db, log):
     connections.close_all()
     settings.DATABASES["default"]["NAME"] = database
     connections["default"].settings_dict["NAME"] = database
+    from events import mongo, store
+
+    mongo_db = f"ads_events_failure_{uuid.uuid4().hex}"
+    os.environ["MONGO_DB"] = mongo_db  # 상시 중계 프로세스가 읽는다
+    settings.EVENT_STORE = {**settings.EVENT_STORE, "NAME": mongo_db}  # 이 프로세스(검증)도 같은 데이터베이스를 본다
+    mongo.close()
     result = {"scenario": name, "checks": []}
 
     def check(label, ok, detail=""):
         result["checks"].append({"check": label, "ok": bool(ok), "detail": detail})
         log(f"  {'OK  ' if ok else 'FAIL'} {label} {detail}")
 
-    processors, server = [], None
+    processors, relays, server = [], [], None
     try:
         call_command("migrate", verbosity=0)
+        store.ensure()
         ctx = load_test.seed()
         server = load_test.ThreadedServer(("127.0.0.1", 0), load_test.QuietHandler)
         server.set_app(get_wsgi_application())
@@ -138,6 +160,23 @@ def run_scenario(name, db, log):
         harness.quiescent = False
         env = dict(os.environ)
         processors = [start_processor(env, tmp, "p1"), start_processor(env, tmp, "p2")]
+        relays = [start_relay(env, tmp, "r1"), start_relay(env, tmp, "r2")]
+        backlog = {"max": 0, "stop": threading.Event()}
+
+        def sample_backlog():  # 미전송이 쌓이는지 지켜본다(MongoDB 가 끊긴 동안 쌓여야 시험이 공회전이 아니다)
+            from django.db import connection
+
+            from events.models import EventOutbox
+
+            while not backlog["stop"].is_set():
+                try:
+                    backlog["max"] = max(backlog["max"], EventOutbox.objects.filter(sent_at__isnull=True).count())
+                except Exception:  # noqa: BLE001 — DB 가 끊긴 순간은 건너뛴다
+                    connection.close()
+                time.sleep(0.2)
+            connection.close()
+
+        threading.Thread(target=sample_backlog, daemon=True).start()
 
         stop, outcomes, lock, timeline = threading.Event(), [], threading.Lock(), {}
 
@@ -162,6 +201,12 @@ def run_scenario(name, db, log):
             db.restart()
         elif name == "crash":
             db.kill_and_start()
+        elif name == "mongo-restart":
+            mongo_temp_rs.restart(*mongo_container)
+        elif name == "relay-kill":
+            relays[0].send_signal(signal.SIGKILL)
+            relays[0].wait(timeout=10)
+            relays[0] = start_relay(env, tmp, "r1b")
         else:
             processors[0].send_signal(signal.SIGKILL)
             processors[0].wait(timeout=10)
@@ -177,12 +222,16 @@ def run_scenario(name, db, log):
         unacked = sum(1 for o in outcomes if not o.acked)
         log(f"  요청 {len(outcomes)}건, 시도 {len(statuses)}회: 끊김(503·연결 실패) {unavailable}회, 최종 수신 확인 못 한 것 {unacked}건, "
             f"주입 {timeline['recovered_at'] - timeline['injected_at']:.1f}초")
-        if name != "processor-kill":
+        if name in ("restart", "crash"):
             check("끊김을 실제로 겪은 요청이 있다(시험이 공회전이 아니다)", unavailable > 0, f"{unavailable}회")
+        if name == "mongo-restart":
+            check("MongoDB 가 끊겨도 요청은 영향이 없다(503·연결 실패 0)", unavailable == 0, f"{unavailable}회")
         check("끊김 동안 500 이 없다(503·연결 실패만)", not server_errors, f"500대: {server_errors}")
         check("모든 요청이 끝내 수신 확인됐다(재시도로 복구)", unacked == 0, f"{unacked}건 실패")
         alive = [p.poll() is None for p in processors]
         check("상시 처리 프로세스가 죽지 않았다", all(alive), f"살아 있음 {alive}")
+        relay_alive = [p.poll() is None for p in relays]
+        check("상시 중계 프로세스가 죽지 않았다", all(relay_alive), f"살아 있음 {relay_alive}")
 
         # 복구 판정: 별도 처리 명령을 쓰기 **전에**, 상시 처리 프로세스만으로 대기열이 비워지는지 본다(접수 직후 처리는 꺼져 있다)
         connections.close_all()  # 주입 전에 열었던 연결은 끊겼을 수 있다
@@ -197,23 +246,41 @@ def run_scenario(name, db, log):
         check("복구 뒤 상시 처리 프로세스만으로 대기열이 비워진다(별도 처리 명령 없이)", left == 0, f"남은 RECEIVED {left}건")
         check("복구 뒤에 상시 처리 프로세스가 반응을 처리했다(공회전이 아니다)", by_standing > 0, f"{by_standing}건")
 
-        for proc in processors:
+        from events.models import EventOutbox
+
+        deadline = time.time() + 90
+        while time.time() < deadline and EventOutbox.objects.filter(sent_at__isnull=True).exists():
+            time.sleep(0.5)
+        unsent = EventOutbox.objects.filter(sent_at__isnull=True).count()
+        relayed_since = EventOutbox.objects.filter(sent_at__gte=recovered_dt).count()
+        backlog["stop"].set()
+        check("복구 뒤 상시 중계 프로세스만으로 outbox 가 비워진다(별도 명령 없이)", unsent == 0, f"남은 미전송 {unsent}건")
+        check("복구 뒤에 상시 중계 프로세스가 이벤트를 보냈다(공회전이 아니다)", relayed_since > 0, f"{relayed_since}건")
+        if name == "mongo-restart":
+            check("MongoDB 가 끊긴 동안 outbox 에 미전송이 쌓였다(시험이 공회전이 아니다)", backlog["max"] >= 20, f"최대 {backlog['max']}건")
+        for proc in processors + relays:
             if proc.poll() is None:
                 proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=30)
             proc.log_handle.close()
         connections.close_all()
-        problems = load_test.verify_invariants(harness.acked_decisions, harness.acked_reactions, expect_drained=True)
-        check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음", not problems, "; ".join(problems[:3]))
+        problems = load_test.verify_invariants(harness.acked_decisions, harness.acked_reactions, expect_drained=True) + load_test.verify_events(relayed=True)
+        check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음·이벤트=원본 행(일대일)·MongoDB=outbox", not problems, "; ".join(problems[:3]))
         result.update(requests=len(outcomes), attempts=len(statuses), unavailable=unavailable, acked_decisions=len(harness.acked_decisions), acked_reactions=len(harness.acked_reactions))
     finally:
-        for proc in processors:
+        for proc in processors + relays:
             if proc.poll() is None:
                 proc.kill()
         if server is not None:
             server.shutdown()
             server.server_close()
         connections.close_all()
+        try:
+            if mongo_db.startswith("ads_events_failure_"):
+                mongo.client().drop_database(mongo_db)  # 이 시나리오가 만든 이름만 지운다
+            mongo.close()
+        except BaseException as error:  # noqa: BLE001
+            print(f"정리 실패(임시 MongoDB 데이터베이스): {error!r}", file=sys.stderr)
         try:
             mysql_admin.drop_database(database)
         except BaseException as error:  # noqa: BLE001
@@ -252,23 +319,28 @@ def main(argv=None):
     if unknown:
         raise SystemExit(f"알 수 없는 시나리오 {unknown}. 가능한 것: {', '.join(SCENARIOS)}")
     if shutil.which("docker") is None:
-        raise SystemExit("docker 가 없다. 이 시험은 임시 MySQL 컨테이너가 필요하다.")
+        raise SystemExit("docker 가 없다. 이 시험은 임시 MySQL·MongoDB 컨테이너가 필요하다.")
     if docker("image", "inspect", IMAGE, check=False).returncode != 0:
         raise SystemExit(f"이미지 {IMAGE} 가 없다. intake/db-standalone 에서 `docker compose build mysql` 로 만든다.")
 
     import mysql_admin  # noqa: F401 — 경로 설정
 
     db = DbContainer()
-    results = []
+    results, mongo_name = [], None
     try:
         print(f"임시 MySQL 컨테이너 {db.name} (포트 {db.port}) 기동…")
         db.start()
         os.environ.update(DB_HOST="127.0.0.1", DB_PORT=str(db.port), DB_USER="root", DB_PASSWORD=db.password)
+        mongo_name, mongo_port, mongo_password = mongo_temp_rs.start()  # 임시 단일 노드 레플리카셋(인증 켜짐)
+        print(f"임시 MongoDB 컨테이너 {mongo_name} (포트 {mongo_port}) 기동")
+        os.environ.update(MONGO_HOSTS=f"127.0.0.1:{mongo_port}", MONGO_USER="root", MONGO_PASSWORD=mongo_password, MONGO_AUTH_SOURCE="admin", MONGO_REPLICA_SET=mongo_temp_rs.REPLICA_SET)
         for name in chosen:
             print(f"\n== 시나리오: {name}")
-            results.append(run_scenario(name, db, print))
+            results.append(run_scenario(name, db, (mongo_name, mongo_port), print))
     finally:
         db.remove()
+        if mongo_name:
+            mongo_temp_rs.stop(mongo_name)
     ok = all(r["ok"] for r in results)
     print("\n결과: " + ("모든 시나리오 통과" if ok else "실패 있음 — " + ", ".join(r["scenario"] for r in results if not r["ok"])))
     if args.json:

@@ -181,6 +181,39 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     return problems
 
 
+def verify_events(relayed=False):
+    """이벤트 ↔ 원본 행 일대일(Step 4): 결정마다 `ad.decision`, 반응마다 `ad.reaction_received`, 판정된 반응마다 `ad.reaction`, 원장 CHARGE 마다 `ad.charge` 가 정확히 하나.
+    어긋난 곳의 설명 목록(지키면 빈 목록). `relayed`: 중계가 모두 끝난 시점이면 True — outbox 에 미전송이 없고 MongoDB 의 이벤트가 outbox 와 정확히 같아야 한다."""
+    from billing.models import LedgerEntry
+    from events import schemas, store
+    from events.models import EventOutbox
+    from records.models import Decision, Reaction
+
+    expected = set()
+    for decision_id in Decision.objects.values_list("decision_id", flat=True):
+        expected.add(schemas.event_id_of(schemas.DECISION, decision_id))
+    for inbox_id, status in Reaction.objects.values_list("inbox_id", "status"):
+        expected.add(schemas.event_id_of(schemas.REACTION_RECEIVED, inbox_id))
+        if status != "RECEIVED":
+            expected.add(schemas.event_id_of(schemas.REACTION, inbox_id))
+    for entry_id in LedgerEntry.objects.filter(entry_type="CHARGE").values_list("entry_id", flat=True):
+        expected.add(schemas.event_id_of(schemas.CHARGE, entry_id))
+    actual = set(EventOutbox.objects.values_list("event_id", flat=True))
+    problems = []
+    if expected - actual:
+        problems.append(f"이벤트가 없는 원본 행 {len(expected - actual)}건")
+    if actual - expected:
+        problems.append(f"원본 행이 없는 이벤트 {len(actual - expected)}건")
+    if relayed:
+        unsent = EventOutbox.objects.filter(sent_at__isnull=True).count()
+        if unsent:
+            problems.append(f"MongoDB 로 보내지 않은 이벤트 {unsent}건이 남아 있다")
+        in_mongo = {d["_id"] for d in store.collection().find({}, {"_id": 1})}
+        if in_mongo != actual:
+            problems.append(f"MongoDB 의 이벤트가 outbox 와 다르다(없음 {len(actual - in_mongo)}건, 더 있음 {len(in_mongo - actual)}건)")
+    return problems
+
+
 # ---------------------------------------------------------------- HTTP 클라이언트 (계약의 재시도 규칙)
 
 class Outcome:
@@ -397,8 +430,28 @@ class Harness:
                 return
             time.sleep(settings.REACTION_HOLD_RECHECK_SECONDS + 0.5)
 
-    def verify(self, name, expect_drained=True):
-        problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained, quiescent=self.quiescent)
+    def settle_events(self, relays):
+        """상시 중계가 outbox 를 비우길 기다린 뒤 멈추고, 남은 것은 `relay_events --once` 로 비운다. 중계 프로세스가 죽어 있으면 실패로 남긴다."""
+        from events.models import EventOutbox
+
+        deadline = time.perf_counter() + 60
+        while time.perf_counter() < deadline and EventOutbox.objects.filter(sent_at__isnull=True).exists():
+            time.sleep(0.5)
+        left = EventOutbox.objects.filter(sent_at__isnull=True).count()
+        self.check("상시 중계 프로세스만으로 outbox 가 비워진다(별도 명령 없이)", left == 0, f"남은 미전송 {left}건")
+        self.check("상시 중계 프로세스 둘이 살아 있다", all(p.poll() is None for p in relays), str([p.poll() for p in relays]))
+        for proc in relays:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        out = subprocess.run([sys.executable, "manage.py", "relay_events", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
+        self.check("남은 이벤트를 --once 로 비운다", out.returncode == 0, out.stderr[-200:])
+
+    def verify(self, name, expect_drained=True, events_relayed=False):
+        problems = verify_invariants(self.acked_decisions, self.acked_reactions, expect_drained, quiescent=self.quiescent) + verify_events(events_relayed)
         self.check(f"불변식 [{name}]", not problems, "; ".join(problems))
         return not problems
 
@@ -734,10 +787,11 @@ def main(argv=None):
     import mysql_admin
 
     # 자원은 만드는 즉시 기록하고, 어느 단계에서 실패해도(준비·시험·결과 저장) 만든 것만 바깥 finally 가 정리한다.
-    res = {"tmp": None, "db": None, "server": None, "serving": False}
+    res = {"tmp": None, "db": None, "server": None, "serving": False, "mongo_db": None, "relays": []}
     try:
         res["tmp"] = tmp = Path(tempfile.mkdtemp(prefix="ads-load-"))
         res["db"] = db_name = mysql_admin.create_database("ads_load")  # 접속 값이 없거나 연결이 안 되면 여기서 이유를 말하고 멈춘다
+        res["mongo_db"] = f"ads_events_load_{uuid.uuid4().hex}"  # 이 실행만 쓰는 무작위 이름. 끝나면 이 이름만 지운다
         return run(args, count, tmp, db_name, res)
     finally:
         cleanup(res, keep=args.keep)
@@ -759,9 +813,28 @@ def cleanup(res, keep):
         if "django.db" in sys.modules:
             sys.modules["django.db"].connections.close_all()
 
+    def stop_relays():
+        for proc in res["relays"]:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+    def drop_mongo():
+        name = res["mongo_db"]
+        if name and name.startswith("ads_events_load_") and "events" in sys.modules:
+            from events import mongo
+
+            mongo.client().drop_database(name)
+            mongo.close()
+
     steps = [
+        ("중계 프로세스 종료", stop_relays),
         ("서버 종료", stop_server),
         ("연결 닫기", close_connections),
+        ("MongoDB 데이터베이스 삭제", drop_mongo),
         ("데이터베이스 삭제", lambda: res["db"] and mysql_admin.drop_database(res["db"])),
         ("임시 폴더 삭제", lambda: res["tmp"] and shutil.rmtree(res["tmp"], ignore_errors=True)),
     ]
@@ -773,7 +846,7 @@ def cleanup(res, keep):
 
 
 def run(args, count, tmp, db_name, res):
-    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MEDIA_ROOT=str(tmp / "media"))
+    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MONGO_DB=res["mongo_db"], MEDIA_ROOT=str(tmp / "media"))
     os.environ.pop("DJANGO_DEBUG", None)
 
     import django
@@ -782,10 +855,16 @@ def run(args, count, tmp, db_name, res):
     from django.core.management import call_command
     from django.core.wsgi import get_wsgi_application
 
+    from events import store
+
     log = print
     log(f"임시 폴더 {tmp}, 데이터베이스 {db_name} (MySQL 8.4), 동시 {count}")
     call_command("migrate", verbosity=0)
+    store.ensure()  # 운영과 같은 봉투 검증이 걸린 이 실행 전용 컬렉션
     ctx = seed()
+    for i in range(2):  # 상시 중계 프로세스 둘이 처음부터 끝까지 돈다(서로 다른 행을 가져가는지도 함께 본다)
+        log_file = open(tmp / f"relay{i}.log", "w")
+        res["relays"].append(subprocess.Popen([sys.executable, "manage.py", "relay_events", "--interval", "0.3", "--batch", "50"], cwd=BASE_DIR, env=os.environ, stdout=log_file, stderr=log_file))
     server = ThreadedServer(("127.0.0.1", 0), QuietHandler)
     res["server"] = server
     server.set_app(get_wsgi_application())
@@ -813,7 +892,8 @@ def run(args, count, tmp, db_name, res):
         harness.drain()
         harness.per_request_cost(samples=50 if args.small else 200)
         harness.drain()
-        harness.verify("최종")
+        harness.settle_events(res["relays"])
+        harness.verify("최종", events_relayed=True)
     finally:
         ok = all(c["ok"] for c in harness.checks)
         from billing.models import LedgerEntry
