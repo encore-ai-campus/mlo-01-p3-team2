@@ -19,6 +19,7 @@ MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 # 새 공개 뷰나 "로그인만 필요" 뷰를 추가하면 **여기도 고쳐야 한다**(리뷰 지점).
 EXPECTED_PUBLIC = {
     "/accounts/signup/", "/accounts/login/", "/assets/<asset_name:name>",
+    "/",  # 루트 주소 → 로그인 화면으로 이동(내용 없음)
     # 매체 API(C1): 세션 로그인이 아니라 `X-Media-Key` 로 인증한다(`media_endpoint`). health 는 인증 없음
     "/api/media/v1/health", "/api/media/v1/decisions", "/api/media/v1/decisions/<str:decision_id>",
     "/api/media/v1/decisions/<str:decision_id>/reactions/<str:reaction_id>",
@@ -111,8 +112,10 @@ class AccessControlTests(TestCase):
 
     def test_lookalike_paths_are_not_treated_as_role_areas(self):
         self.login_as(self.adv)
-        for path in ("/advertiser-evil/", "/test-adminx/", "//test-admin/"):
+        for path in ("/advertiser-evil/", "/test-adminx/"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
+        # 테스트 클라이언트는 "//x/" 를 호스트 x 의 "/" 로 읽으므로 경로를 직접 지정한다
+        self.assertEqual(self.client.get("/", PATH_INFO="//test-admin/").status_code, 404)
 
     def test_login_redirects_by_role(self):
         r = self.client.post(reverse("login"), {"username": "root_a", "password": PW})
