@@ -11,7 +11,18 @@ cd "$(dirname "$0")/.."
 PY="${PYTHON:-python}"
 failures=()
 
-eval "$("$PY" scripts/mysql_cluster.py start)" || { echo "클러스터를 띄우지 못했다"; exit 1; }
+# 이전 실행의 값이 환경에 남아 있어도 이번 실행이 만든 클러스터만 다룬다: 먼저 비우고, 기동 명령의 **종료 코드**를 직접 확인한 뒤(eval 의 결과가 아니라),
+# 이번에 출력된 클러스터 ID 가 있을 때만 정리 trap 을 설치한다. 기동이 실패하면 후속 시험도, 이전 ID 에 대한 정리 호출도 하지 않고 비정상 종료한다.
+unset MYSQL_CLUSTER_ID DB_HOST DB_PORT DB_USER DB_PASSWORD
+if ! start_output="$("$PY" scripts/mysql_cluster.py start)"; then
+  echo "클러스터를 띄우지 못했다" >&2
+  exit 1
+fi
+eval "$start_output"
+if [ -z "${MYSQL_CLUSTER_ID:-}" ] || [ -z "${DB_PORT:-}" ]; then
+  echo "클러스터 기동 출력에 클러스터 ID·접속 값이 없다" >&2
+  exit 1
+fi
 trap '"$PY" scripts/mysql_cluster.py stop "$MYSQL_CLUSTER_ID"' EXIT
 echo "InnoDB Cluster $MYSQL_CLUSTER_ID (Router 포트 $DB_PORT)"
 

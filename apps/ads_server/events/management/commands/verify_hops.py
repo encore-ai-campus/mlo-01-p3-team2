@@ -30,7 +30,7 @@ class Command(BaseCommand):
         for name in HOP_FILES:
             path = ndjson.manifest_path(directory, name)
             try:
-                hops[name] = hopcheck.load_hop(path, name)
+                hops[name] = hopcheck.load_hop(path, name, expected_kind=name)
             except hopcheck.HopInputError as error:
                 errors.append(f"{name}: {error}")
                 continue
@@ -46,15 +46,21 @@ class Command(BaseCommand):
         rows = []
         if len(hops) == len(HOP_FILES):
             source, outbox, mongo = (hops[n] for n in HOP_FILES)
-            rows += hopcheck.compare(source, outbox) + hopcheck.compare(outbox, mongo) + hopcheck.compare(source, mongo, unsent_from=outbox)
+            try:
+                rows += hopcheck.compare(source, outbox) + hopcheck.compare(outbox, mongo) + hopcheck.compare(source, mongo, unsent_from=outbox)
+            except hopcheck.HopInputError as error:
+                errors.append(str(error))
         if options["pipeline"]:
             try:
-                pipeline = hopcheck.load_hop(options["pipeline"], "pipeline")
+                pipeline = hopcheck.load_hop(options["pipeline"], "pipeline", expected_kind="hop_pipeline")
             except hopcheck.HopInputError as error:
                 errors.append(f"pipeline: {error}")
             else:
                 if "hop_mongo" in hops:
-                    rows += hopcheck.compare(hops["hop_mongo"], pipeline, unsent_from=hops.get("hop_outbox"))
+                    try:
+                        rows += hopcheck.compare(hops["hop_mongo"], pipeline, unsent_from=hops.get("hop_outbox"))
+                    except hopcheck.HopInputError as error:
+                        errors.append(f"pipeline: {error}")
         counts = {}
         for row in rows:
             counts[row["status"]] = counts.get(row["status"], 0) + 1

@@ -141,23 +141,83 @@ class WriteAndVerifyTests(TempDirMixin, SimpleTestCase):
         self.assertEqual([p.name for p in directory.iterdir() if p.name.endswith(".tmp")], [])  # 임시 파일이 남지 않는다
 
     def test_interleaved_publications_end_with_a_manifest_that_matches_its_data(self):
-        """검토 재현 2: A 데이터 → B 데이터·manifest → A manifest 로 엇갈려도 최종 manifest 가 가리키는 데이터는 온전하다."""
+        """A 가 포인터 교체 직전에 멈춘 사이 B 가 게시를 시도해도, 최종 manifest 가 가리키는 데이터는 온전하고 두 세대의 데이터 파일이 모두 남는다(B 는 A 를 기다린다)."""
+        import threading
+
         directory = self.tmpdir()
         manifest_file = ndjson.manifest_path(directory, "check")
-        real, state = ndjson._publish, {"b_done": False}
+        real, paused, release = ndjson._publish, threading.Event(), threading.Event()
 
-        def interleave(path, writer):
-            if Path(path).name.endswith(".manifest.json") and not state["b_done"]:
-                state["b_done"] = True
-                self.publish(directory, [{"writer": "B"}])  # A 의 manifest 게시 직전에 B 가 끝까지 게시한다
+        def gate(path, writer):
+            if Path(path).name == "check.manifest.json" and threading.current_thread().name == "writer-A":
+                paused.set()
+                assert release.wait(30)
             return real(path, writer)
 
-        with mock.patch("events.ndjson._publish", interleave):
-            a = self.publish(directory, [{"writer": "A"}])
+        done = {}
+        with mock.patch("events.ndjson._publish", gate):
+            a = threading.Thread(target=lambda: done.update(A=self.publish(directory, [{"writer": "A"}])), name="writer-A")
+            a.start()
+            self.assertTrue(paused.wait(10))
+            b = threading.Thread(target=lambda: done.update(B=self.publish(directory, [{"writer": "B"}])), name="writer-B")
+            b.start()
+            release.set()
+            a.join(10)
+            b.join(10)
         self.assertEqual(ndjson.verify(manifest_file), [])
-        self.assertEqual(ndjson.read_manifest(manifest_file)["file"], a["file"])  # 마지막에 게시한 쪽(A)의 것
-        self.assertEqual(json.loads((directory / a["file"]).read_text()), {"writer": "A"})
-        self.assertEqual(len([p for p in directory.iterdir() if p.name.endswith(".ndjson")]), 2)  # B 의 세대도 온전히 남아 있다
+        self.assertEqual(ndjson.read_manifest(manifest_file)["file"], done["B"]["file"])  # 나중에 게시한 쪽의 것
+        self.assertEqual(json.loads((directory / done["B"]["file"]).read_text()), {"writer": "B"})
+        self.assertEqual(len([p for p in directory.iterdir() if p.name.endswith(".ndjson")]), 2)  # A 의 세대도 온전히 남아 있다
+
+    def test_concurrent_chained_publications_do_not_drop_a_successful_generation_from_the_chain(self):
+        """검토 P2-4 재현: A 가 직전 세대 G0 를 읽고 포인터 교체 직전에 대기하는 동안 B 가 게시해 성공하면, A 가 이어서 게시한 최종 manifest 의 직전이 B 가 아니라 G0 였다.
+        직전 세대를 읽는 시점부터 포인터를 교체할 때까지 직렬화하므로, B 는 A 가 끝나길 기다렸다가 A 의 세대 위에 이어진다."""
+        import threading
+
+        directory = self.tmpdir()
+        pointer = ndjson.manifest_path(directory, "check")
+        g0 = self.publish(directory, [{"gen": 0}], chain=True)
+        g0_digest = ndjson.manifest_sha256(pointer)
+        real, paused, release = ndjson._publish, threading.Event(), threading.Event()
+
+        def gate(path, writer):
+            if Path(path).name == "check.manifest.json" and threading.current_thread().name == "writer-A":
+                paused.set()
+                assert release.wait(30)
+            return real(path, writer)
+
+        results = {}
+
+        def run(label, rows):
+            results[label] = self.publish(directory, rows, chain=True)
+
+        with mock.patch("events.ndjson._publish", gate):
+            a = threading.Thread(target=run, args=("A", [{"gen": "A"}]), name="writer-A")
+            a.start()
+            self.assertTrue(paused.wait(10))  # A 는 G0 를 직전으로 읽고 포인터 교체 직전에 멈춰 있다
+            b = threading.Thread(target=run, args=("B", [{"gen": "B"}]), name="writer-B")
+            b.start()
+            b.join(0.7)
+            self.assertTrue(b.is_alive(), "B 가 A 를 기다리지 않고 먼저 게시했다 — 직렬화가 없다")
+            release.set()
+            a.join(10)
+            b.join(10)
+        self.assertEqual(ndjson.verify_chain(pointer), [])
+        final = ndjson.read_manifest(pointer)
+        self.assertEqual(final["file"], results["B"]["file"])  # B 가 A 뒤에 이어졌다
+        self.assertEqual(final["previous_sha256"], ndjson.manifest_digest(results["A"]))  # B 의 직전은 A 다
+        self.assertEqual(results["A"]["previous_sha256"], ndjson.manifest_digest(g0))  # A 의 직전은 G0
+        self.assertEqual(g0["previous_sha256"], None)
+
+    def test_the_returned_manifest_digest_is_what_was_published(self):
+        """감사 로그의 고정점은 이 실행이 실제로 게시한 manifest 의 해시여야 한다 — 포인터를 다시 읽어 얻으면 그 사이 다른 실행이 바꾼 것을 담을 수 있다."""
+        directory = self.tmpdir()
+        manifest = self.publish(directory, [{"n": 1}], chain=True)
+        pointer = ndjson.manifest_path(directory, "check")
+        self.assertEqual(ndjson.manifest_digest(manifest), ndjson.manifest_sha256(pointer))
+        again = self.publish(directory, [{"n": 2}], chain=True)
+        self.assertNotEqual(ndjson.manifest_digest(again), ndjson.manifest_digest(manifest))
+        self.assertEqual(again["previous_sha256"], ndjson.manifest_digest(manifest))
 
     def test_a_crash_while_writing_leaves_the_previous_publication_and_no_partial_file(self):
         directory = self.tmpdir()

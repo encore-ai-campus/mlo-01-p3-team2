@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from random import Random
+from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -179,6 +180,49 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(self.lines("hop_source", out="long")[0], [])  # 아주 긴 여유 — 어떤 창도 아직 닫히지 않았다
         self.assertEqual(len(self.lines("hop_source", out="long")[1]["checkpoint"]["open_windows"]), 1)
 
+    def verify(self, directory="out", *flags):
+        stdout = io.StringIO()
+        try:
+            call_command("verify_hops", "--dir", str(self.dir / directory), *flags, stdout=stdout)
+            return True, stdout.getvalue()
+        except CommandError as error:
+            return False, stdout.getvalue() + str(error)
+
+    def test_a_normal_retention_purge_is_not_mistaken_for_corruption(self):
+        """검토 P2-2 재현: 보존 기간이 지나 outbox 행이 모두 지워진 창은 '대조 제외'로 남아야 한다 — 행이 사라졌다고 제외 정보까지 사라져 확정 불일치가 되면 안 된다."""
+        relay_batch()
+        with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=1):
+            self.export(out="before")
+            self.assertTrue(self.verify("before", "--no-anchor")[0])
+            call_command("purge_sent_events", "--days", "0", stdout=io.StringIO())  # 실제 보존 정리
+            self.assertEqual(EventOutbox.objects.count(), 0)
+            self.export(out="after")
+        checkpoint = self.lines("hop_outbox", out="after")[1]["checkpoint"]
+        self.assertEqual(checkpoint["not_comparable_windows"], ["2026-10-07T00:00:00Z"])  # 줄이 하나도 없어도 제외 정보는 남는다
+        ok, text = self.verify("after", "--no-anchor")
+        self.assertTrue(ok, text)
+        self.assertNotIn("FAIL", text)
+        self.assertIn("not_comparable", text)
+        self.assertEqual(self.lines("hop_source", out="after")[0], self.lines("hop_mongo", out="after")[0])  # 원본과 MongoDB 는 그대로 대조된다
+
+    def test_the_retention_cutoff_inside_a_window_makes_the_whole_window_not_comparable(self):
+        """보존 기준 시각이 창의 한가운데에 걸리면, 그 창의 앞부분 행은 이미 지워졌을 수 있다 — 창 전체를 대조에서 뺀다."""
+        relay_batch()
+        with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=3):
+            self.export("--as-of", "2026-10-10T12:00:00Z", out="mid")  # 기준 시각 = 2026-10-07 12:00:00, 창 2026-10-07 의 한가운데
+        self.assertEqual(self.lines("hop_outbox", out="mid")[1]["checkpoint"]["not_comparable_windows"], ["2026-10-07T00:00:00Z"])
+        self.assertEqual(self.lines("hop_outbox", out="mid")[0], [])
+        with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=4):  # 기준 시각이 창 시작보다 앞: 대조한다
+            self.export("--as-of", "2026-10-10T12:00:00Z", out="clear")
+        self.assertEqual(self.lines("hop_outbox", out="clear")[1]["checkpoint"]["not_comparable_windows"], [])
+        self.assertEqual(len(self.lines("hop_outbox", out="clear")[0]), 4)
+
+    def test_hour_windows_use_the_exact_cutoff_too(self):
+        relay_batch()
+        with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=3):
+            self.export("--window", "hour", "--as-of", "2026-10-10T12:30:00Z", out="hour")  # 기준 시각 12:30 — 이벤트가 있는 창(12:00~13:00)의 한가운데
+        self.assertEqual(self.lines("hop_outbox", out="hour")[1]["checkpoint"]["not_comparable_windows"], ["2026-10-07T12:00:00Z"])
+
     def test_windows_older_than_the_outbox_retention_are_not_compared_with_the_outbox(self):
         with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=1):  # 2026-10-07 창은 이미 보존 정리 범위 밖
             self.export()
@@ -221,6 +265,25 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(len(audits), 2)
         self.assertEqual(audits[1].detail["anchors"]["hop_source"], ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", "hop_source")))  # 폴더 밖의 고정점
         self.assertEqual(audits[0].detail["anchors"], first)
+
+    def test_the_audit_anchor_is_the_manifest_this_run_published_even_if_another_run_replaced_the_pointer(self):
+        """검토 P2-4: 쓴 직후 다른 실행이 포인터를 바꿔도 감사 로그의 고정점은 이 실행이 게시한 manifest 의 해시다."""
+        from events import api as events_api
+
+        real, published = events_api.write_ndjson, {}
+
+        def write_then_get_replaced(directory, name, rows, kind, version, **kw):
+            manifest = real(directory, name, rows, kind, version, **kw)
+            published[name] = manifest
+            other = real(directory, name, rows, kind, version, **{**kw, "checkpoint": {**kw["checkpoint"], "intruder": True}})  # 다른 실행의 게시(이 실행 직후)
+            return manifest
+
+        with mock.patch("records.management.commands.export_hop_manifests.events.write_ndjson", write_then_get_replaced):
+            self.export()
+        anchors = AuditLog.objects.get(action="events.hop_manifests_exported").detail["anchors"]
+        for hop, manifest in published.items():
+            self.assertEqual(anchors[hop], ndjson.manifest_digest(manifest), hop)
+            self.assertNotEqual(anchors[hop], ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", hop)))  # 포인터는 이미 다른 실행의 것이다
 
     def test_a_missing_or_changed_previous_generation_breaks_the_chain(self):
         self.export()

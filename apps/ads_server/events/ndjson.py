@@ -10,6 +10,8 @@
 - 오래된 세대의 데이터 파일은 자동으로 지우지 않는다(읽는 쪽이 이전 manifest 를 쥐고 있을 수 있다). 보존 기간은 설계 §7-8 이 열려 있다.
 - 검증(`verify`)은 manifest 를 읽고, 그것이 가리키는 파일을 다시 읽어 SHA-256·행 수·줄 형식을 대조한다.
 """
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -60,6 +62,27 @@ def manifest_sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def manifest_body(manifest):
+    """게시되는 manifest 파일의 바이트. 같은 manifest 는 항상 같은 바이트다 — 게시한 쪽이 반환값만으로 그 해시를 알 수 있다."""
+    return (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+
+def manifest_digest(manifest):
+    """`write` 가 반환한 manifest 가 게시된 파일의 SHA-256. 포인터 파일을 다시 읽지 않는다 — 읽는 사이 다른 실행이 바꿨을 수 있다(감사 로그의 고정점은 이 값을 쓴다)."""
+    return hashlib.sha256(manifest_body(manifest)).hexdigest()
+
+
+@contextlib.contextmanager
+def _pointer_lock(directory, name):
+    """같은 이름의 포인터를 게시하는 쪽끼리 직렬화한다(프로세스 간, `flock`). 직전 세대를 읽는 시점부터 포인터를 교체할 때까지 쥔다 — 그래야 성공한 세대가 사슬에서 빠지지 않는다."""
+    with open(Path(directory) / f".{name}.lock", "a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def _generation_copy(directory, name, digest):
     return Path(directory) / f"{name}.manifest.{digest[:16]}.json"
 
@@ -98,18 +121,19 @@ def write(directory, name, records, source_kind, schema_version, checkpoint=None
         "source_kind": source_kind, "checkpoint": checkpoint, "created_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
     }
     pointer = manifest_path(directory, name)
-    if chain:
-        previous = None
-        if pointer.exists():
-            previous = manifest_sha256(pointer)
-            copy = _generation_copy(directory, name, previous)
-            if not copy.exists():  # 사슬이 아닌 게시본 위에 처음 사슬을 이을 때: 직전 manifest 도 사본으로 남긴다
-                _publish(copy, lambda handle: handle.write(pointer.read_bytes()))
-        manifest["previous_sha256"] = previous
-    body = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    if chain:
-        _publish(_generation_copy(directory, name, hashlib.sha256(body).hexdigest()), lambda handle: handle.write(body))  # 포인터를 바꾸기 전에 이 세대의 사본을 먼저 확정한다
-    _publish(pointer, lambda handle: handle.write(body))
+    with _pointer_lock(directory, name):  # 직전 세대 읽기 → 이 세대 사본 → 포인터 교체를 한 덩어리로(동시에 게시해도 모든 성공한 세대가 사슬에 이어진다)
+        if chain:
+            previous = None
+            if pointer.exists():
+                previous = manifest_sha256(pointer)
+                copy = _generation_copy(directory, name, previous)
+                if not copy.exists():  # 사슬이 아닌 게시본 위에 처음 사슬을 이을 때: 직전 manifest 도 사본으로 남긴다
+                    _publish(copy, lambda handle: handle.write(pointer.read_bytes()))
+            manifest["previous_sha256"] = previous
+        body = manifest_body(manifest)
+        if chain:
+            _publish(_generation_copy(directory, name, hashlib.sha256(body).hexdigest()), lambda handle: handle.write(body))  # 포인터를 바꾸기 전에 이 세대의 사본을 먼저 확정한다
+        _publish(pointer, lambda handle: handle.write(body))
     return manifest
 
 

@@ -48,27 +48,32 @@ class Command(BaseCommand):
             mongo = list(events.mongo_documents())  # ③ 은 스냅샷 밖이다 — 중계가 진행 중이면 그 창이 잠시 어긋날 수 있다(verify_hops 가 구분한다)
         except (PyMongoError, events.NotConfigured) as error:
             raise CommandError(f"MongoDB 를 읽지 못했습니다: {type(error).__name__}: {str(error)[:200]}")
-        comparable_from = events.window_start(now - timedelta(days=settings.EVENTS_OUTBOX_RETENTION_DAYS))  # 보존 정리가 닿지 않은 창만 outbox 와 대조한다
+        # 보존 정리는 보낸 지 EVENTS_OUTBOX_RETENTION_DAYS 가 지난 행을 지운다. 시작이 이 기준 시각 이후인 창의 행은 (생성 ≤ 전송 이므로) 한 줄도 지워지지 않았다.
+        # 기준 시각이 창의 한가운데에 걸리면 그 창의 앞부분은 지워졌을 수 있으므로 창 전체를 뺀다. 판정은 행이 남아 있는지가 아니라 **보존 범위와 창 경계**로 한다
+        # (오래된 창의 행이 모두 지워져도 '대조 제외' 정보가 사라지지 않게).
+        cutoff = now - timedelta(days=settings.EVENTS_OUTBOX_RETENTION_DAYS)
         outbox = [doc for doc, _ in outbox_pairs]
         unsent = events.unsent_counts(outbox_pairs, size)
+        summaries = {hop: events.summarize(docs, now, grace, since, size) for hop, docs in (("hop_source", source), ("hop_outbox", outbox), ("hop_mongo", mongo))}
+        scanned = {"hop_source": len(source), "hop_outbox": len(outbox), "hop_mongo": len(mongo)}
+        starts = {line["window_start"] for lines, _ in summaries.values() for line in lines}  # 어느 구간에든 있는 닫힌 창
+        not_comparable = sorted(start for start in starts if _parse(start) < cutoff)
         out = Path(options["out"])
         anchors = {}
-        for hop, docs in (("hop_source", source), ("hop_outbox", outbox), ("hop_mongo", mongo)):
-            lines, open_windows = events.summarize(docs, now, grace, since, size)
+        for hop, (lines, open_windows) in summaries.items():
             extra = {}
             if hop == "hop_outbox":
-                skipped = sorted({line["window_start"] for line in lines if _parse(line["window_start"]) < comparable_from})
-                lines = [line for line in lines if _parse(line["window_start"]) >= comparable_from]
+                lines = [line for line in lines if line["window_start"] not in not_comparable]
                 for line in lines:
                     line["unsent"] = unsent.get((line["window_start"], line["event_name"]), 0)  # 중계 지연 후보를 가리는 데 쓴다
-                extra = {"not_comparable_windows": skipped, "comparable_from": comparable_from.strftime("%Y-%m-%dT%H:%M:%SZ")}
+                extra = {"not_comparable_windows": not_comparable, "retention_cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")}
             checkpoint = {
                 "scope": SCOPE if hop != "hop_mongo" else "mongodb-read-outside-snapshot", "hop": hop, "window": f"utc-{options['window']}", "grace_seconds": grace, "started_at": now.isoformat(),
-                "since": options["since"], "open_windows": [w.strftime("%Y-%m-%dT%H:%M:%SZ") for w in open_windows], "scanned_events": len(docs), **extra,
+                "since": options["since"], "open_windows": [w.strftime("%Y-%m-%dT%H:%M:%SZ") for w in open_windows], "scanned_events": scanned[hop], **extra,
             }
             manifest = events.write_ndjson(out, hop, lines, hop, SCHEMA_VERSION, checkpoint=checkpoint, now=now, chain=True)
-            anchors[hop] = events.manifest_sha256(events.manifest_path(out, hop))
-            self.stdout.write(f"{hop}: rows={manifest['rows']} events={len(docs)} open_windows={len(open_windows)} file={manifest['file']}")
+            anchors[hop] = events.manifest_digest(manifest)  # 이 실행이 게시한 manifest 의 해시(포인터를 다시 읽지 않는다)
+            self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} file={manifest['file']}")
         record_audit(None, "events.hop_manifests_exported", detail={"anchors": anchors, "since": options["since"], "grace_seconds": grace})  # 폴더 밖의 고정점(H12)
 
 

@@ -58,7 +58,7 @@ class ClassificationTests(SimpleTestCase):
     def test_mongodb_behind_with_unsent_rows_is_a_relay_lag_candidate_not_a_failure(self):
         (row,) = hopcheck.compare(hop("hop_outbox", line(count=5, unsent=2)), hop("hop_mongo", line(count=3, ids="x", content="y")))
         self.assertEqual(row["status"], "relay_lag_candidate")
-        (row,) = hopcheck.compare(hop("hop_outbox", line(count=5, unsent=2)), hop("hop_mongo"))  # 줄이 아예 없는 창도(아직 하나도 못 보냄)
+        (row,) = hopcheck.compare(hop("hop_outbox", line(count=5, unsent=5)), hop("hop_mongo"))  # 줄이 아예 없는 창도(아직 하나도 못 보냄: 부족 5 = 미전송 5)
         self.assertEqual(row["status"], "relay_lag_candidate")
 
     def test_lag_needs_unsent_rows_and_a_smaller_downstream(self):
@@ -86,6 +86,116 @@ class ClassificationTests(SimpleTestCase):
         # 줄이 없는 열린 창도 기록으로 남는다
         rows = hopcheck.compare(hop("hop_source"), hop("hop_mongo", open_windows=["2026-10-10T00:00:00Z"]))
         self.assertEqual([(r["status"], r["window_start"]) for r in rows], [("open_window", "2026-10-10T00:00:00Z")])
+
+
+@tag("security")
+class LagExplanationTests(SimpleTestCase):
+    """검토 P2-1: 미전송 하나가 전송 완료 이벤트의 유실을 가리면 안 된다 — 부족분이 미전송 건수로 설명될 때만 지연 후보다."""
+
+    def classify(self, outbox_count, unsent, mongo_count):
+        rows = hopcheck.compare(hop("hop_outbox", line(count=outbox_count, unsent=unsent)), hop("hop_mongo", *([line(count=mongo_count)] if mongo_count else [])))
+        return rows[0]["status"]
+
+    def test_the_shortfall_must_fit_in_the_unsent_rows(self):
+        self.assertEqual(self.classify(3, 3, 0), "relay_lag_candidate")  # 셋 다 아직 못 보냈다
+        self.assertEqual(self.classify(3, 2, 1), "relay_lag_candidate")  # 부족 2 = 미전송 2
+        self.assertEqual(self.classify(3, 1, 2), "relay_lag_candidate")  # 부족 1 = 미전송 1
+        self.assertEqual(self.classify(3, 1, 0), "mismatch")  # 검토 재현: 부족 3 > 미전송 1 — 적어도 두 건은 확정 유실
+        self.assertEqual(self.classify(3, 2, 0), "mismatch")  # 부족 3 > 미전송 2
+        self.assertEqual(self.classify(5, 1, 3), "mismatch")  # 부족 2 > 미전송 1
+        self.assertEqual(self.classify(3, 0, 2), "mismatch")  # 미전송이 없는데 적다
+
+    def test_source_to_mongodb_uses_the_same_rule_with_the_outbox_unsent_counts(self):
+        source, outbox = hop("hop_source", line(count=3)), hop("hop_outbox", line(count=3, unsent=1))
+        self.assertEqual(hopcheck.compare(source, hop("hop_mongo"), unsent_from=outbox)[0]["status"], "mismatch")
+        outbox = hop("hop_outbox", line(count=3, unsent=3))
+        self.assertEqual(hopcheck.compare(source, hop("hop_mongo"), unsent_from=outbox)[0]["status"], "relay_lag_candidate")
+
+    def test_the_fields_still_say_what_differs(self):
+        (row,) = hopcheck.compare(hop("hop_outbox", line(count=3, unsent=1)), hop("hop_mongo"))
+        self.assertEqual((row["status"], row["fields"]), ("mismatch", ["line_missing_in_b"]))
+
+
+A64, B64 = "a" * 64, "b" * 64  # 형식이 맞는 해시
+
+
+def hour_line(start="2026-10-07T05:00:00Z", end="2026-10-07T06:00:00Z", **kw):
+    return line(window=start, ids=A64, content=B64, **kw) | {"window_end": end}
+
+
+class InputValidationTests(SimpleTestCase):
+    """검토 P2-3: 파일 체크섬이 맞는 것과 집계 범위가 같은 것은 별개다 — 대조 전에 창 시작·끝·크기와 계약 버전·구간 종류를 확인한다."""
+
+    def publish(self, lines, kind="hop_mongo", window="utc-day", schema_version=1, hop_field="same"):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory, True)
+        checkpoint = {"window": window, "open_windows": []}
+        if hop_field == "same":
+            checkpoint["hop"] = kind
+        elif hop_field:
+            checkpoint["hop"] = hop_field
+        ndjson.write(directory, "h", lines, kind, schema_version, checkpoint=checkpoint)
+        return ndjson.manifest_path(directory, "h")
+
+    def day(self, **kw):
+        return line(window="2026-10-07T00:00:00Z", **({"ids": A64, "content": B64} | kw)) | {"window_end": "2026-10-08T00:00:00Z"}
+
+    def load(self, path, name="hop_mongo"):
+        return hopcheck.load_hop(path, name, expected_kind=name if name != "pipeline" else None)
+
+    def test_a_well_formed_input_loads(self):
+        hop_loaded = self.load(self.publish([self.day()]))
+        self.assertEqual((hop_loaded.window, len(hop_loaded.lines)), ("utc-day", 1))
+
+    def test_the_window_end_must_match_the_declared_window_size(self):
+        """검토 재현: 시작 시각·요약값은 그대로 두고 끝 시각을 한 시간 뒤로 바꾸고 checkpoint.window 를 utc-hour 로 — 일별과 시간별이 match 로 성공했다."""
+        forged = line(window="2026-10-07T00:00:00Z", ids=A64, content=B64) | {"window_end": "2026-10-07T01:00:00Z"}
+        with self.assertRaises(hopcheck.HopInputError) as raised:
+            self.load(self.publish([forged], window="utc-day"))
+        self.assertIn("창", str(raised.exception))
+        self.load(self.publish([forged], window="utc-hour"))  # 선언한 크기와 맞으면 그 자체로는 올바른 시간별 manifest 다
+
+    def test_daily_and_hourly_manifests_are_never_compared(self):
+        daily = self.load(self.publish([self.day()]))
+        hourly = self.load(self.publish([line(window="2026-10-07T00:00:00Z", ids=A64, content=B64) | {"window_end": "2026-10-07T01:00:00Z"}], window="utc-hour"), "pipeline")
+        with self.assertRaises(hopcheck.HopInputError):
+            hopcheck.compare(daily, hourly)
+
+    def test_windows_must_be_aligned_to_the_utc_boundary(self):
+        misaligned = line(window="2026-10-07T03:00:00Z", ids=A64, content=B64) | {"window_end": "2026-10-08T03:00:00Z"}
+        with self.assertRaises(hopcheck.HopInputError):
+            self.load(self.publish([misaligned]))
+        half_hour = hour_line("2026-10-07T05:30:00Z", "2026-10-07T06:30:00Z")
+        with self.assertRaises(hopcheck.HopInputError):
+            self.load(self.publish([half_hour], window="utc-hour"))
+
+    def test_an_unknown_window_kind_contract_version_or_hop_kind_is_refused(self):
+        for kwargs in ({"window": "utc-week"}, {"window": None}, {"schema_version": 2}, {"kind": "hop_other"}, {"kind": "ledger_check"}):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(hopcheck.HopInputError):
+                    self.load(self.publish([self.day()], **kwargs))
+
+    def test_the_file_must_be_the_hop_it_is_loaded_as(self):
+        outbox_file = self.publish([self.day(unsent=0)], kind="hop_outbox")
+        with self.assertRaises(hopcheck.HopInputError):
+            self.load(outbox_file, "hop_mongo")  # 구간 종류가 다른 파일을 바꿔 끼울 수 없다
+        with self.assertRaises(hopcheck.HopInputError):
+            self.load(self.publish([self.day()], hop_field="hop_source"), "hop_mongo")  # checkpoint 의 구간이 다르다
+
+    def test_a_duplicate_summary_key_is_refused_not_overwritten(self):
+        with self.assertRaises(hopcheck.HopInputError) as raised:
+            self.load(self.publish([self.day(), self.day(content="c" * 64)]))
+        self.assertIn("중복", str(raised.exception))
+
+    def test_malformed_lines_are_refused(self):
+        for broken in ({"count": -1}, {"count": True}, {"count": "1"}, {"ids_sha256": "xyz"}, {"content_sha256": "A" * 64}, {"window_start": "어제"}):
+            with self.subTest(broken=broken):
+                with self.assertRaises(hopcheck.HopInputError):
+                    self.load(self.publish([self.day() | broken]))
+        missing = self.day()
+        del missing["ids_sha256"]
+        with self.assertRaises(hopcheck.HopInputError):
+            self.load(self.publish([missing]))
 
 
 @tag("security")
@@ -172,7 +282,7 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         """폴더에 쓸 수 있는 사람이 그럴듯한 새 manifest 를 직접 게시해도, 감사 로그의 고정점과 달라 드러난다."""
         relay_batch()
         self.export()
-        ndjson.write(self.dir / "hops", "hop_source", [], "hop_source", 1, chain=True)  # (감사 로그에 남지 않는 게시)
+        ndjson.write(self.dir / "hops", "hop_source", [], "hop_source", 1, checkpoint={"hop": "hop_source", "window": "utc-day", "open_windows": []}, chain=True)  # (모양은 올바르지만 감사 로그에 남지 않는 게시)
         ok, text = self.verify()
         self.assertFalse(ok)
         self.assertIn("고정점", text)
@@ -205,12 +315,12 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         self.export()
         pipeline_dir = self.dir / "pipeline"
         mongo_lines = self.lines("hop_mongo")
-        ndjson.write(pipeline_dir, "pipeline", mongo_lines, "hop_pipeline", 1, checkpoint={"open_windows": []})
+        ndjson.write(pipeline_dir, "pipeline", mongo_lines, "hop_pipeline", 1, checkpoint={"open_windows": [], "window": "utc-day"})
         ok, text = self.verify("--pipeline", str(ndjson.manifest_path(pipeline_dir, "pipeline")))
         self.assertTrue(ok, text)
         self.assertIn("'match': 16", text)
         bad = [dict(l, content_sha256="0" * 64) if l["event_name"] == "ad.charge" else l for l in mongo_lines]
-        ndjson.write(pipeline_dir, "pipeline", bad, "hop_pipeline", 1, checkpoint={"open_windows": []})
+        ndjson.write(pipeline_dir, "pipeline", bad, "hop_pipeline", 1, checkpoint={"open_windows": [], "window": "utc-day"})
         ok, text = self.verify("--pipeline", str(ndjson.manifest_path(pipeline_dir, "pipeline")))
         self.assertFalse(ok)
         self.assertIn("hop_mongo->pipeline", text)
