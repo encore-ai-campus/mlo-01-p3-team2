@@ -3,7 +3,7 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
-from django.test import TestCase, TransactionTestCase, tag
+from django.test import TransactionTestCase, tag
 
 from events import schemas
 from events.models import EventOutbox
