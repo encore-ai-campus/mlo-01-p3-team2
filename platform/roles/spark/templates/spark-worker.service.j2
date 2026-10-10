@@ -9,7 +9,7 @@ User={{ spark_user }}
 Group={{ spark_user }}
 Environment=SPARK_HOME={{ spark_home }}
 Environment=SPARK_CONF_DIR={{ spark_config_dir }}
-ExecStart={{ spark_home }}/bin/spark-class org.apache.spark.deploy.worker.Worker {{ spark_master_url }} --host {{ ip }} --webui-port {{ spark_worker_webui_port }}
+ExecStart={{ spark_home }}/bin/spark-class org.apache.spark.deploy.worker.Worker {{ spark_master_url }} --host {{ ip }} --port {{ spark_worker_port }} --webui-port {{ spark_worker_webui_port }}
 StandardOutput=append:{{ spark_log_dir }}/worker.log
 StandardError=inherit
 Restart=on-failure

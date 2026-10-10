@@ -8,6 +8,7 @@ export SPARK_WORKER_DIR={{ spark_data_dir }}/work
 export SPARK_LOG_DIR={{ spark_log_dir }}
 export SPARK_WORKER_OPTS="-Dspark.worker.cleanup.enabled=true"
 # Master 이중화: 활성 Master의 상태를 ZooKeeper에 저장해, Standby가 이어받는다.
-export SPARK_DAEMON_JAVA_OPTS="-Dspark.deploy.recoveryMode=ZOOKEEPER -Dspark.deploy.zookeeper.url={{ spark_zookeeper_url }} -Dspark.deploy.zookeeper.dir=/spark"
+# Master·Worker 데몬은 지정 포트가 사용 중이면 실패시킨다. 작업의 포트 재시도와 구분한다.
+export SPARK_DAEMON_JAVA_OPTS="-Dspark.deploy.recoveryMode=ZOOKEEPER -Dspark.deploy.zookeeper.url={{ spark_zookeeper_url }} -Dspark.deploy.zookeeper.dir=/spark -Dspark.port.maxRetries=0"
 export PYSPARK_PYTHON={{ spark_python }}
 export PYSPARK_DRIVER_PYTHON={{ spark_python }}

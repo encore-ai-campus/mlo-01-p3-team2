@@ -10,13 +10,13 @@ routing-doc-sync의 inventory로 파일과 선언을 조사했다. 원본 Python
 
 ## 파일·함수·선언
 
-아래 선언은 분석기의 signature 값과 대조하는 정규 참조다. 인자에는 타입 annotation과 반환 타입 선언이 없다.
+아래 선언은 분석기의 signature 값과 대조하는 정규 참조다. 인자에는 타입 annotation과 반환 타입 선언이 없다. 정규 참조는 Git 최상위 C:/third_project 기준이므로 aws-infra/ 접두사를 포함한다. 일반 문서 탐색 경로의 프로젝트 루트는 C:/third_project/aws-infra다.
 
 | 파일과 선언 | AST 호출 이름에서 얻은 탐색 단서 |
 | --- | --- |
-| `infra/tests/test_runner.py::def run(action, account='account1', stage='foundation', extra=None, ok=True)` | subprocess.run, 결과 stdout/stderr decode, AssertionError 호출이 있다. 실행 결과를 확인하는 경로를 찾을 때 보는 함수 |
-| `infra/tests/test_runner.py::def calls()` | log.exists, log.read_text, splitlines, json.loads 호출이 있다. 기록된 호출 로그를 읽는 경로의 후보 |
-| `infra/tests/test_runner.py::def count_apply()` | calls와 sum 호출이 있다. apply 호출 집계를 찾는 후보이나 정확한 집계 조건은 AST 요약만으로 검증 불가 |
+| `aws-infra/infra/tests/test_runner.py::def run(action, account='account1', stage='foundation', extra=None, ok=True)` | subprocess.run, 결과 stdout/stderr decode, AssertionError 호출이 있다. 실행 결과를 확인하는 경로를 찾을 때 보는 함수 |
+| `aws-infra/infra/tests/test_runner.py::def calls()` | log.exists, log.read_text, splitlines, json.loads 호출이 있다. 기록된 호출 로그를 읽는 경로의 후보 |
+| `aws-infra/infra/tests/test_runner.py::def count_apply()` | calls와 sum 호출이 있다. apply 호출 집계를 찾는 후보이나 정확한 집계 조건은 AST 요약만으로 검증 불가 |
 
 함수별 설명은 정적 호출 이름과 함수명에서 얻은 탐색 단서다. 호출 대상의 실제 런타임 해석과 전체 로직의 의미가 검증됐다는 뜻은 아니다. 함수 docstring은 모두 없으며 스킬 결과의 role_status는 not_verified다.
 
@@ -28,4 +28,4 @@ routing-doc-sync의 inventory로 파일과 선언을 조사했다. 원본 Python
 
 ## 갱신 방법
 
-함수·매개변수·기본값 변경 시 분석기를 재실행하고 inventory 및 documents.checks의 signature_match를 확인한다. HEAD 비교에서 새로 추가된 Python 파일로 나타나는 것은 작업 시작부터 있던 untracked 상태이며, 이번 문서 작업이 Python 파일을 생성했다는 뜻이 아니다. 재현 명령과 비교 기준은 [검증 기록](../verification.md)에 있다.
+함수·매개변수·기본값 변경 시 분석기를 재실행하고 inventory 및 documents.checks의 signature_match를 확인한다. 현재 HEAD 비교에서는 이 파일의 바이트 해시 차이는 있으나 structural_changed=false이고 변경 심볼은 없다. 이번 문서 작업에서 Python 코드는 수정하지 않았다. 재현 명령과 비교 기준은 [검증 기록](../verification.md)에 있다.

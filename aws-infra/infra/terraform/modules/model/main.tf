@@ -35,9 +35,12 @@ variable "topology" {
       certificate_arn      = string
       frontend_role        = string
       game_role            = string
+      ad_role              = string
       static_path          = string
+      ad_path              = string
       frontend_health_path = string
       game_health_path     = string
+      ad_health_path       = string
     })
   })
   validation {
@@ -89,6 +92,8 @@ variable "traffic" {
       sources = list(string)
       targets = list(string)
       port    = string
+      # 생략하면 기존처럼 포트 하나만 허용한다. 값은 ports의 끝 포트 이름이다.
+      port_end = optional(string)
     }))
     internet_https_roles = list(string)
   })
@@ -104,8 +109,10 @@ variable "traffic" {
     error_message = "외부 CIDR은 정규 IPv4 네트워크 주소여야 하며 관리자 SSH에 /0을 허용하지 않습니다."
   }
   validation {
-    condition     = alltrue([for c in values(var.traffic.connections) : contains(keys(var.traffic.ports), c.port)])
-    error_message = "연결에 지정한 포트 이름이 ports에 없습니다."
+    condition = alltrue([for c in values(var.traffic.connections) :
+      try(var.traffic.ports[coalesce(c.port_end, c.port)] >= var.traffic.ports[c.port], false)
+    ])
+    error_message = "연결의 시작·끝 포트 이름이 ports에 있어야 하며 끝 포트는 시작 포트 이상이어야 합니다."
   }
 }
 
@@ -127,6 +134,7 @@ locals {
         source_account = src.account
         target_account = dst.account
         port           = var.traffic.ports[c.port]
+        port_end       = try(var.traffic.ports[coalesce(c.port_end, c.port)], var.traffic.ports[c.port])
       } if contains(c.targets, dst.role)
     ] if contains(c.sources, src.role)
   ]])
@@ -156,9 +164,10 @@ resource "terraform_data" "configuration" {
       condition = !var.topology.alb.enabled || try(
         var.topology.accounts[var.topology.alb.account].public_subnets &&
         length([for n in values(var.topology.nodes) : n if n.account == var.topology.alb.account && n.role == var.topology.alb.frontend_role]) > 0 &&
-        length([for n in values(var.topology.nodes) : n if n.account == var.topology.alb.account && n.role == var.topology.alb.game_role]) > 0, false
+        length([for n in values(var.topology.nodes) : n if n.account == var.topology.alb.account && n.role == var.topology.alb.game_role]) > 0 &&
+        length([for n in values(var.topology.nodes) : n if n.account == var.topology.alb.account && n.role == var.topology.alb.ad_role]) > 0, false
       )
-      error_message = "ALB에는 같은 계정의 퍼블릭 서브넷과 frontend·game 대상이 필요합니다."
+      error_message = "ALB에는 같은 계정의 퍼블릭 서브넷과 frontend·game·ad 대상이 필요합니다."
     }
   }
 }

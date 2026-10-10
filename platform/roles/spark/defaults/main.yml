@@ -17,7 +17,13 @@ spark_log_dir: /var/log/spark
 
 spark_master_port: 7077
 spark_master_webui_port: 8080
+spark_worker_port: 7100
 spark_worker_webui_port: 8081
+# Driver와 BlockManager는 시작 포트부터 16번까지 다음 포트로 재시도한다.
+# AWS traffic의 spark_driver_end=7094, spark_block_end=7095와 함께 관리한다.
+spark_driver_port: 7078
+spark_block_manager_port: 7079
+spark_port_max_retries: 16
 # YAML 순서의 앞 spark_master_count 대가 Master, 전체가 Worker다.
 spark_master_count: 2
 

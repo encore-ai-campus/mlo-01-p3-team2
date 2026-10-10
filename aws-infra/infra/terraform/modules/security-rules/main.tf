@@ -1,8 +1,8 @@
 variable "ingress" {
-  type = map(object({ group_id = string, peer_id = string, port = number }))
+  type = map(object({ group_id = string, peer_id = string, port = number, port_end = optional(number) }))
 }
 variable "egress" {
-  type = map(object({ group_id = string, peer_id = string, port = number }))
+  type = map(object({ group_id = string, peer_id = string, port = number, port_end = optional(number) }))
 }
 variable "public_ingress" {
   type = map(object({ group_id = string, cidr = string, port = number }))
@@ -16,8 +16,9 @@ resource "aws_vpc_security_group_ingress_rule" "peer" {
   referenced_security_group_id = each.value.peer_id
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
-  to_port                      = each.value.port
-  description                  = each.key
+  # 끝 포트가 없는 기존 호출은 포트 하나만 허용한다.
+  to_port     = coalesce(each.value.port_end, each.value.port)
+  description = each.key
 }
 resource "aws_vpc_security_group_egress_rule" "peer" {
   for_each                     = var.egress
@@ -25,7 +26,7 @@ resource "aws_vpc_security_group_egress_rule" "peer" {
   referenced_security_group_id = each.value.peer_id
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
-  to_port                      = each.value.port
+  to_port                      = coalesce(each.value.port_end, each.value.port)
   description                  = each.key
 }
 resource "aws_vpc_security_group_ingress_rule" "public" {
