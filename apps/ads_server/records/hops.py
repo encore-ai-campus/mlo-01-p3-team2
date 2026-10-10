@@ -7,6 +7,7 @@ from billing import api as billing
 from events import api as events
 
 from .models import Decision, Reaction
+from .processing import reaction_ref
 
 
 def expected_events():
@@ -28,8 +29,8 @@ def expected_events():
         ))
     decision_of, processed_of = {}, {}
     for r in Reaction.objects.all().iterator(chunk_size=2000):
-        decision_of[f"{r.media_id}:{r.reaction_id}"] = r.decision_id
-        processed_of[f"{r.media_id}:{r.reaction_id}"] = r.processed_at
+        ref = reaction_ref(r.media_id, r.reaction_id)  # 원장의 멱등 키와 같은 형식(형식 도우미만 같이 쓰고, 기대 이벤트 매핑은 따로 만든다)
+        decision_of[ref], processed_of[ref] = r.decision_id, r.processed_at
         common = dict(inbox_id=r.inbox_id, reaction_id=r.reaction_id, media_id=r.media_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at,
                       received_at=r.received_at, subject_id=r.subject_id, source=r.source)
         expected[events.event_id_for(events.NAMES["reaction_received"], r.inbox_id)] = (

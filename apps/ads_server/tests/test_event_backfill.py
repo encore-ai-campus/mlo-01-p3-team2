@@ -10,13 +10,14 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TransactionTestCase, tag
+from django.test import SimpleTestCase, TransactionTestCase, tag
 
 from events import ndjson, store
 from events.models import EventOutbox
 from events.relay import relay_batch
 from foundation.models import AuditLog
 from records import api as records
+from records.processing import parse_reaction_ref, reaction_ref
 from records.models import Reaction
 from tests.factories import NOW, SUBJECT, World
 from tests.mongo_support import MongoDatabaseMixin
@@ -300,3 +301,17 @@ class BackfillTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertEqual(EventOutbox.objects.count(), 0)
+
+
+class ReactionRefFormatTests(SimpleTestCase):
+    """원장 멱등 키 `<매체>:<reaction_id>` 를 만들고 해석하는 한 쌍(계획 4-4c — 잘못된 키의 처리는 옮기기 전 `backfill._parse_ref` 의 동작을 고정한 특성 시험). 해석하지 못하면 `None` — 백필은 결정을 추측하지 않는다."""
+
+    def test_a_ref_made_from_a_reaction_parses_back(self):
+        media_id, reaction_id = uuid.uuid4(), uuid.uuid4()
+        self.assertEqual(reaction_ref(media_id, reaction_id), f"{media_id}:{reaction_id}")
+        self.assertEqual(parse_reaction_ref(reaction_ref(media_id, reaction_id)), (media_id, reaction_id))
+
+    def test_malformed_refs_do_not_parse(self):
+        good = str(uuid.uuid4())
+        for ref in (good, "", f"{good}{good}", f"{good}:", f":{good}", f"{good}:not-a-uuid", f"not-a-uuid:{good}", f"{good}:{good}:{good}", f"{good};{good}", None, 12):
+            self.assertIsNone(parse_reaction_ref(ref), ref)

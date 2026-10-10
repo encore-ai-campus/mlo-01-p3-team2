@@ -7,6 +7,7 @@
 - 여러 프로세스가 동시에 돌려도 안전하다(행을 `RECEIVED` 일 때만 집고, 상태는 조건부 UPDATE 로 바꾼다). 단일 관리 프로세스가 기본 운영 방식이다.
 """
 import logging
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -36,6 +37,15 @@ def _now(now=None):
 def reaction_ref(media_id, reaction_id):
     """과금 멱등 키. 같은 반응은 항상 같은 키다(처리를 몇 번·어느 시각에 해도 바뀌지 않는다)."""
     return f"{media_id}:{reaction_id}"
+
+
+def parse_reaction_ref(ref):
+    """`reaction_ref` 의 반대: `(media_id, reaction_id)`. 이 형식이 아니면 `None`(해석하지 못한 키로 반응을 추측하지 않는다)."""
+    try:
+        media_id, reaction_id = ref.split(":")
+        return uuid.UUID(media_id), uuid.UUID(reaction_id)
+    except (ValueError, AttributeError):
+        return None
 
 
 def _finish(row, status, now, basis, reason=None, rule=None, person=None):

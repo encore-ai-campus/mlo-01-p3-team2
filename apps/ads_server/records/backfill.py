@@ -95,14 +95,6 @@ def read_items(manifest_path):
     return items, manifest["sha256"]
 
 
-def _parse_ref(ref):
-    try:
-        media_id, reaction_id = ref.split(":")
-        return uuid.UUID(media_id), uuid.UUID(reaction_id)
-    except (ValueError, AttributeError):
-        return None
-
-
 def _writer(item, decisions, reactions, charges):
     """항목 하나에 대해 `(쓰는 함수 또는 None, 이유, 옛 형식 근거 여부)`. 쓸 수 없으면 쓰는 함수가 `None` 이고 이유가 사정이다."""
     name = item.event_name
@@ -123,7 +115,7 @@ def _writer(item, decisions, reactions, charges):
     entry = charges.get(item.source_id)
     if entry is None:
         return None, "원본 원장 항목이 없다", False
-    ref = _parse_ref(entry.reaction_ref)
+    ref = processing.parse_reaction_ref(entry.reaction_ref)
     reaction = Reaction.objects.filter(media_id=ref[0], reaction_id=ref[1]).first() if ref else None
     if reaction is None or reaction.processed_at is None:
         return None, "과금을 일으킨 반응을 찾을 수 없다(결정을 추측하지 않는다)", False
