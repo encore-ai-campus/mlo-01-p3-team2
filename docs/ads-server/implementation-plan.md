@@ -1082,7 +1082,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | C3 dev/prod 설정의 비슷한 블록 | `config/settings/dev.py`·`prod.py` | 환경별 필수 여부가 달라 명시적인 쪽이 낫다 |
 | C4 두 상시 루프(옵션 검증·SIGTERM·주기 쉬기) | `records/management/commands/process_reactions.py`, `events/management/commands/relay_events.py` | 실제로 같은 부분은 10줄 남짓이고, 실패 처리·출력·재시도는 일부러 다르다. 합치려면 정책을 인자로 받는 공용 실행기(부르는 곳 둘)를 `foundation`에 새로 만들어야 하고, 장애 시험이 지키는 "복구 뒤 상시 프로세스만으로 대기열 비우기" 보장을 건드린다. 시험이 없는 동작은 4-4e(선택)로 고정만 한다 |
 | C5 수동 카운트 `d[k] = d.get(k, 0) + 1` | `events/hops.py`, `verify_hops.py`, `records/integrity.py` | `Counter`로 바꿔도 줄이 줄지 않는다. `integrity`의 `stats`는 호출한 쪽이 넘긴 dict를 채우는 약속이고, 출력에는 `dict()`를 씌워야 한다 |
-| C6 파일 종류별 `SCHEMA_VERSION` | `verify_hops`·`export_integrity`·`backfill_events`·`export_hop_manifests`(구간 줄 버전은 4-4d에서 합침) | 서로 다른 파일의 계약을 각 명령이 한 곳에서 정의한다(R2) |
+| C6 파일 종류별 `SCHEMA_VERSION` | `verify_hops`(`hop_report`)·`export_integrity`(`ledger_check`·`event_gaps`·`event_delivery`)·`backfill_events`(`backfill_result`). `export_hop_manifests`의 `SCHEMA_VERSION`은 구간 줄 버전 하나뿐이라 대상이 아니다 — 4-4d에서 `events/hops.py`로 옮기고 이 명령에는 자기 상수가 남지 않는다 | 서로 다른 파일의 계약을 각 명령이 한 곳에서 정의한다(R2) |
 
 ### 8.2.5 보류 (중복이 아니라 성능, 리팩터링 1차에서 미룸)
 
