@@ -59,22 +59,23 @@ class Command(BaseCommand):
         starts = {line["window_start"] for lines, _ in summaries.values() for line in lines}  # 어느 구간에든 있는 닫힌 창
         not_comparable = sorted(start for start in starts if _parse(start) < cutoff)
         out = Path(options["out"])
-        anchors = {}
-        for hop, (lines, open_windows) in summaries.items():
-            extra = {}
-            if hop == "hop_outbox":
-                lines = [line for line in lines if line["window_start"] not in not_comparable]
-                for line in lines:
-                    line["unsent"] = unsent.get((line["window_start"], line["event_name"]), 0)  # 중계 지연 후보를 가리는 데 쓴다
-                extra = {"not_comparable_windows": not_comparable, "retention_cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")}
-            checkpoint = {
-                "scope": SCOPE if hop != "hop_mongo" else "mongodb-read-outside-snapshot", "hop": hop, "window": f"utc-{options['window']}", "grace_seconds": grace, "started_at": now.isoformat(),
-                "since": options["since"], "open_windows": [w.strftime("%Y-%m-%dT%H:%M:%SZ") for w in open_windows], "scanned_events": scanned[hop], **extra,
-            }
-            manifest = events.write_ndjson(out, hop, lines, hop, SCHEMA_VERSION, checkpoint=checkpoint, now=now, chain=True)
-            anchors[hop] = events.manifest_digest(manifest)  # 이 실행이 게시한 manifest 의 해시(포인터를 다시 읽지 않는다)
-            self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} file={manifest['file']}")
-        record_audit(None, "events.hop_manifests_exported", detail={"anchors": anchors, "since": options["since"], "grace_seconds": grace})  # 폴더 밖의 고정점(H12)
+        with events.run_lock(out):  # 세 manifest 게시부터 감사 로그 커밋까지가 한 단위 — 겹친 실행이 최신 감사 고정점과 최종 포인터를 엇갈리게 하지 않는다
+            anchors = {}
+            for hop, (lines, open_windows) in summaries.items():
+                extra = {}
+                if hop == "hop_outbox":
+                    lines = [line for line in lines if line["window_start"] not in not_comparable]
+                    for line in lines:
+                        line["unsent"] = unsent.get((line["window_start"], line["event_name"]), 0)  # 중계 지연 후보를 가리는 데 쓴다
+                    extra = {"not_comparable_windows": not_comparable, "retention_cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")}
+                checkpoint = {
+                    "scope": SCOPE if hop != "hop_mongo" else "mongodb-read-outside-snapshot", "hop": hop, "window": f"utc-{options['window']}", "grace_seconds": grace, "started_at": now.isoformat(),
+                    "since": options["since"], "open_windows": [w.strftime("%Y-%m-%dT%H:%M:%SZ") for w in open_windows], "scanned_events": scanned[hop], **extra,
+                }
+                manifest = events.write_ndjson(out, hop, lines, hop, SCHEMA_VERSION, checkpoint=checkpoint, now=now, chain=True)
+                anchors[hop] = events.manifest_digest(manifest)  # 이 실행이 게시한 manifest 의 해시(포인터를 다시 읽지 않는다)
+                self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} file={manifest['file']}")
+            record_audit(None, "events.hop_manifests_exported", detail={"anchors": anchors, "since": options["since"], "grace_seconds": grace})  # 폴더 밖의 고정점(H12)
 
 
 def _parse(text):

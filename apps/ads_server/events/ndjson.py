@@ -75,7 +75,22 @@ def manifest_digest(manifest):
 @contextlib.contextmanager
 def _pointer_lock(directory, name):
     """같은 이름의 포인터를 게시하는 쪽끼리 직렬화한다(프로세스 간, `flock`). 직전 세대를 읽는 시점부터 포인터를 교체할 때까지 쥔다 — 그래야 성공한 세대가 사슬에서 빠지지 않는다."""
-    with open(Path(directory) / f".{name}.lock", "a+") as handle:
+    with _flock(Path(directory) / f".{name}.lock"):
+        yield
+
+
+@contextlib.contextmanager
+def run_lock(directory):
+    """한 폴더에 여러 파일을 게시하고 그 고정점을 바깥(감사 로그)에 남기는 한 번의 실행을 통째로 직렬화한다. 파일별 잠금(`_pointer_lock`)과는 별개의 파일이라 중첩해도 막히지 않는다.
+    로컬 파일시스템 전제(`flock`)."""
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    with _flock(Path(directory) / ".run.lock"):
+        yield
+
+
+@contextlib.contextmanager
+def _flock(path):
+    with open(path, "a+") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield

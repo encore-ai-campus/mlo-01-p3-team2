@@ -285,6 +285,45 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertEqual(anchors[hop], ndjson.manifest_digest(manifest), hop)
             self.assertNotEqual(anchors[hop], ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", hop)))  # 포인터는 이미 다른 실행의 것이다
 
+    def test_two_overlapping_exports_leave_the_latest_audit_anchor_equal_to_the_published_pointer(self):
+        """재검토 P2: 세 manifest 게시부터 감사 로그 커밋까지가 한 실행 단위여야 한다 — 겹쳐 실행해도 정상 폴더가 고정점 불일치로 거부되면 안 된다."""
+        import threading
+
+        from django.db import connections
+        from records.management.commands import export_hop_manifests
+
+        real_audit, release, a_at_audit = export_hop_manifests.record_audit, threading.Event(), threading.Event()
+
+        def audit(*args, **kwargs):
+            if threading.current_thread().name == "export-A":
+                a_at_audit.set()  # A 는 세 manifest 를 게시한 뒤 감사 로그 기록 직전에서 멈춘다
+                release.wait(10)
+            return real_audit(*args, **kwargs)
+
+        results = {}
+
+        def run(label):
+            try:
+                results[label] = self.export()[0]
+            finally:
+                connections.close_all()
+
+        with mock.patch("records.management.commands.export_hop_manifests.record_audit", audit):
+            a = threading.Thread(target=run, args=("A",), name="export-A")
+            b = threading.Thread(target=run, args=("B",), name="export-B")
+            a.start()
+            self.assertTrue(a_at_audit.wait(10))
+            b.start()
+            b.join(1.5)  # 직렬화되어 있으면 B 는 A 가 끝날 때까지 기다린다
+            release.set()
+            a.join(30)
+            b.join(30)
+        self.assertEqual(results, {"A": True, "B": True})
+        call_command("verify_hops", "--dir", str(self.dir / "out"), stdout=io.StringIO())  # 기본값(고정점 대조 포함) — CommandError 가 나면 실패
+        for hop in ("hop_source", "hop_outbox", "hop_mongo"):
+            self.assertEqual(ndjson.verify_chain(ndjson.manifest_path(self.dir / "out", hop)), [])
+        self.assertEqual(AuditLog.objects.filter(action="events.hop_manifests_exported").count(), 2)
+
     def test_a_missing_or_changed_previous_generation_breaks_the_chain(self):
         self.export()
         self.export()
