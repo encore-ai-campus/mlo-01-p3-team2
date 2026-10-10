@@ -9,6 +9,7 @@
 import json
 import uuid
 from dataclasses import dataclass, field
+from itertools import batched
 from pathlib import Path
 
 from django.db import transaction
@@ -135,8 +136,7 @@ def backfill(manifest_path, apply=False, chunk=CHUNK):
     """입력 목록의 원본 행에 이벤트를 채운다. `apply=False` 면 아무것도 쓰지 않고 무엇을 쓸지만 센다. 반환: `Result`."""
     items, input_sha256 = read_items(manifest_path)
     result = Result(input_sha256=input_sha256, applied=apply)
-    for start in range(0, len(items), chunk):
-        part = items[start:start + chunk]
+    for index, part in enumerate(batched(items, chunk)):
         with transaction.atomic():  # 청크의 이벤트와 감사 로그는 함께 커밋되거나 함께 되돌려진다
             missing = set(events.missing_event_ids([i.event_id for i in part]))  # outbox 에도 MongoDB 에도 없는 것만 쓴다(라이브가 먼저 만들었을 수 있다)
             wanted = [i for i in part if i.event_id in missing]
@@ -157,5 +157,5 @@ def backfill(manifest_path, apply=False, chunk=CHUNK):
                     written += 1
                 result.outcomes.append(Outcome(item, WRITTEN if apply else WOULD_WRITE, legacy_basis=legacy))
             if apply and written:
-                record_audit(None, "events.backfilled", detail={"input_sha256": input_sha256, "written": written, "chunk": start // chunk})
+                record_audit(None, "events.backfilled", detail={"input_sha256": input_sha256, "written": written, "chunk": index})
     return result
