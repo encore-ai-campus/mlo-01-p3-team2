@@ -3,7 +3,7 @@ from .access import owned_or_404, owned_queryset, require_admin, require_adverti
 from .accounts import create_advertiser
 from .admin_site import ReadOnlyAdmin
 from .dberrors import is_transient_lock_error, is_unique_violation
-from .audit import record_audit
+from .audit import latest_detail as latest_audit_detail, record_audit
 from . import errors
 from .http import json_depth, parse_json
 from .models import AppendOnlyError, AppendOnlyModel, Role, User
@@ -14,5 +14,5 @@ from .validators import MAX_AMOUNT, clean_text, parse_uuid, parse_uuids
 __all__ = [
     "create_advertiser", "Role", "User", "client_ip", "SignupRateLimited", "register_attempt",
     "owned_or_404", "owned_queryset", "require_admin", "require_advertiser", "is_unique_violation", "is_transient_lock_error", "json_depth", "parse_json",
-    "errors", "record_audit", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError", "clean_text", "parse_uuid", "parse_uuids", "ReadOnlyAdmin",
+    "errors", "record_audit", "latest_audit_detail", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError", "clean_text", "parse_uuid", "parse_uuids", "ReadOnlyAdmin",
 ]
