@@ -9,7 +9,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, Role, clean_text, create_advertiser, errors, parse_uuid, record_audit, require_admin
 
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
@@ -55,6 +55,16 @@ def _append(wallet, entry_type, amount, now, **extra):
     Wallet.objects.filter(pk=wallet.pk).update(balance=F("balance") + amount)
     wallet.balance = balance_after
     return entry
+
+
+def register_advertiser(username, password, nickname, class_label, request=None):
+    """광고주 가입과 가입 지급을 **한 트랜잭션**으로(설계 §4.7: 지급이 실패하면 가입도 취소된다). 감사 로그(`account.signup`)도 같은 트랜잭션.
+    가입 검증의 ValidationError(필드별)를 그대로 전달한다. `request` 는 감사 로그의 IP·요청 ID 용이다."""
+    with transaction.atomic():
+        user = create_advertiser(username, password, nickname, class_label)
+        grant_signup(user)
+        record_audit(request, "account.signup", target=user, actor=user, detail={"class_label": user.class_label})
+    return user
 
 
 def grant_signup(user, now=None):

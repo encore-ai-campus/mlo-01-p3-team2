@@ -1,12 +1,11 @@
 from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.shortcuts import redirect, render, resolve_url
 from django.views import View
 
-from billing.api import grant_signup
-from foundation.api import Role, SignupRateLimited, client_ip, create_advertiser, record_audit, register_attempt
+from billing.api import register_advertiser
+from foundation.api import Role, SignupRateLimited, client_ip, register_attempt
 
 from ..forms import SignupForm
 
@@ -31,10 +30,7 @@ class SignupView(View):
         if form.is_valid():
             data = form.cleaned_data
             try:
-                with transaction.atomic():  # 가입과 지급은 한 트랜잭션: 지급이 실패하면 가입도 취소된다(설계 §4.7)
-                    user = create_advertiser(data["username"], data["password"], data["nickname"], data["class_label"])
-                    grant_signup(user)
-                    record_audit(request, "account.signup", target=user, actor=user, detail={"class_label": user.class_label})
+                register_advertiser(data["username"], data["password"], data["nickname"], data["class_label"], request=request)  # 가입·지급·감사가 한 트랜잭션
             except ValidationError as e:
                 for field, errors in e.message_dict.items():
                     for message in errors:
