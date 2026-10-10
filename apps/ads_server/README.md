@@ -5,8 +5,9 @@ Django 광고 서버. 설계·계획·계약은 [docs/ads-server/](../../docs/ad
 ## 실행
 
 ```bash
-mamba activate claude
 cd apps/ads_server
+python3.14 -m venv .venv          # 처음 한 번. 프로젝트 전용 가상환경(Python 3.14)
+source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # 값을 채운다(DB_USER·DB_PASSWORD 필수). .env 는 커밋하지 않는다
 # MySQL 8.4 가 떠 있어야 한다 — 아래 "MySQL 시험 환경"
@@ -14,6 +15,7 @@ python manage.py migrate
 python manage.py runserver 127.0.0.1:8001
 ```
 
+- **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
 - 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod.
 - prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`가 없으면 기동하지 않는다.
@@ -47,7 +49,7 @@ python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제
 
 ## MongoDB 시험 환경
 
-이벤트 로그(MongoDB `ad_events`, Step 4에서 씀)는 **MongoDB 8.0**이다. 같은 `intake/db-standalone` 컨테이너(`mongodb` 서비스, Standalone·인증)를 쓴다. 접속 값은 `.env`의 `MONGO_*`(`.env.example`)이고,
+이벤트 로그(MongoDB `ad_events`, Step 4부터 중계가 씀)는 **MongoDB 8.0**이다. 같은 `intake/db-standalone` 컨테이너(`mongodb` 서비스, Standalone·인증)를 쓴다. 접속 값은 `.env`의 `MONGO_*`(`.env.example`)이고,
 시험 설정은 접속 값만 읽고 데이터베이스 이름은 시험마다 무작위로 정해 **그 이름만** 지운다. `check.sh`가 맨 앞에서 `scripts/mongo_admin.py`로 접속·쓰기를 점검한다(MongoDB가 없으면 시험을 건너뛰지 않고 멈춘다).
 
 ```bash
@@ -57,7 +59,23 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 - 레플리카셋 접속(운영과 같은 방식)을 시험하려면 임시 단일 노드 레플리카셋(인증 켜짐)을 띄운다. 포트·비밀번호는 무작위이고 공유 컨테이너는 건드리지 않는다:
   `eval "$(python scripts/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.test_event_store` → `python scripts/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
-- 저장소가 죽어 있어도 앱은 영향을 받지 않는다: 아직 이벤트를 쓰지 않고, 연결은 처음 쓸 때 만든다.
+- 앱(웹 프로세스)은 MongoDB를 호출하지 않는다. 요청은 MySQL의 outbox에 이벤트를 쓰기만 하고, MongoDB로 옮기는 일은 상시 중계(`relay_events`, 아래)가 한다. MongoDB가 끊기면 이벤트는 outbox에 쌓였다가 복구 뒤 옮겨진다(짧은 재시작 시험에서 요청 503 0, 장기 장애는 확인하지 않음 — 설계 §10 "MongoDB 장애와 요청").
+
+## 상시 프로세스와 이벤트 운영
+
+웹 프로세스 말고 두 프로세스를 **상시로** 띄운다. 둘 다 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다.
+
+```bash
+python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함). 멈추면 반응이 RECEIVED 로 남는다
+python manage.py relay_events                # outbox → MongoDB ad_events. 멈추면 이벤트가 outbox 에 쌓인다
+python manage.py relay_events --status       # 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB 가 끊긴 것
+python manage.py purge_sent_events           # 보낸 지 7일(EVENTS_OUTBOX_RETENTION_DAYS) 지난 outbox 행 삭제. 미전송은 지우지 않는다. 하루 한 번처럼 주기적으로
+python manage.py export_integrity --out DIR  # 원장·이벤트 정합성 점검(한 읽기 스냅샷). 결과는 NDJSON + manifest, 문제가 있으면 비정상 종료
+python manage.py verify_ndjson DIR/event_gaps.manifest.json   # 게시된 결과가 manifest 와 맞는지 확인
+```
+
+- **중계가 충돌로 멈출 때**: `relay_events`가 "충돌로 중계를 멈춥니다"와 이벤트 ID를 남기고 비정상 종료하면, MongoDB에 같은 이벤트 ID로 **다른 내용**이 이미 있다는 뜻이다(이벤트 ID가 원천 행에서 결정적으로 정해지므로 정상 운영에서는 일어나지 않는다). 덮어쓰지 않는 것이 의도다. 충돌하지 않은 이벤트는 이미 보낸 것으로 표시됐고, 충돌한 행은 미전송으로 남아 있어 **원인을 해결하기 전에는 다시 띄워도 같은 배치에서 다시 멈춘다**. 로그의 이벤트 ID로 outbox 행(`events_outbox`)과 MongoDB 문서를 비교해 원인(수동 수정, 직렬화 변경 등)을 찾는다. outbox가 맞다고 확인되면 MongoDB의 그 문서를 지우고 다시 띄우면 중계가 다시 저장한다.
+- `export_integrity`의 결과는 이름에 내용 해시가 들어간 데이터 파일과 그것을 가리키는 manifest다. manifest가 가리키는 파일만 믿고, 옛 세대 파일은 자동으로 지우지 않는다. `checkpoint`는 점검 범위의 서술(스냅샷·시작 시각·훑은 행 수)이고 이어서 읽는 위치가 아니다.
 
 ## 테스트와 점검
 
@@ -74,12 +92,12 @@ OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못
 
 ```bash
 python scripts/load_test.py --small           # 20 동시(몇 초). check.sh 가 실행한다
-python scripts/load_test.py --json out.json   # 150 동시. 시험 컨테이너에 이 실행 전용 DB(ads_load_*)를 만들고 끝나면 지운다
-python scripts/failure_test.py                # 장애 시험: DB 재시작·강제 종료·처리 프로세스 강제 종료(수 분)
+python scripts/load_test.py --json out.json   # 150 동시. 시험 컨테이너에 이 실행 전용 DB(ads_load_*)·MongoDB 데이터베이스(ads_events_load_*)를 만들고 끝나면 지운다
+python scripts/failure_test.py                # 장애 시험: DB 재시작·강제 종료·처리 프로세스 강제 종료·MongoDB 재시작·중계 강제 종료(수 분)
 python scripts/failure_test.py restart crash  # 시나리오를 골라서. --json out.json 으로 결과 저장
 ```
 
-장애 시험은 Docker로 **임시 MySQL 8.4 컨테이너**를 따로 띄운다(이미지 `db-standalone/mysql:8.4-ubuntu24.04`, 무작위 포트·비밀번호, 끝나면 삭제). 공유 시험 DB나 다른 컨테이너는 건드리지 않는다. Docker나 이미지가 없으면 건너뛰지 않고 실패하며, 수 분 걸려 `check.sh`에는 넣지 않았다. 끊김 동안 500이 없고, 재시도가 모두 수신 확인되며, 유실 0·이중 과금 0·잔액=원장·소진액=원장이어야 한다. 또 상시 처리 프로세스가 살아 있고, **복구 뒤 그 프로세스만으로 대기열이 비워져야** 종료 코드 0이다(시험은 접수 직후 처리를 끄고 별도 처리 명령을 쓰지 않는다).
+장애 시험은 Docker로 **임시 MySQL 8.4 컨테이너와 임시 MongoDB 8.0 단일 노드 레플리카셋(인증 켜짐)**을 따로 띄운다(이미지 `db-standalone/mysql:8.4-ubuntu24.04`·MongoDB 이미지, 무작위 포트·비밀번호, 끝나면 삭제). 공유 시험 DB나 다른 컨테이너는 건드리지 않는다. Docker나 이미지가 없으면 건너뛰지 않고 실패하며, 수 분 걸려 `check.sh`에는 넣지 않았다. 끊김 동안 500이 없고, 재시도가 모두 수신 확인되며, 유실 0·이중 과금 0·잔액=원장·소진액=원장이어야 한다. 또 상시 처리·중계 프로세스가 살아 있고, **복구 뒤 그 프로세스들만으로 대기열과 미전송 이벤트가 비워져야** 하며, 이벤트가 원본 행·MongoDB와 내용까지 같아야 종료 코드 0이다(시험은 접수 직후 처리를 끄고 별도 명령을 쓰지 않는다). 시나리오는 MySQL 재시작·강제 종료, 처리·중계 프로세스 강제 종료, MongoDB 재시작 다섯 가지다.
 
 ## `check --deploy`
 
