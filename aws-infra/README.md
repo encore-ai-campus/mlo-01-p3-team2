@@ -69,18 +69,7 @@ Bastion을 제외한 서비스용 EC2는 15대입니다. 서비스는 아래 일
 
 아래 그림은 구성 요소와 수량을 보여 줍니다. 모든 쓰기의 Kafka 우선 경유는 확정했으며, 세부 처리·조회 경로와 VPC·서브넷 배치·통신 규칙은 보안 그룹 설계의 제안을 바탕으로 구현 전에 검증합니다.
 
-```mermaid
-flowchart TB
-    subgraph EC2["AWS EC2 구성안"]
-        M["MongoDB 클러스터 · 3대"]
-        K["Kafka 클러스터 · 3대"]
-        S["Spark 클러스터 · 3대"]
-        D["MySQL 클러스터 · 3대"]
-        G["게임 서버 · 2대"]
-        A["광고 서버 · 1대"]
-        B["Bastion · 1대<br/>필요할 때만 관리 접근 허용"]
-    end
-```
+![alt text](image.png)
 
 ## Bastion 운영 기준
 

@@ -1,0 +1,370 @@
+{
+    "all":  {
+                "vars":  {
+                             "users":  [
+
+                                       ],
+                             "ansible_user":  "ubuntu",
+                             "proxy_enabled":  true
+                         },
+                "children":  {
+                                 "account2":  {
+                                                  "hosts":  {
+                                                                "mongo-1":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account2.pem",
+                                                                                "ip":  "10.20.10.191",
+                                                                                "ansible_host":  "10.20.10.191"
+                                                                            },
+                                                                "spark-2":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account2.pem",
+                                                                                "ip":  "10.20.10.181",
+                                                                                "ansible_host":  "10.20.10.181"
+                                                                            }
+                                                            }
+                                              },
+                                 "ad":  {
+                                            "hosts":  {
+                                                          "ad-server":  {
+
+                                                                        }
+                                                      }
+                                        },
+                                 "bastion":  {
+                                                 "hosts":  {
+                                                               "bastion-01":  {
+
+                                                                              }
+                                                           }
+                                             },
+                                 "account3":  {
+                                                  "hosts":  {
+                                                                "kafka-1":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account3.pem",
+                                                                                "ip":  "10.30.10.46",
+                                                                                "ansible_host":  "10.30.10.46"
+                                                                            },
+                                                                "mongo-2":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account3.pem",
+                                                                                "ip":  "10.30.11.181",
+                                                                                "ansible_host":  "10.30.11.181"
+                                                                            },
+                                                                "spark-1":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account3.pem",
+                                                                                "ip":  "10.30.10.138",
+                                                                                "ansible_host":  "10.30.10.138"
+                                                                            },
+                                                                "mysql-1":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account3.pem",
+                                                                                "ip":  "10.30.10.253",
+                                                                                "ansible_host":  "10.30.10.253"
+                                                                            }
+                                                            }
+                                              },
+                                 "mongodb":  {
+                                                 "hosts":  {
+                                                               "mongo-2":  {
+
+                                                                           },
+                                                               "mongo-3":  {
+
+                                                                           },
+                                                               "mongo-1":  {
+
+                                                                           }
+                                                           }
+                                             },
+                                 "mysql":  {
+                                               "hosts":  {
+                                                             "mysql-1":  {
+
+                                                                         },
+                                                             "mysql-2":  {
+
+                                                                         }
+                                                         }
+                                           },
+                                 "spark":  {
+                                               "hosts":  {
+                                                             "spark-3":  {
+
+                                                                         },
+                                                             "spark-1":  {
+
+                                                                         },
+                                                             "spark-2":  {
+
+                                                                         }
+                                                         }
+                                           },
+                                 "frontend":  {
+                                                  "hosts":  {
+                                                                "front-a":  {
+
+                                                                            },
+                                                                "front-b":  {
+
+                                                                            }
+                                                            }
+                                              },
+                                 "account4":  {
+                                                  "hosts":  {
+                                                                "spark-3":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account4.pem",
+                                                                                "ip":  "10.40.11.241",
+                                                                                "ansible_host":  "10.40.11.241"
+                                                                            },
+                                                                "kafka-2":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account4.pem",
+                                                                                "ip":  "10.40.10.186",
+                                                                                "ansible_host":  "10.40.10.186"
+                                                                            }
+                                                            }
+                                              },
+                                 "kafka":  {
+                                               "hosts":  {
+                                                             "kafka-1":  {
+
+                                                                         },
+                                                             "kafka-3":  {
+
+                                                                         },
+                                                             "kafka-2":  {
+
+                                                                         }
+                                                         }
+                                           },
+                                 "game":  {
+                                              "hosts":  {
+                                                            "game-server":  {
+
+                                                                            }
+                                                        }
+                                          },
+                                 "account5":  {
+                                                  "hosts":  {
+                                                                "mysql-2":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account5.pem",
+                                                                                "ip":  "10.50.11.62",
+                                                                                "ansible_host":  "10.50.11.62"
+                                                                            },
+                                                                "mongo-3":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account5.pem",
+                                                                                "ip":  "10.50.10.88",
+                                                                                "ansible_host":  "10.50.10.88"
+                                                                            },
+                                                                "kafka-3":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/account5.pem",
+                                                                                "ip":  "10.50.11.40",
+                                                                                "ansible_host":  "10.50.11.40"
+                                                                            }
+                                                            }
+                                              },
+                                 "account1":  {
+                                                  "hosts":  {
+                                                                "game-server":  {
+                                                                                    "proxy_enabled":  true,
+                                                                                    "proxy_port":  3128,
+                                                                                    "ansible_user":  "ubuntu",
+                                                                                    "proxy_client_cidrs":  [
+                                                                                                               "10.10.0.0/16",
+                                                                                                               "10.20.0.0/16",
+                                                                                                               "10.30.0.0/16",
+                                                                                                               "10.40.0.0/16",
+                                                                                                               "10.50.0.0/16"
+                                                                                                           ],
+                                                                                    "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                    "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/project-bastion.pem",
+                                                                                    "ip":  "10.10.10.235",
+                                                                                    "ansible_host":  "10.10.10.235"
+                                                                                },
+                                                                "front-b":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/project-bastion.pem",
+                                                                                "ip":  "10.10.1.221",
+                                                                                "ansible_host":  "10.10.1.221"
+                                                                            },
+                                                                "front-a":  {
+                                                                                "proxy_enabled":  true,
+                                                                                "proxy_port":  3128,
+                                                                                "ansible_user":  "ubuntu",
+                                                                                "proxy_client_cidrs":  [
+                                                                                                           "10.10.0.0/16",
+                                                                                                           "10.20.0.0/16",
+                                                                                                           "10.30.0.0/16",
+                                                                                                           "10.40.0.0/16",
+                                                                                                           "10.50.0.0/16"
+                                                                                                       ],
+                                                                                "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/project-bastion.pem",
+                                                                                "ip":  "10.10.0.117",
+                                                                                "ansible_host":  "10.10.0.117"
+                                                                            },
+                                                                "ad-server":  {
+                                                                                  "proxy_enabled":  true,
+                                                                                  "proxy_port":  3128,
+                                                                                  "ansible_user":  "ubuntu",
+                                                                                  "proxy_client_cidrs":  [
+                                                                                                             "10.10.0.0/16",
+                                                                                                             "10.20.0.0/16",
+                                                                                                             "10.30.0.0/16",
+                                                                                                             "10.40.0.0/16",
+                                                                                                             "10.50.0.0/16"
+                                                                                                         ],
+                                                                                  "ansible_ssh_common_args":  "-o IdentitiesOnly=yes -o ProxyCommand=\"ssh -W %h:%p -i \\\"{{ hostvars[\u0027bastion-01\u0027].ansible_ssh_private_key_file }}\\\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ hostvars[\u0027bastion-01\u0027].ansible_user }}@{{ hostvars[\u0027bastion-01\u0027].public_ip }}\"",
+                                                                                  "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/project-bastion.pem",
+                                                                                  "ip":  "10.10.11.75",
+                                                                                  "ansible_host":  "10.10.11.75"
+                                                                              },
+                                                                "bastion-01":  {
+                                                                                   "proxy_enabled":  true,
+                                                                                   "proxy_port":  3128,
+                                                                                   "ansible_user":  "ubuntu",
+                                                                                   "proxy_client_cidrs":  [
+                                                                                                              "10.10.0.0/16",
+                                                                                                              "10.20.0.0/16",
+                                                                                                              "10.30.0.0/16",
+                                                                                                              "10.40.0.0/16",
+                                                                                                              "10.50.0.0/16"
+                                                                                                          ],
+                                                                                   "ansible_ssh_common_args":  "",
+                                                                                   "ansible_ssh_private_key_file":  "{{ lookup(\u0027env\u0027, \u0027HOME\u0027) }}/.ssh/project-key/project-bastion.pem",
+                                                                                   "public_ip":  "3.36.49.143",
+                                                                                   "ip":  "10.10.0.238",
+                                                                                   "ansible_host":  "3.36.49.143"
+                                                                               }
+                                                            }
+                                              }
+                             }
+            }
+}
