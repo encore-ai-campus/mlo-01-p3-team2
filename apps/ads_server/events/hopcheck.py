@@ -36,9 +36,6 @@ class Hop:
         self.open_windows = set(checkpoint.get("open_windows", []))
         self.not_comparable = set(checkpoint.get("not_comparable_windows", []))
 
-    def line(self, key):
-        return self.lines.get(key)
-
 
 def _time(text, what):
     try:
@@ -116,7 +113,7 @@ def compare(a, b, unsent_from=None):
     pair = f"{a.name}->{b.name}"
     for key in sorted(a.lines.keys() | b.lines.keys()):
         window, name = key
-        la, lb = a.line(key), b.line(key)
+        la, lb = a.lines.get(key), b.lines.get(key)
         status, fields = _classify(a, b, key, la, lb, unsent_from)
         out.append({"pair": pair, "window_start": window, "event_name": name, "status": status, "fields": fields,
                     "a": _summary(la), "b": _summary(lb)})
@@ -153,5 +150,5 @@ def _is_lag(a, b, key, la, lb, unsent_from):
     holder = a if "hop_outbox" in a.name else unsent_from
     if holder is None:
         return False
-    line = holder.line(key)
+    line = holder.lines.get(key)
     return bool(line) and shortfall <= line.get("unsent", 0)

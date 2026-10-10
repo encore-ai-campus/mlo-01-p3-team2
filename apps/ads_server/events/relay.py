@@ -9,6 +9,7 @@ import datetime
 import json
 import uuid
 from dataclasses import dataclass
+from itertools import batched
 
 from django.db import transaction
 from django.utils import timezone
@@ -105,10 +106,8 @@ def outbox_status(now=None):
 
 def missing_event_ids(event_ids, chunk=1000):
     """주어진 이벤트 ID 중 **outbox 에도 MongoDB 에도 없는** 것. 보낸 행은 보존 기간 뒤 outbox 에서 지워지므로 둘 다 본다. MongoDB 에 닿지 못하면 예외를 올린다(없다고 잘못 말하지 않으려고)."""
-    wanted = list(event_ids)
     missing = []
-    for start in range(0, len(wanted), chunk):
-        part = wanted[start:start + chunk]
+    for part in batched(event_ids, chunk):
         found = set(EventOutbox.objects.filter(pk__in=part).values_list("pk", flat=True))
         rest = [i for i in part if i not in found]
         if rest:
@@ -120,21 +119,13 @@ def missing_event_ids(event_ids, chunk=1000):
 def sent_but_not_in_mongo(limit=1000):
     """outbox 에 보냈다고 표시돼 있는데 MongoDB 에 없는 이벤트 ID(최대 `limit`, `None` 이면 전부). 중계가 거짓으로 표시했거나 MongoDB 가 데이터를 잃은 경우다."""
     gone = []
-    rows = EventOutbox.objects.filter(sent_at__isnull=False).values_list("pk", flat=True).iterator(chunk_size=1000)
-    batch = []
-    for pk in rows:
-        batch.append(pk)
-        if len(batch) == 1000:
-            gone += _absent_from_mongo(batch)
-            batch = []
-            if limit is not None and len(gone) >= limit:
-                return gone[:limit]
-    gone += _absent_from_mongo(batch)
+    for batch in batched(EventOutbox.objects.filter(sent_at__isnull=False).values_list("pk", flat=True).iterator(chunk_size=1000), 1000):
+        gone += _absent_from_mongo(list(batch))
+        if limit is not None and len(gone) >= limit:
+            break
     return gone if limit is None else gone[:limit]
 
 
 def _absent_from_mongo(ids):
-    if not ids:
-        return []
     present = {d["_id"] for d in store.collection().find({"_id": {"$in": ids}}, {"_id": 1})}
     return [i for i in ids if i not in present]

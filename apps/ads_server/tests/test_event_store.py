@@ -39,7 +39,7 @@ class EnsureTests(EventStoreTestCase):
 
     def test_envelope_is_enforced_and_event_id_is_unique(self):
         store.ensure()
-        events = store._collection()
+        events = store.collection()
         events.insert_one(event())
         same = event()
         events.insert_one(same)
@@ -58,26 +58,26 @@ class EnsureTests(EventStoreTestCase):
         """소비자의 읽기 방식: 이벤트 종류별 시각 순 증분, 결정 하나의 이벤트 시각 순. 색인이 그 순서를 그대로 준다(메모리 정렬 없음)."""
         store.ensure()
         for filt in ({"event_name": "ad.decision"}, {"payload.decision_id": "d1"}):
-            plan = str(store._collection().find(filt).sort("produced_at", 1).explain()["queryPlanner"]["winningPlan"])
+            plan = str(store.collection().find(filt).sort("produced_at", 1).explain()["queryPlanner"]["winningPlan"])
             self.assertIn("IXSCAN", plan, filt)
             self.assertNotIn("SORT", plan, filt)
 
     def test_event_id_round_trips_as_uuid(self):
         store.ensure()
         doc = event()
-        store._collection().insert_one(doc)
-        self.assertEqual(store._collection().find_one({"_id": doc["_id"]})["_id"], doc["_id"])
+        store.collection().insert_one(doc)
+        self.assertEqual(store.collection().find_one({"_id": doc["_id"]})["_id"], doc["_id"])
         raw = mongo.database()[store.COLLECTION].find_one({}, {"_id": 1})  # 기본(표준) 표현으로 읽어도 UUID 로 돌아온다
         self.assertIsInstance(raw["_id"], uuid.UUID)
 
     def test_index_with_other_keys_is_not_dropped_silently(self):
         store.ensure()
         name = next(iter(store.INDEXES))
-        store._collection().drop_index(name)
-        store._collection().create_index([("something_else", 1)], name=name)
+        store.collection().drop_index(name)
+        store.collection().create_index([("something_else", 1)], name=name)
         with self.assertRaises(RuntimeError):
             store.ensure()
-        self.assertEqual(store._collection().index_information()[name]["key"], [("something_else", 1)])  # 지우지 않았다
+        self.assertEqual(store.collection().index_information()[name]["key"], [("something_else", 1)])  # 지우지 않았다
 
     def test_envelope_validator_drift_is_repaired(self):
         store.ensure()
@@ -94,20 +94,20 @@ class CheckTests(EventStoreTestCase):
     def test_missing_collection_missing_index_are_reported(self):
         self.assertEqual(self.failed(), {"컬렉션"})
         store.ensure()
-        store._collection().drop_index("decision_produced_at")
+        store.collection().drop_index("decision_produced_at")
         self.assertEqual(self.failed(), {"색인 decision_produced_at"})
 
     def test_index_with_other_keys_is_reported(self):
         store.ensure()
-        store._collection().drop_index("event_name_produced_at")
-        store._collection().create_index([("event_name", 1)], name="event_name_produced_at")
+        store.collection().drop_index("event_name_produced_at")
+        store.collection().create_index([("event_name", 1)], name="event_name_produced_at")
         self.assertEqual(self.failed(), {"색인 event_name_produced_at"})
 
     def test_check_does_not_pollute_the_contract_collection(self):
         store.ensure()
         store.check()
-        self.assertEqual(store._collection().count_documents({}), 0)
-        self.assertEqual(store._collection(store.PROBE_COLLECTION).count_documents({}), 0)
+        self.assertEqual(store.collection().count_documents({}), 0)
+        self.assertEqual(store.collection(store.PROBE_COLLECTION).count_documents({}), 0)
 
     def test_commands_report_and_fail(self):
         ok, text = run("check_event_store")

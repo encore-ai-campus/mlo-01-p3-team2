@@ -202,23 +202,23 @@ def verify_chain(path):
     반환: 어긋난 곳의 설명 목록. 사슬 전체를 다시 쓰는 것은 막지 못한다 — 그 고정점은 폴더 밖(감사 로그)에 있다(설계 §10 H12)."""
     path = Path(path)
     name = path.name.removesuffix(".manifest.json")
-    problems, seen = [], set()
+    seen = set()
     current = path.read_bytes()
     while True:
         try:
             manifest = json.loads(current)
         except ValueError:
-            return problems + ["manifest 를 읽을 수 없다"]
+            return ["manifest 를 읽을 수 없다"]
         previous = manifest.get("previous_sha256")
         if previous is None:
-            return problems  # 처음 세대
+            return []  # 처음 세대
         if previous in seen:
-            return problems + ["세대 사슬이 순환한다"]
+            return ["세대 사슬이 순환한다"]
         seen.add(previous)
         copy = _generation_copy(path.parent, name, previous)
         if not copy.exists():
-            return problems + [f"직전 세대 manifest 가 없다: {copy.name}"]
+            return [f"직전 세대 manifest 가 없다: {copy.name}"]
         data = copy.read_bytes()
         if hashlib.sha256(data).hexdigest() != previous:
-            return problems + [f"직전 세대 manifest 가 바뀌었다: {copy.name}"]
+            return [f"직전 세대 manifest 가 바뀌었다: {copy.name}"]
         current = data

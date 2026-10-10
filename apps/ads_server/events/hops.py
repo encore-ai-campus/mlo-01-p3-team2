@@ -31,7 +31,8 @@ def _es_number(value):
     if value == 0:
         return "0"
     sign = "-" if value < 0 else ""
-    digits, exponent = Decimal(repr(abs(value))).normalize().as_tuple().digits, Decimal(repr(abs(value))).normalize().as_tuple().exponent
+    normalized = Decimal(repr(abs(value))).normalize().as_tuple()
+    digits, exponent = normalized.digits, normalized.exponent
     k = len(digits)
     n = k + exponent  # 10^(n-1) <= 값 < 10^n
     d = "".join(map(str, digits))
@@ -72,6 +73,10 @@ def _millis_utc(moment):
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
 
 
+def _produced(doc):
+    return datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+
+
 def normal_document(event_id, event_name, schema_version, produced_at, payload):
     return {"event_id": str(event_id).lower(), "event_name": event_name, "schema_version": schema_version, "produced_at": _millis_utc(produced_at), "payload": payload}
 
@@ -91,8 +96,7 @@ def summarize(documents, now, grace_seconds, since=None, size=DAY):
     """정규화 문서(`normal_document`) 들을 (창, 이벤트 이름)별로 요약한다. 반환: (줄 목록, 열린 창 시작 목록). 열린 창은 줄에 넣지 않는다."""
     groups, open_windows = {}, set()
     for doc in documents:
-        produced = datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-        start = window_start(produced, size)
+        start = window_start(_produced(doc), size)
         if since is not None and start < since:
             continue
         if not is_closed(start, now, grace_seconds, size):
@@ -130,7 +134,6 @@ def unsent_counts(pairs, size=DAY):
     counts = {}
     for doc, sent in pairs:
         if not sent:
-            produced = datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-            key = (_z(window_start(produced, size)), doc["event_name"])
+            key = (_z(window_start(_produced(doc), size)), doc["event_name"])
             counts[key] = counts.get(key, 0) + 1
     return counts

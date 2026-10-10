@@ -1,6 +1,6 @@
-"""`ad_events` 컬렉션의 생성·색인·상태 확인 (계획 DB-2). 이벤트는 아직 쓰지 않는다(Step 4).
+"""`ad_events` 컬렉션의 생성·색인·상태 확인 (계획 DB-2). 이벤트는 중계(`relay.py`, Step 4)가 쓴다.
 
-컬렉션과 이벤트 스키마가 C2 계약 면이다(설계 §6.3). 아래 봉투 검증과 색인은 DRD §5.6 의 공통 봉투 제안에서 왔고 Step 4 에서 스키마와 함께 확정한다.
+컬렉션과 이벤트 스키마가 C2 계약 면이다(설계 §6.3). 아래 봉투 검증과 색인은 DRD §5.6 의 공통 봉투에서 왔다(내용 필드는 `schemas.py`).
 """
 import datetime
 import uuid
@@ -50,9 +50,6 @@ def collection(name=COLLECTION):
     return mongo.database().get_collection(name, codec_options=options)
 
 
-_collection = collection
-
-
 def ensure():
     """컬렉션(봉투 검증 포함)과 색인을 만든다. 여러 번 불러도 같다. 이미 다른 키로 같은 이름의 색인이 있으면 지우지 않고 오류로 멈춘다. 한 일의 목록을 돌려준다."""
     db = mongo.database()
@@ -63,10 +60,11 @@ def ensure():
     elif _validator() != VALIDATOR:
         db.command("collMod", COLLECTION, validator=VALIDATOR, validationAction="error", validationLevel="strict")
         done.append(f"컬렉션 {COLLECTION} 봉투 검증 갱신")
-    existing = {name: info for name, info in _collection().index_information().items()}
+    events = collection()
+    existing = events.index_information()
     for name, keys in INDEXES.items():
         if name not in existing:
-            _collection().create_index(keys, name=name)
+            events.create_index(keys, name=name)
             done.append(f"색인 {name} 생성")
         elif existing[name]["key"] != keys:
             raise RuntimeError(f"색인 {name} 이(가) 다른 키로 이미 있습니다: {existing[name]['key']} (자동으로 지우지 않습니다)")
@@ -98,7 +96,7 @@ def check():
     else:
         results.append(Check("접속 방식", True, "단일 서버(레플리카셋 이름 없음)" if not hello.get("setName") else f"서버는 레플리카셋 {hello['setName']} 의 구성원이다 — MONGO_REPLICA_SET 을 설정해야 failover 를 따라간다"))
     try:
-        probe = _collection(PROBE_COLLECTION)
+        probe = collection(PROBE_COLLECTION)
         probe_id = uuid.uuid4()
         probe.insert_one({"_id": probe_id})
         probe.delete_one({"_id": probe_id})
@@ -110,8 +108,9 @@ def check():
         if COLLECTION not in db.list_collection_names():
             results.append(Check("컬렉션", False, f"{COLLECTION} 이(가) 없습니다 — manage.py ensure_event_store"))
             return results
-        results.append(Check("봉투 검증", _validator() == VALIDATOR, "일치" if _validator() == VALIDATOR else "다릅니다 — manage.py ensure_event_store"))
-        existing = _collection().index_information()
+        validator_ok = _validator() == VALIDATOR
+        results.append(Check("봉투 검증", validator_ok, "일치" if validator_ok else "다릅니다 — manage.py ensure_event_store"))
+        existing = collection().index_information()
         for name, keys in INDEXES.items():
             ok = name in existing and existing[name]["key"] == keys
             results.append(Check(f"색인 {name}", ok, "일치" if ok else "없거나 키가 다릅니다 — manage.py ensure_event_store"))
