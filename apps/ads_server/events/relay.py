@@ -106,6 +106,8 @@ def outbox_status(now=None):
 
 def missing_event_ids(event_ids, chunk=1000):
     """주어진 이벤트 ID 중 **outbox 에도 MongoDB 에도 없는** 것. 보낸 행은 보존 기간 뒤 outbox 에서 지워지므로 둘 다 본다. MongoDB 에 닿지 못하면 예외를 올린다(없다고 잘못 말하지 않으려고)."""
+    if chunk < 1:
+        raise ValueError(f"chunk 는 1 이상이어야 한다: {chunk}")
     missing = []
     for part in batched(event_ids, chunk):
         found = set(EventOutbox.objects.filter(pk__in=part).values_list("pk", flat=True))

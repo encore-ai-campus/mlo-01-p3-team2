@@ -134,6 +134,8 @@ def _writer(item, decisions, reactions, charges):
 
 def backfill(manifest_path, apply=False, chunk=CHUNK):
     """입력 목록의 원본 행에 이벤트를 채운다. `apply=False` 면 아무것도 쓰지 않고 무엇을 쓸지만 센다. 반환: `Result`."""
+    if chunk < 1:
+        raise ValueError(f"chunk 는 1 이상이어야 한다: {chunk}")
     items, input_sha256 = read_items(manifest_path)
     result = Result(input_sha256=input_sha256, applied=apply)
     for index, part in enumerate(batched(items, chunk)):

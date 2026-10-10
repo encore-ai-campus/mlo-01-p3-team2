@@ -78,3 +78,19 @@ class EventGapsChunkTests(MongoDatabaseMixin, TestCase):
         self.assertEqual(len(gaps), 2003)
         self.assertEqual({g["source_id"] for g in gaps}, {str(d.decision_id) for d in decisions})
         self.assertEqual({g["event_id"] for g in gaps}, {str(events.event_id_for("ad.decision", d.decision_id)) for d in decisions})
+
+
+class ChunkSizeContractTests(TestCase):
+    """청크 크기가 1 미만이면 '없다'·'할 일 없음'으로 답하지 않고 무엇이 잘못됐는지 알리며 실패한다(계획 4-4a, R6)."""
+
+    def test_missing_event_ids_refuses_a_chunk_below_one(self):
+        for chunk in (0, -1):
+            with self.assertRaisesRegex(ValueError, "chunk"):
+                relay.missing_event_ids([uuid.uuid4()], chunk=chunk)
+            with self.assertRaisesRegex(ValueError, "chunk"):
+                relay.missing_event_ids([], chunk=chunk)  # 입력이 비어도 같은 계약
+
+    def test_backfill_refuses_a_chunk_below_one_before_reading_the_input(self):
+        for chunk in (0, -1):
+            with self.assertRaisesRegex(ValueError, "chunk"):
+                records.backfill_events("/nonexistent/event_gaps.manifest.json", chunk=chunk)
