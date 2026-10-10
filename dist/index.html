@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="avatars.css">
   <link rel="stylesheet" href="social.css">
+  <link rel="stylesheet" href="board-shortcut.css">
 </head>
 <body>
   <header class="topbar">
@@ -28,7 +29,10 @@
       <div id="viewport" class="viewport">
         <canvas id="mapCanvas" tabindex="0" role="img" aria-label="PLAYDATA 캠퍼스 지도. 복도 오른쪽은 라운지 1, 왼쪽은 라운지 2입니다. 방향키 또는 WASD로 이동하고 가까운 시설에서 E로 상호작용합니다.">방향키로 움직이는 PLAYDATA 캠퍼스 지도</canvas>
         <div class="map-caption"><span class="caption-icon">P</span><div><strong>PLAYDATA CAMPUS</strong><span>함께 배우는 공간</span></div></div>
-        <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
+        <div class="map-status-tools">
+          <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
+          <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
+        </div>
         <ul id="presencePeers" class="sr-only" aria-label="다른 접속자"></ul>
         <div id="speechBubbles" class="speech-bubbles" aria-hidden="true"></div>
         <section id="chatPanel" class="chat-panel" aria-labelledby="chatTitle">
@@ -37,8 +41,15 @@
           <form id="chatForm" class="chat-compose"><label for="chatInput" class="sr-only">채팅 메시지</label><input id="chatInput" type="text" maxlength="400" placeholder="메시지를 입력하세요" autocomplete="off" aria-describedby="chatStatus chatCount" disabled><button id="chatSend" type="submit" disabled>전송</button></form>
           <div class="chat-composer-meta"><span id="chatStatus" role="status">채팅 연결 중…</span><span id="chatCount">0/200</span></div>
         </section>
+        <section id="boardShortcut" class="board-shortcut" aria-labelledby="boardShortcutTitle" hidden>
+          <div class="board-shortcut-heading"><span class="board-shortcut-mark" aria-hidden="true">P</span><strong id="boardShortcutTitle">18F 게시판</strong></div>
+          <div class="board-shortcut-previews">
+            <div class="board-shortcut-preview"><span class="board-shortcut-menu" aria-hidden="true"><svg viewBox="0 0 80 48" fill="none"><rect x="2" y="2" width="76" height="44" rx="10" fill="#fffdf5"/><circle cx="40" cy="24" r="16" stroke="#a6bba1" stroke-width="2"/><circle cx="40" cy="24" r="11" fill="#d5e1c6"/><path d="M15 13v10m4-10v10m-4-2c0 5 4 5 4 0m-2 5v9m46-22v22m0-22c-5 4-5 12 0 13" stroke="#829584" stroke-width="2" stroke-linecap="round"/></svg></span><span>구내식당 메뉴</span></div>
+            <div class="board-shortcut-preview"><span class="board-shortcut-logo"><img src="assets/encore-time-logo.png" width="1927" height="816" alt="엔코아 타임 로고"></span><span>엔코아 타임</span></div>
+          </div>
+          <button id="openBoardShortcut" class="board-shortcut-open" type="button" aria-haspopup="dialog" aria-controls="boardDialog">게시판 열기 <span aria-hidden="true">↗</span></button>
+        </section>
         <div id="interactionPrompt" class="interaction-prompt" hidden><kbd>E</kbd><span></span><button aria-label="가까운 시설 안내 보기">보기</button></div>
-        <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
         <div id="toast" class="toast" role="status" hidden></div>
       </div>
       <dialog id="settingsDialog" aria-labelledby="settingsTitle">
@@ -121,6 +132,7 @@
     </section>
   </dialog>
   <script src="booth-panel.js"></script>
+  <script src="classroom-doors.js"></script>
   <script src="map-data.js"></script>
   <script src="rooftop-data.js"></script>
   <script src="navigation.js"></script>

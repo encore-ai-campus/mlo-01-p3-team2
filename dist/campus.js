@@ -33,9 +33,9 @@
   const social=window.CampusSocial.create({config:accountConfig,onFocus(){keys.clear();player.moving=false;},onSend:text=>presence.sendChat(text),getSelfId:()=>presence.selfId});
   let pendingTransfer=null,ignoredPortalId=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value)});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value),onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message)});
   const solidTypes=new Set(['desk','chair','bar','counter','water','coffee-machine','printer','bin','pillar','bookshelf','bookshelf-side','sofa','bench','coffee','roundtable','ottoman','cabinet','box','tv','plant','fire-extinguisher','noticeboard','stool','woodwall','glass-wall','tree','planter','terrace-bench','festival-booth','festival-stage','speaker','photo-frame','booth-collider','booth-side','game-arcade','game-gomoku-table','game-pc-station','game-console-display','game-controller-shelf','creator-screen','camera-tripod','microphone-stand','creator-console','creator-award','photo-backdrop','ring-light','phone-podium','photo-display','psych-test-backdrop','psych-type-wheel','psych-question-kiosk','psych-mood-cards','fountain','plaza-display','plaza-lamp']);
-  function distRect(x,y,o){if(o.interactionPoint)return Math.hypot(x-o.interactionPoint[0],y-o.interactionPoint[1]);const r=renderer.footprint(o);return Math.hypot(Math.max(r.x-x,0,x-r.x-r.w),Math.max(r.y-y,0,y-r.y-r.h));}
+  function distRect(x,y,o){if(o.type==='glass-door')return window.CampusDoors.distance(o,x,y);if(o.interactionPoint)return Math.hypot(x-o.interactionPoint[0],y-o.interactionPoint[1]);const r=renderer.footprint(o);return Math.hypot(Math.max(r.x-x,0,x-r.x-r.w),Math.max(r.y-y,0,y-r.y-r.h));}
   const inside=(r,x,y)=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
   // Bucket nearby wall and furniture footprints for keyboard movement.
   const collisionBuckets=new Map(),bucketSize=64;
@@ -43,7 +43,7 @@
   let navigation;
   function rebuildCollision(){
     collisionBuckets.clear();
-    const colliders=[...D.walls.map(w=>({x:Math.min(w.x1,w.x2),y:Math.min(w.y1,w.y2),w:Math.abs(w.x2-w.x1),h:Math.abs(w.y2-w.y1),pad:5})),...D.objects.filter(o=>o.solid!==false&&solidTypes.has(o.type)).map(o=>({x:o.x+(o.collision?.x??0),y:o.y+(o.collision?.y??0),w:o.collision?.w??o.w,h:o.collision?.h??o.h,pad:0}))];
+    const colliders=[...D.walls.map(w=>({x:Math.min(w.x1,w.x2),y:Math.min(w.y1,w.y2),w:Math.abs(w.x2-w.x1),h:Math.abs(w.y2-w.y1),pad:5})),...D.objects.filter(o=>o.solid!==false&&(solidTypes.has(o.type)||o.type==='glass-door')).map(o=>{const r=renderer.footprint(o);return {x:r.x,y:r.y,w:r.w,h:r.h,pad:0};})];
     for(const o of colliders){const margin=o.pad+6;for(let yy=Math.floor((o.y-margin)/bucketSize);yy<=Math.floor((o.y+o.h+margin)/bucketSize);yy++)for(let xx=Math.floor((o.x-margin)/bucketSize);xx<=Math.floor((o.x+o.w+margin)/bucketSize);xx++){const id=xx+','+yy;if(!collisionBuckets.has(id))collisionBuckets.set(id,[]);collisionBuckets.get(id).push(o);}}
     navigation=window.CampusNavigation.create({width:D.width,height:D.height,isWalkable:walkable});
   }
@@ -117,7 +117,7 @@
     focusPlayer();
     const r=roomAt(player.x,player.y);if(r&&r.id!==lastRoom){lastRoom=r.id;$('currentRoom').textContent=r.name;for(const b of document.querySelectorAll('[data-room]')){b.classList.toggle('active',b.dataset.room===r.id);b.setAttribute('aria-current',b.dataset.room===r.id?'location':'false');}}
     nearby=D.objects.filter(o=>o.name&&distRect(player.x,player.y,o)<35).sort((a,b)=>distRect(player.x,player.y,a)-distRect(player.x,player.y,b))[0]||null;
-    $('interactionPrompt').hidden=!nearby;if(nearby)$('interactionPrompt').querySelector('span').textContent=nearby.name;
+    $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent=nearby.type==='glass-door'?(nearby.open?'닫기':'열기'):'보기';}
     render(t);requestAnimationFrame(update);
   }
   function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,2800);}
@@ -179,6 +179,8 @@
 
   }
   function updateFloorUI(){
+    const hasBoard=D.id==='campus';$('boardShortcut').hidden=!hasBoard;
+    viewport.closest('.map-shell').dataset.boardShortcutVisible=String(hasBoard);
     $('currentFloor').textContent=D.name;
     $('mapHeading').textContent=D.id==='campus'?'2.5D 캠퍼스':'옥상 광장';
     document.querySelector('.sidebar-heading h1').textContent=D.id==='campus'?'공간 둘러보기':'옥상 광장 둘러보기';
@@ -228,6 +230,8 @@
     logoutForm.requestSubmit();
   }
   function showDetail(item,{keyboard=false}={}){
+    if(item.info===false)return;
+    if(item.type==='glass-door'){toggleDoor(item);return;}
     if(item.action==='booth'){if(distRect(player.x,player.y,item)<35)boothUI.open(item);else toast('부스 중앙의 E 표시 가까이로 이동해 주세요.');return;}
     if(item.toFloor&&(keyboard||(item.confirmTransfer&&distRect(player.x,player.y,item)<35))){useStairs(item);return;}
     if(item.type==='noticeboard'){showBoard();return;}
@@ -244,6 +248,21 @@
     showBoardChoices(false);
     for(const card of boardCards){card.setAttribute('aria-pressed','false');card.querySelector('.board-card-state').textContent='선택하기';}
     $('boardSelection').textContent='';boardDialog.showModal();$('boardMenuCard').focus({preventScroll:true});
+  }
+  function applyDoorState(id,open){
+    const door=worlds.campus.objects.find(o=>o.id===id&&o.type==='glass-door');
+    if(!door||typeof open!=='boolean'||door.open===open)return;
+    door.open=open;const view=renderers.get('campus');view?.setDoorState(id,open);
+    if(D.id==='campus'){rebuildCollision();$('exportBtn').href=scene.toDataURL('image/png');}
+  }
+  function toggleDoor(door){
+    if(D.id!=='campus'||isDialogOpen()||distRect(player.x,player.y,door)>=35){toast('유리문 가까이에서 E를 누르거나 클릭해 주세요.');return;}
+    const open=!door.open;
+    if(window.CampusDoors.blocked(door,open,visibleActors())){toast('문이 움직일 자리에 캐릭터가 있어요. 조금 비켜서 다시 눌러 주세요.');return;}
+    keys.clear();player.moving=false;
+    if($('campusPresenceConfig')){if(!presence.requestDoor(door.id,open))toast('연결된 뒤 문을 열고 닫을 수 있어요.');}
+    else applyDoorState(door.id,open);
+    canvas.focus({preventScroll:true});
   }
   function cancelMenuRequest(){menuRequest?.abort();menuRequest=null;menuVersion++;$('boardMenuImage').onload=$('boardMenuImage').onerror=null;$('boardMenuImage').removeAttribute('src');}
   function showBoardChoices(focus=true){
@@ -270,8 +289,8 @@
   }
   function nav(){
     $('roomNav').replaceChildren();
-    const groups=D.id==='rooftop'?[['전시 부스',['festival-youtube','festival-instagram','festival-booth3']],['쉼터 · 연결 공간',['roof-upper','roof-terrace','roof-plaza','roof-stairs']]]:[['라운지',['lounge1','lounge2']],['강의 공간',['class1','class2','class3','class4','left-bottom','left-middle','left-top']],['회의 · 상담',['meeting','meeting-l2-a','meeting-l2-b','consult-a','consult-b']],['기타 공간',['office','storage','stairs']]];
-    for(const [label,ids] of groups){const heading=document.createElement('div');heading.className='nav-group-label';heading.textContent=label;$('roomNav').append(heading);for(const id of ids){const r=D.rooms.find(r=>r.id===id),b=document.createElement('button');b.type='button';b.className='room-nav-button';b.dataset.room=id;const icon=document.createElement('span');icon.className='nav-icon';icon.textContent=id.startsWith('lounge')?'L'+id.slice(-1):id.startsWith('class')?id.slice(-1):id.startsWith('consult')?id.slice(-1).toUpperCase():id.startsWith('left')?r.name.slice(-1):'▤';const n=document.createElement('span');n.textContent=r.name;b.append(icon,n);b.addEventListener('click',()=>showDetail(r));$('roomNav').append(b);}}
+    const groups=D.id==='rooftop'?[['전시 부스',['festival-youtube','festival-instagram','festival-booth3']],['쉼터 · 연결 공간',['roof-upper','roof-terrace','roof-plaza','roof-stairs']]]:[['라운지',['lounge1','lounge2']],['강의 공간',['class1','class2','class3-4','left-bottom','left-middle','left-top']],['회의 · 상담',['meeting','meeting-l2-a','meeting-l2-b','consult-a','consult-b']],['기타 공간',['office','storage','stairs']]];
+    for(const [label,ids] of groups){const heading=document.createElement('div');heading.className='nav-group-label';heading.textContent=label;$('roomNav').append(heading);for(const id of ids){const r=D.rooms.find(r=>r.id===id);if(!r||r.info===false)continue;const b=document.createElement('button');b.type='button';b.className='room-nav-button';b.dataset.room=id;const icon=document.createElement('span');icon.className='nav-icon';icon.textContent=id.startsWith('lounge')?'L'+id.slice(-1):id.startsWith('class')?id.slice(-1):id.startsWith('consult')?id.slice(-1).toUpperCase():id.startsWith('left')?r.name.slice(-1):'▤';const n=document.createElement('span');n.textContent=r.name;b.append(icon,n);b.addEventListener('click',()=>showDetail(r));$('roomNav').append(b);}}
   }
   // Facility clicks open information; an administrator may drag the unlocked camera.
   function pointerPosition(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
@@ -289,6 +308,7 @@
   $('fullscreenBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.map-shell').requestFullscreen();}catch{toast('현재 창에서는 전체 화면을 사용할 수 없습니다.');}};
   $('closeDialog').onclick=$('detailClose').onclick=()=>{dialog.close();canvas.focus({preventScroll:true});};
   $('closeBoardDialog').onclick=$('boardClose').onclick=()=>boardDialog.close();
+  $('openBoardShortcut').onclick=()=>{if(D.id==='campus'&&!isDialogOpen())showBoard();};
   for(const card of boardCards)card.addEventListener('click',()=>{
     for(const option of boardCards){const selected=option===card;option.setAttribute('aria-pressed',String(selected));option.querySelector('.board-card-state').textContent=selected?'선택됨':'선택하기';}
     $('boardSelection').textContent=card.dataset.boardChoice+' 카드가 선택됐어요.';
