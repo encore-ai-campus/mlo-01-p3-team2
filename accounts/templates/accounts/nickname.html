@@ -1,0 +1,12 @@
+{% extends "accounts/base.html" %}
+{% block title %}닉네임 설정{% endblock %}
+{% block heading %}캠퍼스에서 부를 이름{% endblock %}
+{% block description %}다른 사람의 지도에서 캐릭터 머리 위에 표시돼요.{% endblock %}
+{% block content %}
+  <form method="post" action="{% url 'accounts:nickname' %}" class="auth-form">
+    {% csrf_token %}
+    {% include "accounts/form_fields.html" %}
+    <button type="submit" class="auth-submit">저장하고 지도로 돌아가기</button>
+  </form>
+  <p class="auth-switch"><a href="{% url 'campus:map' %}">지도로 돌아가기</a></p>
+{% endblock %}

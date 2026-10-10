@@ -1,0 +1,31 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#167d79">
+  <title>{% block title %}{% endblock %} · PLAYDATA 캠퍼스</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23167d79'/%3E%3Cpath d='M9 24V8h8a6 6 0 0 1 0 12h-4v4zm4-8h4a2 2 0 0 0 0-4h-4z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{% static 'accounts/auth.css' %}?v=course-signup-v1">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="auth-page">
+  <header class="auth-header">
+    <a class="auth-brand" href="{% url 'campus:map' %}" aria-label="PLAYDATA 캠퍼스 처음 화면">
+      <span class="auth-brand-mark">P</span>
+      <span>PLAYDATA<small>VIRTUAL CAMPUS</small></span>
+    </a>
+    <span class="auth-header-note">함께 배우는 공간</span>
+  </header>
+  <main class="auth-main">
+    <section class="auth-card" aria-labelledby="auth-title">
+      <span class="auth-eyebrow">PLAYDATA CAMPUS</span>
+      <h1 id="auth-title">{% block heading %}{% endblock %}</h1>
+      <p class="auth-description">{% block description %}{% endblock %}</p>
+      {% block content %}{% endblock %}
+    </section>
+    <p class="auth-footer">PLAYDATA · 함께 배우고 성장하는 캠퍼스</p>
+  </main>
+</body>
+</html>
