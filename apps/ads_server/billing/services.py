@@ -13,7 +13,7 @@ from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, rec
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
 from .policies import get_charge_policy
-from .types import ChargeResult, LedgerEntryView, WalletView
+from .types import ChargeEntryView, ChargeResult, LedgerEntryView, WalletView
 
 
 def _now(now=None):
@@ -209,6 +209,19 @@ def charged_amounts(reaction_refs):
 def charge_entry_ids():
     """원장 `CHARGE` 항목 ID 를 훑는다(이벤트 누락 점검용 읽기). 큰 표를 한꺼번에 메모리에 올리지 않는다."""
     return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE).values_list("entry_id", flat=True).iterator(chunk_size=2000)
+
+
+def charge_entries(entry_ids):
+    """원장 `CHARGE` 항목을 ID 로 읽는다(없는 ID 는 결과에 없다). 이벤트 백필이 원본 행에서 과금 이벤트를 다시 만들 때 쓴다."""
+    ids = list(entry_ids)
+    found = []
+    for start in range(0, len(ids), 500):
+        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, entry_id__in=ids[start:start + 500]):
+            found.append(ChargeEntryView(
+                entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, reaction_ref=e.reaction_ref, charged=-e.amount,
+                shortfall=e.shortfall, created_at=e.created_at,
+            ))
+    return found
 
 
 def _ledger_spent(campaign_id, day):

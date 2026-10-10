@@ -33,9 +33,9 @@ def event_id_for(event_name, source_id):
 
 
 NAMES = {"decision": schemas.DECISION, "reaction_received": schemas.REACTION_RECEIVED, "reaction": schemas.REACTION, "charge": schemas.CHARGE}
-write_ndjson, verify_ndjson, NdjsonError = ndjson.write, ndjson.verify, ndjson.NdjsonError
+write_ndjson, verify_ndjson, read_manifest, NdjsonError = ndjson.write, ndjson.verify, ndjson.read_manifest, ndjson.NdjsonError
 
 __all__ = [
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
-    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "NdjsonError", "NotConfigured",
+    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "NdjsonError", "NotConfigured",
 ]
