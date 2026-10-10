@@ -15,6 +15,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from billing import api as billing
+from events import api as events
 from foundation.api import is_transient_lock_error
 
 from . import basis as judgment_basis
@@ -52,6 +53,11 @@ def _finish(row, status, now, basis, reason=None, rule=None, person=None):
     )
     if changed != 1:
         raise RuntimeError(f"이미 처리된 반응의 상태를 바꾸려 했다: {row.pk}")
+    events.record_reaction(  # 판정 이벤트(`ad.reaction`): 상태를 바꾼 같은 트랜잭션에서. 판정은 됐는데 이벤트가 없는 상태가 생기지 않는다
+        now=now, inbox_id=row.inbox_id, reaction_id=row.reaction_id, media_id=row.media_id, decision_id=row.decision_id, type=row.type,
+        occurred_at=row.occurred_at, received_at=row.received_at, subject_id=row.subject_id, source=row.source, status=status,
+        reason_code=reason, applied_rule=rule, basis=basis,
+    )
 
 
 def _hold(row, now):

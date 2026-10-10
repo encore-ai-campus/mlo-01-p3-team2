@@ -140,6 +140,14 @@ def _reaction_view(r):
     )
 
 
+def _record_received_event(row):
+    """접수 이벤트(`ad.reaction_received`): 수신 행과 **같은 트랜잭션**에서. 보고된 사실만 싣는다."""
+    events.record_reaction_received(
+        now=row.received_at, inbox_id=row.inbox_id, reaction_id=row.reaction_id, media_id=row.media_id, decision_id=row.decision_id, type=row.type,
+        occurred_at=row.occurred_at, received_at=row.received_at, subject_id=row.subject_id, source=row.source, raw=row.raw,
+    )
+
+
 def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred_at, raw, subject_id=None, now=None):
     """반응을 수신함에 저장한다. 반환: `(ReactionView, created)`. **호출한 쪽이 바깥 트랜잭션을 열고, 커밋된 뒤에만 2xx 를 보낸다.**
 
@@ -170,6 +178,7 @@ def receive_reaction(media_id, decision_id, reaction_id, reaction_type, occurred
                 media_id=media_id, reaction_id=reaction_id, decision_id=decision_id, type=reaction_type, occurred_at=occurred_at,
                 received_at=_now(now), raw=raw, subject_id=subject_id,
             )
+            _record_received_event(row)
     except IntegrityError as error:
         if not is_unique_violation(error):  # 유일 제약이 아닌 이유(CHECK 등)는, 같은 키의 행이 있어도 숨기지 않는다
             raise
@@ -228,6 +237,7 @@ def _record_click(d, person, now):
                 media_id=d.media_id, reaction_id=reaction_id, decision_id=d.decision_id, type=ReactionType.CLICK, occurred_at=received, received_at=received,
                 raw={"type": "CLICK", "source": "server", "subject_id": person}, source=ReactionSource.SERVER, subject_id=person,
             )
+            _record_received_event(row)
     except IntegrityError as error:
         if is_unique_violation(error) and Reaction.objects.filter(media_id=d.media_id, reaction_id=reaction_id, source=ReactionSource.SERVER).exists():
             return None  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
