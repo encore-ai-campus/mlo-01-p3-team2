@@ -1,15 +1,17 @@
 """결정 유스케이스(설계 §4.3~4.4). 후보 조립 → engine → **저장한 뒤에만** 돌려준다(§4.4-12)."""
+import contextlib
 import logging
 import random
 import uuid
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
 from assets.api import asset_url
 from engine.api import AdRequest, decide as engine_decide
+from events import api as events
 from foundation.api import errors, is_unique_violation, parse_uuid
 from masters import api as masters
 
@@ -40,6 +42,27 @@ def _view(d):
         decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, subject_id=d.subject_id, audience=d.audience, decided_at=d.decided_at,
         chosen=chosen, selection_policy=d.selection_policy, trace=d.trace, candidate_count=d.candidate_count,
         rejected_counts=d.rejected_counts,
+    )
+
+
+@contextlib.contextmanager
+def _atomic_if_needed():
+    """이미 트랜잭션 안이면 그대로, 아니면 하나 연다(안쪽에 저장점을 또 만들지 않는다 — 결정 요청의 질의 수를 늘리지 않으려고)."""
+    if connection.in_atomic_block:
+        yield
+    else:
+        with transaction.atomic():
+            yield
+
+
+def _record_decision_event(d, now):
+    selected = None if d.creative_id is None else {
+        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
+        "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
+    }
+    events.record_decision(
+        now=now, decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, decided_at=d.decided_at, audience=d.audience, subject_id=d.subject_id,
+        selected=selected, selection_policy=d.selection_policy, candidate_count=d.candidate_count, rejected_counts=d.rejected_counts,
     )
 
 
@@ -89,11 +112,13 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
             bid_id=fact.bid_id, bid_policy_id=slot.policy.bid_policy_id,  # 판정에 쓴 바로 그 버전 행
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},
         )
-    decision = Decision.objects.create(  # INSERT 한 문장이라 따로 트랜잭션을 열지 않는다(응답까지 묶는 트랜잭션은 C1 뷰가 연다)
-        media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
-        selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
-        trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
-    )
+    with _atomic_if_needed():  # 결정과 이벤트(outbox)는 한 트랜잭션이다. 응답까지 묶는 트랜잭션은 C1 뷰가 열고(그 안이면 그대로 쓴다), 직접 부르면 여기서 연다
+        decision = Decision.objects.create(
+            media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
+            selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
+            trace=trace, candidate_count=result.considered, rejected_counts=result.rejected, **values,
+        )
+        _record_decision_event(decision, now)
     return _view(decision)
 
 
