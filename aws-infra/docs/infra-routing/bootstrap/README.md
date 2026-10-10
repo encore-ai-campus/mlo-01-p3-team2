@@ -11,7 +11,7 @@
 | 노드 메타데이터 | compute·bastion의 user_data가 /etc/aws-infra/node.json에 name·role·account 기록 |
 | EBS 포맷·마운트·파일시스템 증설 | 자동화 없음 |
 | Kafka·MongoDB·MySQL·Spark·Django·Nginx 설치·실행 | 자동화 없음 |
-| Proxy 패키지 설치 | [setup-proxy.sh](../setup-proxy.sh.md)를 Bastion에서 수동 실행해 Squid 패키지 설치. ACL·클라이언트 설정은 별도 |
+| Proxy 패키지 설치 | [install-squid.sh](../../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md)를 Bastion에서 수동 실행해 Squid 패키지 설치. ACL·클라이언트 설정은 별도 |
 | Front A·C 정적 파일 배포 | 자동화 없음. HTTP /static/* 전달만 ALB가 구성 |
 | DB 복제·Kafka 토픽·Spark checkpoint·Kappa 처리 경로 | 별도 서비스·애플리케이션 설정 대상 |
 | OS 사용자·sudo·파일 권한 | 보안그룹으로 설정하지 않으며 현재 설치 자동화 없음 |

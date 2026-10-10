@@ -42,7 +42,7 @@ Terraform 테스트는 mock_provider를 사용하고, connectivity/workload는 �
 
 총 9개의 run이 있으며 모두 command=plan이다. model 테스트는 AWS 자원을 만들지 않고, 나머지 두 파일은 mock_provider를 사용한다. workload 테스트는 원격 상태도 fixture로 대체한다. 여기 적은 내용은 현재 테스트 선언을 대조한 결과이며, 이번 문서 동기화에서 Terraform test를 실행해 통과했다는 뜻은 아니다. 테스트 기대값은 기본 config를 읽으므로 별도 비용 프로필의 실제 설정을 검증하는 결과로 사용할 수 없다.
 
-원격 Spark 서비스·Master 이중화·Worker 등록·PySpark 제출은 [플랫폼 Spark 검증](../../../../platform/docs/platform-routing/roles/spark/tasks/verify.yml.md)이 담당한다. 이 Terraform 모의 테스트가 EC2의 프로그램 설치나 클러스터 동작까지 확인하지는 않는다.
+원격 Spark 서비스·Master 이중화·Worker 등록·PySpark 제출은 [플랫폼 Spark 검증](../../../../aws-platform/platform/platform-routing/roles/spark/tasks/verify.yml.md)이 담당한다. 이 Terraform 모의 테스트가 EC2의 프로그램 설치나 클러스터 동작까지 확인하지는 않는다.
 
 ## 현재 기록의 한계
 

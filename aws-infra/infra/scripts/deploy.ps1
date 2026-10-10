@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'lib/infra-common.ps1')
 $infraRoot = Split-Path -Parent $PSScriptRoot
-$platformRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $infraRoot)) 'platform'
+$platformRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $infraRoot)) 'aws-platform/platform'
 $runner = Join-Path $PSScriptRoot 'infra.ps1'
 $ProfileDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProfileDirectory)
 
@@ -186,7 +186,7 @@ function Invoke-DeploymentProxy {
     if (-not (Test-Path -LiteralPath $inventoryPath -PathType Leaf)) { throw 'Inventory를 먼저 실행하세요.' }
     # 여러 WSL 경로가 조회되어도 명령 검색 순서의 첫 실행 파일만 사용한다.
     $wsl = (Get-Command wsl -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    $scriptPath = Join-Path $platformRoot 'setup-proxy.sh'
+    $scriptPath = Join-Path $platformRoot 'scripts/setup-proxy.sh'
     $scriptWsl = & $wsl -d $platform.wsl_distribution --exec wslpath -a $scriptPath
     if ($LASTEXITCODE -ne 0) { throw 'WSL 스크립트 경로 변환에 실패했습니다.' }
     $inventoryWsl = & $wsl -d $platform.wsl_distribution --exec wslpath -a $inventoryPath

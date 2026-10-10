@@ -397,7 +397,7 @@ $deploymentProfile = 'C:\third_project\aws-infra\infra\config\profiles\budget'
 & $deployScript -Action Deploy -ProfileDirectory $deploymentProfile
 ~~~
 
-생성 후에는 현재 EC2 주소를 읽어 platform/inventory/hosts.budget.yml을 만들고 WSL의 프록시 스크립트를 실행한다. 이미 서버가 준비된 경우에는 아래 두 단계만 실행할 수 있다.
+생성 후에는 현재 EC2 주소를 읽어 aws-platform/platform/inventory/hosts.budget.yml을 만들고 WSL의 프록시 스크립트를 실행한다. 이미 서버가 준비된 경우에는 아래 두 단계만 실행할 수 있다.
 
 ~~~powershell
 # 현재 주소와 계정별 키 경로를 인벤토리로 갱신한다.
@@ -411,7 +411,7 @@ Proxy는 선택한 클라이언트 외에 공용 배스천의 Squid·APT·방화
 
 **구성들은 동일한 원격 Terraform 상태를 사용한다.** 선택한 구성으로 현재 환경을 변경하며, 별도의 인프라 복사본을 만들지 않는다. 로컬 Plan만 구성 경로별로 분리하고 선택 파일의 변경을 검사한다. 한 환경에 서로 다른 구성의 배포를 동시에 실행하지 않는다.
 
-실제 구성 폴더와 생성된 인벤토리는 Git에서 제외한다. 인프라 코드 변경으로 기존 저장 Plan의 fingerprint가 달라지므로 이 변경을 받은 뒤에는 Plan을 새로 만든다. Windows 체크아웃에서도 두 setup-proxy.sh는 저장소 .gitattributes에 따라 LF를 유지한다.
+실제 구성 폴더와 생성된 인벤토리는 Git에서 제외한다. 인프라 코드 변경으로 기존 저장 Plan의 fingerprint가 달라지므로 이 변경을 받은 뒤에는 Plan을 새로 만든다. Windows 체크아웃에서도 scripts/setup-proxy.sh와 scripts/install-squid.sh는 저장소 .gitattributes에 따라 LF를 유지한다.
 
 구성을 선택한 뒤 후속 Plan·Apply에도 같은 ProfileDirectory를 지정한다. 기존 infra.ps1을 구성 옵션 없이 실행하면 원래 infra/config를 읽으므로 선택한 구성과 다른 변경 계획이 나올 수 있다.
 

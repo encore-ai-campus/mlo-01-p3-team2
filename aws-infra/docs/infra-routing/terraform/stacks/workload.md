@@ -38,7 +38,7 @@
 
 SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 끝 포트가 여럿 있으면 최대값까지 합쳐 security-rules에 전달하므로, 기존 단일 포트를 범위로 바꿔도 Terraform 자원 주소는 유지된다. 현재 Spark Driver 7078–7094, BlockManager 7079–7095를 전달하고 Worker RPC 7100과 Master UI 8080을 Spark SG 사이에 추가한다. 현재 배치에서는 account2·3·4가 대상이며 다른 역할의 규칙 범위를 넓히지 않는다.
 
-[포트 범위 테스트](../../tests/README.md#spark-포트-범위)는 모델 입력·SG 자원 속성·이 단계의 병합을 구분한다. 실제 데몬·작업 포트는 [플랫폼 Spark 설정](../../../../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)에서 맞춘다. SG 규칙을 추가하는 것만으로 Spark를 설치하거나 서비스를 시작하지 않는다.
+[포트 범위 테스트](../../tests/README.md#spark-포트-범위)는 모델 입력·SG 자원 속성·이 단계의 병합을 구분한다. 실제 데몬·작업 포트는 [플랫폼 Spark 설정](../../../../../aws-platform/platform/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)에서 맞춘다. SG 규칙을 추가하는 것만으로 Spark를 설치하거나 서비스를 시작하지 않는다.
 
 ## 현재 HTTP 접속 경로
 

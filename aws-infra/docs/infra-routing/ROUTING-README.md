@@ -27,10 +27,10 @@
 | 계정 간 Peering·양방향 라우팅 변경 | [connectivity](terraform/stacks/connectivity.md) | [connectivity stack](../../infra/terraform/stacks/connectivity/main.tf) |
 | 보안규칙·EC2·EBS·ALB 변경 | [workload](terraform/stacks/workload.md) | [workload stack](../../infra/terraform/stacks/workload/main.tf) |
 | 서비스 EC2의 콘솔 SSH 접두사 목록 규칙 | [콘솔 SSH 범위](terraform/stacks/workload.md#콘솔-ssh-규칙의-범위) | [workload 선언](../../infra/terraform/stacks/workload/main.tf), [5개 계정 모의 테스트](../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) |
-| Spark의 고정 포트·재시도 범위와 SG 규칙 검사 | [Spark 포트 범위 테스트](tests/README.md#spark-포트-범위) · [플랫폼 Spark 설정](../../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | traffic의 port_end → model.flows → workload 범위 병합 → security-rules |
+| Spark의 고정 포트·재시도 범위와 SG 규칙 검사 | [Spark 포트 범위 테스트](tests/README.md#spark-포트-범위) · [플랫폼 Spark 설정](../../../aws-platform/platform/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | traffic의 port_end → model.flows → workload 범위 병합 → security-rules |
 | Bastion EC2·OS 디스크·전용 키페어 변경 | [bastion](terraform/stacks/bastion.md) | [bastion stack](../../infra/terraform/stacks/bastion/main.tf) |
-| Squid 패키지 설치 범위 확인 | [Proxy 설치 스크립트](setup-proxy.sh.md) | [setup-proxy.sh](../../infra/setup-proxy.sh) |
-| 공통 자원 생성 방식 수정 | [Terraform 모듈 목록](terraform/README.md) | [modules](../../infra/terraform/modules/) |
+| Squid 패키지 설치 범위 확인 | [Proxy 설치 스크립트](../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md) | [install-squid.sh](../../../aws-platform/platform/scripts/install-squid.sh) |
+| 공통 자원 생성 방식 수정 | [Terraform 모듈 목록](terraform/README.md) | [modules](../../infra/terraform/modules) |
 | SSH 키 준비 | [키 준비 스크립트](scripts/prepare-key.sh.md) | [prepare-key.sh](../../infra/scripts/prepare-key.sh) |
 | 계정별 PEM 준비·기존 서버 공개키 등록 | [계정별 SSH 키 전환](scripts/account-keys.ps1.md) | [account-keys.ps1](../../infra/scripts/account-keys.ps1) |
 | Windows 도구 설치 동작 확인 | [설치 스크립트](setup-windows/install-tools.ps1.md) | [install-tools.ps1](../../infra/setup-windows/install-tools.ps1) |

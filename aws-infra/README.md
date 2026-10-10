@@ -2,7 +2,7 @@
 
 AWS EC2의 배치·네트워크·보안규칙·상태를 Terraform과 PowerShell로 관리한다. 현재 구성 기준은 2026-10-10의 [topology](infra/config/topology.tfvars.json)와 [traffic](infra/config/traffic.tfvars.json)이며, 이 문서가 실제 AWS 배포나 서비스 동작 완료를 보증하지는 않는다.
 
-실행은 [배포 절차](docs/deployment-runbook.md), 명령별 옵션은 [실행 README](infra/scripts/README.md), 코드 위치는 [라우팅 문서](docs/infra-routing/ROUTING-README.md)에서 확인한다. EC2 내부 프로그램 설치는 별도 [platform](../platform/README.md)이 담당한다.
+실행은 [배포 절차](docs/deployment-runbook.md), 명령별 옵션은 [실행 README](infra/scripts/README.md), 코드 위치는 [라우팅 문서](docs/infra-routing/ROUTING-README.md)에서 확인한다. EC2 내부 프로그램 설치는 별도 [platform](../aws-platform/platform/README.md)이 담당한다.
 
 ## 현재 기본 구성
 

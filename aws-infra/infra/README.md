@@ -28,7 +28,7 @@
 - ALB는 HTTP 80이며 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. ACM ARN을 요구하거나 HTTPS 리스너를 만들지 않는다.
 - 현재 관리자·사용자 CIDR은 각각 한 항목이다. 배포 전에 본인의 접속 범위와 맞는지 확인한다. 서비스 콘솔 SSH는 리전별 EC2 Instance Connect IPv4 접두사 목록 → 서비스 역할 SG의 TCP 22 규칙을 별도로 선언한다.
 
-인터넷 다운로드는 [프록시 준비](../../platform/README.md#구성별-프록시-준비-스크립트)가 필요하다. NAT 모드로 바꾸려면 해당 계정의 public_subnets=true·egress=nat로 Public A/C의 AZ별 NAT를 만들고 인터넷 송신 SG·프로그램 Proxy 설정도 맞춘다. 다른 VPC의 NAT를 Peering만으로 공유하는 구성은 아니다.
+인터넷 다운로드는 [프록시 준비](../../aws-platform/platform/README.md#구성별-프록시-준비-스크립트)가 필요하다. NAT 모드로 바꾸려면 해당 계정의 public_subnets=true·egress=nat로 Public A/C의 AZ별 NAT를 만들고 인터넷 송신 SG·프로그램 Proxy 설정도 맞춘다. 다른 VPC의 NAT를 Peering만으로 공유하는 구성은 아니다.
 
 ## 3. 배포 전 확인할 값
 

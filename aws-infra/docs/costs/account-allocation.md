@@ -33,6 +33,6 @@ Front 두 대에 EIP, Bastion 실행 중에는 자동 공인 IP를 사용한다.
 
 deploy.ps1 NewProfile로 topology·traffic·platform.json을 복사하고 노드 계정·사양·대수와 역할 연결을 맞춘다. 동일 원격 상태의 변경 계획을 검토한 뒤 적용하며, 별도 환경을 자동 복제하지 않는다. 노드 이름·계정·AZ 변경은 자원 교체와 데이터 이전을 동반할 수 있다.
 
-MySQL은 account3·5 두 대의 InnoDB ReplicaSet, MongoDB는 account2·3·5 세 대, Kafka는 account3·4·5 세 대다. Spark는 account2·3·4 세 대에 Worker·ZooKeeper를 함께 두고 인벤토리 앞 두 대에 Master를 둔다. 프로그램 버전·포트·OS 방화벽과 데이터 마운트는 [플랫폼](../../../platform/README.md)에서 별도로 준비한다.
+MySQL은 account3·5 두 대의 InnoDB ReplicaSet, MongoDB는 account2·3·5 세 대, Kafka는 account3·4·5 세 대다. Spark는 account2·3·4 세 대에 Worker·ZooKeeper를 함께 두고 인벤토리 앞 두 대에 Master를 둔다. 프로그램 버전·포트·OS 방화벽과 데이터 마운트는 [플랫폼](../../../aws-platform/platform/README.md)에서 별도로 준비한다.
 
 [보안규칙](../security-groups.md)과 [배포 절차](../deployment-runbook.md)를 함께 확인한다. SG·Peering 선언만으로 서비스 성능·복제·장애 복구가 보장되는 것은 아니다.

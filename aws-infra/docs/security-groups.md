@@ -2,7 +2,7 @@
 
 기준: 2026-10-10의 기본 topology·traffic과 workload 선언. 과거 HTTPS/WSS·MySQL 3대·NAT 배치 초안을 현재 규칙으로 사용하지 않는다. 이 문서는 AWS의 현재 규칙이나 애플리케이션 동작을 직접 조회한 결과가 아니다.
 
-[계정 배치](costs/account-allocation.md), [설정](infra-routing/config/README.md), [workload](infra-routing/terraform/stacks/workload.md), [플랫폼 방화벽](../../platform/docs/platform-routing/roles/firewall/README.md)이 각 계층을 설명한다.
+[계정 배치](costs/account-allocation.md), [설정](infra-routing/config/README.md), [workload](infra-routing/terraform/stacks/workload.md), [플랫폼 방화벽](../../aws-platform/platform/platform-routing/roles/firewall/README.md)이 각 계층을 설명한다.
 
 ## 계정별 SG
 
@@ -66,7 +66,7 @@ port_end는 ports의 끝 키를 선택하는 항목이며 생략하면 단일 �
 | Driver·Executor BlockManager | 7079–7095 |
 | ZooKeeper 클라이언트 / 동기화 / 선출 | 2181 / 2888 / 3888 |
 
-Spark의 전체 세 서버에 Worker·ZooKeeper를, 인벤토리 앞 두 서버에 Master를 배치한다. Master·Worker 데몬은 포트 재시도 0, 작업은 최대 16회를 사용한다. [Spark 설정](../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)과 선택한 traffic을 함께 맞춘다. 이전 초안의 Worker 7078·Driver 35000·BlockManager 35100은 현재 값이 아니다.
+Spark의 전체 세 서버에 Worker·ZooKeeper를, 인벤토리 앞 두 서버에 Master를 배치한다. Master·Worker 데몬은 포트 재시도 0, 작업은 최대 16회를 사용한다. [Spark 설정](../../aws-platform/platform/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)과 선택한 traffic을 함께 맞춘다. 이전 초안의 Worker 7078·Driver 35000·BlockManager 35100은 현재 값이 아니다.
 
 [포트 범위 테스트](infra-routing/tests/README.md#spark-포트-범위)는 모델·SG 속성·workload 병합을 검사하도록 선언돼 있다. 실제 성공은 ZooKeeper leader/follower, Spark ALIVE/STANDBY·Worker 등록·PySpark 작업까지 따로 확인한다. SG 선언·서비스 active만으로 이 검증을 통과했다고 판단하지 않는다.
 

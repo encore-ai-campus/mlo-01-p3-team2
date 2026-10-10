@@ -51,7 +51,7 @@ workload 출력과 선택한 노드 목록이 일치하는지 검사하고, 실�
 
 대상 서버는 자신의 계정 키를 사용하고 ProxyCommand는 별도로 배스천 계정 키를 사용한다. 개인키를 배스천으로 복사하거나 모든 계정 키를 배스천에 등록할 필요가 없다. 생성 파일에는 키 경로만 기록한다.
 
-CIDR·프록시 포트·키·접속 주소는 host 변수로 기록해 플랫폼의 기본 group_vars보다 우선한다. 출력은 platform/inventory/hosts.구성이름.yml이며 기존 hosts.yml을 덮어쓰지 않는다. JSON 형식으로 기록한 YAML 인벤토리다.
+CIDR·프록시 포트·키·접속 주소는 host 변수로 기록해 플랫폼의 기본 group_vars보다 우선한다. 출력은 aws-platform/platform/inventory/hosts.구성이름.yml이며 기존 hosts.yml을 덮어쓰지 않는다. JSON 형식으로 기록한 YAML 인벤토리다.
 
 ## 프록시 실행
 
@@ -59,4 +59,4 @@ platform.json의 WSL 배포판과 기존 Ansible 가상환경을 사용한다. w
 
 Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해도 검색 순서의 첫 실행 파일 하나만 선택한다. 경로 배열 전체를 호출 연산자에 넘겨 여러 경로가 하나의 명령 이름으로 합쳐지는 오류를 방지한다.
 
-연결 대상은 [플랫폼 실행 스크립트](../../../../platform/setup-proxy.sh)와 [배스천 초기화](../../../../platform/bootstrap-proxy.yml)다. 프록시 준비에서는 Kafka·Spark·DB 애플리케이션 설치를 실행하지 않는다.
+연결 대상은 [플랫폼 실행 스크립트](../../../../aws-platform/platform/scripts/setup-proxy.sh)와 [배스천 초기화](../../../../aws-platform/platform/bootstrap-proxy.yml)다. 프록시 준비에서는 Kafka·Spark·DB 애플리케이션 설치를 실행하지 않는다.

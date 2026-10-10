@@ -1,6 +1,6 @@
 # Terraform VPC·EC2 생성부터 Ansible 설치까지
 
-기준: 2026-10-10의 저장소 코드. Windows PC의 `C:\third_project\aws-infra`와 `C:\third_project\platform`을 함께 사용한다. 서버 OS는 현재 프록시 준비 코드가 지원하는 **Ubuntu 24.04 x86_64**를 기준으로 한다.
+기준: 2026-10-10의 저장소 코드. Windows PC의 `C:\third_project\aws-infra`와 `C:\third_project\aws-platform\platform`을 함께 사용한다. 서버 OS는 현재 프록시 준비 코드가 지원하는 **Ubuntu 24.04 x86_64**를 기준으로 한다.
 
 이 문서는 운영자가 실행할 명령과 완료 조건을 정리한 것이다. 문서 작성 과정에서 AWS 배포나 원격 Ansible 작업을 실행하지 않았다. **각 단계가 성공한 것을 확인한 뒤 다음 명령을 실행한다.**
 
@@ -9,7 +9,7 @@
 이미 `current` 구성을 만들고 다음 메시지까지 확인했다면 VPC·EC2 생성과 인벤토리 생성은 반복하지 않는다.
 
 ```text
-Ansible 인벤토리 갱신: C:\third_project\platform\inventory\hosts.current.yml
+Ansible 인벤토리 갱신: C:\third_project\aws-platform\platform\inventory\hosts.current.yml
 ```
 
 **기존 Windows PowerShell 창**에서 다음을 실행한다. 프롬프트가 `PS C:\third_project\aws-infra>`인 창이다.
@@ -32,7 +32,7 @@ WSL 가상환경과 SSH 키가 준비되어 있어야 한다. 아직 준비하�
 | 구분 | 프롬프트 예시 | 실행할 작업 |
 |---|---|---|
 | Windows PowerShell | `PS C:\third_project\aws-infra>` | Terraform 실행, 구성 선택, 인벤토리 생성, `deploy.ps1` 실행 |
-| 내 PC의 WSL Ubuntu | `(platform) playdatawsl@DESKTOP-...:/mnt/c/third_project/platform$` | Ansible 설치·실행, Vault 준비 |
+| 내 PC의 WSL Ubuntu | `(platform) playdatawsl@DESKTOP-...:/mnt/c/third_project/aws-platform/platform$` | Ansible 설치·실행, Vault 준비 |
 | SSH로 들어간 EC2 | `ubuntu@ip-10-...:~$` | 이 문서의 배포 명령을 입력하는 곳이 아님 |
 
 `C:\...`는 Windows 경로이고 `/mnt/c/...`는 같은 파일을 WSL에서 보는 경로다. 코드 블록 안의 명령만 복사한다. 프롬프트의 `PS ...>`나 `$`는 복사하지 않는다.
@@ -206,7 +206,7 @@ aws sts get-caller-identity --profile account5
 정상 완료 메시지:
 
 ```text
-Ansible 인벤토리 갱신: C:\third_project\platform\inventory\hosts.current.yml
+Ansible 인벤토리 갱신: C:\third_project\aws-platform\platform\inventory\hosts.current.yml
 ```
 
 이 명령은 Terraform 출력의 EC2 ID를 기준으로 AWS에서 현재 주소를 조회한다. 실제 소유 계정·태그·기동 상태·사양과 선택한 노드 구성이 일치하는지도 검사한다. `mongo` 역할은 기본 설정에 따라 Ansible `mongodb` 그룹으로 연결한다.
@@ -231,7 +231,7 @@ sudo apt update
 sudo apt install -y python3-venv openssh-client
 python3 -m venv "$HOME/.venvs/platform"
 source "$HOME/.venvs/platform/bin/activate"
-cd /mnt/c/third_project/platform
+cd /mnt/c/third_project/aws-platform/platform
 python -m pip install -r requirements.txt
 ```
 
@@ -259,9 +259,9 @@ WSL 터미널을 새로 열 때 아래 설정을 다시 실행한다.
 
 ```bash
 source "$HOME/.venvs/platform/bin/activate"
-cd /mnt/c/third_project/platform
-export ANSIBLE_CONFIG=/mnt/c/third_project/platform/ansible.cfg
-inventory=/mnt/c/third_project/platform/inventory/hosts.current.yml
+cd /mnt/c/third_project/aws-platform/platform
+export ANSIBLE_CONFIG=/mnt/c/third_project/aws-platform/platform/ansible.cfg
+inventory=/mnt/c/third_project/aws-platform/platform/inventory/hosts.current.yml
 
 ansible --version
 ansible-inventory -i "$inventory" --graph
@@ -280,7 +280,7 @@ ansible -i "$inventory" all -m ansible.builtin.ping
 & $deployScript -Action Proxy -ProfileDirectory $deploymentProfile -Limit all
 ```
 
-`deploy.ps1`이 `platform.json`을 읽고 WSL의 `platform/setup-proxy.sh`를 호출한다. 실행 순서는 다음과 같다.
+`deploy.ps1`이 `platform.json`을 읽고 WSL의 `aws-platform/platform/scripts/setup-proxy.sh`를 호출한다. 실행 순서는 다음과 같다.
 
 1. 대상 호스트와 플레이북 문법 확인
 2. SSH·원격 Python 연결 확인
@@ -295,7 +295,7 @@ ansible -i "$inventory" all -m ansible.builtin.ping
 
 ```bash
 # 6.3절의 환경 설정 후 실행한다. Vault가 있다면 8.1절의 환경변수도 설정한다.
-bash /mnt/c/third_project/platform/setup-proxy.sh \
+bash /mnt/c/third_project/aws-platform/platform/scripts/setup-proxy.sh \
   --venv "$HOME/.venvs/platform" \
   --inventory "$inventory" \
   --limit all
@@ -329,7 +329,7 @@ export ANSIBLE_VAULT_PASSWORD_FILE="$HOME/.config/platform/vault-pass"
 ansible-vault create inventory/group_vars/all/vault.yml
 ```
 
-편집기에서 [vault.example.yml](../../platform/inventory/group_vars/all/vault.example.yml)의 형식을 참고하여 다음 값을 채운다. 값은 실제로 사용할 비밀값이어야 하며 빈 문자열이나 예시 문구를 남기지 않는다.
+편집기에서 [vault.example.yml](../../aws-platform/platform/inventory/group_vars/all/vault.example.yml)의 형식을 참고하여 다음 값을 채운다. 값은 실제로 사용할 비밀값이어야 하며 빈 문자열이나 예시 문구를 남기지 않는다.
 
 | 변수 | 필요한 항목 |
 |---|---|
@@ -527,10 +527,10 @@ WSL에서 6.3절의 환경과, Vault를 사용한다면 8.1절의 비밀번호 �
 
 - [deploy.ps1](../infra/scripts/deploy.ps1): 구성 생성, 단계별 Plan·Apply, Inventory, WSL Proxy 호출
 - [배포 실행기 설명](infra-routing/scripts/deploy.ps1.md): 상태 공유와 검증 범위
-- [플랫폼 setup-proxy.sh](../../platform/setup-proxy.sh): 프록시 준비 실행 순서
-- [bootstrap-proxy.yml](../../platform/bootstrap-proxy.yml) / [prepare-proxy.yml](../../platform/prepare-proxy.yml): Squid·APT 준비
-- [site.yml](../../platform/site.yml): 역할 실행 대상과 태그
-- [플랫폼 방화벽 규칙](../../platform/roles/firewall/vars/main.yml): 역할 간 허용 관계
-- [Spark 설정](../../platform/roles/spark/templates/spark-env.sh.j2) / [Worker 실행 설정](../../platform/roles/spark/templates/spark-worker.service.j2): 실제 실행 포트와 구성
+- [플랫폼 setup-proxy.sh](../../aws-platform/platform/scripts/setup-proxy.sh): 프록시 준비 실행 순서
+- [bootstrap-proxy.yml](../../aws-platform/platform/bootstrap-proxy.yml) / [prepare-proxy.yml](../../aws-platform/platform/prepare-proxy.yml): Squid·APT 준비
+- [site.yml](../../aws-platform/platform/site.yml): 역할 실행 대상과 태그
+- [플랫폼 방화벽 규칙](../../aws-platform/platform/roles/firewall/vars/main.yml): 역할 간 허용 관계
+- [Spark 설정](../../aws-platform/platform/roles/spark/templates/spark-env.sh.j2) / [Worker 실행 설정](../../aws-platform/platform/roles/spark/templates/spark-worker.service.j2): 실제 실행 포트와 구성
 
 문서의 명령·옵션·태그·경로는 위 로컬 코드와 대조했다. 외부 다운로드 저장소 접근, 전체 EC2의 현재 상태, 서비스 설치 성공은 각 실행 단계에서 운영자가 확인해야 한다.

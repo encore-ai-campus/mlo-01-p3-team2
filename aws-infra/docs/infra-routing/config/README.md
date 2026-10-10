@@ -67,9 +67,9 @@ internet_https_roles에는 bastion만 있어 그 역할에 외부 TCP 443 egress
 
 ZooKeeper 세 포트는 Spark 노드의 클라이언트 접속·동기화·리더 선출에 사용한다. 기본 traffic과 현재 로컬 profiles/current/traffic 모두에 spark → spark 연결을 추가했다. model이 Spark 역할이 배치된 계정의 SG 쌍으로 펼치므로 현재 적용 대상은 account2·account3·account4의 workload다. 외부 CIDR 허용을 추가하는 설정이 아니며, 로컬 파일 변경 후 해당 구성의 새 Plan을 검토하고 Apply해야 AWS에 반영된다.
 
-Spark는 platform 역할의 Worker RPC 7100, Master UI 8080, Driver 시작 포트 7078, BlockManager 시작 포트 7079와 맞춘다. 작업의 spark.port.maxRetries=16에 맞춰 Driver는 7094, BlockManager는 7095까지 허용한다. 같은 서버의 Driver·Executor가 BlockManager 시작 포트를 함께 쓰면 다음 허용 포트로 재시도한다. 이 두 범위는 일부 겹치며 기존 규칙의 시작 포트와 Terraform 주소는 유지한다. Master·Worker 데몬은 별도로 포트 재시도를 0으로 설정해 지정 포트를 벗어나지 않는다. 포트를 바꾸면 platform/roles/spark/defaults/main.yml과 선택한 구성의 traffic을 함께 맞춰야 한다. 두 신규 연결도 Spark SG끼리만 허용한다.
+Spark는 platform 역할의 Worker RPC 7100, Master UI 8080, Driver 시작 포트 7078, BlockManager 시작 포트 7079와 맞춘다. 작업의 spark.port.maxRetries=16에 맞춰 Driver는 7094, BlockManager는 7095까지 허용한다. 같은 서버의 Driver·Executor가 BlockManager 시작 포트를 함께 쓰면 다음 허용 포트로 재시도한다. 이 두 범위는 일부 겹치며 기존 규칙의 시작 포트와 Terraform 주소는 유지한다. Master·Worker 데몬은 별도로 포트 재시도를 0으로 설정해 지정 포트를 벗어나지 않는다. 포트를 바꾸면 aws-platform/platform/roles/spark/defaults/main.yml과 선택한 구성의 traffic을 함께 맞춰야 한다. 두 신규 연결도 Spark SG끼리만 허용한다.
 
-대응하는 [Spark 기본 변수](../../../../platform/docs/platform-routing/roles/spark/defaults/main.yml.md)와 [데몬·작업 통신 포트](../../../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트), 인프라의 [포트 범위 테스트](../tests/README.md#spark-포트-범위)를 함께 확인한다. 기본 파일을 고쳐도 기존 NewProfile 복사본은 자동 갱신되지 않으므로 선택한 구성 폴더의 traffic도 대조해야 한다.
+대응하는 [Spark 기본 변수](../../../../aws-platform/platform/platform-routing/roles/spark/defaults/main.yml.md)와 [데몬·작업 통신 포트](../../../../aws-platform/platform/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트), 인프라의 [포트 범위 테스트](../tests/README.md#spark-포트-범위)를 함께 확인한다. 기본 파일을 고쳐도 기존 NewProfile 복사본은 자동 갱신되지 않으므로 선택한 구성 폴더의 traffic도 대조해야 한다.
 
 ## backend와 계정별 배포 입력
 

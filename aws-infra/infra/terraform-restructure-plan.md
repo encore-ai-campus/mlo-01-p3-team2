@@ -21,7 +21,7 @@
 
 ALB는 HTTP 80이고 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. certificate_arn은 공통 입력에 남아 있지만 ALB 모듈에 전달하지 않는다. HTTPS listener·자동 TLS는 없다. 서비스 콘솔 SSH는 리전별 IPv4 EC2 Instance Connect 접두사 목록의 22 규칙이며 Private 접속 경로를 새로 만드는 것은 아니다.
 
-Spark Worker 7100·Master UI 8080, 작업 Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 Spark SG 사이에 허용한다. port_end가 없으면 단일 포트이고 같은 SG 쌍·시작 포트는 최대 끝 값으로 합친다. [모듈·stack 테스트](../docs/infra-routing/tests/README.md#spark-포트-범위)와 [플랫폼 포트](../../platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 본다.
+Spark Worker 7100·Master UI 8080, 작업 Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 Spark SG 사이에 허용한다. port_end가 없으면 단일 포트이고 같은 SG 쌍·시작 포트는 최대 끝 값으로 합친다. [모듈·stack 테스트](../docs/infra-routing/tests/README.md#spark-포트-범위)와 [플랫폼 포트](../../aws-platform/platform/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 본다.
 
 ## 실행기와 비용별 구성
 

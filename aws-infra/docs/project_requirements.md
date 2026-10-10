@@ -42,7 +42,7 @@ Terraform은 foundation·connectivity·workload·bastion 상태를 분리해 서
 
 - [프로젝트 개요](../README.md), [배포·설치 실행 안내](deployment-runbook.md)
 - [현재 자원과 과거 비용 견적](costs/README.md), [상세 과거 견적](costs/dual-az.md)
-- [코드 탐색용 라우팅 문서](infra-routing/ROUTING-README.md), [플랫폼 설치 안내](../../platform/README.md)
+- [코드 탐색용 라우팅 문서](infra-routing/ROUTING-README.md), [플랫폼 설치 안내](../../aws-platform/platform/README.md)
 
 아래 기록은 당시 사용자 답변과 설계 논의의 이력이다. 초기 MySQL 3대·medium 사양·NAT 등 과거 결정 항목이 현재 코드와 다를 수 있으며, 현재 구현을 설명하는 명령이나 배치로 재사용하지 않는다. 이번 문서 정리를 새 설계 승인으로 기록하지 않는다.
 

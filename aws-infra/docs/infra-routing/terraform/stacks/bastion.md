@@ -40,6 +40,6 @@ bastion.ps1의 Status·Output은 Terraform 출력 대신 AWS CLI로 현재 주�
 
 ## 설치와 재생성 경계
 
-user_data는 /etc/aws-infra/node.json 역할 정보만 기록한다. [setup-proxy.sh](../../setup-proxy.sh.md)의 Squid 설치, Proxy ACL·클라이언트 설정, [팀원 공개키 등록](../../scripts/account-keys.ps1.md)은 별도 작업이다. 재생성 후 공인·사설 주소와 SSH·Proxy 설정을 갱신한다.
+user_data는 /etc/aws-infra/node.json 역할 정보만 기록한다. [install-squid.sh](../../../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md)의 Squid 설치, Proxy ACL·클라이언트 설정, [팀원 공개키 등록](../../scripts/account-keys.ps1.md)은 별도 작업이다. 재생성 후 공인·사설 주소와 SSH·Proxy 설정을 갱신한다.
 
 Stop·Start·Restart는 같은 EC2의 전원 동작이다. Stop은 루트 디스크 삭제가 아니며, 사용 후 EC2와 OS 디스크를 없애려면 저장된 PlanDelete를 검토한 뒤 Delete를 사용한다.

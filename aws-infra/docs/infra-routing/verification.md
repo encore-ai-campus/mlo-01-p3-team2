@@ -86,7 +86,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 - [실행기](scripts/infra.ps1.md)·[관리 스크립트](scripts/bastion.ps1.md)·[공통 함수](scripts/lib/infra-common.ps1.md)에 bastion 단계, 생성/삭제 저장 계획 구분, 전용 자원 범위·태그·중복 검사를 반영했다. 상태 경로는 서비스 11개와 선택 Bastion 1개로 분리한다.
 - workload의 다른 계정 SG 참조는 소유 계정 ID/SG ID 형식이다. Account 1 Bastion SG에는 콘솔용 EC2 Instance Connect 접두사 목록 TCP 22 규칙이 별도 자원으로 선언되어 있다. 코드 선언 대조이며 실제 AWS 적용 상태를 새로 확인한 것은 아니다.
 - 다섯 계정의 AMI·계정별 공개키 경로와 관리자·사용자 CIDR 입력이 채워진 현재 설정을 반영했다. 구체적인 접속 IP는 문서에 기재하지 않는다.
-- [setup-proxy.sh](setup-proxy.sh.md)는 수동 Squid 패키지 설치만 수행한다. Proxy ACL·클라이언트 설정·실제 송신 검증이나 Terraform의 자동 설치 기능으로 기록하지 않는다.
+- [setup-proxy.sh](../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md)는 수동 Squid 패키지 설치만 수행한다. Proxy ACL·클라이언트 설정·실제 송신 검증이나 Terraform의 자동 설치 기능으로 기록하지 않는다.
 
 ## 이번 검사 결과와 한계
 
