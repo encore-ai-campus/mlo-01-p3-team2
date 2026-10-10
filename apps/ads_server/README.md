@@ -47,6 +47,25 @@ python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제
 - `check --deploy`와 `makemigrations --check`는 이제 **DB 연결이 필요하다**(MySQL 에서는 모델 검사가 서버 정보를 읽는다).
 - 이 컨테이너와 인프라 서버의 차이: 컨테이너는 GTID가 꺼져 있고 서버 기본 정렬이 `_ai_ci`다(인프라의 `infra.cnf` 핵심은 DB-1d의 인프라 서버 통합 확인에서 맞춘다).
 
+## InnoDB Cluster 시험 환경 (운영 후보 구성)
+
+기본 게이트는 단일 노드 MySQL에서 도는 `scripts/check.sh`다. 운영 후보 구성인 **InnoDB Cluster**(MySQL 3노드 그룹 복제, 단일 primary, 자동 failover + MySQL Router)에서 같은 점검을 돌릴 때는 아래를 쓴다(Docker 필요, 수 분).
+
+```bash
+scripts/cluster_check.sh              # 클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
+scripts/cluster_check.sh --failure    # 거기에 클러스터 장애 시험 8개(자체 클러스터를 따로 띄운다)
+eval "$(python scripts/mysql_cluster.py start)"   # 손으로 띄우기: MYSQL_CLUSTER_ID·DB_HOST·DB_PORT(Router 포트)·DB_USER·DB_PASSWORD 를 export
+python scripts/mysql_cluster.py status "$MYSQL_CLUSTER_ID"
+python scripts/mysql_cluster.py stop "$MYSQL_CLUSTER_ID"
+python scripts/failure_test.py --mysql cluster primary-kill switchover   # 클러스터 장애 시나리오를 골라서
+```
+
+- **이미지** `ads-innodb-cluster:8.4`(`docker/innodb-cluster/`, 처음 한 번 빌드에 수 분): 서버 8.4.11(인프라 이미지와 같은 generic tarball), Shell·Router 8.4.10(arm64 tarball이 8.4.10까지).
+- **구성**: 노드 3개(GTID·ROW 바이너리 로그, 일관성 `BEFORE_ON_PRIMARY_FAILOVER`, `expelTimeout` 5초, 자동 재합류) + Router 1대. 앱은 **Router 읽기·쓰기 포트로만** 접속한다. 계정은 운영처럼 나눈다: `root`(노드 안), `failover`(클러스터 관리), `router`(부트스트랩이 만듦), `dev`(앱·시험).
+- 포트·비밀번호는 무작위이고 공유 컨테이너(`db-standalone-*`)는 건드리지 않는다. 실패해도 클러스터 컨테이너와 네트워크를 지운다.
+- **장애 시나리오**: `primary-kill`(자동 failover 뒤 죽은 노드 재합류), `primary-restart`, `switchover`(계획된 전환), `secondary-kill`, `router-restart`, `processor-kill`, `mongo-restart`, `relay-kill`. 끝에서 모든 노드 ONLINE·primary 하나·모든 노드의 GTID 집합과 표별 행 수가 같은지 확인한다.
+- **그룹 복제는 기본 키 없는 표를 거부한다**(오류 3098). 시험에서 표를 만들 때도 기본 키를 둔다. 결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md) §9, 전제는 설계 §10 "그룹 복제(InnoDB Cluster) 전제".
+
 ## MongoDB 시험 환경
 
 이벤트 로그(MongoDB `ad_events`, Step 4부터 중계가 씀)는 **MongoDB 8.0**이다. 같은 `intake/db-standalone` 컨테이너(`mongodb` 서비스, Standalone·인증)를 쓴다. 접속 값은 `.env`의 `MONGO_*`(`.env.example`)이고,
