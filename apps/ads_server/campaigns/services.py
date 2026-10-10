@@ -19,7 +19,7 @@ from masters import api as masters
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
 from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
-from .types import AdGroupView, BidView, CampaignView, CandidateFacts, CreativeView, ReviewRequestView, SuspensionView
+from .types import AdGroupView, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, ReviewRequestView, SuspensionView
 
 
 def _now(now=None):
@@ -449,6 +449,30 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
         CreativeImage.objects.create(creative=c, image_name=name, image_bytes=len(image.data), created_at=now)
         _audit(user, "creative.created", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "image": name})
     return _creative_view(c)
+
+
+# ---------------------------------------------------------------- 광고 만들기 (S3, 설계 D3-3)
+
+def _part(prefix, create, *args, **kwargs):
+    """한 부분을 만든다. 입력 오류의 위치(`pointer`)에 부분 이름을 붙인다 — 세 부분 모두 `/name` 같은 칸이 있어 어느 쪽인지 알려야 한다."""
+    try:
+        return create(*args, **kwargs)
+    except errors.ApiError as e:
+        if e.errors:
+            e.errors = [{**item, "pointer": prefix + item["pointer"]} for item in e.errors]
+        raise
+
+
+def create_ad(user, campaign, ad_group, creative, now=None):
+    """캠페인·광고그룹(입찰 포함)·소재를 **한 트랜잭션**으로 만든다(광고 만들기 화면의 한 번 제출). 하나라도 실패하면 아무것도 남지 않는다
+    (이미지가 거절돼도 빈 캠페인이 남지 않는다). 규칙은 각 부분의 서비스 그대로다. `campaign`·`ad_group`·`creative` 는 그 서비스의 인자(dict).
+    입력 오류의 위치는 `/campaign/…`·`/ad_group/…`·`/creative/…` 다. 이미지 거절(`ImageRejected`)은 그대로 전달한다. 역할 검사는 각 부분 서비스가 한다."""
+    now = _now(now)
+    with transaction.atomic():
+        c = _part("/campaign", create_campaign, user, now=now, **campaign)
+        g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
+        cr = _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
+    return CreatedAd(c, g, cr)
 
 
 def get_creative(user, creative_id):

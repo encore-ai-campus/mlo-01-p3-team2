@@ -62,6 +62,15 @@ class CreativeView:
 
 
 @dataclass(frozen=True)
+class CreatedAd:
+    """광고 만들기(`create_ad`)가 한 번에 만든 세 가지."""
+
+    campaign: CampaignView
+    ad_group: AdGroupView
+    creative: CreativeView
+
+
+@dataclass(frozen=True)
 class ReviewRequestView:
     review_request_id: uuid.UUID
     campaign_id: uuid.UUID
