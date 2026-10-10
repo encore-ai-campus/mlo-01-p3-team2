@@ -3,7 +3,7 @@
 각 함수는 **호출한 쪽의 트랜잭션 안에서** outbox 에 이벤트 한 건을 쓴다. 필드 이름·형식은 `schemas.py` 가 정한다.
 """
 from . import hops, ndjson, schemas
-from .mongo import NotConfigured
+from .mongo import NotConfigured, error_text as mongo_error_text
 from .outbox import OutsideTransaction, enqueue
 from .relay import missing_event_ids, sent_but_not_in_mongo
 
@@ -48,5 +48,5 @@ __all__ = [
     "SCHEMA_VERSION", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
     "normal_document", "summarize", "window_start", "canonical_json", "outbox_documents", "mongo_documents", "unsent_counts", "WINDOWS", "HOP_SCHEMA_VERSION", "window_label", "format_time", "parse_time",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
-    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_sha256", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured",
+    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_sha256", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured", "mongo_error_text",
 ]

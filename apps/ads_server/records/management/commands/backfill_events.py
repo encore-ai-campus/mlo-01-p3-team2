@@ -32,7 +32,7 @@ class Command(BaseCommand):
         except BackfillInvalidInput as error:
             raise CommandError(f"입력을 쓸 수 없습니다: {error}")
         except (PyMongoError, events.NotConfigured) as error:
-            raise CommandError(f"이벤트 존재를 확인하지 못했습니다(MongoDB): {type(error).__name__}: {str(error)[:200]}")
+            raise CommandError(f"이벤트 존재를 확인하지 못했습니다(MongoDB): {events.mongo_error_text(error)}")
         counts = result.counts()
         checkpoint = {"mode": "apply" if result.applied else "dry-run", "input_sha256": result.input_sha256, "counts": counts}
         manifest = events.write_ndjson(Path(options["out"]), "backfill_result", [o.as_record() for o in result.outcomes], "backfill_result", SCHEMA_VERSION, checkpoint=checkpoint, now=started)

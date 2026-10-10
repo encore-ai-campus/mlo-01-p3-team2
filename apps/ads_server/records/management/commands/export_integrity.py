@@ -32,7 +32,7 @@ class Command(BaseCommand):
                 gaps = list(event_gaps(scanned))  # 끝까지 읽은 뒤에 쓴다 — 중간에 끊긴 불완전한 목록이 파일이 되지 않게
                 undelivered = [{"kind": "sent_not_in_mongo", "event_id": str(i)} for i in events.sent_but_not_in_mongo(limit=None)]
         except (PyMongoError, events.NotConfigured) as error:
-            raise CommandError(f"이벤트를 점검하지 못했습니다(MongoDB): {type(error).__name__}: {str(error)[:200]}")
+            raise CommandError(f"이벤트를 점검하지 못했습니다(MongoDB): {events.mongo_error_text(error)}")
         checkpoint = {"scope": SCOPE, "started_at": started.isoformat(), "scanned": scanned}  # 범위 서술이다. 이어서 읽을 위치가 아니다(점검은 항상 전체)
         total = 0
         for name, rows in (("ledger_check", ledger), ("event_gaps", gaps), ("event_delivery", undelivered)):

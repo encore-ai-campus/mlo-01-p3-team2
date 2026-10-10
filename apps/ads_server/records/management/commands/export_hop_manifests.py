@@ -46,7 +46,7 @@ class Command(BaseCommand):
                 outbox_pairs = list(events.outbox_documents())
             mongo = list(events.mongo_documents())  # ③ 은 스냅샷 밖이다 — 중계가 진행 중이면 그 창이 잠시 어긋날 수 있다(verify_hops 가 구분한다)
         except (PyMongoError, events.NotConfigured) as error:
-            raise CommandError(f"MongoDB 를 읽지 못했습니다: {type(error).__name__}: {str(error)[:200]}")
+            raise CommandError(f"MongoDB 를 읽지 못했습니다: {events.mongo_error_text(error)}")
         # 보존 정리는 보낸 지 EVENTS_OUTBOX_RETENTION_DAYS 가 지난 행을 지운다. 시작이 이 기준 시각 이후인 창의 행은 (생성 ≤ 전송 이므로) 한 줄도 지워지지 않았다.
         # 기준 시각이 창의 한가운데에 걸리면 그 창의 앞부분은 지워졌을 수 있으므로 창 전체를 뺀다. 판정은 행이 남아 있는지가 아니라 **보존 범위와 창 경계**로 한다
         # (오래된 창의 행이 모두 지워져도 '대조 제외' 정보가 사라지지 않게).

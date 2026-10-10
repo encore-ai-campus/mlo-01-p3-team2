@@ -58,11 +58,11 @@ class Command(BaseCommand):
                     raise CommandError(f"충돌로 중계를 멈춥니다: {error}")
                 except (PyMongoError, mongo.NotConfigured, OperationalError, InterfaceError) as error:
                     if options["once"]:
-                        raise CommandError(f"중계 실패: {type(error).__name__}: {str(error)[:200]}")
+                        raise CommandError(f"중계 실패: {mongo.error_text(error)}")
                     # 상시 중계는 MongoDB 나 DB 가 잠시 죽어도 죽지 않는다: 행은 미전송으로 남아 있고, 점점 길게 쉬며 다시 시도한다
                     failures += 1
                     wait = min(30.0, interval * 2 ** min(failures, 5))
-                    self.stderr.write(f"이번 주기를 건너뛴다({failures}번째, {wait:.0f}초 뒤 다시): {type(error).__name__}: {str(error)[:200]}")
+                    self.stderr.write(f"이번 주기를 건너뛴다({failures}번째, {wait:.0f}초 뒤 다시): {mongo.error_text(error)}")
                     mongo.close()
                     if not connection.in_atomic_block:
                         close_old_connections()

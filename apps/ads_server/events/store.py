@@ -87,7 +87,7 @@ def check():
         hello = mongo.client().admin.command("hello")
         version = mongo.client().server_info()["version"]
     except PyMongoError as exc:
-        return [Check("연결", False, f"{type(exc).__name__}: {str(exc)[:200]}")]
+        return [Check("연결", False, mongo.error_text(exc))]
     results.append(Check("연결", True, f"서버 {version}"))
     if int(version.split(".")[0]) < MIN_SERVER_MAJOR:
         results.append(Check("서버 버전", False, f"{MIN_SERVER_MAJOR}.x 이상이 필요합니다(지금 {version})"))
@@ -102,7 +102,7 @@ def check():
         probe.delete_one({"_id": probe_id})
         results.append(Check("쓰기 권한", True, f"{PROBE_COLLECTION} 에 쓰기·삭제 확인(과반 확인)"))
     except PyMongoError as exc:
-        results.append(Check("쓰기 권한", False, f"{type(exc).__name__}: {str(exc)[:200]}"))
+        results.append(Check("쓰기 권한", False, mongo.error_text(exc)))
     try:
         db = mongo.database()
         if COLLECTION not in db.list_collection_names():
@@ -115,5 +115,5 @@ def check():
             ok = name in existing and existing[name]["key"] == keys
             results.append(Check(f"색인 {name}", ok, "일치" if ok else "없거나 키가 다릅니다 — manage.py ensure_event_store"))
     except PyMongoError as exc:
-        results.append(Check("컬렉션", False, f"{type(exc).__name__}: {str(exc)[:200]}"))
+        results.append(Check("컬렉션", False, mongo.error_text(exc)))
     return results
