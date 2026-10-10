@@ -16,10 +16,10 @@
 | 목적 | 광고 서버가 **어떤 데이터를 어떤 모양으로 갖고, 바깥과 어떤 데이터를 주고받는지**를 한 문서로 고정한다. 구현·계약·파이프라인이 같은 기준을 쓰게 한다 |
 | 범위 | 광고 서버의 저장 데이터(DB·파일), 서버 간 계약(C1~C6)의 데이터 모양, 내부 처리 흐름, 수명주기, 보안 분류, 팀 DRD와의 대응 |
 | 범위 밖 | 매체 서버(메타버스)·데이터 파이프라인의 내부 데이터, 화면 설계, 인프라 구성 |
-| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB 8.0**(이벤트 로그)은 DB-2에서 연결·`ad_events` 컬렉션·색인 준비를 마쳤고(로컬, 2026-10-10), outbox는 Step 4에서 MySQL에 둔다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
-| 엔터티 | 구현 19개(계정·감사 3, 마스터 4, 운영 7, 지갑·원장·결정·반응 4, 파생 1), 계획 1개(outbox) |
-| 핵심 규칙 | **모든 PK는 UUIDv7, 자동 증가 없음** · 자연 키는 업무 규칙용 유일 제약 · 시각은 UTC · 금액은 **정수 포인트** · 이력은 **추가 전용**(입찰·정책·원장·결정·감사) · 삭제 없음 · 판정 규칙은 한 곳(`engine`) |
-| 먼저 볼 것 | §1.2 **광고 도메인은 이 문서가 팀 DRD보다 우선**. §10 열린 이슈, D-1~D-3(2-3)과 PK 규칙의 코드 적용(D-8)은 해결됨. 식별자 방식 차이(D-4)는 해결됨 |
+| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB 8.0**(이벤트 로그 `ad_events`)은 DB-2에서 연결·컬렉션·색인을 준비했고, Step 4(2026-10-10)부터 결정·반응·과금 이벤트를 MySQL outbox에 쓰고 중계가 MongoDB로 옮긴다. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
+| 엔터티 | 구현 20개(계정·감사 3, 마스터 4, 운영 7, 지갑·원장·결정·반응 4, 파생 1, 이벤트 outbox 1 — Step 4) |
+| 핵심 규칙 | **모든 PK는 UUIDv7, 자동 증가 없음**(예외: outbox의 이벤트 ID는 결정적 UUIDv5) · 자연 키는 업무 규칙용 유일 제약 · 시각은 UTC · 금액은 **정수 포인트** · 이력은 **추가 전용**(입찰·정책·원장·결정·감사) · 삭제 없음 · 판정 규칙은 한 곳(`engine`) |
+| 먼저 볼 것 | §1.2 **광고 도메인은 이 문서가 팀 DRD보다 우선**. §10 열린 이슈, D-1~D-3(2-3)과 PK 규칙의 코드 적용(D-8)은 해결됨. 식별자 방식 차이(D-4)는 해결됨. 과금 이벤트의 결정 연결(D-6)은 Step 4에서 해결됨 |
 
 ---
 
@@ -69,9 +69,9 @@
 | 계약 | 방향 | 상대 | 방식 | 상태 |
 |---|---|---|---|---|
 | C1·C3·클릭 | (V1과 같음) | | | 변경 없음 |
-| 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [구현] DB-1(업무 데이터), outbox는 [계획] Step 4 |
-| C2 이벤트 | 나감 | 파이프라인 쪽(읽기) | outbox → 중계 → MongoDB `ad_events`(멱등). 이 컬렉션과 이벤트 스키마(§5.6)가 계약 면이고 MySQL 테이블은 읽게 하지 않는다 | [계획] Step 4 |
-| 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum) | [계획] Step 4 |
+| 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [구현] DB-1(업무 데이터), Step 4-1(outbox) |
+| C2 이벤트 | 나감 | 파이프라인 쪽(읽기) | outbox → 중계 → MongoDB `ad_events`(멱등). 이 컬렉션과 이벤트 스키마(§5.6)가 계약 면이고 MySQL 테이블은 읽게 하지 않는다 | [구현] Step 4-1(2026-10-10) |
+| 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum): `export_integrity`·`verify_ndjson` | [구현] Step 4-2(목록까지, 백필 실행은 필요할 때) |
 | 퍼널 집계 | 내부 | 콘솔 | `records.api`(MySQL 조회) | 변경 없음 |
 
 **확장 (서버가 감당하지 못할 때 · 판단 지표: 조회 시간·부하, 수치는 나중에)**
@@ -132,9 +132,9 @@ flowchart LR
 |---|---|---|---|
 | 로컬 디렉터리(`MEDIA_ROOT`) | 소재 이미지(재인코딩된 바이트) | `<해시 앞 2자>/<sha256>.<jpg\|png>`, 임시 파일 → `os.replace`로 원자적 확정, 권한 0640 | [구현] |
 | 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
-| MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, Step 4) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 [계획] Step 4. Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
-| MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인, 2026-10-10) · [계획] Step 4(쓰기) |
-| NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나, manifest에 SHA-256·행 수·`schema_version`·`source_kind`·checkpoint | [계획] Step 4 |
+| MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, P3) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 Step 4-1(2026-10-10). Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
+| MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인) · Step 4-1(중계가 쓰기, 2026-10-10) |
+| NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나. **게시 = 내용 해시가 이름에 들어간 불변 데이터 파일(`<이름>.<SHA-256 앞 16자>.ndjson`) + manifest(`<이름>.manifest.json`, 현재 게시본을 가리키는 포인터)의 원자적 교체**. manifest에 데이터 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·`checkpoint`(범위 서술: 스냅샷 종류·시작 시각·훑은 행 수, 재개 위치 아님)·만든 시각. manifest가 가리키는 파일은 언제나 완결 | [구현] Step 4-2(2026-10-10, 외부 검토 보완 반영) |
 | Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
 
 **저장소를 고르는 기준 [확정, 2026-10-08, MySQL 전환 2026-10-09]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 썼고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
@@ -156,7 +156,7 @@ flowchart LR
 | # | 규칙 | 근거·강제 수단 |
 |---|---|---|
 | R-1 | **식별자는 UUID**(소문자 하이픈 표기). 모든 행은 UUID로 식별되고, 계약·이벤트·다른 모듈은 UUID로만 가리킨다 | 설계서 §4 [확정]. 형식이 틀린 ID는 "없는 것"과 같게 404(`foundation.parse_uuid`, `owned_or_404`) |
-| R-2 | **PK 규칙** [확정, 2026-10-08]: ① **모든 테이블의 PK는 UUIDv7** ② **자동 증가 열은 두지 않는다** ③ 자연 키((광고그룹, `bid_version`), (슬롯, `policy_version`), (매체, 슬롯 이름) 등)는 식별자가 아니라 **업무 규칙을 지키는 유일 제약**으로 유지 ④ 확실한 순서가 필요한 곳은 **원장 하나**이고 `(지갑, seq)` 유일 제약으로 둔다(지갑 잠금 안에서 +1) ⑤ 그 밖의 정렬은 시각 열 | 자동 증가가 꼭 필요한 곳이 없다(정수 `id` 순서에 기대던 곳은 원장 점검·원장 커서·관리자 정렬뿐). 정수 PK는 DB 이관·병합 때 번호 충돌과 키 이중화(정수·UUID)를 만든다. MongoDB는 자동 증가가 없고 `_id`에 UUID를 쓴다. MySQL(InnoDB)은 PK가 데이터 정렬 기준이라 무작위 v4 대신 **시각이 앞에 오는 v7**(Python 3.14 `uuid.uuid7`, 같은 밀리초 안에서도 단조 증가)이 새 행을 뒤에 붙인다. 상세는 설계서 §10 "PK 규칙" |
+| R-2 | **PK 규칙** [확정, 2026-10-08]: ① **모든 테이블의 PK는 UUIDv7** ② **자동 증가 열은 두지 않는다** ③ 자연 키((광고그룹, `bid_version`), (슬롯, `policy_version`), (매체, 슬롯 이름) 등)는 식별자가 아니라 **업무 규칙을 지키는 유일 제약**으로 유지 ④ 확실한 순서가 필요한 곳은 **원장 하나**이고 `(지갑, seq)` 유일 제약으로 둔다(지갑 잠금 안에서 +1) ⑤ 그 밖의 정렬은 시각 열. **예외(Step 4)**: 이벤트 outbox의 PK `event_id`는 원천 행 ID와 이벤트 종류에서 결정적으로 만든 UUIDv5다(재처리·재전송에도 같은 값, 설계서 §10 "Step 4 이벤트 결정") | 자동 증가가 꼭 필요한 곳이 없다(정수 `id` 순서에 기대던 곳은 원장 점검·원장 커서·관리자 정렬뿐). 정수 PK는 DB 이관·병합 때 번호 충돌과 키 이중화(정수·UUID)를 만든다. MongoDB는 자동 증가가 없고 `_id`에 UUID를 쓴다. MySQL(InnoDB)은 PK가 데이터 정렬 기준이라 무작위 v4 대신 **시각이 앞에 오는 v7**(Python 3.14 `uuid.uuid7`, 같은 밀리초 안에서도 단조 증가)이 새 행을 뒤에 붙인다. 상세는 설계서 §10 "PK 규칙" |
 | R-3 | **시각은 UTC**로 저장·계산·전송한다. 계약은 RFC 3339 `…Z`만 허용. KST는 화면 표시에서만 | 설계서 §3 [확정]. 서비스는 시간대 없는 값(naive)을 거부, `engine`은 UTC가 아니면 생성 단계에서 거부 |
 | R-4 | **금액은 정수 포인트**, 0 이상, 최대 `2^53 − 1`(JSON 정수로 정확히 표현되는 한계) | 설계서 §10 [확정]. DB `CHECK` + 서비스 검증. 팀 DRD의 `DECIMAL(18,2)`와 다르다(§9) |
 | R-5 | **추가 전용(append-only)**: 입찰 정책, 입찰, 원장, 결정, 감사 로그. INSERT만 허용하고 수정·삭제·같은 PK로 덮어쓰기·upsert를 막는다 | `foundation.AppendOnlyModel`(저장은 항상 `force_insert`, `update`·`delete`·`bulk_create(update_conflicts)` 거부). 정정은 반대 부호의 새 행 |
@@ -338,8 +338,8 @@ erDiagram
 | B2 | 원장 `billing_ledger_entry` | billing | 기록(추가 전용) | 가입 지급·과금·관리자 조정 | 포인트가 움직일 때마다 | [구현] |
 | B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] |
 | R1 | 결정 `records_decision` | records | 기록(추가 전용 스냅샷) | 광고 요청 | **광고 요청마다**(광고 없음 포함) | [구현] |
-| P2 | 반응 | records | 기록(inbox, 수신 후 상태만 바뀜) | 매체 보고·처리 작업 | **반응 보고마다** | [구현] 수신(2-4), 처리 [계획] 2-5 |
-| P3 | 이벤트 outbox | events | 전달 대기열 | 결정·반응·과금과 같은 트랜잭션 | 이벤트마다 | [계획] Step 4 |
+| P2 | 반응 | records | 기록(inbox, 수신 후 상태만 바뀜) | 매체 보고·처리 작업 | **반응 보고마다** | [구현] 수신(2-4)·처리(2-5)·판정 확장(2-9) |
+| P3 | 이벤트 outbox `events_outbox` | events | 전달 대기열 | 결정·접수·판정·과금과 같은 트랜잭션 | 이벤트마다 | [구현] Step 4-1(2026-10-10) |
 | — | 세션·로그인 잠금 | Django·django-axes | 프레임워크 | 로그인 | 로그인·실패마다 | [구현] 라이브러리 관리 |
 
 ### 4.3 엔터티별 컬럼
@@ -610,12 +610,26 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 **묶음 제약**(DB `CHECK`): 선택된 광고 열(`owner_id`~`snapshot`)은 **모두 값이 있거나 모두 NULL**이다. 모두 NULL = 광고 없음이고, 이것도 한 건으로 기록한다.
 
-#### P2·P3. P2 반응 [구현 2-4] · P3 outbox [계획]
+#### P2·P3. P2 반응 [구현 2-4] · P3 outbox [구현 4-1a]
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
 | P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
-| P3 outbox | 이벤트 ID(UUIDv7, PK), 이벤트 이름·버전, 페이로드 JSON, 생성 시각, **전달 시각(`sent_at`)** | 결정·반응·과금과 **같은 트랜잭션**에 쓴다. 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 PK 규칙 |
+| P3 outbox `events_outbox` **[구현 4-1a]** | 아래 표 | 결정·접수·판정·과금과 **같은 트랜잭션**에 쓴다(트랜잭션 밖이면 거부). 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 "outbox 쓰기 규약" |
+
+**P3 `events_outbox` 컬럼** [구현 4-1a, 2026-10-10]. Debezium outbox 라우터의 기본 열과 대응을 적었다(확장 때 라우터 설정에서 매핑).
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|---|---|---|
+| `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). Debezium `id` |
+| `event_name` | 문자 64 | N | | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
+| `schema_version` | 작은 정수 | N | | 지금 `1`. 페이로드 모양이 바뀌면 올린다 |
+| `aggregate_id` | UUID | N | | 메시지 키 = `decision_id`(모든 이벤트). Debezium `aggregateid` |
+| `payload` | JSON | N | | §5.6의 필드. 이름·형식은 `events/schemas.py` 한 곳 |
+| `created_at` | 시각 | N | 색인(아래) | 이벤트의 `produced_at`: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각). MongoDB에는 밀리초로 잘라 넣는다 |
+| `sent_at` | 시각 | Y | 색인(아래) | MongoDB에 저장한 시각. **비어 있으면 미전송** |
+
+색인 `events_outbox_pending_idx (sent_at, created_at)`: 중계가 미전송 행을 오래된 것부터 집고, 보존 정리가 오래전에 보낸 행을 찾는다. FK는 없다(원천 행과 같은 트랜잭션에 쓰는 대기열). 집계 종류(Debezium `aggregatetype`) 열은 두지 않았다 — 모든 이벤트의 집계가 결정이다. 보낸 행은 7일 뒤 지운다(§6).
 
 ### 4.4 무결성 규칙 — 어디서 지키나
 
@@ -635,6 +649,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
 | 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `test_chosen_columns_are_all_or_none_in_db` |
 | 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `test_decision_not_saved_when_storage_fails` |
+| 업무 데이터와 이벤트는 함께 커밋되거나 함께 되돌려진다 | outbox PK(같은 이벤트는 한 줄) | outbox는 호출한 쪽 트랜잭션 안에서만 쓴다(밖이면 거부) | `test_refuses_to_write_outside_a_transaction`, `test_rolls_back_with_the_business_data`, `test_if_the_event_cannot_be_written_the_decision_is_not_stored`, `test_if_the_charge_event_cannot_be_written_nothing_is_charged_or_judged` |
 
 ### 4.5 상태 전이
 
@@ -731,7 +746,7 @@ stateDiagram-v2
 | # | 계약 | 방향 | 상대 | 전송·인증 | 데이터 형식 | 상태 |
 |---|---|---|---|---|---|---|
 | C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현] 2-2, 결정 엔드포인트 [구현] 2-3, 반응 접수·조회 [구현] 2-4, 반응 처리 [구현] 2-5 |
-| C2 | 이벤트 | 나감 | 데이터 파이프라인 | Step 4: MongoDB `ad_events`(계약 면). 확장: Kafka | JSON 이벤트(§5.6 [제안]) | [계획] Step 4, 확장 |
+| C2 | 이벤트 | 나감 | 데이터 파이프라인 | Step 4: MongoDB `ad_events`(계약 면). 확장: Kafka | JSON 이벤트(§5.6) | [구현] Step 4-1(MongoDB, 2026-10-10). 확장(Kafka)은 예정 |
 | C3 | 이미지 URL | 나감 | 매체·최종 사용자 브라우저 | HTTPS GET, 인증 없음 | JPEG·PNG | [구현] |
 | C4 | Insight 입력 | 들어옴 | 데이터 파이프라인 | [열림] HTTP·Kafka·파일 | JSON 메시지(§5.7 [제안]) | 예약(확장) |
 | C5 | 포인트 충전 | 들어옴 | 매체 서버 | [열림] | JSON(§5.8 [제안]) | 예약 |
@@ -845,7 +860,7 @@ sequenceDiagram
     participant B as billing
 
     M->>S: PUT .../reactions/{reaction_id}
-    S->>DB: BEGIN IMMEDIATE / INSERT 반응(원문, RECEIVED) [+ outbox] / COMMIT
+    S->>DB: BEGIN / (소유 매체면 결정 행 FOR UPDATE) / INSERT 반응(원문, RECEIVED) + outbox ad.reaction_received / COMMIT
     alt 저장 성공
         S-->>M: 201 (처음) 또는 200 (같은 내용 재전송)
     else DB 바쁨·실패
@@ -856,11 +871,11 @@ sequenceDiagram
     alt 앞 단계(노출·클릭)를 기다림
         P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초. 앞 단계가 끝나면 깨워 바로, 아니면 30초마다 다시 판정)
     else 거부
-        P->>DB: REJECTED + reason_code (지우지 않음)
+        P->>DB: REJECTED + reason_code + outbox ad.reaction (지우지 않음, 한 트랜잭션)
     else 인정
         P->>B: charge_for_reaction(결정의 owner·campaign·applied_amount, reaction_ref)
-        B->>DB: 원장 CHARGE + 잔액 + 일 소진액 (한 트랜잭션, 멱등)
-        P->>DB: ACCEPTED
+        B->>DB: 원장 CHARGE + 잔액 + 일 소진액 (멱등)
+        P->>DB: outbox ad.charge + ACCEPTED + outbox ad.reaction (과금과 한 트랜잭션)
     end
     M->>S: GET .../reactions/{reaction_id} (결과 확인)
 ```
@@ -904,23 +919,25 @@ sequenceDiagram
 
 C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘솔이 조합한다: 입찰 `effects`·`bid-preview`(`masters` 정책 + `engine.effect_of`), 캠페인 `today`(`billing.spend_today` + `next_reset`). 대조표는 구현 계획 §6.8.1.
 
-### 5.6 C2 이벤트 [제안, Step 4~5에서 확정]
+### 5.6 C2 이벤트 [구현 Step 4-1, 2026-10-10]
 
-설계서는 이벤트 이름(`ad.decision.v1`, `ad.reaction.v1`, `ad.charge.v1`)만 정했다. 아래는 지금 저장된 데이터에서 만들 수 있는 **페이로드 제안**이다. 팀 DRD 이름과의 대응은 §9.
+이벤트 네 종류의 필드를 **구현으로 확정**했다(이전 판의 제안 그대로이고, 제안에서 열어 둔 것은 아래에 결정을 적었다). 필드 이름·형식의 원본은 `apps/ads_server/events/schemas.py`이고, 결정 근거는 설계서 §10 "C2 이벤트 모양"·"Step 4 이벤트 결정"이다. 팀 DRD 이름과의 대응은 §9.
+
+**이름 표기**: 이 절의 `ad.decision.v1`은 `event_name = ad.decision`, `schema_version = 1`을 뜻한다. `event_name`에는 버전을 붙이지 않는다.
 
 **공통 봉투**
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `event_id` | UUID | 이벤트 고유 ID. **재전송해도 같은 값**(소비자가 중복 제거) |
+| `event_id` | UUID | 이벤트 고유 ID = MongoDB `_id`(UUID 표준 이진). 원천 행 ID와 `event_name`에서 결정적으로 만든 UUIDv5라 **재처리·재전송해도 같은 값**(소비자가 중복 제거) |
 | `event_name` | 문자 | 예 `ad.decision` |
 | `schema_version` | 정수 | `1` |
-| `produced_at` | 시각(UTC) | outbox에 쓴 시각 |
-| `payload` | 객체 | 아래 |
+| `produced_at` | 시각(UTC) | 이벤트를 만든 시각: **결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각)**. 과금 이벤트의 `produced_at`은 페이로드의 원장 시각(`created_at` = 반응 수신 시각)과 다르다. MongoDB 날짜라 **밀리초까지** |
+| `payload` | 객체 | 아래. 안의 UUID는 문자열, 시각은 UTC ISO 8601 문자열(마이크로초까지) |
 
-**전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`** 를 제안한다(팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5). **순서는 보장한다고 가정하지 않는다**: Kafka의 순서 보장은 같은 토픽·같은 파티션 안뿐이라 결정·반응·과금이 서로 다른 토픽이면 사이의 순서가 없고, 최소 한 번 전달의 재전송도 순서를 흐트러뜨린다. 소비자는 반응이 결정보다 먼저 보일 수 있다고 보고 `decision_id`로 다시 맞춘다. 같은 토픽·파티션과 발행 순서로 순서를 보장할지는 Step 4 확정 조건이다.
+**전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`**(outbox `aggregate_id`, 모든 이벤트 [구현]. 팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5). **순서는 보장한다고 가정하지 않는다**: Kafka의 순서 보장은 같은 토픽·같은 파티션 안뿐이라 결정·반응·과금이 서로 다른 토픽이면 사이의 순서가 없고, 최소 한 번 전달의 재전송도 순서를 흐트러뜨린다. 소비자는 반응이 결정보다 먼저 보일 수 있다고 보고 `decision_id`로 다시 맞춘다. **Step 4에서는 순서를 보장하지 않는 것으로 확정했다**(중계는 오래된 것부터 보내지만 여러 중계가 동시에 돌고 재전송이 있다). 토픽·파티션 단위의 순서 보장은 Kafka 확장 때 다시 정한다. **요청 경로는 MongoDB를 호출하지 않는다** — 요청은 outbox에만 쓰고, MongoDB가 끊기면 이벤트는 쌓였다가 복구 뒤 상시 중계가 옮긴다(짧은 재시작 시험에서 요청 503 0은 관찰값이고, 장기 장애는 확인하지 않았다 — 설계서 §10 "MongoDB 장애와 요청").
 
-**`ad.decision.v1`** — 결정을 저장할 때 한 건
+**`ad.decision.v1`** — 결정을 저장할 때 한 건(결정과 같은 트랜잭션, 광고 없음 결정 포함)
 
 | 필드 | 원본 | 비고 |
 |---|---|---|
@@ -928,9 +945,9 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `audience` | R1 | 슬롯 성격 스냅샷(`individual`·`shared`) |
 | `subject_id` | R1 | 가명 UUID. 분석 계층 접근 권한 분리 필요(§7). **일괄 슬롯 결정은 `null`** — 사람별 퍼널은 반응 이벤트의 사람 필드로 복구한다 |
 | `selected` | R1 선택 열 | 광고 없음이면 `null`. 아니면 `campaign_id`·`ad_group_id`·`creative_id`·`pricing_unit`·`bid_id`·`bid_version`·`bid_policy_id`·`policy_version`·`bid_amount`·`applied_amount` |
-| `selection_policy`, `candidate_count`, `rejected_counts` | R1 | `trace`는 크기 때문에 제외를 제안(필요하면 별도 이벤트) |
+| `selection_policy`, `candidate_count`, `rejected_counts` | R1 | `trace`는 크기 때문에 싣지 않는다(필요하면 별도 이벤트). 광고주 계정(`owner_id`)·매체 `context`도 싣지 않는다 |
 
-반응은 **접수와 판정을 두 이벤트로 나눈다** [확정 2026-10-09, 설계서 §10 "C2 반응 이벤트"]. 두 이벤트의 `event_id`는 **수신함 ID(`inbox_id`)와 이벤트 종류에서 결정적으로** 만들어 재처리·재전송에도 같은 값이다.
+반응은 **접수와 판정을 두 이벤트로 나눈다** [확정 2026-10-09, 설계서 §10 "C2 반응 이벤트"]. 두 이벤트의 `event_id`는 **수신함 ID(`inbox_id`)와 이벤트 종류에서 결정적으로** 만들어 재처리·재전송에도 같은 값이다(종류가 달라 두 이벤트의 ID는 서로 다르다).
 
 **`ad.reaction_received.v1`** — 접수할 때 한 건(접수 트랜잭션의 outbox. 서버가 관측한 클릭은 클릭 기록 트랜잭션). 보류·`stuck` 중인 반응도 이 이벤트로 바로 보인다(Bronze 입력). **보고된 사실만** 담는다 — 접수는 결정의 존재·소유를 이유로 거절하지 않고(없는 결정도 받는다) 사람을 정하는 판정도 하지 않으므로 판정 단위의 사람·슬롯 성격은 싣지 않는다(접수가 하는 결정 조회는 잠글지 정하는 **소유 확인**뿐이고, 소유 매체의 접수가 결정 행을 잠그는 것은 순서를 정하기 위해서다 — 판정이 아니다)
 
@@ -940,7 +957,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `type`, `occurred_at`, `received_at` | P2 | |
 | `subject_id` | P2 | 보고에 실린 값(없으면 `null`) |
 | `source` | P2 | `media`(PUT 보고)·`server`(클릭 관측) |
-| `raw` | P2 | 받은 원문 그대로 |
+| `raw` | P2 | 받은 원문 그대로(설계서 §10 "Step 4 이벤트 결정" E3) |
 
 **`ad.reaction.v1`** — 판정(`ACCEPTED`/`REJECTED`)이 정해질 때 한 건(판정 트랜잭션의 outbox, Silver 입력)
 
@@ -950,20 +967,20 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `type`, `occurred_at`, `received_at` | P2 | 분석 기준 시각은 `received_at` |
 | `subject_id`, `person_id`, `source`, `audience` | P2 / R1 | 보고된 사람, **판정 단위의 사람**(개인 슬롯 = 결정의 사람, 일괄 슬롯 = 보고된 사람), 출처, 슬롯 성격 스냅샷 |
 | `status`, `reason_code`, `applied_rule` | P2 | 거부된 반응도 보낸다(분석에서 걸러낼 수 있게) |
-| `basis` | P2 | 판정에 쓴 사실(설계서 §10 "판정 근거 기록") 그대로. 열은 [구현 2-13], 이벤트는 Step 4 |
+| `basis` | P2 | 판정에 쓴 사실(설계서 §10 "판정 근거 기록") 그대로. 열은 [구현 2-13], 이벤트는 [구현 4-1c] |
 
 **`null` 규칙**: `unknown_decision`이면 `person_id`·`audience` 모두 `null`. 결정은 있으나 사람을 정할 수 없는 거부(일괄 슬롯 `subject_required`)이면 `person_id`만 `null`. 그 밖에는 둘 다 채운다. 이 이벤트의 `person_id`·`audience`는 **`basis.person`·`basis.audience`에서 읽고**(같은 `null` 규칙), 보고된 사람은 `basis.reaction.reported_subject_id`(=접수 이벤트의 `subject_id`)에만 있다. 반응 행의 `person_id`는 인정된 행에만 채워져 거부 행의 원본으로 쓰지 않는다. 판정에 쓰는 반응은 **결정 소유 매체가 보낸 것만**이다(설계서 §10 "판정 사실의 범위").
 
-**`ad.charge.v1`** — 원장 `CHARGE` 한 줄마다
+**`ad.charge.v1`** — 원장 `CHARGE` 한 줄마다(과금과 같은 트랜잭션. 과금이 없는 반응은 이벤트도 없다)
 
 | 필드 | 원본 | 비고 |
 |---|---|---|
-| `entry_id`, `campaign_id`, `charge_policy`, `created_at` | B2 | |
-| `reaction_ref`, `decision_id` | B2 / P2 | **현재 원장에는 `decision_id`가 없다** → 반응에서 찾거나 원장에 열을 추가(§10 D-6) |
+| `entry_id`, `campaign_id`, `charge_policy`, `created_at` | B2 | `created_at`은 원장 시각(= 반응 수신 시각, 예산 일 기준). 봉투의 `produced_at`(처리 시각)과 다르다 |
+| `reaction_ref`, `decision_id` | B2 / P2 | 원장에는 `decision_id` 열이 없다. **과금하는 반응 처리 트랜잭션에서 그 반응의 결정으로 채운다**(원장은 바꾸지 않음, 설계서 §10 "Step 4 이벤트 결정" E1, §10 D-6 해결) |
 | `requested_amount`, `charged_amount`, `shortfall` | B2 | `charged = -amount`, `requested = charged + shortfall` |
-| `budget_day` | 계산 | 그 시점의 경계 설정으로 |
+| `budget_day` | 계산 | 원장 시각을 그 시점의 경계 설정으로 |
 
-지갑 잔액·광고주 계정 정보는 이벤트에 넣지 않는 것을 제안한다(파이프라인에 필요하지 않고 개인 연결 위험만 늘어남).
+지갑 잔액·광고주 계정 정보는 어느 이벤트에도 넣지 않는다 [구현](파이프라인에 필요하지 않고 개인 연결 위험만 늘어남).
 
 ### 5.7 C4 Insight 입력 [예약, 제안]
 
@@ -1017,8 +1034,9 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 반응(원문 포함) | 매체 보고 | 상태만 | 보존 기간 후 [열림] | 설정값 [열림 §7-8] |
 | 감사 로그 | 모든 변경 | **없음** | [열림] | [열림] |
 | 가입 시도 | 가입 시도 | 없음 | 1시간이 지난 행은 정리 | 1시간 |
+| 이벤트 outbox | 결정·접수·판정·과금 트랜잭션 | `sent_at`만(중계가 표시) | **보낸 뒤 7일**이 지난 행을 `purge_sent_events`가 지움. 미전송은 지우지 않음 | 7일(`EVENTS_OUTBOX_RETENTION_DAYS`) [구현 Step 4-1e] |
 | MongoDB 이벤트 로그 | outbox 중계 | 없음(추가만) | 보존 기간 후 | 설정값 [열림 §7-8] |
-| NDJSON manifest | 점검·백필 도구 | 없음 | 보존 기간 후 | 설정값 [열림 §7-8] |
+| NDJSON 결과(데이터 파일 세대 + manifest) | 점검·백필 도구 | 없음(세대마다 새 파일, manifest만 교체) | 옛 세대 파일은 자동으로 지우지 않음 | 설정값 [열림 §7-8] |
 
 ---
 
@@ -1028,8 +1046,8 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 등급 | 데이터 | 규칙 |
 |---|---|---|
-| **L3** | 비밀번호 해시, 로그인 아이디(`username`), 매체 키(원문은 발급 시 한 번만 보여 주고 해시만 저장 [계획]), `SECRET_KEY` | 이벤트·로그·감사 상세에 넣지 않는다. 로그·감사는 비밀 키 이름을 자동 제거 |
-| **L2** | `subject_id`(노출 대상 가명), 매체 `context`, IP 주소(가입 시도·감사), 광고주 `nickname`·`class_label`, `actor_username` | `subject_id`는 **수집만 하고 해석·응답하지 않는다**. 광고주·관리자 화면과 API 응답에 되돌려주지 않는다(설계서 §3 [제안]). 이벤트로 내보낼 때는 분석 계층 접근 권한을 분리 |
+| **L3** | 비밀번호 해시, 로그인 아이디(`username`), 매체 키(원문은 발급 시 한 번만 보여 주고 해시만 저장 [구현 2-2]), `SECRET_KEY` | 이벤트·로그·감사 상세에 넣지 않는다. 로그·감사는 비밀 키 이름을 자동 제거 |
+| **L2** | `subject_id`(노출 대상 가명), 매체 `context`, IP 주소(가입 시도·감사), 광고주 `nickname`·`class_label`, `actor_username` | `subject_id`는 **수집만 하고 해석·응답하지 않는다**. 광고주·관리자 화면과 API 응답에 되돌려주지 않는다(설계서 §3 [제안]). **Step 4부터 MongoDB `ad_events`에 쌓인다**: 결정·접수·판정 이벤트의 `subject_id`, 판정 이벤트의 `person_id`·`basis`, 접수 이벤트의 원문(`raw`). 분석 계층 접근 권한을 분리하고(인프라 계정은 아직 나뉘지 않음, 위협 모델 T41), 보존 기간은 §6 |
 | **L1** | 매체·슬롯·정책, 캠페인·광고그룹·소재·입찰, 결정의 광고 선택, 원장 금액 | 광고주는 자기 것만(R-9). 소재 제목·이동 주소는 **신뢰할 수 없는 값**으로 표시(매체가 이스케이프) |
 
 추가 규칙:
@@ -1111,7 +1129,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | ~~D-3~~ | **결정 응답의 `slot_name`이 없었다** — **해결(2-3, 2026-10-08)** | 계약 필수 필드를 채운다 | 서빙 계층이 응답을 만들 때 `masters.slot_names`로 붙인다(결정에 저장하지 않는다. 슬롯 이름이 바뀌면 조회 응답에 새 이름이 나간다). 테스트 `test_slot_name_is_looked_up_at_response_time_and_not_stored` |
 | ~~D-4~~ | **입찰·정책 행의 식별 방식** — **해결(2026-10-07)**: ② 서버 두 테이블에 UUID 열을 추가하는 안으로 결정 | C2 이벤트와 분석 조인 | `campaigns_bid.bid_id`, `masters_bid_policy.bid_policy_id`(UNIQUE) 추가, 결정이 `bid_id`·`bid_policy_id`를 함께 기록. 2026-10-08의 PK 규칙 적용으로 이 UUID가 PK가 되었다(D-8) |
 | **D-5** | **반응을 사용자·세션·강의실과 잇는 방법**: 팀 DRD의 반응 로그는 `user_id`·`session_id`·`classroom_id`가 필수인데 광고 서버는 `subject_id`(가명)만 안다(팀 DRD A-19) | 분석 계층 조인. Kafka 메시지 키 | 매체가 `subject_id`와 내부 사용자의 대응을 자기 쪽 이벤트로 내보내고 파이프라인이 조인하는 안. 광고 서버는 독립성 원칙상 사용자 모델을 알지 않는다 |
-| **D-6** | **원장 `CHARGE`에 `decision_id`가 없다** | `ad.charge.v1`이 결정과 바로 이어지지 않음 | Step 2-5에서 원장에 `decision_id`(UUID, FK 아님) 열 추가를 제안. `reaction_ref`로도 찾을 수 있으나 조인이 한 번 늘어난다 |
+| ~~D-6~~ | **원장 `CHARGE`에 `decision_id`가 없다** — **해결(Step 4-1d, 2026-10-10)**: 원장은 바꾸지 않고 과금 이벤트가 `decision_id`를 싣는다 | `ad.charge.v1`이 결정과 바로 이어진다 | 과금하는 반응 처리 트랜잭션에서 그 반응의 결정으로 채운다(원장은 추가 전용, 과금은 반응 처리에서만 일어남). 원장에서 결정을 찾을 때는 이벤트나 `reaction_ref`로 |
 | **D-7** | **충전(C5) 멱등 키를 담을 열이 없다** | C5 구현 시 | 원장에 외부 거래 ID 열(부분 UNIQUE, `TOPUP`만) 추가. C5 구현 때 |
 | ~~D-8~~ | **PK 규칙의 코드 적용** — **해결(2026-10-08)**: 모든 모델의 PK가 UUIDv7(`uuid.uuid7`)이고 자동 증가 열이 없다 | 문서와 코드가 같아졌다 | 각 앱 마이그레이션을 새 `0001`로 다시 만들었다(운영 데이터 없음. 옛 마이그레이션의 데이터 복구 단계와 그 테스트는 함께 없어졌다. `billing`·`campaigns`는 앱 사이 순환 때문에 `0001`·`0002`로 나뉜다). 원장에 `seq`와 `UNIQUE(wallet, seq)`가 들어가고 원장 점검·목록 커서는 `seq`, 관리자 정렬은 시각 열을 쓴다 |
 
@@ -1134,6 +1152,8 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.20 | 2026-10-10 | 외부 검토(Step 4-2 시점) 반영: NDJSON 게시를 불변 세대 파일 + manifest 포인터로, `checkpoint`는 범위 서술(재개 위치 아님), MongoDB 장애 문장을 보장과 관찰로 나눔, 뒤처진 상태 표시 정리(§5.1 C2, §4.2 P2 처리, L3 매체 키), 이벤트별 `produced_at` 기준(결정·접수·판정·과금)과 과금 이벤트의 원장 시각과의 차이 |
+| 0.19 | 2026-10-10 | Step 4(이벤트 내보내기) 반영: P3 outbox를 [구현]으로 하고 실제 열·색인을 적음, §5.6 이벤트 필드를 [제안]에서 구현으로 확정(이름 표기, 결정적 이벤트 ID, 메시지 키, 순서 비보장, 싣지 않는 값), D-6 해결(과금 이벤트가 `decision_id`를 실음), outbox 보존 7일, L2 데이터가 MongoDB에 쌓이는 점, R-2의 예외(outbox `event_id` UUIDv5), 반응 처리 순서도에 outbox |
 | 0.18 | 2026-10-10 | 콘솔 화면 행에 경로와 루트 주소 `/`(로그인 화면으로 임시 이동하는 공개 주소)를 추가 |
 | 0.17 | 2026-10-10 | DB-2(MongoDB 연결) 반영: 저장소 요약·`ad_events` 행을 연결·컬렉션·색인 준비 완료로(이벤트 쓰기는 Step 4). 반응 처리 순서도의 보류 재판정을 깨우기 + 30초 안전망으로(DB-1d) |
 | 0.16 | 2026-10-09 | MySQL 전환 반영(DB-1a~1e): 저장소·현재 단계 표·구성도·순서도의 SQLite를 MySQL 8.4로, 저장소 한계는 연결 한도·단일 노드로. 이력 행은 그대로 |
