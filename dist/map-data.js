@@ -12,7 +12,7 @@ window.CampusData = (() => {
   room('corridor','복도',456,267,611,102,'hall',[758,322]);
   room('class2','강의실 2',456,369,313,262,'class',[496,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
   room('class1','강의실 1',769,369,298,262,'class',[1027,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
-  room('lounge1','라운지 1',1067,24,332,607,'wood',[1190,437],{photo:'assets/lounge1.png',description:'화분을 정리하고, 오른쪽 기둥 위에 세로로 붙인 콘센트 작업 탁자와 네 좌석을 배치한 라운지입니다. 두 기둥 사이 통로가 비도록 중앙 위쪽에 나무 테두리 칠판에 playdata가 적힌 안내 게시판을 놓았습니다. 브라운 벽 쪽에는 마주보는 소파와 흰 탁자, 원형 스툴이 있고, 아래쪽 외벽의 유리 출입문과 두 좌석의 안내 데스크로 이어집니다. 위쪽 회의 탁자와 TV, 기둥 책장과 휴게 설비도 이용할 수 있습니다.',tags:['콘센트 작업 탁자','playdata 칠판 게시판','마주보는 소파','외부 유리 출입문']});
+  room('lounge1','라운지 1',1067,24,332,607,'wood',[1190,437],{photo:'assets/lounge1.png',description:'중앙 통로를 비워 둔 라운지입니다. 오른쪽에는 세로로 배치한 콘센트 작업 탁자와 네 좌석이 있습니다. 브라운 벽 쪽에는 마주보는 소파와 흰 탁자, 원형 스툴이 있고, 아래쪽 외벽의 유리 출입문과 두 좌석의 안내 데스크로 이어집니다. 위쪽 회의 탁자와 TV, 노트북용 긴 탁자, 프린터와 휴게 설비도 이용할 수 있습니다.',tags:['콘센트 작업 탁자','중앙 통로','마주보는 소파','외부 유리 출입문']});
   room('office','직원실',1399,26,117,321,'office',[1416,304]);
   room('meeting','회의실',1399,347,117,198,'meeting',[1417,501]);
   room('stairs','계단',1399,545,117,86,'stone',[1417,603]);
@@ -21,17 +21,20 @@ window.CampusData = (() => {
   room('meeting-l2-a','회의공간 1',315,425,141,106,'meeting',[332,496]);
   room('meeting-l2-b','회의공간 2',315,531,141,100,'meeting',[332,602]);
   room('storage','창고',1290,24,109,60,'stone',[1337,66]);
-  const wall=(x1,y1,x2,y2,color)=>walls.push({x1,y1,x2,y2,color});
+  const wall=(x1,y1,x2,y2,color,extra={})=>walls.push({x1,y1,x2,y2,color,...extra});
   const vertical=(x,a,b,doors=[],color)=>{let p=a;for(const [s,e] of doors){wall(x,p,x,s,color);p=e;}wall(x,p,x,b,color);};
   const horizontal=(y,a,b,doors=[],color)=>{let p=a;for(const [s,e] of doors){wall(p,y,s,y,color);p=e;}wall(p,y,b,y,color);};
-  horizontal(24,20,1399);wall(1399,26,1516,26);wall(1516,26,1516,631);wall(20,24,20,753);
+  // A higher rear wall supports the large board in the merged classroom.
+  wall(20,24,456,24);wall(456,24,1067,24,undefined,{height:124});wall(1067,24,1399,24);
+  wall(1399,26,1516,26);wall(1516,26,1516,631);wall(20,24,20,753);
   horizontal(753,20,248);horizontal(631,248,1297,[[1210,1297]]);horizontal(631,1297,1352,[[1304,1335]]);horizontal(631,1352,1400,[[1360,1391]]);wall(1400,631,1516,631);
   vertical(248,24,753,[[146,184],[344,382],[554,592]]);wall(20,267,248,267);wall(20,510,248,510);
-  vertical(456,24,631,[[296,340]]);wall(769,24,769,267);wall(769,369,769,631);
+  vertical(456,24,631,[[267,369]]);wall(769,369,769,631);
   horizontal(267,456,1067,[[475,518],[1006,1049]]);horizontal(369,456,1067,[[475,518],[1006,1049]]);
-  vertical(1067,24,631,[[296,340]]);vertical(1399,26,631,[[287,323],[485,520],[577,609]]);
+  vertical(1067,24,631,[[267,369]]);vertical(1399,26,631,[[287,323],[485,520],[577,609]]);
   wall(1399,347,1516,347);wall(1399,545,1516,545);
-  horizontal(84,1067,1399,[[1320,1353]]);wall(1290,24,1290,84);
+  // Remove only the partition in front of the printer, keeping the storage doorway.
+  horizontal(84,1067,1399,[[1234,1307],[1320,1353]]);wall(1290,24,1290,72);
   wall(278,24,278,68);wall(278,68,456,68);
   vertical(315,425,631,[[463,501],[565,603]]);wall(315,425,456,425);wall(315,531,456,531);
   wall(1297,631,1297,718,'#bd7656');wall(1352,631,1352,718,'#dbb446');wall(1400,631,1400,718,'#dfc053');wall(1297,718,1400,718);
@@ -78,7 +81,7 @@ window.CampusData = (() => {
   [1088,1165,1241].forEach((x,i)=>{desk(x,175,37,81,{color:'#f5f3e9',name:`팀 회의 탁자 ${i+1}`,roomId:'lounge1'});tv(x-6,156,49,17,'lounge1',{name:`PC 연결 TV · ${i+1}번 탁자`,description:`라운지 1의 ${i+1}번 회의 탁자에 배치한 PC 연결용 TV입니다. 세 탁자에 한 대씩 놓았습니다.`});for(let j=0;j<2;j++){chair(x-19,184+j*39,'right','#657f88');chair(x+42,184+j*39,'left','#657f88');}});
   obj('laptop',1097,181,17,14,{solid:false});obj('notebook',1174,216,18,13,{solid:false});obj('laptop',1250,184,17,14,{solid:false});
   obj('noticeboard',1210,285,68,74,{id:'lounge1-noticeboard',name:'PLAYDATA 안내 게시판',roomId:'lounge1',photo:false,collision:{x:2,y:64,w:64,h:11},description:'두 기둥 사이 통로를 막지 않도록 중앙 위쪽으로 옮긴 이동식 칠판입니다. 아래 받침만 바닥을 차지하므로 칠판 뒤쪽으로 지나갈 수 있습니다. 사진처럼 나무 테두리와 받침대를 두고, 검은 칠판에 playdata를 적었습니다.',tags:['아래 받침','뒤쪽 통행','playdata']});
-  desk(1306,276,28,115,{id:'lounge1-worktable',color:'#e1c598',powered:true,name:'콘센트 작업 탁자',roomId:'lounge1',photo:false,description:'오른쪽 기둥 위에 붙여 세로로 배치한 긴 작업 탁자입니다. 탁자를 따라 콘센트 네 곳과 오른쪽의 네 좌석을 두어 노트북 작업을 할 수 있는 공간으로 표현했습니다.',tags:['기둥에 붙인 세로 탁자','콘센트 4곳','작업 좌석 4개']});
+  desk(1306,276,28,115,{id:'lounge1-worktable',color:'#e1c598',powered:true,name:'콘센트 작업 탁자',roomId:'lounge1',photo:false,description:'라운지 1 오른쪽에 세로로 배치한 긴 작업 탁자입니다. 탁자를 따라 콘센트 네 곳과 오른쪽의 네 좌석을 두어 노트북 작업을 할 수 있는 공간으로 표현했습니다.',tags:['세로 작업 탁자','콘센트 4곳','작업 좌석 4개']});
   for(let i=0;i<4;i++)Object.assign(chair(1343,288+i*27,'left','#657f88'),{roomId:'lounge1',workSeat:true});
   obj('laptop',1319,296,14,20,{orientation:'vertical',solid:false,roomId:'lounge1'});obj('laptop',1319,354,14,20,{orientation:'vertical',solid:false,roomId:'lounge1'});
   // Move the right pillar and its bookshelves as one group, leaving a working area above.
@@ -100,17 +103,36 @@ window.CampusData = (() => {
   desk(1440,386,41,91,{color:'#d8bd98'});for(let i=0;i<3;i++){chair(1421,391+i*30,'right');chair(1486,391+i*30,'left');}tv(1430,360,58,14,'meeting');plant(1479,509,21);
   obj('stairs',1407,553,100,70,{solid:false});
   for(const [x,id] of [[1297,'consult-b'],[1352,'consult-a']]){desk(x+24,654,20,28,{oval:true,name:'상담 테이블',roomId:id});obj('monitor',x+26,650,15,11,{solid:false});chair(x+1,656,'right','#aaa797');chair(x+24,690,'up','#aaa797');}
-  obj('fire-extinguisher',761,280,16,22,{id:'extinguisher-corridor',name:'소화기',roomId:'corridor',description:'복도 위쪽, 강의실 3과 4의 경계에 있는 벽면에 배치한 소화기입니다.',tags:['소화기','강의실 3·4 사이']});
+  obj('fire-extinguisher',761,280,16,22,{id:'extinguisher-corridor',name:'소화기',roomId:'corridor',description:'복도 위쪽, 통합 강의실 앞 벽면에 배치한 소화기입니다.',tags:['소화기','통합 강의실 앞']});
   obj('floor-arrow',530,305,28,16,{solid:false});obj('floor-arrow',972,305,28,16,{solid:false});
+  // Hinged glass leaves open into their classrooms, keeping the corridor clear.
+  for(const [roomId,x,y,w,h,orientation,swing] of [
+    ['class4',475,264,43,6,'horizontal',-1],['class3',1006,264,43,6,'horizontal',-1],
+    ['class2',475,366,43,6,'horizontal',1],['class1',1006,366,43,6,'horizontal',1],
+    ['left-top',245,146,6,38,'vertical',-1],['left-middle',245,344,6,38,'vertical',-1],
+    ['left-bottom',245,554,6,38,'vertical',-1],
+  ])obj('glass-door',x,y,w,h,{id:'door-'+roomId,roomId,orientation,swing,open:false,name:rooms.find(r=>r.id===roomId).name+' 유리문'});
+  // Merge after generating fixtures so other furniture and shared door IDs stay stable.
+  const combinedClassroomIds=new Set(['class3','class4']);
+  const combinedIndex=rooms.findIndex(r=>r.id==='class4');
+  rooms.splice(combinedIndex,2,{id:'class3-4',name:'강의실 3·4',x:456,y:24,w:611,h:243,floor:'class',target:[758,145],label:false,info:false});
+  for(const o of objects)if(o.type==='glass-door'&&combinedClassroomIds.has(o.roomId)){
+    o.name='통합 강의실 '+(o.roomId==='class4'?'왼쪽':'오른쪽')+' 유리문';
+    o.roomId='class3-4';
+  }
+  // A wall-mounted board sits on the inner face of the long rear wall.
+  obj('noticeboard',591.5,27,340,1,{id:'class3-4-noticeboard',name:'PLAYDATA 대형 게시판',roomId:'class3-4',mounted:true,solid:false,panelHeight:100,mountHeight:12,renderHeight:132,description:'통합 강의실의 긴 벽 가운데에 달린 대형 게시판입니다. 가까이서 E를 누르거나 클릭하면 구내식당 메뉴·엔코아 타임 카드를 선택할 수 있습니다.'});
+  // Leave clearance from the wall's visible thickness so the entire freestanding bookcase stays in front.
+  obj('bookshelf-side',1084,389,18,48,{id:'lounge1-corridor-bookshelf',name:'벽면 책장',roomId:'lounge1',bookcaseHeight:58,photo:false,description:'라운지 1에서 복도로 들어가기 전 왼쪽 벽 앞에 놓인 책장입니다. 옆 휴식 공간과 복도 입구 사이의 벽면에 배치했습니다.'});
   // Keep the lounge and main wing proportions while making room for the wider classrooms.
   for(const r of rooms)if(!r.id.startsWith('left-')){r.x+=layoutShiftX;r.target[0]+=layoutShiftX;}
   entrance.x+=layoutShiftX;entrance.target[0]+=layoutShiftX;
-  for(const o of objects)if(!o.roomId?.startsWith('left-'))o.x+=layoutShiftX;
+  for(const o of objects)if(o.type==='glass-door'||!o.roomId?.startsWith('left-'))o.x+=layoutShiftX;
   for(const w of walls){if(w.x1>=248)w.x1+=layoutShiftX;if(w.x2>=248)w.x2+=layoutShiftX;}
   // The world grows; the avatar and interaction range keep their existing size.
   const spaceScale=1.5;
   for(const r of [...rooms,entrance]){for(const key of ['x','y','w','h'])r[key]*=spaceScale;r.target=r.target.map(v=>v*spaceScale);}
   for(const o of objects){for(const key of ['x','y','w','h'])o[key]*=spaceScale;if(o.collision)for(const key of ['x','y','w','h'])o.collision[key]*=spaceScale;}
   for(const w of walls)for(const key of ['x1','y1','x2','y2'])w[key]*=spaceScale;
-  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects,entrance};
+  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
 })();

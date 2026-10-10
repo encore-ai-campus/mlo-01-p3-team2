@@ -2,17 +2,18 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
       const peers = new Map();
-      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, tick() {}, close() {}};
+      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, requestDoor(){return false;}, tick() {}, close() {}};
       const config = JSON.parse(configElement.textContent);
       let socket = null, selfId = null, ready = false, closed = false;
       let welcomed = false;
       let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastState = '';
       const floorBounds = floors || {campus:{width,height}};
+      const doorIds = new Set((floors?.campus?.objects||[]).filter(o=>o.type==='glass-door').map(o=>o.id));
       const colors = new Set(['#dfa34d', '#4e9b91', '#8a78bb', '#cb7773', '#648eb5']);
       const directions = new Set(['up', 'down', 'left', 'right']);
       const avatars = new Set(['male-1', 'male-2', 'female-1', 'female-2']);
@@ -80,6 +81,7 @@
             selfId = message.selfId; peers.clear();
             const own = message.players.find(p => p.id === selfId);
             applyIdentity(own);
+            if(message.doors&&typeof message.doors==='object'&&!Array.isArray(message.doors))onDoors(Object.fromEntries(Object.entries(message.doors).filter(([id,open])=>doorIds.has(id)&&typeof open==='boolean')));
             if (!welcomed && validPeer(own)) {
               onRestore({floor:own.floor||'campus',x:own.x,y:own.y,dir:own.dir});
               welcomed = true;
@@ -104,6 +106,10 @@
                 && m.text.trim() && Array.from(m.text).length <= 200
                 && typeof m.floor === 'string' && Object.hasOwn(floorBounds,m.floor)
                 && typeof m.sentAt === 'string' && Number.isFinite(Date.parse(m.sentAt))) onChat(m);
+          } else if (ready && message.type === 'door_state' && doorIds.has(message.doorId) && typeof message.open === 'boolean') {
+            onDoor({doorId:message.doorId,open:message.open});
+          } else if (ready && message.type === 'door_error' && typeof message.message === 'string') {
+            onDoorError(message.message);
           } else if (ready && message.type === 'chat_error' && typeof message.message === 'string') {
             onChatError(message.message);
           }
@@ -157,6 +163,10 @@
         peers, close,
         get connected() {return ready;},
         get selfId() {return selfId;},
+        requestDoor(doorId, open) {
+          if(!ready||socket?.readyState!==WebSocket.OPEN||(player.floor||'campus')!=='campus'||!doorIds.has(doorId)||typeof open!=='boolean')return false;
+          publish(performance.now(),true);socket.send(JSON.stringify({type:'door',doorId,open}));return true;
+        },
         sendChat(text) {
           if (!ready || socket?.readyState !== WebSocket.OPEN || typeof text !== 'string') return false;
           text = text.trim();

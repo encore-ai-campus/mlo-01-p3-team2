@@ -301,3 +301,61 @@ class CampusSocketTests(TransactionTestCase):
             await a.send_json_to({"type": "chat", "text": "로그아웃 후 전송"})
             self.assertEqual(await a.receive_output(timeout=2), {"type": "websocket.close", "code": 4401})
             self.assertEqual(await b.receive_json_from(), {"type": "leave", "id": first["selfId"]})
+
+    async def test_glass_door_state_reaches_both_players_and_later_connections(self):
+        async with self.connections(self.a, self.b) as (a, b):
+            first, second = await self.welcome_pair(a, b)
+            self.assertEqual(len(first["doors"]), 7)
+            self.assertTrue(all(value is False for value in first["doors"].values()))
+            await a.send_json_to(self.movement(x=1649.25, y=533.5))
+            await b.receive_json_from()
+            await a.send_json_to({"type": "door", "doorId": "door-class1", "open": True})
+            expected = {"type": "door_state", "doorId": "door-class1", "open": True}
+            self.assertEqual(await a.receive_json_from(), expected)
+            self.assertEqual(await b.receive_json_from(), expected)
+            later = self.socket(self.a)
+            try:
+                self.assertTrue((await later.connect())[0])
+                self.assertTrue((await later.receive_json_from())["doors"]["door-class1"])
+            finally:
+                await later.disconnect()
+
+    async def test_glass_door_cannot_close_over_another_player(self):
+        consumers.room.doors["door-class1"] = True
+        async with self.connections(self.a, self.b) as (a, b):
+            await self.welcome_pair(a, b)
+            await a.send_json_to(self.movement(x=1649.25, y=533.5))
+            await b.receive_json_from()
+            await b.send_json_to(self.movement(x=1649.25, y=553.5))
+            await a.receive_json_from()
+            await a.send_json_to({"type": "door", "doorId": "door-class1", "open": False})
+            self.assertEqual((await a.receive_json_from())["type"], "door_error")
+            self.assertTrue(consumers.room.doors["door-class1"])
+            self.assertTrue(await b.receive_nothing())
+            await b.send_json_to(self.movement(x=1649.25, y=510))
+            await a.receive_json_from()
+            await asyncio.sleep(0.16)
+            await a.send_json_to({"type": "door", "doorId": "door-class1", "open": False})
+            self.assertFalse((await a.receive_json_from())["open"])
+            self.assertFalse((await b.receive_json_from())["open"])
+
+    async def test_invalid_or_distant_door_requests_do_not_change_shared_state(self):
+        async with self.connections(self.a, self.b) as (a, b):
+            await self.welcome_pair(a, b)
+            for payload in [{"doorId": []}, {"doorId": "invalid", "open": True},
+                            {"doorId": "door-class1", "open": "yes"}]:
+                await a.send_json_to({"type": "door", **payload})
+            self.assertTrue(await a.receive_nothing())
+            await a.send_json_to({"type": "door", "doorId": "door-class1", "open": True})
+            self.assertEqual((await a.receive_json_from())["type"], "door_error")
+            self.assertTrue(await b.receive_nothing())
+            self.assertFalse(consumers.room.doors["door-class1"])
+
+    async def test_door_rejects_a_logged_out_session_immediately(self):
+        async with self.connections(self.a, self.b) as (a, b):
+            first, _ = await self.welcome_pair(a, b)
+            await database_sync_to_async(self.a.logout)()
+            await a.send_json_to({"type": "door", "doorId": "door-class1", "open": True})
+            self.assertEqual(await a.receive_output(timeout=2), {"type": "websocket.close", "code": 4401})
+            self.assertEqual(await b.receive_json_from(), {"type": "leave", "id": first["selfId"]})
+            self.assertFalse(consumers.room.doors["door-class1"])

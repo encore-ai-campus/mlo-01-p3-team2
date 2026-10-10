@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 function app({authenticated = true, secure = false, floors, restore = false} = {}) {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
-  const chats = [], chatErrors = [], connectionChanges = [], restores = [];
+  const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
     if (!elements.has(id)) elements.set(id, {
@@ -39,13 +39,14 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   const player = {x: 1262.125, y: 437.875, dir: 'down', color: '#dfa34d', moving: false};
   const presence = context.window.CampusPresence.create({player, width: 1632, height: 820, floors, onAuthExpired() {expired++;},
     onRestore(position) {restores.push(position);if(restore)Object.assign(player,position);},
-    onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);}});
+    onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);},
+    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);}});
   const peer = (changes = {}) => ({id: 'peer', nickname: '조원 이름', avatar: 'female-2', x: 1200, y: 437,
     dir: 'down', color: '#4e9b91', moving: false, ...changes});
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, chats, chatErrors, connectionChanges, restores,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
@@ -150,4 +151,18 @@ assert.equal(restored.sockets[1].sent.at(-1).type,'leave');
 assert.equal(restored.sockets[1].sent.at(-1).x,2101.125,'Closing sends the final frame without waiting 100ms');
 assert.equal(restored.sockets[1].sent.at(-1).moving,false);
 restored.presence.close();assert.equal(restored.sockets[1].sent.filter(p=>p.type==='leave').length,1);
-console.log('PASS: standalone preview, nickname roster, precise/throttled movement, stop, interpolation, teleport, leave, reconnect, logout, expired session, WSS');
+const doors=app({floors:{campus:{width:2448,height:1230,objects:[{id:'door-class1',type:'glass-door'}]},rooftop:{width:2448,height:1800}}});
+assert.equal(doors.presence.requestDoor('door-class1',true),false);
+doors.sockets[0].receive({type:'welcome',selfId:'self',players:[doors.peer({id:'self'})],doors:{'door-class1':true,invalid:true}});
+assert.deepEqual(JSON.parse(JSON.stringify(doors.doorSnapshots[0])),{'door-class1':true});
+assert.equal(doors.presence.requestDoor('door-class1',false),true);
+assert.equal(doors.sockets[0].sent.at(-2).type,'move');
+assert.deepEqual(doors.sockets[0].sent.at(-1),{type:'door',doorId:'door-class1',open:false});
+doors.sockets[0].receive({type:'door_state',doorId:'door-class1',open:false});
+doors.sockets[0].receive({type:'door_state',doorId:'invalid',open:true});
+doors.sockets[0].receive({type:'door_state',doorId:'door-class1',open:'yes'});
+assert.equal(doors.doorChanges.length,1);
+doors.sockets[0].receive({type:'door_error',message:'캐릭터가 문에 있어요.'});assert.equal(doors.doorErrors.length,1);
+doors.player.floor='rooftop';assert.equal(doors.presence.requestDoor('door-class1',true),false);
+doors.presence.close();assert.equal(doors.presence.requestDoor('door-class1',true),false);
+console.log('PASS: standalone preview, nickname roster, movement, chat, door state snapshots and requests, reconnect, logout, expired session, WSS');

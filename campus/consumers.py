@@ -17,6 +17,7 @@ from django.db import DatabaseError
 from django.utils import timezone
 
 from accounts.models import get_identity, needs_profile_setup
+from .doors import DOORS, distance as door_distance, footprint as door_footprint
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
 
 
@@ -25,6 +26,7 @@ class CampusRoom:
 
     def __init__(self):
         self.players = {}
+        self.doors = {door_id: False for door_id in DOORS}
         self.lock = asyncio.Lock()
 
 
@@ -57,6 +59,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_seen = time.monotonic()
         self.last_move = 0
         self.last_chat = -math.inf
+        self.last_door = -math.inf
         self.last_checkpoint = self.last_seen
         self.position_changed_at = None
         identity = await database_sync_to_async(get_identity)(self.user)
@@ -68,7 +71,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_add(room.group, self.channel_name)
             room.players[self.player_id] = self.state.copy()
             await self.accept()
-            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values())})
+            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy()})
             await self.broadcast({"type": "join", "player": self.state.copy()})
         self.guard_task = asyncio.create_task(self.check_session_loop())
 
@@ -89,6 +92,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
             return
         if data.get("type") == "chat":
             await self.receive_chat(data)
+            return
+        if data.get("type") == "door":
+            await self.receive_door(data)
             return
         if data.get("type") == "ping":
             self.last_seen = time.monotonic()
@@ -125,6 +131,39 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 room.players[self.player_id] = self.state.copy()
                 await self.broadcast({"type": "move", "player": self.state.copy()})
         await self.checkpoint(force=final or floor_changed)
+
+    async def receive_door(self, data):
+        door_id, opened = data.get("doorId"), data.get("open")
+        if not isinstance(door_id, str) or door_id not in DOORS or type(opened) is not bool:
+            return
+        now = time.monotonic()
+        if now - self.last_door < 0.15:
+            await self.send_packet({"type": "door_error", "message": "잠시 후 문을 다시 눌러 주세요."})
+            return
+        self.last_door = self.last_seen = now
+        if await self.current_identity() is None:
+            await self.leave()
+            await self.close(code=4401)
+            return
+        async with room.lock:
+            if self.player_id not in room.players:
+                return
+            geometry = DOORS[door_id]
+            current = room.doors[door_id]
+            # Allow for the short interval between client movement reports.
+            if (self.state["floor"] != "campus" or min(door_distance(door_footprint(geometry, state), self.state) for state in (False, current)) >= 50):
+                await self.send_packet({"type": "door_error", "message": "유리문 가까이에서 조작해 주세요."})
+                return
+            payload = {"type": "door_state", "doorId": door_id, "open": opened}
+            if current == opened:
+                await self.send_packet(payload)
+                return
+            target = door_footprint(geometry, opened)
+            if any(player["floor"] == "campus" and door_distance(target, player) < 6 for player in room.players.values()):
+                await self.send_packet({"type": "door_error", "message": "문이 움직일 자리에 캐릭터가 있어요. 조금 비켜서 다시 눌러 주세요."})
+                return
+            room.doors[door_id] = opened
+            await self.broadcast(payload)
 
     async def receive_chat(self, data):
         text = data.get("text")
@@ -177,7 +216,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         })
 
     async def presence_packet(self, event):
-        if self.player_id in room.players and (event["sender"] != self.player_id or event["payload"]["type"] == "chat"):
+        if self.player_id in room.players and (event["sender"] != self.player_id or event["payload"]["type"] in {"chat", "door_state"}):
             await self.send_packet(event["payload"])
 
     @database_sync_to_async
