@@ -38,7 +38,7 @@ class DatabaseOwnershipTests(SimpleTestCase):
         conn = mysql_admin.connect()
         with conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE `{other}`")
-            cur.execute(f"CREATE TABLE `{other}`.marker (id INT)")
+            cur.execute(f"CREATE TABLE `{other}`.marker (id INT PRIMARY KEY)")
             cur.execute(f"INSERT INTO `{other}`.marker VALUES (7)")
         conn.commit()
         self.addCleanup(lambda: (conn.cursor().execute(f"DROP DATABASE IF EXISTS `{other}`"), conn.close()))
@@ -54,7 +54,7 @@ class DatabaseOwnershipTests(SimpleTestCase):
         conn = mysql_admin.connect()
         with conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE `{other}`")
-            cur.execute(f"CREATE TABLE `{other}`.marker (id INT)")
+            cur.execute(f"CREATE TABLE `{other}`.marker (id INT PRIMARY KEY)")
         conn.commit()
         self.addCleanup(lambda: (conn.cursor().execute(f"DROP DATABASE IF EXISTS `{other}`"), conn.close()))
         fixed = uuid.UUID(other.rsplit("_", 1)[1])
