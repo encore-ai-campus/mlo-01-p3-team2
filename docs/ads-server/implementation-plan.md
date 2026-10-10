@@ -921,7 +921,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 
 **사용법**
 - `scripts/cluster_check.sh`: 클러스터를 띄워 `check.sh`와 150 동시 부하를 돌리고 지운다.
-- `--failure`: 클러스터 장애 시험 8개를 더 돌린다.
+- `--failure`: 클러스터 장애 시험 8개를 더 돌린다. 실행 예: `env -u DB_NAME scripts/cluster_check.sh --failure`(셸에 정해 둔 `DB_NAME`을 빼고 돌린다 — 클러스터에는 `ads_server`만 만들어진다, README).
 - 기본 게이트는 단일 노드 `check.sh`이고, 이것은 운영 구성을 확인하는 추가 점검이다(README "InnoDB Cluster 시험 환경").
 - `cluster_check.sh`는 시작 전에 환경에 남은 이전 클러스터 값을 비우고, 기동 명령의 종료 코드를 직접 확인한다. 기동에 실패하면 후속 시험 없이 비정상 종료하고, 정리는 **이번 실행이 만든 클러스터에만** 건다(이전 ID를 지우지 않는다) [보완 2026-10-10, 외부 검토 `fb7df2a`].
 
@@ -1054,7 +1054,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | 단계 | 대상(위치) | 할 일 | 바뀌는 동작 | 완료 증거 |
 |---|---|---|---|---|
 | **4-4a 청크 크기 입구 검사** (A1) | `events/relay.py` `missing_event_ids(chunk=1000)`, `records/backfill.py` `backfill(chunk=500)` | 두 함수 입구에서 `chunk >= 1`을 명시적으로 검사하고 아니면 `ValueError`(R6). 리팩터링 전에는 음수면 빈 루프라 **누락 점검은 "누락 없음", 백필은 "아무것도 안 하고 성공"**으로 끝났고, 지금은 `itertools.batched`가 우연히 오류를 낸다 — 이 동작을 계약으로 굳힌다("모르면 없다고 답하지 않는다", `missing_event_ids` 설명과 같은 원칙) | 지금 동작을 명시적으로 고정(오류 문구만 바뀜). 이렇게 부르는 곳은 없다 — `backfill_events`는 `--chunk ≥ 1`을 이미 검사하고 나머지는 기본값을 쓴다 | 두 함수를 직접 부를 때 0·음수면 오류인 시험, 검사를 빼면 실패(변형 검사) |
-| **4-4b 판정 근거 쓰기 경계 시험을 AST로** (B2) | `tests/boundaries/test_judgment_scope.py`(정규식 `\bbasis\s*=(?!=)`), `records/hops.py` `expected_events`의 `**{"basis": r.basis}` | 경계 시험을 AST 기반으로 바꿔 **실제 쓰기만** 찾는다. **쓰기의 정의**: `basis=` 키워드를 받는 `update`·`create`·`update_or_create`·`bulk_create` 호출, `bulk_update`의 필드 목록에 든 `"basis"`, `.basis =` 대입. 쿼리셋이 `Reaction`인지는 정적으로 가리기 어려우므로 **이 꼴의 쓰기가 `records/processing.py`에만 있는지**를 규칙으로 한다(모델 정의·마이그레이션 제외). 그다음 `hops.py`의 우회 모양을 평범한 `basis=r.basis`로 돌린다(경계 시험이 코드를 어색하게 만든 사례) | 앱 동작 없음. 경계 시험(보안 태그)의 판정 기준이 "글자"에서 "실제 쓰기"로 바뀐다 | 다른 파일에 위 꼴의 쓰기(`update(basis=…)`·`bulk_update(…, ["basis"])`·`.basis =`)를 넣으면 실패, 읽기용 키워드 인자 `basis=r.basis`는 통과(변형 검사). 같은 파일의 다른 구조 검사(`scoped_reactions` 입구 하나, `gather`·`display_signal` 호출)는 그대로 통과 |
+| **4-4b 판정 근거 쓰기 경계 시험을 AST로** (B2) | `tests/boundaries/test_judgment_scope.py`(정규식 `\bbasis\s*=(?!=)`), `records/hops.py` `expected_events`의 `**{"basis": r.basis}` | 경계 시험을 AST 기반으로 바꿔 **실제 쓰기만** 찾는다. **쓰기의 정의** [넓힘 2026-10-10, 외부 검토(Step 4-4) P2 `6998608`]: ① `basis=` 키워드나 `**{"basis": …}` 풀어 넘기기를 받는 `update`·`create`·`get_or_create`·`update_or_create`·`bulk_create` 호출과 `Reaction(basis=…)` 생성 ② `get_or_create`·`update_or_create`의 `defaults`·`create_defaults` dict에 든 `"basis"` 키 ③ `bulk_update`의 `fields`, `bulk_create`의 `update_fields` 목록에 든 `"basis"` ④ `.basis =`·`.basis +=` 대입. ②·③은 키워드로 넘기든 위치 인자로 넘기든 같은 인자로 본다(Django `QuerySet` 시그니처 순서). **한계**: 정적 검사라 실행 중에 만든 dict를 넘기는 `update(**fields)`는 보지 못한다. 쿼리셋이 `Reaction`인지는 정적으로 가리기 어려우므로 **이 꼴의 쓰기가 `records/processing.py`에만 있는지**를 규칙으로 한다(모델 정의·마이그레이션 제외). 그다음 `hops.py`의 우회 모양을 평범한 `basis=r.basis`로 돌린다(경계 시험이 코드를 어색하게 만든 사례) | 앱 동작 없음. 경계 시험(보안 태그)의 판정 기준이 "글자"에서 "실제 쓰기"로 바뀐다 | 다른 파일에 위 꼴의 쓰기(`update(basis=…)`·`bulk_update(…, ["basis"])`·`.basis =`)를 넣으면 실패, 읽기용 키워드 인자 `basis=r.basis`는 통과(변형 검사). 쓰기·읽기 꼴마다 소스 조각을 넣어 보는 시험(`BasisWriteFormsTests`: 위치 인자 `defaults`·`create_defaults`·`update_fields`, `bulk_create`의 두 번째 위치 인자 `batch_size`는 읽기). 같은 파일의 다른 구조 검사(`scoped_reactions` 입구 하나, `gather`·`display_signal` 호출)는 그대로 통과 |
 | **4-4c 원장 멱등 키 형식 한 쌍** (B4) | 만들기 `records/processing.py` `reaction_ref()`, 다시 만들기 `records/hops.py:31-32`(f-string), 해석 `records/backfill.py` `_parse_ref()` | `<매체>:<reaction_id>`를 만들고 해석하는 한 쌍을 한 곳에 두고 나머지 두 곳이 쓴다(R3: 형식 도우미만 공유, 기대 이벤트 매핑은 독립). 먼저 `_parse_ref`의 잘못된 입력 처리(구분자 없음·UUID 아님)를 특성 시험으로 고정 | 없음(형식 같음) | 만들기 → 해석 왕복 시험, 잘못된 키는 지금처럼 해석 불가, 질의 수 그대로 |
 | **4-4d 구간 계약 값 한 곳** (B3) | 대상은 **구간 계약 값 세 가지뿐**: ① 구간 줄 모양의 버전(`export_hop_manifests`의 `SCHEMA_VERSION` ↔ `hopcheck.SUPPORTED_SCHEMA_VERSION`) ② 창 이름 ↔ 크기 표 두 벌(`events/hops.py` `WINDOWS` {day, hour} ↔ `events/hopcheck.py` `WINDOW_SIZES` {utc-day, utc-hour})과 명령의 `f"utc-{window}"` 이어 붙이기 ③ 시각 형식(`%Y-%m-%dT%H:%M:%SZ` 해석·출력 4곳 `_z`·`_time`·`_parse`·`strftime`, 밀리초 형식) | 세 가지를 `events/hops.py` 한 곳에 두고 `events.api`로 노출한다(결정 R2. 설계의 의존 규칙 R2에 따라 `records` 명령은 `events.api`만 쓴다). 내보내는 쪽(`export_hop_manifests`)과 대조하는 쪽(`hopcheck`)이 같은 값을 쓴다. `verify_hops`·`export_integrity`·`backfill_events`의 `SCHEMA_VERSION`은 대상이 아니다(§8.2.4 C6) | 값을 그대로 옮기므로 없음 | 창 옵션마다 "내보낸 선언을 대조 쪽이 읽는다" 왕복 시험, 기존 구간 시험 그대로 통과 |
 | **4-4i 원자적 게시 단계 하나로** (B6) | `events/ndjson.py` `write()`(데이터 파일)와 `_publish()`(manifest·세대 사본) — 같은 "임시 파일 → fsync → `os.replace` → 폴더 fsync"가 두 벌. 데이터 파일은 쓰면서 해시를 계산해 그 해시로 최종 이름을 정하므로 `_publish`를 그대로 못 씀 | **방법은 하나**: "교체 + 폴더 동기화" 단계만 함수로 빼서(예: `_replace_durably(tmp, final)`) `write()`와 `_publish()`가 같이 쓴다. 콜백 방식은 쓰지 않는다 — 10줄 남짓의 중복을 없애려고 원자성 코드에 추상화 한 겹을 더하게 된다 | 없어야 한다. 외부 검토가 여러 번 본 원자성이라 단계마다 중간 실패를 넣어 확인한다 | 기존 원자성 시험(쓰다 죽음·manifest 교체 실패·동시 게시·내구성 순서) 통과 + 각 단계(쓰기·동기화·교체·폴더 동기화)에 실패를 넣는 변형 검사 |
@@ -1092,6 +1092,12 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | 지갑별 원장 질의 N+1 | `billing/services.py` `_check_wallets` | 한 번에 읽으면 원장 전체가 메모리에 올라간다(교환 관계) | 지갑 수가 늘어 정합성 점검 시간이 문제가 될 때 |
 | 처리 직후 같은 반응 재조회 | `records/processing.py` `_wake_dependents` | 동시성 핵심 경로이고 반응당 질의 1회다 | 반응 처리량이 병목으로 측정될 때 |
 | 키별 UPDATE | `masters/services.py` `rotate_media_key` | 매체당 키가 1~2개라 이득이 없다 | 하지 않는다 |
+
+### 8.2.6 후속 변경 후보 (4-4 구현 중 발견, 구현 세션 보고)
+
+| 항목 | 위치 | 지금 | 다시 볼 때 |
+|---|---|---|---|
+| 준비 대기의 시간 제한 | `scripts/failure_test.py` `wait_ready` | 전체 대기 시간(기본 180초)은 있지만 한 번의 확인 호출(`docker exec … mysqladmin ping`)에는 시간 제한이 없어, 그 호출이 멈추면 전체 대기 시간을 넘길 수 있다. 4-4k(`docker()` 하나로)는 호출마다 지금 값을 넘기는 것까지만 했다(R5) | 장애 시험이 준비 대기에서 멈추는 일이 보이거나 시험 하네스를 다시 고칠 때. 개별 호출 시간 제한과 전체 대기 시간을 같이 정한다(시험 하네스만, 앱 없음) |
 
 # 9. 위험과 대응
 
