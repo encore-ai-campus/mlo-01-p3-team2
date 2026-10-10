@@ -167,6 +167,9 @@ REACTION_HOLD_RECHECK_SECONDS = 30  # 보류한 반응을 주기적으로 다시
 REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해 본다(실패해도 접수 응답은 그대로). 끄면 process_reactions 가 전부 처리한다
 REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
 
+# --- 이벤트 outbox (설계 §6.3, 계획 4-1) ---
+EVENTS_OUTBOX_RETENTION_DAYS = 7  # MongoDB 로 보낸 outbox 행을 이만큼 지난 뒤 `purge_sent_events` 가 지운다(미전송은 지우지 않는다). 보존 기간 전반은 설계 §7-8 이 열려 있다
+
 # --- 광고 선택 (설계 §4.3). 구현 선택은 config 한 곳(R4): 알고리즘·필터를 바꿔도 Decision 구조는 그대로다 ---
 ADS_SELECTION_POLICY = "highest-bid/v1"
 ADS_ENGINE_FILTERS = ("status", "period", "floor", "budget", "balance")  # 순서가 곧 판정 순서

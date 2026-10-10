@@ -2,6 +2,7 @@
 
 컬렉션과 이벤트 스키마가 C2 계약 면이다(설계 §6.3). 아래 봉투 검증과 색인은 DRD §5.6 의 공통 봉투 제안에서 왔고 Step 4 에서 스키마와 함께 확정한다.
 """
+import datetime
 import uuid
 from dataclasses import dataclass
 
@@ -43,8 +44,13 @@ class Check:
     detail: str
 
 
-def _collection(name=COLLECTION):
-    return mongo.database().get_collection(name, codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD))
+def collection(name=COLLECTION):
+    """계약 컬렉션 핸들. UUID 는 표준 표현, 시각은 UTC 시각 인식(tz_aware)으로 읽는다 — 중계의 중복 비교가 같은 형식끼리 이뤄지게."""
+    options = CodecOptions(uuid_representation=UuidRepresentation.STANDARD, tz_aware=True, tzinfo=datetime.timezone.utc)
+    return mongo.database().get_collection(name, codec_options=options)
+
+
+_collection = collection
 
 
 def ensure():
