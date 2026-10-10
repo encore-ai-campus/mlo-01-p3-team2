@@ -6,6 +6,8 @@
 - MongoDB 가 죽어 있으면 되돌리고(행은 미전송으로 남는다) 예외를 올린다. 앱의 요청 경로는 이 파일을 쓰지 않는다 — 요청은 outbox 에 쓰기만 한다.
 """
 import datetime
+import json
+import uuid
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -38,6 +40,23 @@ def _millis(value):
     return value.astimezone(datetime.timezone.utc).replace(microsecond=value.microsecond // 1000 * 1000)
 
 
+def _encode(value):
+    if isinstance(value, uuid.UUID):
+        return {"$uuid": str(value)}
+    if isinstance(value, datetime.datetime):
+        return {"$date": value.astimezone(datetime.timezone.utc).isoformat()}
+    raise TypeError(f"비교할 수 없는 타입: {type(value).__name__}")
+
+
+def canonical(document):
+    """문서의 정규화된 직렬화. **JSON 타입까지** 구분한다 — 파이썬의 `1 == True`·`1 == 1.0` 이 다른 내용을 같은 것으로 만들지 않게(`1`, `true`, `1.0` 은 다른 문자열이다). 키 순서는 무시한다."""
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=_encode)
+
+
+def same_document(stored, wanted):
+    return stored is not None and canonical(stored) == canonical(wanted)
+
+
 def to_document(row):
     return {"_id": row.event_id, "event_name": row.event_name, "schema_version": row.schema_version, "produced_at": _millis(row.created_at), "payload": row.payload}
 
@@ -57,7 +76,7 @@ def _write(documents):
         return len(documents), 0, []
     stored = {d["_id"]: d for d in events.find({"_id": {"$in": duplicate_ids}})}
     by_id = {d["_id"]: d for d in documents}
-    conflicts = [i for i in duplicate_ids if stored.get(i) != by_id[i]]
+    conflicts = [i for i in duplicate_ids if not same_document(stored.get(i), by_id[i])]
     return len(documents) - len(duplicate_ids), len(duplicate_ids) - len(conflicts), conflicts
 
 
@@ -99,7 +118,7 @@ def missing_event_ids(event_ids, chunk=1000):
 
 
 def sent_but_not_in_mongo(limit=1000):
-    """outbox 에 보냈다고 표시돼 있는데 MongoDB 에 없는 이벤트 ID(최대 `limit`). 중계가 거짓으로 표시했거나 MongoDB 가 데이터를 잃은 경우다."""
+    """outbox 에 보냈다고 표시돼 있는데 MongoDB 에 없는 이벤트 ID(최대 `limit`, `None` 이면 전부). 중계가 거짓으로 표시했거나 MongoDB 가 데이터를 잃은 경우다."""
     gone = []
     rows = EventOutbox.objects.filter(sent_at__isnull=False).values_list("pk", flat=True).iterator(chunk_size=1000)
     batch = []
@@ -108,9 +127,10 @@ def sent_but_not_in_mongo(limit=1000):
         if len(batch) == 1000:
             gone += _absent_from_mongo(batch)
             batch = []
-            if len(gone) >= limit:
+            if limit is not None and len(gone) >= limit:
                 return gone[:limit]
-    return (gone + _absent_from_mongo(batch))[:limit]
+    gone += _absent_from_mongo(batch)
+    return gone if limit is None else gone[:limit]
 
 
 def _absent_from_mongo(ids):

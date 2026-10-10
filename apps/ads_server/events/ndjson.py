@@ -1,31 +1,45 @@
 """NDJSON 점검 결과 파일과 manifest(설계 §10 "NDJSON", 계획 4-2). **데이터를 옮기는 통로가 아니다** — 정합성 점검 결과, 재처리·백필 대상 목록, 테스트 데이터를 담는 파일이다.
 
-- 데이터 파일 `<이름>.ndjson`: 한 줄 = JSON 레코드 하나(UTF-8, 줄바꿈 `\\n`).
-- manifest `<이름>.manifest.json`: 데이터 파일의 SHA-256, 행 수, `schema_version`, `source_kind`, 재개 위치(`checkpoint`), 만든 시각.
-- **원자적 확정**: 둘 다 임시 파일에 쓰고 디스크에 동기화한 뒤 `os.replace` 로 바꾼다. 데이터 파일을 먼저, manifest 를 나중에 확정하므로 **manifest 가 있으면 데이터 파일은 완결**이다.
-  중간에 죽어도 반쯤 쓰인 파일이 최종 이름으로 남지 않는다.
-- 검증(`verify`)은 파일을 다시 읽어 SHA-256·행 수를 manifest 와 대조한다.
+**한 번의 게시 = 불변 데이터 파일 하나 + manifest 의 원자적 교체 하나.**
+- 데이터 파일 `<이름>.<SHA-256 앞 16자>.ndjson`: 한 줄 = JSON 레코드 하나(UTF-8, 줄바꿈 `\\n`). 이름에 내용의 해시가 들어가므로 **한 번 만들면 바뀌지 않고**, 다른 내용은 다른 파일이 된다(덮어쓰지 않는다).
+- manifest `<이름>.manifest.json`: **현재 게시본을 가리키는 포인터**다. 데이터 파일 이름, SHA-256, 행 수, `schema_version`, `source_kind`, `checkpoint`(범위 서술), 만든 시각.
+- 순서: 데이터 파일을 완성(임시 파일 → fsync → `os.replace` → 폴더 fsync)한 **뒤에** manifest 를 같은 방식으로 교체한다. 그래서
+  · manifest 교체가 실패하거나 중간에 죽어도 이전 manifest 와 이전 데이터 파일이 그대로다(새 데이터 파일은 가리키는 곳 없는 고아로 남는다).
+  · 같은 `<이름>` 을 동시에 게시해도 manifest 는 어느 한쪽의 것으로 끝나고, 그 manifest 가 가리키는 데이터 파일은 항상 온전하다(서로 다른 파일이라 덮어쓰지 않는다).
+  · manifest 가 가리키는 파일은 언제나 완결이다.
+- 오래된 세대의 데이터 파일은 자동으로 지우지 않는다(읽는 쪽이 이전 manifest 를 쥐고 있을 수 있다). 보존 기간은 설계 §7-8 이 열려 있다.
+- 검증(`verify`)은 manifest 를 읽고, 그것이 가리키는 파일을 다시 읽어 SHA-256·행 수·줄 형식을 대조한다.
 """
 import hashlib
 import json
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA_VERSION = 1  # 이 모듈이 만드는 manifest 의 모양. 레코드의 모양은 호출한 쪽의 `schema_version` 이다
+NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
+DATA_FILE = re.compile(r"[A-Za-z0-9_-]{1,64}\.[0-9a-f]{16}\.ndjson")
 
 
 class NdjsonError(Exception):
     pass
 
 
-def manifest_path(data_path):
-    path = Path(data_path)
-    return path.with_name(path.stem + ".manifest.json")
+def manifest_path(directory, name):
+    return Path(directory) / f"{name}.manifest.json"
 
 
-def _replace_atomically(path, write):
+def _fsync_directory(directory):
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)  # 이름 바꾸기(rename) 자체도 디스크에 남긴다
+    finally:
+        os.close(fd)
+
+
+def _publish(path, write):
     """같은 폴더의 임시 파일에 쓰고 동기화한 뒤 최종 이름으로 바꾼다. 실패하면 임시 파일을 지운다."""
     path = Path(path)
     fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
@@ -35,57 +49,74 @@ def _replace_atomically(path, write):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, path)
+        _fsync_directory(path.parent)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
 
 
-def write(data_path, records, source_kind, schema_version, checkpoint=None, now=None):
-    """레코드(JSON 으로 만들 수 있는 dict 들)를 NDJSON 으로 쓰고 manifest 를 확정한다. 반환: manifest(dict)."""
-    data_path = Path(data_path)
+def write(directory, name, records, source_kind, schema_version, checkpoint=None, now=None):
+    """레코드(JSON 으로 만들 수 있는 dict 들)를 새 세대의 데이터 파일로 쓰고 manifest 를 그 파일로 교체한다. 반환: manifest(dict)."""
+    if not NAME.fullmatch(name):
+        raise NdjsonError(f"이름은 영문·숫자·밑줄·하이픈 1~64자여야 한다: {name!r}")
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    # 먼저 내용을 임시 파일에 모두 쓰고 해시를 낸다 → 최종 파일 이름에 해시가 들어간다
     digest, rows = hashlib.sha256(), 0
-
-    def write_data(handle):
-        nonlocal rows
-        for record in records:
-            line = (json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-            handle.write(line)
-            digest.update(line)
-            rows += 1
-
-    _replace_atomically(data_path, write_data)
+    fd, tmp = tempfile.mkstemp(prefix=f"{name}.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            for record in records:
+                line = (json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+                handle.write(line)
+                digest.update(line)
+                rows += 1
+            handle.flush()
+            os.fsync(handle.fileno())
+        sha256 = digest.hexdigest()
+        data_name = f"{name}.{sha256[:16]}.ndjson"
+        os.replace(tmp, directory / data_name)
+        _fsync_directory(directory)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     manifest = {
-        "manifest_version": SCHEMA_VERSION, "file": data_path.name, "sha256": digest.hexdigest(), "rows": rows, "schema_version": schema_version,
+        "manifest_version": SCHEMA_VERSION, "file": data_name, "sha256": sha256, "rows": rows, "schema_version": schema_version,
         "source_kind": source_kind, "checkpoint": checkpoint, "created_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
     }
-    _replace_atomically(manifest_path(data_path), lambda handle: handle.write((json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")))
+    _publish(manifest_path(directory, name), lambda handle: handle.write((json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")))
     return manifest
 
 
-def read_manifest(data_path):
+def read_manifest(path):
     try:
-        return json.loads(manifest_path(data_path).read_text(encoding="utf-8"))
+        return json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise NdjsonError(f"manifest 가 없다(데이터 파일이 완결되지 않았을 수 있다): {manifest_path(data_path)}")
+        raise NdjsonError(f"manifest 가 없다(게시되지 않았거나 지워졌다): {path}")
     except json.JSONDecodeError as error:
         raise NdjsonError(f"manifest 를 읽을 수 없다: {error}")
 
 
-def verify(data_path):
-    """데이터 파일이 manifest 와 맞는지 확인한다. 반환: 어긋난 곳의 설명 목록(맞으면 빈 목록)."""
-    manifest = read_manifest(data_path)
-    data_path = Path(data_path)
+def verify(path):
+    """manifest 와 그것이 가리키는 데이터 파일이 맞는지 확인한다. `path` 는 manifest 경로다. 반환: 어긋난 곳의 설명 목록(맞으면 빈 목록)."""
+    path = Path(path)
+    manifest = read_manifest(path)
     problems = [f"manifest 에 {key} 가 없다" for key in ("file", "sha256", "rows", "schema_version", "source_kind", "created_at") if key not in manifest]
     if problems:
         return problems
-    if manifest["file"] != data_path.name:
-        problems.append(f"manifest 는 {manifest['file']} 의 것이다(파일 이름 {data_path.name})")
+    if not DATA_FILE.fullmatch(str(manifest["file"])):
+        return [f"manifest 의 file 이 올바른 데이터 파일 이름이 아니다: {manifest['file']!r}"]  # 폴더 밖을 가리키지 못하게
+    if not str(manifest["file"]).startswith(path.name.removesuffix(".manifest.json") + "."):
+        problems.append(f"manifest {path.name} 가 다른 이름의 데이터 파일을 가리킨다: {manifest['file']}")
     try:
-        content = data_path.read_bytes()
+        content = (path.parent / manifest["file"]).read_bytes()
     except FileNotFoundError:
-        return problems + [f"데이터 파일이 없다: {data_path}"]
-    if hashlib.sha256(content).hexdigest() != manifest["sha256"]:
+        return problems + [f"가리키는 데이터 파일이 없다: {manifest['file']}"]
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != manifest["sha256"]:
         problems.append("SHA-256 이 manifest 와 다르다(파일이 바뀌었거나 깨졌다)")
+    if not manifest["file"].split(".")[1] == manifest["sha256"][:16]:
+        problems.append("파일 이름의 해시가 manifest 의 SHA-256 과 다르다")
     lines = content.split(b"\n")
     if lines and lines[-1] == b"":
         lines.pop()

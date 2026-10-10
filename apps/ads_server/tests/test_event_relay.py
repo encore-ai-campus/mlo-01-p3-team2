@@ -100,6 +100,45 @@ class RelayTests(RelayBase):
         with self.assertRaises(EventConflict):
             relay_batch()  # 다시 해도 계속 멈춘다(건너뛰지 않는다)
 
+    def test_a_different_json_type_is_a_conflict_not_a_duplicate(self):
+        """검토: Python 에서는 1 == True 이다 — 입찰 버전 1 과 true 를 같은 내용으로 보고 잘못된 문서를 확정했다. JSON 타입까지 같아야 같은 내용이다."""
+        for label, mutate in (
+            ("정수 → 불리언", lambda p: p["selected"].update(bid_version=True)),
+            ("0 → false", lambda p: p["rejected_counts"].update(budget=False)),
+            ("정수 → 실수", lambda p: p["selected"].update(applied_amount=float(p["selected"]["applied_amount"]))),
+            ("정수 → 문자열", lambda p: p["selected"].update(bid_amount=str(p["selected"]["bid_amount"]))),
+            ("중첩 목록 안", lambda p: p.update(extra=[1, {"k": True}])),
+        ):
+            with self.subTest(label):
+                store.collection().delete_many({})
+                EventOutbox.objects.all().delete()
+                EventOutbox.objects.update(sent_at=None)
+                payload_fields = decision_fields(rejected_counts={"budget": 0})
+                decision_id = payload_fields["decision_id"]
+                events.record_decision(now=T0, **payload_fields)
+                row = EventOutbox.objects.get()
+                if label == "중첩 목록 안":
+                    row.payload["extra"] = [1, {"k": 1}]
+                    EventOutbox.objects.filter(pk=row.pk).update(payload=row.payload)
+                    row.refresh_from_db()
+                wrong = relay.to_document(row)
+                mutate(wrong["payload"])
+                store.collection().insert_one(wrong)  # 같은 ID 에 타입만 다른 문서가 이미 있다
+                with self.assertRaises(EventConflict, msg=label) as raised:
+                    relay_batch(now=T0)
+                self.assertEqual(raised.exception.event_ids, [row.event_id])
+                self.assertIsNone(EventOutbox.objects.get(pk=row.pk).sent_at)  # 확정하지 않는다
+                self.assertEqual(decision_id, row.aggregate_id)
+
+    def test_the_same_content_with_different_key_order_is_a_duplicate(self):
+        (decision_id,) = enqueue_decisions(1)
+        row = EventOutbox.objects.get()
+        doc = relay.to_document(row)
+        doc["payload"] = dict(reversed(list(doc["payload"].items())))  # 키 순서만 다르다
+        store.collection().insert_one(doc)
+        result = relay_batch(now=T0)
+        self.assertEqual((result.sent, result.duplicate), (0, 1))
+
     def test_batches_are_oldest_first(self):
         ids = enqueue_decisions(5)
         relay_batch(limit=2, now=T0)

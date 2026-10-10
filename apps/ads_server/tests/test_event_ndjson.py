@@ -15,7 +15,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, tag
 
 from billing.models import LedgerEntry
 from events import api as events
-from events import ndjson, store
+from events import mongo, ndjson, store
 from events.models import EventOutbox
 from events.relay import relay_batch
 from records import api as records
@@ -36,88 +36,152 @@ class TempDirMixin:
 
 @tag("security")
 class WriteAndVerifyTests(TempDirMixin, SimpleTestCase):
-    def test_manifest_describes_the_file_exactly(self):
-        path = self.tmpdir() / "check.ndjson"
+    def publish(self, directory, rows, name="check", **kw):
+        return ndjson.write(directory, name, rows, kw.pop("source_kind", "ledger_check"), kw.pop("schema_version", 3), now=T, **kw)
+
+    def test_manifest_points_at_an_immutable_generation_and_describes_it_exactly(self):
+        directory = self.tmpdir()
         records_in = [{"a": 1, "한글": "값"}, {"b": [1, 2]}]
-        manifest = ndjson.write(path, records_in, "ledger_check", 3, checkpoint="cp-1", now=T)
-        data = path.read_bytes()
+        manifest = self.publish(directory, records_in, checkpoint={"scope": "x"})
+        data = (directory / manifest["file"]).read_bytes()
+        self.assertEqual(manifest["file"], f"check.{hashlib.sha256(data).hexdigest()[:16]}.ndjson")  # 이름에 내용의 해시가 들어간다
         self.assertEqual(data.decode("utf-8").count("\n"), 2)  # 한 줄 = 레코드 하나, 줄바꿈으로 끝난다
-        self.assertEqual(manifest["sha256"], hashlib.sha256(data).hexdigest())
-        self.assertEqual((manifest["rows"], manifest["schema_version"], manifest["source_kind"], manifest["checkpoint"], manifest["file"]), (2, 3, "ledger_check", "cp-1", "check.ndjson"))
+        self.assertEqual((manifest["sha256"], manifest["rows"], manifest["schema_version"], manifest["source_kind"], manifest["checkpoint"]),
+                         (hashlib.sha256(data).hexdigest(), 2, 3, "ledger_check", {"scope": "x"}))
         self.assertEqual(manifest["created_at"], "2026-10-10T03:00:00+00:00")
-        self.assertEqual(json.loads(ndjson.manifest_path(path).read_text()), manifest)
+        self.assertEqual(json.loads(ndjson.manifest_path(directory, "check").read_text()), manifest)
         self.assertEqual([json.loads(line) for line in data.decode("utf-8").splitlines()], records_in)
-        self.assertEqual(ndjson.verify(path), [])
+        self.assertEqual(ndjson.verify(ndjson.manifest_path(directory, "check")), [])
 
     def test_an_empty_result_is_a_valid_proof_of_a_clean_check(self):
-        path = self.tmpdir() / "clean.ndjson"
-        manifest = ndjson.write(path, [], "event_gaps", 1, now=T)
-        self.assertEqual((manifest["rows"], path.read_bytes(), ndjson.verify(path)), (0, b"", []))
+        directory = self.tmpdir()
+        manifest = self.publish(directory, [], name="gaps", source_kind="event_gaps")
+        self.assertEqual(((directory / manifest["file"]).read_bytes(), manifest["rows"], ndjson.verify(ndjson.manifest_path(directory, "gaps"))), (b"", 0, []))
 
-    def test_changed_truncated_or_extended_files_are_caught(self):
-        path = self.tmpdir() / "x.ndjson"
-        ndjson.write(path, [{"n": i} for i in range(3)], "k", 1)
-        original = path.read_bytes()
-        path.write_bytes(original.replace(b'"n":1', b'"n":9'))
-        self.assertTrue(any("SHA-256" in p for p in ndjson.verify(path)))
-        path.write_bytes(original[: original.rindex(b"\n", 0, len(original) - 1) + 1])  # 마지막 줄 삭제
-        problems = " ".join(ndjson.verify(path))
-        self.assertIn("행 수", problems)
-        self.assertIn("SHA-256", problems)
-        path.write_bytes(original + b'{"n":3}\n')
-        self.assertIn("행 수", " ".join(ndjson.verify(path)))
-        path.write_bytes(original[:-1])  # 쓰다 만 파일: 줄바꿈으로 끝나지 않는다
-        self.assertIn("줄바꿈", " ".join(ndjson.verify(path)))
-        path.write_bytes(original)
-        self.assertEqual(ndjson.verify(path), [])
+    def test_a_new_publication_never_overwrites_the_previous_generation(self):
+        directory = self.tmpdir()
+        first = self.publish(directory, [{"n": 1}])
+        second = self.publish(directory, [{"n": 2}])
+        self.assertNotEqual(first["file"], second["file"])
+        self.assertTrue((directory / first["file"]).exists() and (directory / second["file"]).exists())  # 이전 세대가 그대로 있다
+        self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(directory, "check"))["file"], second["file"])
+        again = self.publish(directory, [{"n": 2}])
+        self.assertEqual(again["file"], second["file"])  # 같은 내용은 같은 파일
 
-    def test_a_non_json_line_is_reported_even_if_the_manifest_was_rebuilt(self):
-        path = self.tmpdir() / "y.ndjson"
-        ndjson.write(path, [{"n": 1}], "k", 1)
-        path.write_bytes(b"not json\n")
-        manifest = ndjson.read_manifest(path)
-        manifest["sha256"] = hashlib.sha256(b"not json\n").hexdigest()
-        ndjson.manifest_path(path).write_text(json.dumps(manifest))
-        self.assertIn("JSON 이 아니다", " ".join(ndjson.verify(path)))
+    def test_changed_truncated_or_extended_generations_are_caught(self):
+        directory = self.tmpdir()
+        manifest = self.publish(directory, [{"n": i} for i in range(3)])
+        manifest_file, data = ndjson.manifest_path(directory, "check"), directory / manifest["file"]
+        original = data.read_bytes()
+        data.write_bytes(original.replace(b'"n":1', b'"n":9'))
+        self.assertTrue(any("SHA-256" in p for p in ndjson.verify(manifest_file)))
+        data.write_bytes(original[: original.rindex(b"\n", 0, len(original) - 1) + 1])  # 마지막 줄 삭제
+        self.assertIn("행 수", " ".join(ndjson.verify(manifest_file)))
+        data.write_bytes(original + b'{"n":3}\n')
+        self.assertIn("행 수", " ".join(ndjson.verify(manifest_file)))
+        data.write_bytes(original[:-1])  # 쓰다 만 파일: 줄바꿈으로 끝나지 않는다
+        self.assertIn("줄바꿈", " ".join(ndjson.verify(manifest_file)))
+        data.write_bytes(original)
+        self.assertEqual(ndjson.verify(manifest_file), [])
 
-    def test_missing_manifest_means_the_file_is_not_trusted(self):
-        path = self.tmpdir() / "z.ndjson"
-        path.write_bytes(b'{"n":1}\n')
+    def test_a_non_json_line_is_reported_even_if_the_hashes_were_rebuilt(self):
+        directory = self.tmpdir()
+        manifest = self.publish(directory, [{"n": 1}])
+        content = b"not json\n"
+        sha = hashlib.sha256(content).hexdigest()
+        new_name = f"check.{sha[:16]}.ndjson"
+        (directory / new_name).write_bytes(content)
+        ndjson.manifest_path(directory, "check").write_text(json.dumps({**manifest, "file": new_name, "sha256": sha}))
+        self.assertIn("JSON 이 아니다", " ".join(ndjson.verify(ndjson.manifest_path(directory, "check"))))
+
+    def test_missing_manifest_or_missing_data_file(self):
+        directory = self.tmpdir()
         with self.assertRaises(ndjson.NdjsonError):
-            ndjson.verify(path)
+            ndjson.verify(ndjson.manifest_path(directory, "none"))
+        manifest = self.publish(directory, [{"n": 1}])
+        (directory / manifest["file"]).unlink()
+        self.assertIn("데이터 파일이 없다", " ".join(ndjson.verify(ndjson.manifest_path(directory, "check"))))
 
-    def test_a_manifest_of_another_file_is_rejected(self):
+    def test_a_manifest_cannot_point_outside_its_folder_or_at_another_name(self):
         directory = self.tmpdir()
-        ndjson.write(directory / "a.ndjson", [{"n": 1}], "k", 1)
-        (directory / "b.ndjson").write_bytes((directory / "a.ndjson").read_bytes())
-        ndjson.manifest_path(directory / "b.ndjson").write_bytes(ndjson.manifest_path(directory / "a.ndjson").read_bytes())
-        self.assertIn("a.ndjson", " ".join(ndjson.verify(directory / "b.ndjson")))
+        manifest = self.publish(directory, [{"n": 1}])
+        for bad in ("../secret.0123456789abcdef.ndjson", "/etc/passwd", "check.ndjson", "other.0123456789abcdef.ndjson"):
+            ndjson.manifest_path(directory, "check").write_text(json.dumps({**manifest, "file": bad}))
+            self.assertTrue(ndjson.verify(ndjson.manifest_path(directory, "check")), bad)
+        with self.assertRaises(ndjson.NdjsonError):
+            self.publish(directory, [], name="../evil")
 
-    def test_a_crash_while_writing_leaves_no_half_written_final_file(self):
+    def test_the_manifest_hash_must_match_the_file_name(self):
         directory = self.tmpdir()
-        path = directory / "w.ndjson"
-        ndjson.write(path, [{"old": 1}], "k", 1)
-        before = (path.read_bytes(), ndjson.manifest_path(path).read_bytes())
+        manifest = self.publish(directory, [{"n": 1}])
+        ndjson.manifest_path(directory, "check").write_text(json.dumps({**manifest, "sha256": "0" * 64}))
+        problems = " ".join(ndjson.verify(ndjson.manifest_path(directory, "check")))
+        self.assertIn("SHA-256", problems)
+        self.assertIn("해시", problems)
+
+    def test_a_failure_while_replacing_the_manifest_keeps_the_previous_publication(self):
+        """검토 재현 1: 데이터 교체 뒤 manifest 교체만 실패해도 이전 결과(manifest + 데이터)가 그대로 검증을 통과한다."""
+        directory = self.tmpdir()
+        old = self.publish(directory, [{"old": 1}])
+        manifest_file = ndjson.manifest_path(directory, "check")
+        before = manifest_file.read_bytes()
+        real = os.replace
+
+        def fail_on_manifest(src, dst):
+            if Path(dst).name.endswith(".manifest.json"):
+                raise OSError("manifest 교체 실패")
+            return real(src, dst)
+
+        with mock.patch("events.ndjson.os.replace", fail_on_manifest):
+            with self.assertRaises(OSError):
+                self.publish(directory, [{"new": 1}])
+        self.assertEqual(manifest_file.read_bytes(), before)  # 포인터가 그대로다
+        self.assertEqual(ndjson.verify(manifest_file), [])
+        self.assertEqual(json.loads((directory / old["file"]).read_text()), {"old": 1})
+        self.assertEqual([p.name for p in directory.iterdir() if p.name.endswith(".tmp")], [])  # 임시 파일이 남지 않는다
+
+    def test_interleaved_publications_end_with_a_manifest_that_matches_its_data(self):
+        """검토 재현 2: A 데이터 → B 데이터·manifest → A manifest 로 엇갈려도 최종 manifest 가 가리키는 데이터는 온전하다."""
+        directory = self.tmpdir()
+        manifest_file = ndjson.manifest_path(directory, "check")
+        real, state = ndjson._publish, {"b_done": False}
+
+        def interleave(path, writer):
+            if Path(path).name.endswith(".manifest.json") and not state["b_done"]:
+                state["b_done"] = True
+                self.publish(directory, [{"writer": "B"}])  # A 의 manifest 게시 직전에 B 가 끝까지 게시한다
+            return real(path, writer)
+
+        with mock.patch("events.ndjson._publish", interleave):
+            a = self.publish(directory, [{"writer": "A"}])
+        self.assertEqual(ndjson.verify(manifest_file), [])
+        self.assertEqual(ndjson.read_manifest(manifest_file)["file"], a["file"])  # 마지막에 게시한 쪽(A)의 것
+        self.assertEqual(json.loads((directory / a["file"]).read_text()), {"writer": "A"})
+        self.assertEqual(len([p for p in directory.iterdir() if p.name.endswith(".ndjson")]), 2)  # B 의 세대도 온전히 남아 있다
+
+    def test_a_crash_while_writing_leaves_the_previous_publication_and_no_partial_file(self):
+        directory = self.tmpdir()
+        self.publish(directory, [{"old": 1}])
+        before = sorted(p.name for p in directory.iterdir())
 
         def dying():
             yield {"new": 1}
             raise RuntimeError("쓰는 도중 죽음")
 
         with self.assertRaises(RuntimeError):
-            ndjson.write(path, dying(), "k", 1)
-        self.assertEqual((path.read_bytes(), ndjson.manifest_path(path).read_bytes()), before)  # 이전 결과가 그대로다
-        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["w.manifest.json", "w.ndjson"])  # 임시 파일이 남지 않는다
-        self.assertEqual(ndjson.verify(path), [])
+            self.publish(directory, dying())
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), before)
+        self.assertEqual(ndjson.verify(ndjson.manifest_path(directory, "check")), [])
 
-    def test_the_data_file_is_replaced_before_the_manifest(self):
-        """manifest 가 있으면 데이터 파일은 완결이다 — 데이터 파일을 먼저 확정하고 manifest 를 나중에 확정한다."""
+    def test_durability_order_data_synced_then_renamed_then_directory_synced_then_manifest(self):
+        """내구성 순서(시험이 fsync 의 유무를 직접 볼 수 없어 호출 순서로 고정한다): 파일 fsync → replace → 폴더 fsync, 데이터가 manifest 보다 먼저."""
         directory = self.tmpdir()
-        path = directory / "o.ndjson"
-        order = []
-        real = os.replace
-        with mock.patch("events.ndjson.os.replace", lambda src, dst: (order.append(Path(dst).name), real(src, dst))):
-            ndjson.write(path, [{"n": 1}], "k", 1)
-        self.assertEqual(order, ["o.ndjson", "o.manifest.json"])
+        calls = []
+        real_fsync, real_replace = os.fsync, os.replace
+        with mock.patch("events.ndjson.os.fsync", lambda fd: (calls.append("fsync"), real_fsync(fd))), \
+                mock.patch("events.ndjson.os.replace", lambda src, dst: (calls.append("replace:" + Path(dst).suffix), real_replace(src, dst))):
+            self.publish(directory, [{"n": 1}])
+        self.assertEqual(calls, ["fsync", "replace:.ndjson", "fsync", "fsync", "replace:.json", "fsync"])  # 데이터(파일·폴더) 다음에 manifest(파일·교체·폴더)
 
 
 @tag("security")
@@ -195,8 +259,8 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
         super().setUp()
         store.ensure()
         w = World()
-        decision = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
-        view, _ = records.receive_reaction(w.slot.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)
+        self.decision = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+        view, _ = records.receive_reaction(w.slot.media_id, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)
         records.process_reaction(view.inbox_id, now=NOW)
 
     def export(self, out):
@@ -207,14 +271,58 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
         except CommandError as error:
             return False, stdout.getvalue() + str(error)
 
-    def test_a_clean_state_writes_two_empty_verified_files_and_succeeds(self):
+    def rows(self, out, name):
+        manifest = ndjson.read_manifest(ndjson.manifest_path(out, name))
+        return [json.loads(line) for line in (out / manifest["file"]).read_text().splitlines()]
+
+    def test_a_clean_state_publishes_three_empty_verified_results_and_succeeds(self):
         out = self.tmpdir() / "res"
         ok, text = self.export(out)
         self.assertTrue(ok, text)
-        for name, kind in (("ledger_check", "ledger_check"), ("event_gaps", "event_gaps")):
-            path = out / f"{name}.ndjson"
-            self.assertEqual((ndjson.read_manifest(path)["rows"], ndjson.read_manifest(path)["source_kind"], ndjson.verify(path)), (0, kind, []))
-        self.assertTrue(ndjson.read_manifest(out / "event_gaps.ndjson")["checkpoint"].startswith("scanned-before:"))
+        for name in ("ledger_check", "event_gaps", "event_delivery"):
+            manifest_file = ndjson.manifest_path(out, name)
+            manifest = ndjson.read_manifest(manifest_file)
+            self.assertEqual((manifest["rows"], manifest["source_kind"], ndjson.verify(manifest_file)), (0, name, []))
+
+    def test_the_checkpoint_states_the_real_scan_scope(self):
+        out = self.tmpdir()
+        self.export(out)
+        checkpoint = ndjson.read_manifest(ndjson.manifest_path(out, "event_gaps"))["checkpoint"]
+        self.assertEqual(checkpoint["scope"], "mysql-repeatable-read-snapshot")
+        self.assertEqual(checkpoint["scanned"], {"decision": 1, "reaction": 1, "ledger_charge": 1})  # 실제로 훑은 행 수
+        self.assertEqual(checkpoint, ndjson.read_manifest(ndjson.manifest_path(out, "ledger_check"))["checkpoint"])  # 세 점검이 같은 범위를 본다
+
+    def test_rows_created_after_the_snapshot_began_are_not_in_the_result(self):
+        """검토 재현: 점검이 시작된 뒤 생긴 행(이벤트가 아직 없는 것 포함)이 결과에 섞이지 않는다 — 모든 읽기가 한 스냅샷을 본다."""
+        from records.models import Decision
+        from tests.test_receipt_ordering import WAIT, Worker
+
+        out = self.tmpdir()
+        created = []
+
+        def snapshot_has_started_then_another_connection_adds_a_decision(quiescent=False):
+            Decision.objects.count()  # 우리 스냅샷이 여기서 시작된다
+            def insert():
+                decision = Decision.objects.get(pk=self.decision.decision_id)
+                decision.pk = uuid.uuid7()  # 이벤트 없이 새 결정을 하나 더 만든다(점검이 시작된 뒤의 행)
+                decision._state.adding = True
+                decision.save(force_insert=True)
+                created.append(decision.pk)
+            worker = Worker(insert)
+            worker.start()
+            worker.join(WAIT)
+            assert not worker.errors, worker.errors
+            return []
+
+        with mock.patch("records.management.commands.export_integrity.check_ledger", snapshot_has_started_then_another_connection_adds_a_decision):
+            ok, text = self.export(out)
+        self.assertTrue(ok, text)  # 새 결정은 스냅샷에 보이지 않으므로 누락으로 보고되지 않는다
+        self.assertEqual(self.rows(out, "event_gaps"), [])
+        self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(out, "event_gaps"))["checkpoint"]["scanned"]["decision"], 1)  # 훑은 범위에도 없다
+        self.assertEqual(Decision.objects.count(), 2)  # (다음 점검에서는 보인다)
+        ok, _ = self.export(self.tmpdir())
+        self.assertFalse(ok)
+        self.assertEqual(len(created), 1)
 
     def test_problems_are_written_and_the_command_fails(self):
         EventOutbox.objects.filter(event_name="ad.charge").delete()
@@ -222,10 +330,19 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.export(out)
         self.assertFalse(ok)
         self.assertIn("문제 1건", text)
-        lines = (out / "event_gaps.ndjson").read_text().splitlines()
-        self.assertEqual([json.loads(line)["event_name"] for line in lines], ["ad.charge"])
-        self.assertEqual(ndjson.verify(out / "event_gaps.ndjson"), [])  # 문제가 있는 결과도 manifest 와 맞다
-        self.assertEqual(ndjson.read_manifest(out / "event_gaps.ndjson")["rows"], 1)
+        self.assertEqual([r["event_name"] for r in self.rows(out, "event_gaps")], ["ad.charge"])
+        self.assertEqual(ndjson.verify(ndjson.manifest_path(out, "event_gaps")), [])  # 문제가 있는 결과도 manifest 와 맞다
+
+    def test_a_sent_event_missing_from_mongodb_is_exported_separately(self):
+        """보냈다고 표시됐는데 MongoDB 에서 사라진 이벤트는 event_gaps 가 아니라 event_delivery 의 몫이다."""
+        relay_batch()
+        gone = store.collection().find_one({"event_name": "ad.reaction"})["_id"]
+        store.collection().delete_one({"_id": gone})
+        out = self.tmpdir()
+        ok, _ = self.export(out)
+        self.assertFalse(ok)
+        self.assertEqual(self.rows(out, "event_delivery"), [{"kind": "sent_not_in_mongo", "event_id": str(gone)}])
+        self.assertEqual(self.rows(out, "event_gaps"), [])  # outbox 에 남아 있으니 누락이 아니다
 
     def test_a_ledger_mismatch_is_exported(self):
         from billing.models import Wallet
@@ -234,14 +351,12 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
         out = self.tmpdir()
         ok, _ = self.export(out)
         self.assertFalse(ok)
-        row = json.loads((out / "ledger_check.ndjson").read_text().splitlines()[0])
+        row = self.rows(out, "ledger_check")[0]
         self.assertEqual(row["kind"], "ledger_problem")
         self.assertTrue(row["message"])
 
-    def test_mongodb_unreachable_fails_without_writing_an_incomplete_gap_list(self):
+    def test_mongodb_unreachable_fails_without_publishing_anything(self):
         from django.test import override_settings
-
-        from events import mongo
 
         out = self.tmpdir()
         EventOutbox.objects.all().delete()
@@ -251,14 +366,16 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
             mongo.close()
         self.assertFalse(ok)
         self.assertIn("점검하지 못했습니다", text)
-        self.assertFalse((out / "event_gaps.ndjson").exists())  # 불완전한 목록을 완결 파일로 남기지 않는다
+        self.assertEqual(list(out.glob("*")) if out.exists() else [], [])  # 불완전한 결과를 게시하지 않는다
 
     def test_verify_command(self):
         out = self.tmpdir()
         self.export(out)
         stdout = io.StringIO()
-        call_command("verify_ndjson", str(out / "ledger_check.ndjson"), str(out / "event_gaps.ndjson"), stdout=stdout)
-        self.assertEqual(stdout.getvalue().count("OK  "), 2)
-        (out / "ledger_check.ndjson").write_bytes(b'{"x":1}\n')
+        files = [str(ndjson.manifest_path(out, n)) for n in ("ledger_check", "event_gaps", "event_delivery")]
+        call_command("verify_ndjson", *files, stdout=stdout)
+        self.assertEqual(stdout.getvalue().count("OK  "), 3)
+        manifest = ndjson.read_manifest(ndjson.manifest_path(out, "ledger_check"))
+        (out / manifest["file"]).write_bytes(b'{"x":1}\n')
         with self.assertRaises(CommandError):
-            call_command("verify_ndjson", str(out / "ledger_check.ndjson"), str(out / "event_gaps.ndjson"), stdout=io.StringIO())
+            call_command("verify_ndjson", *files, stdout=io.StringIO())

@@ -181,36 +181,82 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     return problems
 
 
-def verify_events(relayed=False):
-    """이벤트 ↔ 원본 행 일대일(Step 4): 결정마다 `ad.decision`, 반응마다 `ad.reaction_received`, 판정된 반응마다 `ad.reaction`, 원장 CHARGE 마다 `ad.charge` 가 정확히 하나.
-    어긋난 곳의 설명 목록(지키면 빈 목록). `relayed`: 중계가 모두 끝난 시점이면 True — outbox 에 미전송이 없고 MongoDB 의 이벤트가 outbox 와 정확히 같아야 한다."""
+def _expected_events():
+    """원본 행에서 **독립적으로** 다시 만든 이벤트: {event_id: (이벤트 이름, 메시지 키, 페이로드)}. 형식은 `events.schemas` 의 빌더를 쓰되 값은 원본 행에서 직접 옮긴다."""
+    from billing.budget_day import budget_day_of
     from billing.models import LedgerEntry
-    from events import schemas, store
-    from events.models import EventOutbox
+    from events import schemas
     from records.models import Decision, Reaction
 
-    expected = set()
-    for decision_id in Decision.objects.values_list("decision_id", flat=True):
-        expected.add(schemas.event_id_of(schemas.DECISION, decision_id))
-    for inbox_id, status in Reaction.objects.values_list("inbox_id", "status"):
-        expected.add(schemas.event_id_of(schemas.REACTION_RECEIVED, inbox_id))
-        if status != "RECEIVED":
-            expected.add(schemas.event_id_of(schemas.REACTION, inbox_id))
-    for entry_id in LedgerEntry.objects.filter(entry_type="CHARGE").values_list("entry_id", flat=True):
-        expected.add(schemas.event_id_of(schemas.CHARGE, entry_id))
-    actual = set(EventOutbox.objects.values_list("event_id", flat=True))
+    expected = {}
+    for d in Decision.objects.all():
+        selected = None if d.creative_id is None else {
+            "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
+            "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
+        }
+        expected[schemas.event_id_of(schemas.DECISION, d.decision_id)] = (schemas.DECISION, d.decision_id, schemas.decision_payload(
+            decision_id=d.decision_id, media_id=d.media_id, slot_id=d.slot_id, decided_at=d.decided_at, audience=d.audience, subject_id=d.subject_id,
+            selected=selected, selection_policy=d.selection_policy, candidate_count=d.candidate_count, rejected_counts=d.rejected_counts,
+        ))
+    decision_of = {}
+    for r in Reaction.objects.all():
+        decision_of[f"{r.media_id}:{r.reaction_id}"] = r.decision_id
+        common = dict(inbox_id=r.inbox_id, reaction_id=r.reaction_id, media_id=r.media_id, decision_id=r.decision_id, type=r.type, occurred_at=r.occurred_at,
+                      received_at=r.received_at, subject_id=r.subject_id, source=r.source)
+        expected[schemas.event_id_of(schemas.REACTION_RECEIVED, r.inbox_id)] = (schemas.REACTION_RECEIVED, r.decision_id, schemas.reaction_received_payload(raw=r.raw, **common))
+        if r.status != "RECEIVED":
+            expected[schemas.event_id_of(schemas.REACTION, r.inbox_id)] = (schemas.REACTION, r.decision_id, schemas.reaction_payload(
+                status=r.status, reason_code=r.reason_code, applied_rule=r.applied_rule, basis=r.basis, **common))
+    for e in LedgerEntry.objects.filter(entry_type="CHARGE"):
+        decision_id = decision_of.get(e.reaction_ref)  # 원장의 멱등 키(<매체>:<reaction_id>)로 반응을 거쳐 결정을 찾는다
+        expected[schemas.event_id_of(schemas.CHARGE, e.entry_id)] = (schemas.CHARGE, decision_id, schemas.charge_payload(
+            entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, created_at=e.created_at, reaction_ref=e.reaction_ref, decision_id=decision_id,
+            requested_amount=-e.amount + e.shortfall, charged_amount=-e.amount, shortfall=e.shortfall, budget_day=budget_day_of(e.created_at),
+        ))
+    return expected
+
+
+def _differing_keys(stored, wanted):
+    keys = sorted(k for k in set(stored) | set(wanted) if json.dumps(stored.get(k), sort_keys=True, default=str) != json.dumps(wanted.get(k), sort_keys=True, default=str))
+    return keys or ["(타입)"]  # 값의 JSON 모양은 같고 타입만 다른 경우
+
+
+def verify_events(relayed=False):
+    """이벤트 검증(Step 4). 어긋난 곳의 설명 목록(맞으면 빈 목록).
+
+    ① 원본 행 ↔ outbox: 이벤트가 **정확히 하나**씩 있고(빠짐·남음), 내용(이벤트 이름·메시지 키·**페이로드 전체**)이 원본 행에서 다시 만든 것과 JSON 타입까지 같다.
+    ② `relayed`(중계가 모두 끝난 시점): 미전송 0, MongoDB 의 ID 집합 = outbox, 그리고 **MongoDB 문서 전체(봉투 + 페이로드)가 outbox 와 같다**.
+    outbox 와 MongoDB 를 같은 잘못된 값으로 바꿔도 ①이 잡고, MongoDB 만 바꿔도 ②가 잡는다.
+    """
+    from events import relay, store
+    from events.models import EventOutbox
+
+    expected = _expected_events()
+    outbox = {row.pk: row for row in EventOutbox.objects.all()}
     problems = []
-    if expected - actual:
-        problems.append(f"이벤트가 없는 원본 행 {len(expected - actual)}건")
-    if actual - expected:
-        problems.append(f"원본 행이 없는 이벤트 {len(actual - expected)}건")
+    if expected.keys() - outbox.keys():
+        problems.append(f"이벤트가 없는 원본 행 {len(expected.keys() - outbox.keys())}건")
+    if outbox.keys() - expected.keys():
+        problems.append(f"원본 행이 없는 이벤트 {len(outbox.keys() - expected.keys())}건")
+    wrong = {}
+    for event_id in expected.keys() & outbox.keys():
+        name, key, payload = expected[event_id]
+        row = outbox[event_id]
+        if (row.event_name, row.aggregate_id) != (name, key) or not relay.same_document({"p": row.payload}, {"p": payload}):
+            wrong.setdefault(name, []).append((event_id, _differing_keys(row.payload, payload)))
+    for name, items in sorted(wrong.items()):
+        problems.append(f"원본 행과 내용이 다른 {name} 이벤트 {len(items)}건 (예: {items[0][0]} 의 {items[0][1]})")
     if relayed:
-        unsent = EventOutbox.objects.filter(sent_at__isnull=True).count()
+        unsent = sum(1 for row in outbox.values() if row.sent_at is None)
         if unsent:
             problems.append(f"MongoDB 로 보내지 않은 이벤트 {unsent}건이 남아 있다")
-        in_mongo = {d["_id"] for d in store.collection().find({}, {"_id": 1})}
-        if in_mongo != actual:
-            problems.append(f"MongoDB 의 이벤트가 outbox 와 다르다(없음 {len(actual - in_mongo)}건, 더 있음 {len(in_mongo - actual)}건)")
+        in_mongo = {d["_id"]: d for d in store.collection().find()}
+        if in_mongo.keys() != outbox.keys():
+            problems.append(f"MongoDB 의 이벤트가 outbox 와 다르다(없음 {len(outbox.keys() - in_mongo.keys())}건, 더 있음 {len(in_mongo.keys() - outbox.keys())}건)")
+        different = [i for i in in_mongo.keys() & outbox.keys() if not relay.same_document(in_mongo[i], relay.to_document(outbox[i]))]
+        if different:
+            doc, want = in_mongo[different[0]], relay.to_document(outbox[different[0]])
+            problems.append(f"MongoDB 문서가 outbox 와 내용이 다른 이벤트 {len(different)}건 (예: {different[0]} 의 {_differing_keys(doc.get('payload', {}), want['payload']) if doc.get('payload') != want['payload'] else '봉투'})")
     return problems
 
 
