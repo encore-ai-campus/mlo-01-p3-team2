@@ -9,10 +9,10 @@
 """
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
-from . import ndjson
+from . import hops, ndjson
 
 MATCH, MISMATCH, LAG, OPEN, NOT_COMPARABLE = "match", "mismatch", "relay_lag_candidate", "open_window", "not_comparable"
 FIELDS = ("count", "ids_sha256", "content_sha256")
@@ -23,8 +23,6 @@ class HopInputError(Exception):
 
 
 HOP_KINDS = ("hop_source", "hop_outbox", "hop_mongo", "hop_pipeline")
-WINDOW_SIZES = {"utc-day": timedelta(days=1), "utc-hour": timedelta(hours=1)}
-SUPPORTED_SCHEMA_VERSION = 1  # export_hop_manifests 의 줄 모양(계약 버전)
 HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -39,7 +37,7 @@ class Hop:
 
 def _time(text, what):
     try:
-        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return hops.parse_time(text)
     except (TypeError, ValueError):
         raise HopInputError(f"{what} 시각이 올바르지 않다: {text!r}")
 
@@ -83,10 +81,10 @@ def load_hop(manifest_path, name=None, expected_kind=None):
         raise HopInputError(f"{manifest_path.name}: 구간 manifest 가 아니다(source_kind={kind!r})")
     if expected_kind is not None and kind != expected_kind:
         raise HopInputError(f"{manifest_path.name}: {expected_kind} 가 와야 하는 자리에 {kind} 가 있다")
-    if manifest.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+    if manifest.get("schema_version") != hops.HOP_SCHEMA_VERSION:
         raise HopInputError(f"{manifest_path.name}: 지원하지 않는 계약 버전 schema_version={manifest.get('schema_version')!r}")
     checkpoint = manifest.get("checkpoint") or {}
-    size = WINDOW_SIZES.get(checkpoint.get("window"))
+    size = hops.WINDOW_SIZES.get(checkpoint.get("window"))
     if size is None:
         raise HopInputError(f"{manifest_path.name}: 창 크기 선언(checkpoint.window)이 없거나 알 수 없다: {checkpoint.get('window')!r}")
     if checkpoint.get("hop", kind) != kind:

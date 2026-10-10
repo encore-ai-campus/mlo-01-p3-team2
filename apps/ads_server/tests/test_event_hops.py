@@ -347,6 +347,23 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn("MongoDB", text)
         self.assertFalse((self.dir / "out").exists())
 
+    def test_each_window_option_round_trips_from_the_exporter_to_the_checker(self):
+        """계획 4-4d: 창 옵션마다 내보낸 선언(줄 버전, checkpoint.window, 창 경계, 열린 창·보존 기준 시각)을 대조 쪽이 그대로 읽는다."""
+        from events import hopcheck
+
+        relay_batch()
+        for option, size in hops.WINDOWS.items():
+            self.assertTrue(self.export("--window", option, out=option)[0], option)
+            call_command("verify_hops", "--dir", str(self.dir / option), stdout=io.StringIO())  # 바로 뒤라 최신 감사 고정점이 이 폴더다
+            for hop in ("hop_source", "hop_outbox", "hop_mongo"):
+                loaded = hopcheck.load_hop(ndjson.manifest_path(self.dir / option, hop), expected_kind=hop)
+                self.assertEqual(hops.WINDOW_SIZES[loaded.window], size, (option, hop))
+                self.assertTrue(loaded.lines, (option, hop))
+                for start, _ in loaded.lines:
+                    self.assertEqual(hops.parse_time(start), hops.window_start(hops.parse_time(start), size))
+            cutoff = self.lines("hop_outbox", out=option)[1]["checkpoint"]["retention_cutoff"]
+            self.assertIsInstance(hops.parse_time(cutoff), datetime)
+
     def test_window_option_and_as_of(self):
         relay_batch()
         self.assertTrue(self.export("--window", "hour", out="h")[0])

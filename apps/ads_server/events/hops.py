@@ -19,7 +19,32 @@ from . import store
 
 DAY = timedelta(days=1)
 HOUR = timedelta(hours=1)
+
+
+# ---------------------------------------------------------------- 구간 계약 값 (내보내는 쪽 `export_hop_manifests` 와 대조하는 쪽 `hopcheck` 이 같이 쓴다)
+
+HOP_SCHEMA_VERSION = 1  # 구간 줄 모양의 계약 버전(manifest 의 `schema_version`)
 WINDOWS = {"day": DAY, "hour": HOUR}  # 창의 크기: UTC 자정 고정 하루(기본), 옵션으로 UTC 정시 고정 한 시간
+
+
+def window_label(name):
+    """창 옵션 이름(`day`·`hour`) → `checkpoint.window` 선언(`utc-day`·`utc-hour`)."""
+    return f"utc-{name}"
+
+
+WINDOW_SIZES = {window_label(name): size for name, size in WINDOWS.items()}  # `checkpoint.window` 선언 → 크기(대조 쪽이 읽는다)
+
+TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"  # 창 경계·열린 창·보존 기준 시각(초까지의 UTC)
+MILLIS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"  # 문서의 `produced_at`(밀리초까지의 UTC, 출력은 `_millis_utc`)
+
+
+def format_time(moment):
+    return moment.strftime(TIME_FORMAT)  # 받은 UTC 시각 그대로(변환하지 않는다)
+
+
+def parse_time(text):
+    """`format_time` 의 반대. 형식이 아니면 `ValueError`(문자열이 아니면 `TypeError`)."""
+    return datetime.strptime(text, TIME_FORMAT).replace(tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------- 정규화 (RFC 8785)
@@ -74,7 +99,7 @@ def _millis_utc(moment):
 
 
 def _produced(doc):
-    return datetime.strptime(doc["produced_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    return datetime.strptime(doc["produced_at"], MILLIS_FORMAT).replace(tzinfo=timezone.utc)
 
 
 def normal_document(event_id, event_name, schema_version, produced_at, payload):
@@ -107,15 +132,11 @@ def summarize(documents, now, grace_seconds, since=None, size=DAY):
     for (start, name), docs in sorted(groups.items()):
         docs.sort(key=lambda d: d["event_id"])
         lines.append({
-            "window_start": _z(start), "window_end": _z(start + size), "event_name": name, "count": len(docs),
+            "window_start": format_time(start), "window_end": format_time(start + size), "event_name": name, "count": len(docs),
             "ids_sha256": hashlib.sha256("\n".join(d["event_id"] for d in docs).encode("utf-8")).hexdigest(),
             "content_sha256": hashlib.sha256("\n".join(canonical_json(d) for d in docs).encode("utf-8")).hexdigest(),
         })
     return lines, sorted(open_windows)
-
-
-def _z(moment):
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def outbox_documents():
@@ -134,6 +155,6 @@ def unsent_counts(pairs, size=DAY):
     counts = {}
     for doc, sent in pairs:
         if not sent:
-            key = (_z(window_start(_produced(doc), size)), doc["event_name"])
+            key = (format_time(window_start(_produced(doc), size)), doc["event_name"])
             counts[key] = counts.get(key, 0) + 1
     return counts
