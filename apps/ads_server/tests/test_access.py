@@ -19,7 +19,7 @@ MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 # 새 공개 뷰나 "로그인만 필요" 뷰를 추가하면 **여기도 고쳐야 한다**(리뷰 지점).
 EXPECTED_PUBLIC = {
     "/accounts/signup/", "/accounts/login/", "/assets/<asset_name:name>",
-    "/",  # 루트 주소 → 로그인 화면으로 이동(내용 없음)
+    "/",  # 루트 주소 → 역할의 첫 화면(익명은 로그인 화면)으로 이동(내용 없음)
     # 매체 API(C1): 세션 로그인이 아니라 `X-Media-Key` 로 인증한다(`media_endpoint`). health 는 인증 없음
     "/api/media/v1/health", "/api/media/v1/decisions", "/api/media/v1/decisions/<str:decision_id>",
     "/api/media/v1/decisions/<str:decision_id>/reactions/<str:reaction_id>",

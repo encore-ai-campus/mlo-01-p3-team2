@@ -1,12 +1,46 @@
-body { font-family: system-ui, "Apple SD Gothic Neo", sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
-header { background: #fff; border-bottom: 1px solid #e3e6ec; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
-header form { margin: 0; }
-main { max-width: 480px; margin: 40px auto; padding: 0 16px; }
-.card { background: #fff; border: 1px solid #e3e6ec; border-radius: 10px; padding: 24px; }
+/* 디자인 토큰: 색·간격은 변수로만 쓴다. 다크 모드는 운영체제 설정을 따른다. */
+:root {
+  --bg: #f6f7f9; --surface: #fff; --border: #e3e6ec; --input-border: #c9ced8;
+  --text: #1d2330; --muted: #6b7280; --accent: #2f6fed; --accent-text: #fff;
+  --danger: #c0392b; --ok-bg: #eaf7ee; --ok-border: #bfe3c9; --warn-bg: #fff6e5; --warn-border: #f2d49b; --error-bg: #fdecea; --error-border: #f5c2bd;
+  --radius: 10px; --gap: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --surface: #1b1f27; --border: #2c323d; --input-border: #3a4150;
+    --text: #e6e8ec; --muted: #9aa3b2; --accent: #5b8ff9; --accent-text: #0b0e13;
+    --danger: #ff8a7a; --ok-bg: #16301f; --ok-border: #24543a; --warn-bg: #33290f; --warn-border: #5c4a16; --error-bg: #3a1a17; --error-border: #6b2e28;
+  }
+}
+* { box-sizing: border-box; }
+body { font-family: system-ui, "Apple SD Gothic Neo", sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--accent); }
+.topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 24px; display: flex; flex-wrap: wrap; gap: 8px var(--gap); align-items: center; }
+.brand { margin-right: auto; }
+.mainnav { display: flex; flex-wrap: wrap; gap: 4px 14px; order: 3; width: 100%; }
+.mainnav a { text-decoration: none; padding: 4px 0; }
+.mainnav a[aria-current="page"] { font-weight: 700; border-bottom: 2px solid var(--accent); }
+.account { margin: 0; display: flex; gap: 10px; align-items: center; }
+main { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+main.narrow { max-width: 480px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: var(--gap); }
 h1 { font-size: 20px; margin: 0 0 16px; }
 label { display: block; font-size: 14px; margin: 14px 0 4px; }
-input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #c9ced8; border-radius: 6px; }
-button { margin-top: 18px; padding: 10px 16px; border: 0; border-radius: 6px; background: #2f6fed; color: #fff; cursor: pointer; }
-.errorlist { color: #c0392b; list-style: none; padding: 0; margin: 4px 0 0; font-size: 13px; }
-.notice { background: #eaf7ee; border: 1px solid #bfe3c9; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
-.muted { color: #6b7280; font-size: 13px; }
+input[type=text], input[type=password], input[type=number], input[type=url], input[type=date], input[type=datetime-local], select, textarea {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--surface); color: var(--text);
+}
+button { margin-top: 18px; padding: 10px 16px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+button.secondary { margin-top: 0; padding: 6px 12px; background: transparent; color: var(--text); border: 1px solid var(--border); }
+.errorlist { color: var(--danger); list-style: none; padding: 0; margin: 4px 0 0; font-size: 13px; }
+.notice { background: var(--ok-bg); border: 1px solid var(--ok-border); padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
+.notice.warning { background: var(--warn-bg); border-color: var(--warn-border); }
+.notice.error { background: var(--error-bg); border-color: var(--error-border); }
+.muted { color: var(--muted); font-size: 13px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td.num, th.num { text-align: right; }
+.pager { display: flex; gap: 14px; justify-content: center; margin: var(--gap) 0; }
+@media (min-width: 720px) {
+  .mainnav { order: 0; width: auto; }
+}

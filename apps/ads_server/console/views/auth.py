@@ -1,13 +1,15 @@
 from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.core.exceptions import ValidationError
-from django.shortcuts import redirect, render, resolve_url
+from django.shortcuts import redirect, render
 from django.views import View
 
 from billing.api import register_advertiser
-from foundation.api import Role, SignupRateLimited, client_ip, register_attempt
+from foundation.api import SignupRateLimited, client_ip, register_attempt
 
+from ..errors import form_errors
 from ..forms import SignupForm
+from .home import home_url
 
 
 class SignupView(View):
@@ -32,9 +34,7 @@ class SignupView(View):
             try:
                 register_advertiser(data["username"], data["password"], data["nickname"], data["class_label"], request=request)  # 가입·지급·감사가 한 트랜잭션
             except ValidationError as e:
-                for field, errors in e.message_dict.items():
-                    for message in errors:
-                        form.add_error(field, message)
+                form_errors(form, e)
             else:
                 messages.success(request, "가입이 완료되었습니다. 로그인해 주세요.")
                 return redirect("login")
@@ -46,10 +46,8 @@ class ConsoleLoginView(LoginView):
     redirect_authenticated_user = True
 
     def get_default_redirect_url(self):
-        """`next` 가 없을 때 역할별 첫 화면으로. 관리자는 관리자 화면, 광고주는 광고주 화면."""
-        if self.request.user.role == Role.ADMIN:
-            return resolve_url("admin:index")
-        return resolve_url("advertiser_home")
+        """`next` 가 없을 때 역할별 첫 화면으로."""
+        return home_url(self.request.user)
 
 
 class ConsoleLogoutView(LogoutView):
