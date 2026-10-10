@@ -72,9 +72,15 @@ python manage.py relay_events --status       # 미전송 건수와 가장 오래
 python manage.py purge_sent_events           # 보낸 지 7일(EVENTS_OUTBOX_RETENTION_DAYS) 지난 outbox 행 삭제. 미전송은 지우지 않는다. 하루 한 번처럼 주기적으로
 python manage.py export_integrity --out DIR  # 원장·이벤트 정합성 점검(한 읽기 스냅샷). 결과는 NDJSON + manifest, 문제가 있으면 비정상 종료
 python manage.py verify_ndjson DIR/event_gaps.manifest.json   # 게시된 결과가 manifest 와 맞는지 확인
+python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT          # 백필 미리보기(dry-run, 쓰지 않음)
+python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT --apply  # 원본 행에서 이벤트를 다시 만들어 outbox 에 씀(중계가 보냄)
+python manage.py export_hop_manifests --out HOPS   # 원본 기대·outbox·MongoDB 세 구간의 창별 manifest(창이 닫힌 뒤, 주기적으로)
+python manage.py verify_hops --dir HOPS            # 구간 대조. 확정 불일치·사슬 오류·고정점 불일치면 비정상 종료, 중계 지연 후보만 있으면 보고
 ```
 
 - **중계가 충돌로 멈출 때**: `relay_events`가 "충돌로 중계를 멈춥니다"와 이벤트 ID를 남기고 비정상 종료하면, MongoDB에 같은 이벤트 ID로 **다른 내용**이 이미 있다는 뜻이다(이벤트 ID가 원천 행에서 결정적으로 정해지므로 정상 운영에서는 일어나지 않는다). 덮어쓰지 않는 것이 의도다. 충돌하지 않은 이벤트는 이미 보낸 것으로 표시됐고, 충돌한 행은 미전송으로 남아 있어 **원인을 해결하기 전에는 다시 띄워도 같은 배치에서 다시 멈춘다**. 로그의 이벤트 ID로 outbox 행(`events_outbox`)과 MongoDB 문서를 비교해 원인(수동 수정, 직렬화 변경 등)을 찾는다. outbox가 맞다고 확인되면 MongoDB의 그 문서를 지우고 다시 띄우면 중계가 다시 저장한다.
+- **백필**은 이벤트가 빠진 원본 행이 있을 때(Step 4 이전 행, 장애 복구 뒤 보정) 운영자가 돌린다. 순서: `export_integrity` → `verify_ndjson` → `backfill_events`(dry-run으로 건수 확인) → `--apply` → `relay_events`가 보냄 → `export_integrity`로 누락 0 확인. 목록의 값은 쓰지 않고 원본 행에서 다시 만들며, 해석 불가가 있으면 비정상 종료한다. 실행은 감사 로그(`events.backfilled`)에 남는다.
+- **구간 manifest**는 창(UTC 하루)이 끝나고 2분(`EVENTS_HOP_GRACE_SECONDS`) 뒤에 닫힌다. `verify_hops`는 감사 로그의 고정점과 대조하므로 같은 환경의 폴더를 쓴다(다른 환경에서 받은 폴더는 `--no-anchor`). 파이프라인 쪽 manifest는 `--pipeline`으로 MongoDB 구간과 대조한다.
 - `export_integrity`의 결과는 이름에 내용 해시가 들어간 데이터 파일과 그것을 가리키는 manifest다. manifest가 가리키는 파일만 믿고, 옛 세대 파일은 자동으로 지우지 않는다. `checkpoint`는 점검 범위의 서술(스냅샷·시작 시각·훑은 행 수)이고 이어서 읽는 위치가 아니다.
 
 ## 테스트와 점검
