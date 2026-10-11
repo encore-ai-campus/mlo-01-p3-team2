@@ -299,6 +299,7 @@ erDiagram
         string secret_hash "SHA-256, 평문 없음"
         datetime expires_at
         datetime revoked_at
+        string request_key "UK, 발급 요청 멱등 키"
     }
     campaigns_creative_image {
         uuid creative_image_id PK
@@ -357,11 +358,12 @@ erDiagram
 | `id` | UUID | N | PK | |
 | `username` | 문자 30 | N | UNIQUE | 로그인 아이디. `[a-z0-9_]{4,20}` |
 | `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다 |
-| `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다 |
+| `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다. 사용자 관리 화면에서도 추가·변경할 수 없다 |
 | `nickname` | 문자 20 | N | | 2~20자 |
 | `class_label` | 문자 30 | N | | "반". 표시용 자유 입력, 로직에 쓰지 않는다 |
-| `is_active` | 불리언 | N | | 관리자가 비활성화할 수 있다 |
-| `is_superuser` | 불리언 | N | | 관리자만 참 |
+| `is_active` | 불리언 | N | | 관리자가 비활성화할 수 있다(사유 필수). 거짓이면 로그인·세션·광고 송출·공개 이미지가 멈춘다(§6) |
+| `is_superuser` | 불리언 | N | | 관리자만 참. 계정을 만드는 곳(매니저)이 역할과 함께 정하고 사용자 관리 화면에서 바꿀 수 없다 [구현 `002f90b`] |
+| `session_epoch` | 양의 정수 | N | 기본 0 | **세션 폐기 버전.** 비활성화할 때 올라가고 세션 검증 값에 들어가, 그 전의 로그인 세션은 다시 활성화해도 돌아오지 않는다 [구현 `b4faf8a`] |
 | `last_login` | 시각 | Y | | Django 기본 |
 | `created_at` | 시각 | N | | |
 
@@ -447,6 +449,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `created_at` | 시각 | N | | |
 | `expires_at` | 시각 | Y | | 교체 유예가 끝나는 시각. NULL이면 계속 유효 |
 | `revoked_at` | 시각 | Y | | 즉시 폐기 |
+| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 발급 요청의 멱등 키(화면 폼 하나 = 키 하나). 같은 요청 키로는 다시 발급하지 않고 409와 키 식별자를 돌려준다(평문은 다시 보일 수 없음) [구현 `4450a59`] |
 
 #### O1. 캠페인 `campaigns_campaign` [구현]
 
@@ -567,6 +570,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
 | `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
 | `note` | 문자 200 | N | | 조정 사유 등 |
+| `adjust_key` | 문자 64 | Y | **UNIQUE**(NULL 제외), `ADMIN_ADJUST`만 허용(`CHECK`) | 관리자 조정의 멱등 키(화면 폼 하나 = 조정 하나). 같은 키는 한 번만 반영하고 다른 내용이면 거절 [구현 `b4faf8a`] |
 | `created_at` | 시각 | N | 인덱스 | |
 
 유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(부분 UNIQUE).
@@ -644,6 +648,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs` |
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
+| 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
+| 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
@@ -884,6 +890,8 @@ sequenceDiagram
 |---|---|---|
 | 반응 접수 | (매체, `reaction_id`) UNIQUE | 몇 번을 보내도 한 행. 최소 한 번 전달 + 중복 제거 = 유실 0 |
 | 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
+| 매체 키 발급·교체 | `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 키는 하나(두 번째는 409 + 키 식별자) |
+| 관리자 조정 | `adjust_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 조정은 한 번 |
 | 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
 | 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
 | 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
@@ -915,7 +923,9 @@ sequenceDiagram
 | 입찰 변경 | O5 새 버전 | `bid.added` |
 | 관리자 정책 변경 | M3 새 버전 | `masters.policy_added`(이전 값 포함) |
 | 관리자 중단·해제·반려 | O1 상태, O6 상태 | `campaign.suspended`·`released`·`review_rejected` |
-| 관리자 포인트 조정 | B2 `ADMIN_ADJUST` + B1 | `billing.adjusted` |
+| 관리자 포인트 조정 | B2 `ADMIN_ADJUST`(`adjust_key` 포함) + B1 | `billing.adjusted` |
+| 관리자 광고주 비활성화·다시 활성화 | A1 `is_active`·`session_epoch`(비활성화 때 +1) | `account.deactivated`·`account.reactivated`(사유) |
+| 관리자 계정 수정(사용자 관리 화면) | A1 | `account.admin_updated`. 계정 추가가 없어져 `account.admin_created`는 더 이상 생기지 않는다(`b4faf8a`) |
 | 이벤트 백필(`--apply`, 청크마다) | P3 | `events.backfilled`(입력 manifest SHA-256·건수) |
 | 구간별 정합 manifest 게시 | — | `events.hop_manifests_exported`(세 구간 최신 manifest의 SHA-256 — 고정점) |
 
@@ -1048,7 +1058,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 엔터티 | 생성 | 변경 | 삭제 | 보존 |
 |---|---|---|---|---|
-| 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화 | 없음(비활성화) | [열림] |
+| 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화(관리자, 사유 필수·감사 로그. 비활성화하면 로그인·열린 세션·**광고 송출·공개 이미지**가 멈추고, 캠페인 상태는 그대로라 다시 활성화하면 그대로 다시 나간다 — 설계 §10 "광고주 비활성화는 송출도 멈춘다") | 없음(비활성화) | [열림] |
 | 매체·슬롯 | 관리자 | 이름·활성 | 없음 | 영구 |
 | 입찰 정책·입찰 | 새 버전 행 | **없음** | 없음 | 영구(결정 해석에 필요) |
 | 캠페인·광고그룹·소재 | 광고주 | 허용 필드만, **`ENDED` 이후 없음** | 없음 | [열림] |
@@ -1178,6 +1188,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.25 | 2026-10-11 | 광고주 비활성화의 효과(사용자 결정, 구현 3-1d `f9a7a2e`): §6 수명주기와 `is_active` 설명에 로그인·세션·광고 송출·공개 이미지가 멈추고 다시 활성화하면 그대로 다시 나간다는 점. 외부 검토 3-1d 보완(`b4faf8a`): A1 `session_epoch`, B2 `adjust_key`, `role`·`is_superuser`는 사용자 관리 화면에서도 바꿀 수 없음(`002f90b` 포함), §5 멱등 키·불변식 표와 §5.5 감사 로그(`account.admin_created`가 더 이상 생기지 않음). M4 `request_key`(`4450a59`, 발급 요청의 멱등 키) |
 | 0.24 | 2026-10-10 | 외부 재검토(`f52d1df`) 보완 반영: 구간 manifest 게시의 직렬화 단위를 "파일별"에서 "내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지), 폴더 단위 잠금"으로 고침(로컬 파일시스템 전제 유지) |
 | 0.23 | 2026-10-10 | 외부 검토(`b481024`) 보완 반영: 구간 manifest 계약에 중계 지연 후보의 좁힌 정의(부족분 ≤ 미전송), outbox 대조 범위(보존 기준 시각 `retention_cutoff` 이후 시작한 창), 입력 검증 규칙, 게시 직렬화(`flock`)와 고정점(이 실행이 게시한 manifest 해시)·한계 |
 | 0.22 | 2026-10-10 | Step 4-3 구현 반영: §5.6 구간별 manifest 계약을 실제 규칙으로(정규화 문서의 키·`event_id`·`produced_at` 형식, JCS와 숫자 표기의 한계, 줄 필드와 `unsent`, 파일·세대, `checkpoint` 필드, 대조 분류), §5.9의 4-3 작업을 [구현]으로, 감사 행동 `events.backfilled`·`events.hop_manifests_exported`, NDJSON 파일 종류 |
