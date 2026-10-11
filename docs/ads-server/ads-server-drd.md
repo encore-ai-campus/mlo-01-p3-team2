@@ -925,7 +925,7 @@ sequenceDiagram
 | 관리자 중단·해제·반려 | O1 상태, O6 상태 | `campaign.suspended`·`released`·`review_rejected` |
 | 관리자 포인트 조정 | B2 `ADMIN_ADJUST`(`adjust_key` 포함) + B1 | `billing.adjusted` |
 | 관리자 광고주 비활성화·다시 활성화 | A1 `is_active`·`session_epoch`(비활성화 때 +1) | `account.deactivated`·`account.reactivated`(사유) |
-| 관리자 계정 수정(사용자 관리 화면) | A1 | `account.admin_updated`. 계정 추가가 없어져 `account.admin_created`는 더 이상 생기지 않는다(`b4faf8a`) |
+| 계정 수정(사용자 관리 화면: 프로필·비밀번호 초기화만) | A1 | `account.admin_updated`·`account.password_reset_by_admin`. 계정 추가가 없어져 `account.admin_created`는 더 이상 생기지 않고(`b4faf8a`), 역할·활성 여부·슈퍼유저 여부는 어떤 계정도 이 화면에서 바꾸지 않는다(사용자 결정 2026-10-11) |
 | 이벤트 백필(`--apply`, 청크마다) | P3 | `events.backfilled`(입력 manifest SHA-256·건수) |
 | 구간별 정합 manifest 게시 | — | `events.hop_manifests_exported`(세 구간 최신 manifest의 SHA-256 — 고정점) |
 
