@@ -2,7 +2,10 @@
 import uuid
 from unittest import mock
 
+from django.core.paginator import Paginator
+from django.db import connection
 from django.test import TestCase, override_settings, tag
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from campaigns import api as campaigns
@@ -16,14 +19,54 @@ class MonitoringServiceTests(TestCase):
         self.w = World()
         self.later = campaigns.create_campaign(self.w.adv, "나중 캠페인", NOW, None, 1000, now=NOW + DAY)
 
+    def listed(self):
+        rows = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
+        return list(rows[0:rows.count()])
+
     def test_newest_change_first_including_creative_changes(self):
-        names = [i.campaign.name for i in campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)]
-        self.assertEqual(names, ["나중 캠페인", "캠페인"])
+        items = self.listed()
+        self.assertEqual([(i.campaign.name, i.last_changed_at) for i in items], [("나중 캠페인", NOW + DAY), ("캠페인", NOW)])  # 소재가 없으면 캠페인의 시각
         campaigns.update_creative(self.w.adv, self.w.creative.creative_id, {"redirect_url": "https://changed.example/"}, now=NOW + 2 * DAY)
-        items = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
-        self.assertEqual([i.campaign.name for i in items], ["캠페인", "나중 캠페인"])  # 소재의 이동 주소가 바뀌면 위로(피싱 주소 바꿔치기를 놓치지 않게)
+        items = self.listed()
+        self.assertEqual([(i.campaign.name, i.last_changed_at) for i in items], [("캠페인", NOW + 2 * DAY), ("나중 캠페인", NOW + DAY)])  # 소재의 이동 주소가 바뀌면 위로(피싱 주소 바꿔치기를 놓치지 않게)
         self.assertEqual(items[0].creatives[0].redirect_url, "https://changed.example/")
         self.assertEqual(items[1].creatives, ())
+
+    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)
+    def test_the_latest_of_several_creatives_counts(self):
+        campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)), now=NOW + 2 * DAY)
+        first = self.listed()[0]
+        self.assertEqual((first.campaign.name, first.last_changed_at, len(first.creatives)), ("캠페인", NOW + 2 * DAY, 2))
+
+    def test_a_page_reads_only_its_own_campaigns(self):
+        """P3-4 2단계(외부 검토 7936ac7): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
+        쪽 하나는 질의 네 번(개수·그 쪽 캠페인·그 소재·그 요청) — 캠페인이 늘어도 같다."""
+        for _ in range(4):
+            World()
+        campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW + 2 * DAY)
+        review = campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW + 2 * DAY)
+        rows = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
+        from campaigns import services
+        with mock.patch.object(services, "_creative_view", wraps=services._creative_view) as converted, CaptureQueriesContext(connection) as queries:
+            items = list(Paginator(rows, 2).get_page(1))
+        self.assertEqual(len(queries), 4)
+        (reviews,) = [q["sql"] for q in queries.captured_queries if "FROM `campaigns_review_request`" in q["sql"]]
+        self.assertIn("`campaign_id` IN (", reviews)  # 열린 요청도 이 쪽 캠페인의 것만
+        self.assertEqual([i.campaign.campaign_id for i in items], [self.w.campaign.campaign_id, self.later.campaign_id])  # 중단으로 바뀐 캠페인이 맨 위
+        self.assertEqual(items[0].campaign.suspension.open_review_request_id, review.review_request_id)
+        self.assertEqual(converted.call_count, 1)  # 이 쪽의 소재 하나(다른 캠페인 넷의 소재는 읽지 않는다)
+
+    def test_pages_split_one_order_without_overlap(self):
+        """마지막 변경이 같으면 캠페인 ID 역순(나중에 만든 것 먼저)으로 끊는다 — 쪽마다 따로 읽어도 겹치거나 빠지는 줄이 없다."""
+        for _ in range(5):
+            World()  # 모두 같은 시각 NOW 에 만들었다
+        rows = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
+        everything = [i.campaign.campaign_id for i in rows[0:rows.count()]]
+        paginator = Paginator(rows, 2)
+        paged = [i.campaign.campaign_id for n in paginator.page_range for i in paginator.page(n)]
+        self.assertEqual(len(set(everything)), 7)
+        self.assertEqual(paged, everything)
+        self.assertEqual(everything[1:], sorted(everything[1:], reverse=True))  # '나중 캠페인' 다음은 같은 시각 — ID 역순
 
     def test_the_review_queue_reads_only_the_waiting_campaigns_creatives(self):
         """외부 검토(7936ac7) P3: 재검토 화면이 전체 모니터링 목록(모든 캠페인의 소재)을 만들었다. 대기 중인 캠페인의 소재만 읽는다."""

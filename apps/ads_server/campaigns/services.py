@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
 from assets.api import store, validate_image
@@ -359,21 +360,35 @@ def reject_review_request(actor, review_request_id, note, now=None):
 
 def monitoring_list(actor, now=None):
     """모든 광고주의 캠페인과 소재. **마지막 변경**(캠페인·소재 중 늦은 쪽)이 최근인 순 — 소재의 이동 주소만 바꿔도 위로 올라온다(피싱 주소 바꿔치기를 놓치지 않게).
-    중단·종료 캠페인도 포함한다. 질의는 세 번(캠페인·소재·열린 재검토 요청)."""
-    # ponytail: 전부 읽어 파이썬에서 정렬한다. 광고주 150명 × 캠페인 상한 20 규모면 충분하다. 커지면 마지막 변경 시각을 열로 두고 DB 에서 정렬·쪽 나누기
+    중단·종료 캠페인도 포함한다. 정렬·쪽 나누기는 DB 에서 하고(P3-4 2단계, 외부 검토 7936ac7) 돌려준 줄 묶음을 `Paginator` 에 넘기면 그 쪽만 읽는다."""
     require_admin(actor)
-    now = _now(now)
-    open_reviews = dict(ReviewRequest.objects.filter(status=ReviewStatus.OPEN).values_list("campaign_id", "review_request_id"))
-    creatives = {}
-    for creative in Creative.objects.select_related("ad_group").order_by("created_at"):
-        creatives.setdefault(creative.ad_group.campaign_id, []).append(creative)
-    items = []
-    for c in Campaign.objects.all():
-        own = creatives.get(c.campaign_id, [])
-        items.append(MonitoredCampaign(
-            _campaign_view(c, now, open_reviews.get(c.campaign_id)), tuple(_creative_view(x) for x in own), max([c.updated_at, *(x.updated_at for x in own)]),
-        ))
-    return sorted(items, key=lambda item: item.last_changed_at, reverse=True)
+    return _MonitoringRows(_now(now))
+
+
+class _MonitoringRows:
+    """`Paginator` 가 쓰는 두 가지만 있다: 개수(`count()`)와 구간(`[a:b]`). 구간 하나는 질의 세 번(그 쪽 캠페인·그 소재·그 열린 재검토 요청).
+    마지막 변경이 같으면 캠페인 ID 역순(uuid7 — 나중에 만든 것 먼저)으로 끊는다 — 쪽마다 따로 읽어도 겹치거나 빠지는 줄이 없다."""
+
+    # ponytail: 정렬 키가 계산 값이라 색인을 못 쓴다 — 쪽마다 모든 캠페인을 훑어 정렬한다(광고주 150명 × 캠페인 상한 20 = 3,000행). 더 커지면 마지막 변경 시각을 캠페인 열로 두고(소재 변경 때 함께 갱신) 색인
+    def __init__(self, now):
+        self.now = now
+        last_creative = Creative.objects.filter(ad_group__campaign=OuterRef("pk")).order_by("-updated_at").values("updated_at")[:1]
+        self.campaigns = Campaign.objects.annotate(
+            last_changed_at=Greatest("updated_at", Coalesce(Subquery(last_creative), "updated_at")),  # 소재가 없으면 캠페인의 시각(GREATEST 는 NULL 이 섞이면 NULL)
+        ).order_by("-last_changed_at", "-campaign_id")
+
+    def count(self):
+        return Campaign.objects.count()
+
+    def __getitem__(self, window):
+        rows = list(self.campaigns[window])
+        ids = [c.campaign_id for c in rows]
+        open_reviews = dict(ReviewRequest.objects.filter(status=ReviewStatus.OPEN, campaign_id__in=ids).values_list("campaign_id", "review_request_id"))
+        creatives = {}
+        for creative in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=ids).order_by("created_at"):
+            creatives.setdefault(creative.ad_group.campaign_id, []).append(_creative_view(creative))
+        return [MonitoredCampaign(_campaign_view(c, self.now, open_reviews.get(c.campaign_id)), tuple(creatives.get(c.campaign_id, ())), c.last_changed_at)
+                for c in rows]
 
 
 def advertiser_usage(actor, owner_ids):
