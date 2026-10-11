@@ -44,6 +44,12 @@ class OperatorBase(TestCase):
     def suspend(self, reason="부적절한 이동 주소", back="campaigns"):
         return self.client.post(reverse("operator:campaign_suspend", args=[self.cid]), {"reason": reason, "back": back})
 
+    def release(self, back="campaigns", **extra):
+        """화면이 싣는 대로: 지금 중단의 회차(중단 시각)와, 대기열이면 재검토 요청."""
+        suspension = campaigns.get_campaign(self.w.adv, self.cid).suspension
+        data = {"back": back, "suspended_at": suspension.suspended_at.isoformat() if suspension else "", **extra}
+        return self.client.post(reverse("operator:campaign_release", args=[self.cid]), data)
+
 
 @tag("security")
 class CampaignMonitorPageTests(OperatorBase):
@@ -90,11 +96,14 @@ class CampaignMonitorPageTests(OperatorBase):
 
     def test_release(self):
         self.suspend()
-        self.assertRedirects(self.client.post(reverse("operator:campaign_release", args=[self.cid]), {"back": "campaigns"}), self.monitor)
+        seen = campaigns.get_campaign(self.w.adv, self.cid).suspension.suspended_at.isoformat()
+        self.assertRedirects(self.release(), self.monitor)
         self.assertEqual(campaigns.get_campaign(self.w.adv, self.cid).status, "ACTIVE")
-        self.client.post(reverse("operator:campaign_release", args=[self.cid]), {"back": "campaigns"})  # 이미 풀린 캠페인
+        self.client.post(reverse("operator:campaign_release", args=[self.cid]), {"back": "campaigns", "suspended_at": seen})  # 이미 풀린 캠페인
         self.assertContains(self.client.get(self.monitor), "중단된 캠페인이 아닙니다")
-        self.assertEqual(self.client.post(reverse("operator:campaign_release", args=[uuid.uuid4()])).status_code, 404)
+        self.client.post(reverse("operator:campaign_release", args=[self.cid]), {"back": "campaigns"})  # 중단 회차가 없는 요청
+        self.assertContains(self.client.get(self.monitor), "새로 불러와 다시 시도하세요")
+        self.assertEqual(self.client.post(reverse("operator:campaign_release", args=[uuid.uuid4()]), {"suspended_at": seen}).status_code, 404)
 
     def test_back_only_goes_to_known_pages(self):
         self.assertRedirects(self.suspend(back="https://evil.example/"), self.monitor)  # 모르는 값은 목록으로(열린 리다이렉트 없음)
@@ -115,7 +124,7 @@ class ReviewQueuePageTests(OperatorBase):
         self.assertIn(reverse("operator:asset", args=[self.w.creative.image_name]), html)
 
     def test_release_from_the_queue_closes_the_request(self):
-        r = self.client.post(reverse("operator:campaign_release", args=[self.cid]), {"back": "reviews"})
+        r = self.release(back="reviews", review_request_id=str(self.review.review_request_id))
         self.assertRedirects(r, self.queue)
         self.assertEqual(campaigns.list_review_requests(self.w.adv, self.cid)[0].status, "RELEASED")
         self.assertNotIn("고쳤습니다", self.client.get(self.queue).content.decode())

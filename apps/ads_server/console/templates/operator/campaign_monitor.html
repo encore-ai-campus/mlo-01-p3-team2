@@ -16,9 +16,12 @@
         <td>{{ item.last_changed_at|kst }}</td>
         <td>
           {% if c.status == "SUSPENDED" %}
-            <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="campaigns"><button type="submit">중단 해제</button></form>
+            <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="campaigns">
+              <input type="hidden" name="suspended_at" value="{{ c.suspension.suspended_at.isoformat }}">
+              <button type="submit">중단 해제</button>
+            </form>
           {% elif c.status != "ENDED" %}
-            <form method="post" action="{% url 'operator:campaign_suspend' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="campaigns">
+            <form method="post" action="{% url 'operator:campaign_suspend' c.campaign_id %}" data-confirm="이 캠페인을 중단합니다. 광고가 바로 나가지 않고 광고주 화면에 사유가 보입니다.">{% csrf_token %}<input type="hidden" name="back" value="campaigns">
               <label for="reason-{{ c.campaign_id }}">중단 사유</label>
               <input type="text" name="reason" id="reason-{{ c.campaign_id }}" maxlength="500" required>
               <button type="submit">중단</button>

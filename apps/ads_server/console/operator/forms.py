@@ -51,6 +51,13 @@ class BulkPolicyForm(PolicyValuesForm):
     slots = SlotVersionsField(required=False)  # 하나도 고르지 않은 경우는 서비스가 알린다
 
 
+class ReleaseForm(forms.Form):
+    """해제 버튼이 싣는 것: 화면이 본 중단 회차(중단 시각)와, 대기열에서는 그 재검토 요청. 서비스가 캠페인 잠금 안에서 지금과 대조한다."""
+
+    suspended_at = forms.DateTimeField(widget=forms.HiddenInput)
+    review_request_id = forms.CharField(required=False, widget=forms.HiddenInput)
+
+
 class KeyIssueForm(forms.Form):
     label = forms.CharField(label="라벨(선택)", max_length=100, required=False, strip=False)
 

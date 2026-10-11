@@ -16,7 +16,11 @@
         <td>{% include "operator/_creatives.html" with creatives=creatives|get_item:c.campaign_id %}</td>
         <td>{{ r.created_at|kst }}</td>
         <td>
-          <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="reviews"><button type="submit">해제</button></form>
+          <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="reviews">
+            <input type="hidden" name="suspended_at" value="{{ c.suspension.suspended_at.isoformat }}">
+            <input type="hidden" name="review_request_id" value="{{ r.review_request_id }}">
+            <button type="submit">해제</button>
+          </form>
           <form method="post" action="{% url 'operator:review_reject' r.review_request_id %}">{% csrf_token %}
             <label for="note-{{ r.review_request_id }}">반려 답변</label>
             <input type="text" name="note" id="note-{{ r.review_request_id }}" maxlength="500" required>

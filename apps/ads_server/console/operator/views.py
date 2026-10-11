@@ -16,7 +16,7 @@ from masters import api as masters
 from .. import once
 from ..errors import HANDLED, fetch, form_errors, message_of, status_of
 from ..paging import page_of
-from .forms import BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, SlotForm
+from .forms import BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, ReleaseForm, SlotForm
 
 
 def _render(request, template, title, status=200, **context):
@@ -196,8 +196,14 @@ def campaign_suspend(request, campaign_id):
 
 @require_POST
 def campaign_release(request, campaign_id):
+    """화면이 본 중단 회차·재검토 요청과 지금이 다르면 해제하지 않는다(오래된 화면의 버튼이 새 중단을 풀지 않게)."""
+    form = ReleaseForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 시도하세요.")
+        return _back(request)
     try:
-        campaigns.release_campaign(request.user, campaign_id)
+        campaigns.release_campaign(request.user, campaign_id, expected_suspended_at=form.cleaned_data["suspended_at"],
+                                   review_request_id=form.cleaned_data["review_request_id"] or None)
     except HANDLED as e:
         messages.error(request, message_of(e))
     else:

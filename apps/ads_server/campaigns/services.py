@@ -235,7 +235,12 @@ def suspend_campaign(actor, campaign_id, reason, now=None):
     return _campaign_view(c, now, _open_review_id(c))
 
 
-def release_campaign(actor, campaign_id, now=None):
+def release_campaign(actor, campaign_id, now=None, expected_suspended_at=None, review_request_id=None):
+    """중단 해제. 열린 재검토 요청은 해제로 닫힌다(transitions).
+
+    화면에서 누르는 해제는 **화면이 본 중단 회차**(`expected_suspended_at` = 그 중단 시각)와, 대기열에서는 그 재검토 요청(`review_request_id`)을 싣는다.
+    캠페인 행을 잠근 뒤 대조해 다르면 `StaleVersion` — 화면을 연 뒤 다른 관리자가 해제하고 다시 중단했거나 새 요청이 왔는데, 오래된 버튼이 새 중단까지 풀지 않게 한다(외부 검토 3-1c P2).
+    """
     require_admin(actor)
     now = _now(now)
     with transaction.atomic():
@@ -245,6 +250,10 @@ def release_campaign(actor, campaign_id, now=None):
         tr.assert_open(c, now)
         if c.status != CampaignStatus.SUSPENDED:
             raise NotSuspended("중단된 캠페인이 아닙니다.")
+        if expected_suspended_at is not None and c.suspended_at != expected_suspended_at:
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다: 화면을 연 뒤 이 캠페인이 다시 중단됐습니다. 새로 불러와 지금의 사유를 확인하세요.")
+        if review_request_id is not None and _open_review_id(c) != parse_uuid(review_request_id, "재검토 요청"):
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다: 화면을 연 뒤 재검토 요청이 처리되거나 새로 들어왔습니다. 새로 불러와 확인하세요.")
         tr.apply(c, "release", tr.ADMIN, now)
         _audit(actor, "campaign.released", ("campaigns.campaign", c.campaign_id))
     return _campaign_view(c, now)
@@ -281,11 +290,16 @@ def reject_review_request(actor, review_request_id, note, now=None):
     require_admin(actor)
     now = _now(now)
     note = clean_text(note, "반려 사유", "/note", 500)
+    review_id = parse_uuid(review_request_id, "재검토 요청")
+    campaign_id = ReviewRequest.objects.filter(pk=review_id).values_list("campaign_id", flat=True).first()
+    if campaign_id is None:
+        raise errors.NotFound("재검토 요청을 찾을 수 없습니다.")
     with transaction.atomic():
-        review = ReviewRequest.objects.select_related("campaign").filter(pk=parse_uuid(review_request_id, "재검토 요청")).first()
-        if review is None:
-            raise errors.NotFound("재검토 요청을 찾을 수 없습니다.")
-        tr.assert_open(review.campaign, now)
+        # 해제·기간 종료·재검토 접수와 같은 순서: **캠페인 행을 먼저 잠그고** 요청은 그 뒤에 다시 읽는다. 요청 상태를 바꾸는 쪽은 모두 이 잠금을 쥐므로
+        # 읽은 OPEN 이 저장할 때까지 유효하다(외부 검토 3-1c P2: 잠금 없이 읽으면 먼저 닫힌 요청을 늦은 반려가 덮었다).
+        campaign = Campaign.objects.select_for_update().get(pk=campaign_id)
+        review = ReviewRequest.objects.get(pk=review_id)
+        tr.assert_open(campaign, now)
         if review.status != ReviewStatus.OPEN:
             raise errors.Conflict("이미 처리된 요청입니다.")
         tr.close_review_request(review, ReviewStatus.REJECTED, now, note)
