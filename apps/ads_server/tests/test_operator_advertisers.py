@@ -1,11 +1,14 @@
 """Step 3-1d 관리자: 광고주 목록(사용량 대 상한·잔액), 비활성화(사유 필수 — 로그인·세션·송출이 모두 멈춤)·다시 활성화, 지갑·원장 열람,
 포인트 조정(사유 필수·0 밑으로 불가·반대 부호의 새 항목, 원장 + 감사 로그, 다시 제출해도 한 번만)."""
+import io
+import os
 import re
 import threading
 import uuid
 from unittest import mock
 
 from django.contrib.sessions.backends.db import SessionStore
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 from django.urls import reverse
@@ -271,7 +274,8 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertEqual(signed_in.get(reverse("admin:index")).status_code, 404)  # 껐던 관리자의 옛 세션도 다시 켠 뒤 돌아오지 않는다
 
     def test_user_admin_cannot_add_accounts_or_change_roles(self):
-        """외부 검토(3-1d) P2: 역할을 admin 으로 → 활성 끄기 → advertiser 로, 세 번 저장하면 사유 없이 광고주를 끌 수 있었다. 추가 폼으로 만든 광고주는 지갑이 없었다."""
+        """관리자는 `createsuperuser` 로만, 광고주는 가입으로만 생긴다(추가 폼으로 만든 광고주는 지갑·가입 지급이 없었다 — 외부 검토 3-1d).
+        역할과 슈퍼유저 여부는 어느 계정에서도 바뀌지 않는다(광고주 → 관리자, 관리자 → 광고주)."""
         add = reverse("admin:foundation_user_add")
         self.assertEqual(self.client.get(add).status_code, 403)
         before = User.objects.count()
@@ -280,12 +284,27 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertEqual(r.status_code, 403)
         self.assertEqual(User.objects.count(), before)
         adv, other = make_advertiser(), make_admin()
+        self.assertEqual(self.save(adv, role="admin", is_superuser="on").status_code, 302)  # 광고주 → 관리자
+        self.assertEqual(self.save(other, role="advertiser", is_active="on").status_code, 302)  # 관리자 → 광고주, 슈퍼유저 끄기(체크박스 안 보냄)
+        self.assertEqual(User.objects.filter(pk=adv.pk).values_list("role", "is_superuser").get(), ("advertiser", False))
+        self.assertEqual(User.objects.filter(pk=other.pk).values_list("role", "is_superuser").get(), ("admin", True))
+        for entry in AuditLog.objects.filter(action="account.admin_updated"):
+            self.assertFalse({"role", "is_superuser"} & set(entry.detail["changed"]))
+
+    def test_the_role_detour_cannot_deactivate_an_advertiser(self):
+        """외부 검토(3-1d) P2 재현 그대로: 역할을 admin 으로 → (admin 이 된 줄 알고) 활성 끄기 → advertiser 로, 세 번 저장해도 광고주는 켜진 채다."""
+        adv = make_advertiser()
         self.assertEqual(self.save(adv, role="admin", is_active="on").status_code, 302)
-        self.assertEqual(self.save(User.objects.get(pk=adv.pk), role="advertiser").status_code, 302)  # 활성 체크 해제와 함께
-        self.assertEqual((User.objects.get(pk=adv.pk).role, User.objects.get(pk=adv.pk).is_active), ("advertiser", True))
-        self.assertEqual(self.save(other, role="advertiser", is_active="on", is_superuser="on").status_code, 302)
-        self.assertEqual(User.objects.get(pk=other.pk).role, "admin")
-        self.assertFalse(any("role" in a.detail["changed"] for a in AuditLog.objects.filter(action="account.admin_updated")))
+        self.assertEqual(self.save(User.objects.get(pk=adv.pk), role="admin").status_code, 302)  # 활성 체크 해제
+        self.assertEqual(self.save(User.objects.get(pk=adv.pk), role="advertiser").status_code, 302)
+        self.assertEqual(User.objects.filter(pk=adv.pk).values_list("role", "is_active").get(), ("advertiser", True))
+        self.assertFalse(AuditLog.objects.filter(action="account.deactivated").exists())
+
+    def test_createsuperuser_still_makes_an_admin(self):
+        with mock.patch.dict(os.environ, {"DJANGO_SUPERUSER_PASSWORD": PW}):
+            call_command("createsuperuser", interactive=False, username="made_by_cmd", nickname="관리", class_label="-", stdout=io.StringIO())
+        made = User.objects.get(username="made_by_cmd")
+        self.assertEqual((made.role, made.is_superuser, made.is_staff), ("admin", True, True))
 
 
 @tag("security")

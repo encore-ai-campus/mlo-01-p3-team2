@@ -14,13 +14,16 @@ from .templatetags.kst import kst
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """계정을 **추가하지 않고 역할을 바꾸지 않는다**(설계 §10 "광고주 비활성화는 송출도 멈춘다" — 역할을 거친 우회). 관리자는 서버 명령(`createsuperuser`)으로만,
-    광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다."""
+    광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다.
+
+    `is_superuser` 도 읽기 전용이다: admin 사이트 입장은 역할(`is_staff`)이 정하지만 모델 화면(사용자 관리·감사 로그 등)은 권한 검사라 그룹·권한을 주지 않는
+    이 프로젝트에서는 `is_superuser` 만 통과시킨다. 역할과 따로 바뀌면 "들어가지만 아무것도 못 보는 관리자"처럼 뜻이 엇갈린다 — 관리자 ⇔ 슈퍼유저를 계정을 만든 곳(매니저)이 정한다."""
 
     list_display = ("username", "nickname", "class_label", "role", "is_active", "created_kst")
     list_filter = ("role", "is_active")
     search_fields = ("username", "nickname")
     ordering = ("-created_at",)
-    readonly_fields = ("role", "created_at", "last_login")
+    readonly_fields = ("role", "is_superuser", "created_at", "last_login")
     filter_horizontal = ()
     fieldsets = (
         (None, {"fields": ("username", "password")}),
