@@ -36,3 +36,22 @@ class PasswordChangeForm(forms.Form):
         if cleaned.get("new_password") and cleaned.get("new_password_confirm") and cleaned["new_password"] != cleaned["new_password_confirm"]:
             self.add_error("new_password_confirm", "비밀번호가 일치하지 않습니다.")
         return cleaned
+
+
+METRICS = [("impressions", "노출"), ("clicks", "클릭"), ("conversions", "전환"), ("spent", "소진 포인트")]
+
+
+class PeriodForm(forms.Form):
+    """대시보드의 기간(최근 N일, 오늘 포함 — 설계 D3-5)과 추세 그래프의 지표. 틀린 값은 기본값으로 본다(조회 화면이라 오류로 막지 않는다)."""
+
+    days = forms.TypedChoiceField(label="기간", choices=[(7, "최근 7일"), (14, "최근 14일"), (30, "최근 30일"), (90, "최근 90일")], coerce=int, required=False)
+    metric = forms.ChoiceField(label="그래프", choices=METRICS, required=False)
+
+    DEFAULTS = {"days": 7, "metric": "impressions"}
+
+    def values(self):
+        """고른 값. 칸마다 없거나 틀리면 기본값."""
+        if self.is_bound:
+            self.is_valid()  # 칸별로 검증해 맞는 칸만 cleaned_data 에 남는다
+        data = getattr(self, "cleaned_data", {})
+        return {name: data.get(name) or default for name, default in self.DEFAULTS.items()}

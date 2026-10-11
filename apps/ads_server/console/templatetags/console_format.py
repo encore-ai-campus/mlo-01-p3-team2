@@ -55,3 +55,30 @@ def status_label(value):
 def entry_label(value):
     """원장 항목 종류 코드 → 화면 이름(가입 지급·반응 과금·관리자 조정)."""
     return _ENTRIES.get(value, value)
+
+
+@register.filter
+def metric(totals, name):
+    """합계에서 지표 하나(`impressions`·`clicks`·`conversions`·`spent`)를 꺼낸다(템플릿은 변수 이름으로 속성을 못 읽는다)."""
+    return getattr(totals, name)
+
+
+@register.filter
+def change(report, name):
+    """직전 구간 대비 증감률(`report.totals` 와 `report.previous_totals` 의 지표 `name`). 직전이 0 이면 비율을 낼 수 없어 '—'(0 나눗셈을 하지 않는다)."""
+    current, previous = getattr(report.totals, name), getattr(report.previous_totals, name)
+    if not previous:
+        return "—"
+    return f"{(current - previous) / previous * 100:+.1f}%"
+
+
+@register.filter
+def number(value):
+    """정수 표시(천 단위 쉼표)."""
+    return f"{value:,}"
+
+
+@register.filter
+def percent(ratio):
+    """비율(0~1) → '12.5%'. 분모가 0 이라 비율이 없으면(`None`) '—'."""
+    return "—" if ratio is None else f"{ratio * 100:.1f}%"

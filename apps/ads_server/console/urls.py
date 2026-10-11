@@ -3,7 +3,8 @@ from django.urls import path
 
 from .views.account import my_account, my_password
 from .views.auth import ConsoleLoginView, ConsoleLogoutView, SignupView
-from .views.home import advertiser_home, root
+from .views.dashboard import advertiser_home
+from .views.home import root
 
 urlpatterns = [
     path("", root, name="root"),  # 역할의 첫 화면으로(익명은 로그인)

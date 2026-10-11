@@ -44,3 +44,17 @@ td.num, th.num { text-align: right; }
 @media (min-width: 720px) {
   .mainnav { order: 0; width: auto; }
 }
+/* 대시보드(3-2a) */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+.cards .card { margin: 0; padding: 16px; }
+.card .value { font-size: 24px; font-weight: 700; margin: 4px 0; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.filters label { margin: 0 0 4px; }
+.filters select { width: auto; }
+.filters button { margin-top: 0; }
+.chart { display: block; max-width: 100%; height: auto; }
+.chart .bar { fill: var(--accent); }
+.chart .bar.partial { fill: var(--accent); opacity: .4; }
+.chart .axis { stroke: var(--border); }
+.chart text { fill: var(--muted); font-size: 11px; }
+tr.partial td { color: var(--muted); }
