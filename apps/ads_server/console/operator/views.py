@@ -249,6 +249,7 @@ def _advertiser_page(request, user_id, status=200, adjust_form=None):
     entries, next_cursor = billing.ledger_of(request.user, account.user_id, before=request.GET.get("before"))
     return _render(request, "operator/advertiser_detail.html", f"광고주: {account.username}", status=status, account=account,
                    wallet=billing.wallet_of(request.user, account.user_id), entries=entries, next_cursor=next_cursor,
+                   names=campaigns.campaign_names({e.campaign_id for e in entries if e.campaign_id}),
                    adjust_form=adjust_form or AdjustForm(initial={"request_key": secrets.token_urlsafe(16)}))
 
 

@@ -1,0 +1,25 @@
+{% load kst console_format %}
+{# 원장 내역(최신순, 커서 쪽 나누기) — 광고주 포인트 화면과 관리자 광고주 상세가 함께 쓴다. 과금 줄은 캠페인 이름(`names`)을 붙인다. #}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">시각 (KST)</th><th scope="col">종류</th><th scope="col" class="num">금액</th><th scope="col" class="num">잔액</th><th scope="col">내용</th><th scope="col" class="num">못 받은 포인트</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.created_at|kst }}</td>
+        <td>{{ e.entry_type|entry_label }}</td>
+        <td class="num">{{ e.amount|points }}</td>
+        <td class="num">{{ e.balance_after|points }}</td>
+        <td>{% if e.campaign_id %}{{ names|get_item:e.campaign_id }}{% endif %}{{ e.note }}</td>
+        <td class="num">{% if e.shortfall %}{{ e.shortfall|points }}{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">원장 항목이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="pager" aria-label="원장 쪽 이동">
+  {% if request.GET.before %}<a href="{{ request.path }}">처음으로</a>{% endif %}
+  {% if next_cursor %}<a href="{% querystring before=next_cursor %}" rel="next">더 이전 항목</a>{% endif %}
+</nav>

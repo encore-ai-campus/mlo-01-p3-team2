@@ -17,6 +17,8 @@
       <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>대시보드</a>
       {% url 'campaign_list' as campaigns_url %}
       <a href="{{ campaigns_url }}"{% if campaigns_url in request.path %} aria-current="page"{% endif %}>캠페인</a>
+      {% url 'points' as points_url %}
+      <a href="{{ points_url }}"{% if request.path == points_url %} aria-current="page"{% endif %}>포인트</a>
       {% url 'my_account' as me_url %}
       <a href="{{ me_url }}"{% if request.path == me_url %} aria-current="page"{% endif %}>내 정보</a>
     </nav>

@@ -37,26 +37,6 @@
 
 <h3>원장 (최신순)</h3>
 <div class="module">
-  <table>
-    <thead><tr><th scope="col">시각 (KST)</th><th scope="col">종류</th><th scope="col">금액</th><th scope="col">잔액</th><th scope="col">사유 · 정책</th><th scope="col">못 받은 포인트</th></tr></thead>
-    <tbody>
-    {% for e in entries %}
-      <tr>
-        <td>{{ e.created_at|kst }}</td>
-        <td>{{ e.entry_type|entry_label }}</td>
-        <td>{{ e.amount|points }}</td>
-        <td>{{ e.balance_after|points }}</td>
-        <td>{{ e.note }}{{ e.charge_policy }}</td>
-        <td>{% if e.shortfall %}{{ e.shortfall|points }}{% endif %}</td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="6">원장 항목이 없습니다.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  {% include "console/_ledger.html" %}
 </div>
-<nav class="pager" aria-label="원장 쪽 이동">
-  {% if request.GET.before %}<a href="{% url 'operator:advertiser_detail' account.user_id %}">처음으로</a>{% endif %}
-  {% if next_cursor %}<a href="{% querystring before=next_cursor %}" rel="next">더 이전 항목</a>{% endif %}
-</nav>
 {% endblock %}

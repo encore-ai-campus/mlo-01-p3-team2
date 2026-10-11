@@ -55,7 +55,7 @@
   <h1>포인트</h1>
   {% if wallet %}
   <p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }}</p>
-  <p class="muted">오늘의 예산은 {{ wallet.resets_at|kst }}(KST)에 새로 시작합니다.</p>
+  <p class="muted">오늘의 예산은 {{ wallet.resets_at|kst }}(KST)에 새로 시작합니다. <a href="{% url 'points' %}">포인트 내역</a></p>
   {% else %}
   <p class="muted">지갑이 없습니다. 관리자에게 문의하세요.</p>
   {% endif %}

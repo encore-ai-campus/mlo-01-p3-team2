@@ -226,6 +226,12 @@ def end_campaign(user, campaign_id, now=None):
     return _campaign_view(c, now)
 
 
+def campaign_names(campaign_ids):
+    """캠페인 이름(**표시용**)을 질의 한 번으로 `{campaign_id: 이름}`. 원장 내역의 과금 줄에 캠페인 이름을 붙일 때 쓴다(광고주·관리자 화면).
+    호출한 쪽이 보여도 되는 ID 만 넘긴다(자기 원장에 적힌 캠페인). 없는·형식이 틀린 ID 는 결과에 없다."""
+    return dict(Campaign.objects.filter(pk__in=parse_uuids(campaign_ids)).values_list("campaign_id", "name"))
+
+
 def campaign_ids_of(user):
     """이 광고주의 모든 캠페인 ID(보고서 범위용). 광고주만."""
     require_advertiser(user)

@@ -9,6 +9,7 @@ from .views.ad_groups import (
 from .views.ads import ad_create
 from .views.campaigns import campaign_detail, campaign_end, campaign_list, campaign_review, campaign_status
 from .views.dashboard import advertiser_home
+from .views.points import points
 from .views.home import root
 
 urlpatterns = [
@@ -32,6 +33,7 @@ urlpatterns = [
     path("advertiser/campaigns/<str:campaign_id>/status", campaign_status, name="campaign_status"),
     path("advertiser/campaigns/<str:campaign_id>/end", campaign_end, name="campaign_end"),
     path("advertiser/campaigns/<str:campaign_id>/review", campaign_review, name="campaign_review"),
+    path("advertiser/points/", points, name="points"),
     path("advertiser/me/", my_account, name="my_account"),
     path("advertiser/me/password", my_password, name="my_password"),
 ]
