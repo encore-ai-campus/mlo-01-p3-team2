@@ -241,9 +241,9 @@ def _key_view(k, now):
     )
 
 
-def _issue(actor, media, label, now, action, extra=None):
+def _issue(actor, media, label, now, action, extra=None, request_key=None):
     secret = secrets.token_urlsafe(32)
-    row = MediaKey.objects.create(media=media, secret_hash=_hash_secret(secret), label=label, created_at=now)
+    row = MediaKey.objects.create(media=media, secret_hash=_hash_secret(secret), label=label, created_at=now, request_key=request_key)
     # 감사 로그에는 키 식별자만 남긴다. 키(평문)·해시는 기록하지 않는다
     _audit(actor, action, ("masters.media_key", row.key_id), {"media_id": str(media.media_id), "label": label, **(extra or {})})
     return IssuedKey(key_id=row.key_id, media_id=media.media_id, key=f"{row.key_id.hex}.{secret}", created_at=now, expires_at=None)
@@ -256,34 +256,60 @@ def _media_for_key_admin(media_id):
         raise errors.NotFound("매체를 찾을 수 없습니다.")
 
 
-def issue_media_key(actor, media_id, label="", now=None):
-    """새 키를 발급한다. 평문은 반환값에만 있다. 기존 키는 그대로 유효하다."""
+def _request_key(value):
+    if value is not None and not (isinstance(value, str) and 1 <= len(value) <= 64):
+        raise errors.InvalidRequest(errors=[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}])
+    return value
+
+
+def _issue_once(request_key, work):
+    """`work()`(발급·교체)를 한 트랜잭션으로. **같은 요청 키는 한 번만**: 키 행의 유일 제약이 두 번째 INSERT 를 막고(동시에 오면 첫 번째의 커밋을 기다렸다가),
+    트랜잭션 전체가 되돌려진다(교체의 기존 키 만료도). 두 번 누름·동시 제출·발급 뒤 응답이 실패한 재시도 모두 새 키를 만들지 않는다.
+    평문은 어디에도 저장하지 않아 **다시 보여 줄 수 없으므로** 409 로 키 식별자를 알려, 받지 못한 키를 폐기하게 한다."""
+    try:
+        with transaction.atomic():
+            return work()
+    except IntegrityError:
+        done = MediaKey.objects.filter(request_key=request_key).first() if request_key is not None else None
+        if done is None:
+            raise
+        raise errors.Conflict(f"이미 처리한 발급 요청입니다(키 {done.key_id}). 평문은 다시 볼 수 없습니다 — 키를 받지 못했다면 그 키를 폐기하고 새로 발급하세요.")
+
+
+def issue_media_key(actor, media_id, label="", now=None, request_key=None):
+    """새 키를 발급한다. 평문은 반환값에만 있다. 기존 키는 그대로 유효하다. `request_key` 는 `_issue_once` 참고."""
     require_admin(actor)
     now = _now(now)
     label = clean_text(label, "라벨", "/label") if label else ""
-    with transaction.atomic():
-        return _issue(actor, _media_for_key_admin(media_id), label, now, "masters.media_key_issued")
+    request_key = _request_key(request_key)
+
+    def work():
+        return _issue(actor, _media_for_key_admin(media_id), label, now, "masters.media_key_issued", request_key=request_key)
+    return _issue_once(request_key, work)
 
 
-def rotate_media_key(actor, media_id, grace_seconds, label="", now=None):
+def rotate_media_key(actor, media_id, grace_seconds, label="", now=None, request_key=None):
     """새 키를 발급하고 **기존 유효 키는 유예 시간 뒤에 만료**시킨다(그동안 두 키가 모두 유효 — 무중단 교체).
 
-    `grace_seconds` 는 0 이상 30일 이하의 정수. 0 이면 기존 키가 바로 만료된다. 이미 더 일찍 만료될 키는 그대로 둔다.
+    `grace_seconds` 는 0 이상 30일 이하의 정수. 0 이면 기존 키가 바로 만료된다. 이미 더 일찍 만료될 키는 그대로 둔다. `request_key` 는 `_issue_once` 참고.
     """
     require_admin(actor)
     now = _now(now)
     if isinstance(grace_seconds, bool) or not isinstance(grace_seconds, int) or not 0 <= grace_seconds <= MAX_GRACE.total_seconds():
         raise errors.InvalidRequest(errors=[{"pointer": "/grace_seconds", "message": "0 이상 30일(초) 이하의 정수여야 합니다."}])
     label = clean_text(label, "라벨", "/label") if label else ""
-    with transaction.atomic():
+    request_key = _request_key(request_key)
+
+    def work():
         media = _media_for_key_admin(media_id)
         deadline = now + timedelta(seconds=grace_seconds)
         older = list(MediaKey.objects.filter(media=media, revoked_at__isnull=True).exclude(expires_at__lte=now))
         for k in older:
             if k.expires_at is None or k.expires_at > deadline:
                 MediaKey.objects.filter(pk=k.pk).update(expires_at=deadline)
-        issued = _issue(actor, media, label, now, "masters.media_key_rotated", {"grace_seconds": grace_seconds, "previous": [str(k.key_id) for k in older]})
-    return issued
+        return _issue(actor, media, label, now, "masters.media_key_rotated", {"grace_seconds": grace_seconds, "previous": [str(k.key_id) for k in older]},
+                      request_key=request_key)
+    return _issue_once(request_key, work)
 
 
 def revoke_media_key(actor, key_id, now=None):

@@ -59,7 +59,10 @@ class ReleaseForm(forms.Form):
 
 
 class KeyIssueForm(forms.Form):
+    """`request_key` 는 화면을 그릴 때마다 새로 만든 값이다. 서비스가 키 행에 함께 저장해 같은 폼의 다시 보냄으로는 키가 더 생기지 않는다."""
+
     label = forms.CharField(label="라벨(선택)", max_length=100, required=False, strip=False)
+    request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
 
 
 class KeyRotateForm(KeyIssueForm):

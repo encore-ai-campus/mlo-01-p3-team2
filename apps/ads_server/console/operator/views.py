@@ -1,7 +1,9 @@
 """관리자 운영 화면(Step 3-1: 매체·슬롯·키, 입찰 정책, 광고 모니터링·중단·재검토, 광고주·포인트). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 masters 서비스, 예외의 화면 변환은 console/errors.
 
 화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
-예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 한 번 쓰는 폼 토큰으로 다시 제출을 막는다.
+예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 폼마다 새 요청 키를 실어 서비스가 한 번만 발급한다.
+두 번 하면 안 되는 동작(키 발급·교체, 포인트 조정)의 요청 키는 세션이 아니라 **결과 행과 같은 트랜잭션**에 저장한다 — 세션은 요청마다 따로 읽은
+사본이라 동시 제출을 막지 못하고, 처리 뒤 응답이 실패하면 다시 보낼 수 있었다(외부 검토 3-1d).
 """
 import secrets
 
@@ -16,7 +18,6 @@ from campaigns import api as campaigns
 from foundation.api import get_advertiser, list_advertisers, profiles, set_advertiser_active
 from masters import api as masters
 
-from .. import once
 from ..errors import HANDLED, fetch, form_errors, message_of, status_of
 from ..paging import page_of
 from .forms import AdjustForm, BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, ReleaseForm, SlotForm
@@ -45,8 +46,8 @@ def _detail(request, media_id, status=200, slot_form=None):
     return _render(
         request, "operator/media_detail.html", f"매체: {media.name}", status=status, media=media,
         slots=masters.list_slots(active_only=False, media_id=media.media_id), keys=masters.list_media_keys(request.user, media.media_id),
-        slot_form=slot_form or SlotForm(), issue_form=KeyIssueForm(), rotate_form=KeyRotateForm(),
-        issue_once=once.issue(request, f"key:{media.media_id}"), rotate_once=once.issue(request, f"key:{media.media_id}"),
+        slot_form=slot_form or SlotForm(), issue_form=KeyIssueForm(initial={"request_key": secrets.token_urlsafe(16)}),
+        rotate_form=KeyRotateForm(initial={"request_key": secrets.token_urlsafe(16)}),
     )
 
 
@@ -129,8 +130,8 @@ def policy_bulk(request):
 
 def _issue_key(request, media_id, form_class, issue):
     media = fetch(masters.get_media, request.user, media_id)
-    if not once.consume(request, f"key:{media.media_id}", request.POST.get("once")):
-        messages.warning(request, "이미 처리했거나 오래된 요청입니다. 키가 더 필요하면 다시 발급하세요.")
+    if not request.POST.get("request_key"):
+        messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 발급하세요.")
         return redirect("operator:media_detail", media_id=media.media_id)
     form = form_class(request.POST)
     if form.is_valid():
@@ -149,13 +150,15 @@ def _issue_key(request, media_id, form_class, issue):
 
 @require_POST
 def key_issue(request, media_id):
-    return _issue_key(request, media_id, KeyIssueForm, lambda media, data: masters.issue_media_key(request.user, media.media_id, data["label"]))
+    return _issue_key(request, media_id, KeyIssueForm,
+                      lambda media, data: masters.issue_media_key(request.user, media.media_id, data["label"], request_key=data["request_key"]))
 
 
 @require_POST
 def key_rotate(request, media_id):
     return _issue_key(request, media_id, KeyRotateForm,
-                      lambda media, data: masters.rotate_media_key(request.user, media.media_id, data["grace_seconds"], data["label"]))
+                      lambda media, data: masters.rotate_media_key(request.user, media.media_id, data["grace_seconds"], data["label"],
+                                                                   request_key=data["request_key"]))
 
 
 @require_POST

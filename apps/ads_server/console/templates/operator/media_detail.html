@@ -67,14 +67,12 @@
 <h3>새 키 발급</h3>
 <p class="help">기존 키는 그대로 유효합니다.</p>
 <form method="post" action="{% url 'operator:key_issue' media.media_id %}" id="key-issue">{% csrf_token %}
-  <input type="hidden" name="once" value="{{ issue_once }}">
   {{ issue_form.as_div }}
   <button type="submit">발급</button>
 </form>
 <h3>키 교체</h3>
 <p class="help">새 키를 발급하고, 지금 유효한 키는 고른 시간 뒤에 만료됩니다(그동안 두 키가 모두 유효 — 매체 서버 설정을 바꿀 시간).</p>
 <form method="post" action="{% url 'operator:key_rotate' media.media_id %}" id="key-rotate">{% csrf_token %}
-  <input type="hidden" name="once" value="{{ rotate_once }}">
   {{ rotate_form.as_div }}
   <button type="submit">교체</button>
 </form>

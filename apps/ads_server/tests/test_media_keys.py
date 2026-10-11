@@ -7,7 +7,7 @@ from unittest import mock
 from django.db import connection
 from django.test import TestCase, tag
 
-from foundation.errors import Forbidden, InvalidRequest, NotFound
+from foundation.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from foundation.models import AuditLog
 from masters import api
 from masters.models import MediaKey
@@ -157,3 +157,29 @@ class MediaKeyTests(TestCase):
             api.rotate_media_key(self.admin, "nope", 10)
         with self.assertRaises(NotFound):
             api.revoke_media_key(self.admin, uuid.uuid4())
+
+
+@tag("security")
+class MediaKeyRequestKeyTests(TestCase):
+    """같은 요청 키(화면 폼 하나)로는 키를 한 번만 발급한다. 평문을 다시 보여 줄 수 없으므로 두 번째는 409 이고 키 식별자를 알려 준다."""
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.media = media(self.admin)
+
+    def test_the_same_request_key_issues_once(self):
+        first = api.issue_media_key(self.admin, self.media.media_id, request_key="r1")
+        before = MediaKey.objects.get(pk=first.key_id).expires_at
+        for call in (
+            lambda: api.issue_media_key(self.admin, self.media.media_id, request_key="r1"),
+            lambda: api.rotate_media_key(self.admin, self.media.media_id, 0, request_key="r1"),  # 기존 키를 만료시키기 전에 거절한다
+            lambda: api.issue_media_key(self.admin, media(self.admin, "다른 매체").media_id, request_key="r1"),
+        ):
+            with self.assertRaisesRegex(Conflict, str(first.key_id)):
+                call()
+        self.assertEqual(MediaKey.objects.count(), 1)
+        self.assertEqual(MediaKey.objects.get(pk=first.key_id).expires_at, before)
+        self.assertIsNotNone(api.issue_media_key(self.admin, self.media.media_id, request_key="r2"))
+        self.assertEqual(MediaKey.objects.count(), 2)
+        with self.assertRaises(InvalidRequest):
+            api.issue_media_key(self.admin, self.media.media_id, request_key="x" * 65)
