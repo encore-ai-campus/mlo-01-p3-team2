@@ -2,10 +2,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.contrib.auth import authenticate, update_session_auth_hash
+from django.contrib.auth import HASH_SESSION_KEY, authenticate, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.utils.crypto import constant_time_compare
 
 from .access import require_admin, require_advertiser
 from .audit import record_audit
@@ -126,8 +127,14 @@ def change_password(user, current_password, new_password, request=None):
         validate_password(new_password, row)
     except ValidationError as e:
         raise ValidationError({"new_password": e.messages})
+    verified = row
     with transaction.atomic():
         row = User.objects.select_for_update().get(pk=user.pk)
+        # 확인한 뒤 계정이 바뀌었으면(비활성화·관리자 초기화·다른 세션의 변경) 저장하지 않는다 — 진행 중이던 요청이 그 조치를 덮고 세션을 이어 가지 못하게(외부 검토 3-1d).
+        # 기준은 이 요청을 인증한 세션의 인증 해시(요청이 없으면 현재 비밀번호를 확인한 행)
+        basis = request.session.get(HASH_SESSION_KEY, "") if request is not None else verified.get_session_auth_hash()
+        if not row.is_active or not constant_time_compare(basis, row.get_session_auth_hash()):
+            raise Conflict("계정 상태가 바뀌었습니다. 다시 로그인한 뒤 시도하세요.")
         row.set_password(new_password)
         row.save(update_fields=["password"])
         record_audit(request, "account.password_changed", target=row, actor=row)

@@ -18,6 +18,7 @@ from billing.models import LedgerEntry, Wallet
 from campaigns import api as campaigns
 from campaigns.models import CreativeImage
 from foundation.admin import UserAdmin
+from foundation.admin_site import AuditedAdminSite
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
@@ -294,6 +295,17 @@ class UserAdminActiveFlagTests(TestCase):
         for entry in AuditLog.objects.filter(action="account.admin_updated"):
             self.assertFalse({"role", "is_superuser"} & set(entry.detail["changed"]))
 
+    def test_user_admin_cannot_delete_accounts(self):
+        """외부 검토(3-1d) P2: 추가는 막았지만 삭제는 Django 기본 그대로 열려 있었다(DRD 수명주기: 사용자 삭제 없음). 개별 삭제와 묶음 삭제 모두."""
+        other, adv = make_admin(), make_advertiser()
+        delete = reverse("admin:foundation_user_delete", args=[other.pk])
+        self.assertEqual(self.client.get(delete).status_code, 403)
+        self.assertEqual(self.client.post(delete, {"post": "yes"}).status_code, 403)
+        changelist = reverse("admin:foundation_user_changelist")
+        self.assertNotIn('value="delete_selected"', self.client.get(changelist).content.decode())
+        self.client.post(changelist, {"action": "delete_selected", "_selected_action": [str(other.pk), str(adv.pk)], "post": "yes"})
+        self.assertEqual(User.objects.filter(pk__in=[other.pk, adv.pk]).count(), 2)
+
     def test_the_role_detour_cannot_deactivate_an_advertiser(self):
         """외부 검토(3-1d) P2 재현 그대로: 역할을 admin 으로 → (admin 이 된 줄 알고) 활성 끄기 → advertiser 로, 세 번 저장해도 광고주는 켜진 채다."""
         adv = make_advertiser()
@@ -469,3 +481,90 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         row = User.objects.get(pk=adv.pk)
         self.assertEqual((row.is_active, row.session_epoch), (False, 1))
         self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
+
+
+SERVER_PW = "Server-Chosen-9-pass"
+
+
+@tag("security")
+class EmergencyPasswordResetTests(TransactionTestCase):
+    """외부 검토(3-1d) P2: 관리자 계정을 급히 끊는 서버 명령 `changepassword` 가 커밋된 뒤, 그 전에 인증을 마친 진행 중 요청이 비밀번호를 바꾸면
+    서버가 정한 비밀번호를 덮고 그 요청의 로그인까지 이어졌다(본인 변경 화면·사용자 관리의 본인 초기화 둘 다). 요청을 인증한 근거를 잠근 최신 행과 대조해 거절한다."""
+
+    def setUp(self):
+        self.me = make_admin()
+        self.client = Client()
+        self.client.force_login(self.me)
+
+    def pause_after_auth(self):
+        """요청이 인증(관리자 경로 입장 검사)을 마친 뒤, 화면 처리 전에 멈춘다(첫 검사만)."""
+        paused, release = threading.Event(), threading.Event()
+        real = AuditedAdminSite.has_permission
+
+        def waiting(site, request):
+            allowed = real(site, request)
+            if not paused.is_set():
+                paused.set()
+                assert release.wait(WAIT)
+            return allowed
+        patch = mock.patch.object(AuditedAdminSite, "has_permission", waiting)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return paused, release
+
+    def emergency_changepassword(self):
+        with mock.patch("django.contrib.auth.management.commands.changepassword.getpass.getpass", return_value=SERVER_PW):
+            call_command("changepassword", self.me.username, stdout=io.StringIO())  # 진짜 서버 명령
+
+    def race(self, url, data, in_between=None):
+        paused, release = self.pause_after_auth()
+        worker = Worker(lambda: self.client.post(url, data))
+        worker.start()
+        self.assertTrue(paused.wait(WAIT), "요청이 인증을 마치지 않았다")
+        (in_between or self.emergency_changepassword)()  # 먼저 커밋
+        release.set()
+        worker.join(WAIT)
+        self.assertEqual(worker.errors, [])
+        self.assertEqual(worker.result.status_code, 403)  # 오래된 인증 근거의 비밀번호 변경은 거절
+        if in_between is None:
+            self.assertTrue(User.objects.get(pk=self.me.pk).check_password(SERVER_PW))  # 서버가 정한 비밀번호 그대로
+            self.assertEqual(self.client.get(reverse("admin:index")).status_code, 404)  # 그 요청의 로그인도 끝났다
+
+    def test_a_shell_style_deactivation_in_between_is_respected_too(self):
+        """셸에서 is_active 만 끈 경우(폐기 버전은 그대로 — 운영 안내상 쓰지 않는 길)에도 진행 중인 비밀번호 변경이 저장하지 않는다."""
+        self.race(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"},
+                  in_between=lambda: User.objects.filter(pk=self.me.pk).update(is_active=False))
+        self.assertTrue(User.objects.get(pk=self.me.pk).check_password(PW))
+
+    def test_an_in_flight_own_password_change_cannot_override_an_emergency_changepassword(self):
+        self.race(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"})
+        self.assertFalse(AuditLog.objects.filter(action="account.password_changed", actor_id=self.me.pk).exists())
+
+    def test_an_in_flight_own_reset_in_user_admin_cannot_override_an_emergency_changepassword(self):
+        self.race(reverse("admin:auth_user_password_change", args=[self.me.pk]),
+                  {"password1": "Mine-Again-7-pass", "password2": "Mine-Again-7-pass", "usable_password": "true"})
+        self.assertFalse(AuditLog.objects.filter(action="account.password_reset_by_admin").exists())
+
+    def test_an_own_password_change_keeps_a_profile_edit_made_in_between(self):
+        """본인 비밀번호 변경도 비밀번호 열만 쓴다 — Django 기본은 인증 때 읽은 사용자 객체를 통째로 저장해 그 사이의 프로필 편집을 되돌렸다."""
+        paused, release = self.pause_after_auth()
+        worker = Worker(lambda: self.client.post(reverse("admin:password_change"),
+                                                 {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"}))
+        worker.start()
+        self.assertTrue(paused.wait(WAIT))
+        other = Client()
+        other.force_login(make_admin())
+        data = {"username": self.me.username, "nickname": "바꾼닉", "class_label": self.me.class_label, "_save": "저장"}
+        self.assertEqual(other.post(reverse("admin:foundation_user_change", args=[self.me.pk]), data).status_code, 302)
+        release.set()
+        worker.join(WAIT)
+        self.assertEqual(worker.result.status_code, 302)
+        row = User.objects.get(pk=self.me.pk)
+        self.assertEqual(row.nickname, "바꾼닉")
+        self.assertTrue(row.check_password("Mine-Again-7-pass"))
+
+    def test_a_current_login_still_changes_its_password(self):
+        r = self.client.post(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"})
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(User.objects.get(pk=self.me.pk).check_password("Mine-Again-7-pass"))
+        self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)  # 바꾼 그 세션은 이어진다

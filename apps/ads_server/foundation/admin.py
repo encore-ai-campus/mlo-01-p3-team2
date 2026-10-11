@@ -6,24 +6,19 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.admin.utils import unquote
 
-from .admin_site import ReadOnlyAdmin
+from .admin_site import PasswordOnlySave, ReadOnlyAdmin, current_login_only
 from .audit import record_audit
 from .models import AuditLog, User
 from .templatetags.kst import kst
 
 
-class PasswordResetForm(AdminPasswordChangeForm):
-    def save(self, commit=True):
-        """비밀번호 열만 쓴다. 기본은 요청 처음에 읽은 사용자 객체를 통째로 저장해, 그 사이 운영 화면이 한 비활성화(`is_active`·`session_epoch`)를 되돌린다."""
-        user = super().save(commit=False)
-        if commit:
-            user.save(update_fields=["password"])
-        return user
+class PasswordResetForm(PasswordOnlySave, AdminPasswordChangeForm):
+    pass
 
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    """프로필(아이디·닉네임·반)과 비밀번호 초기화만 한다. 계정을 **추가하지 않고, 역할·활성 여부·슈퍼유저 여부를 바꾸지 않는다**(설계 §10).
+    """프로필(아이디·닉네임·반)과 비밀번호 초기화만 한다. 계정을 **추가·삭제하지 않고, 역할·활성 여부·슈퍼유저 여부를 바꾸지 않는다**(설계 §10, DRD 수명주기 "사용자: 삭제 없음").
 
     - 관리자는 서버 명령(`createsuperuser`)으로만, 광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다.
     - 광고주의 활성 여부는 운영 화면(`set_advertiser_active`: 사유 필수·감사·세션 폐기 버전, 송출도 멈춤)으로만 바꾼다. 역할을 바꿀 수 있으면 역할을 거쳐 이를 우회했다.
@@ -53,6 +48,9 @@ class UserAdmin(BaseUserAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_delete_permission(self, request, obj=None):  # 개별 삭제와 묶음 삭제(delete_selected) 모두. 계정은 지우지 않는다
+        return False
+
     @admin.display(description="가입(KST)", ordering="created_at")
     def created_kst(self, obj):
         return kst(obj.created_at)
@@ -66,7 +64,7 @@ class UserAdmin(BaseUserAdmin):
         record_audit(request, "account.admin_updated", target=obj, detail={"changed": changed, "role": obj.role})
 
     def user_change_password(self, request, id, form_url=""):
-        response = super().user_change_password(request, id, form_url)
+        response = current_login_only(super().user_change_password)(request, id, form_url)
         if response.status_code == 302:  # 성공(리다이렉트)일 때만
             record_audit(request, "account.password_reset_by_admin", target=self.get_object(request, unquote(id)))
         return response
