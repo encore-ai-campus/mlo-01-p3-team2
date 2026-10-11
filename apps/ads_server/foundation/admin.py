@@ -1,4 +1,6 @@
 """관리자 화면(Django admin): 사용자 관리와 감사 로그 열람. 변경은 감사 로그에 남는다."""
+from axes import admin as axes_admin
+from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserCreationForm
@@ -69,3 +71,26 @@ class AuditLogAdmin(ReadOnlyAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return [f.name for f in self.model._meta.fields]
+
+
+# ---------------------------------------------------------------- 로그인 잠금 기록(django-axes) — 읽기 전용(설계 §10 "로그인 잠금 기록 관리", 위협 모델 T44)
+# 화면에서 기록을 지우거나 고치면 잠금이 풀리는데 그 행위는 감사 로그에 남지 않는다. 그래서 보기만 하고(목록·필터·상세는 axes 의 것 그대로),
+# 묶음 동작(삭제·만료 정리)도 뺀다. 급할 때는 서버 명령(`axes_reset_username` 등)으로 푼다. 설정 AXES_ENABLE_ADMIN = False 가 axes 자체 등록을 끈다.
+
+class _ReadOnlyLockoutAdmin(ReadOnlyAdmin):
+    actions = None
+
+
+@admin.register(AccessAttempt)
+class AccessAttemptAdmin(_ReadOnlyLockoutAdmin, axes_admin.AccessAttemptAdmin):
+    pass
+
+
+@admin.register(AccessLog)
+class AccessLogAdmin(_ReadOnlyLockoutAdmin, axes_admin.AccessLogAdmin):
+    pass
+
+
+@admin.register(AccessFailureLog)
+class AccessFailureLogAdmin(_ReadOnlyLockoutAdmin, axes_admin.AccessFailureLogAdmin):
+    pass

@@ -176,13 +176,38 @@ class AdminAuditTests(TestCase):
         request.user = self.admin
         checked = []
         for model in apps.get_models():
-            if model._meta.app_label not in LAYERS or model is User or not admin.site.is_registered(model):
+            if model._meta.app_label not in {*LAYERS, "axes"} or model is User or not admin.site.is_registered(model):
                 continue
             model_admin = admin.site.get_model_admin(model)
             permissions = (model_admin.has_add_permission(request), model_admin.has_change_permission(request), model_admin.has_delete_permission(request))
             self.assertEqual(permissions, (False, False, False), model.__name__)
+            self.assertEqual(model_admin.get_actions(request), {}, model.__name__)  # 묶음 동작(삭제·axes 정리)도 없다
             checked.append(model.__name__)
-        self.assertEqual(len(checked), 14, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 4, 캠페인 5, 지갑·원장 3, 결정 1
+        self.assertEqual(len(checked), 17, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 4, 캠페인 5, 지갑·원장 3, 결정 1, 로그인 잠금 기록 3(axes, 위협 모델 T44)
+
+    def test_login_lockout_records_are_read_only(self):
+        """잠금 기록을 화면에서 지우거나 고쳐 잠금을 풀 수 없다(설계 §10 "로그인 잠금 기록 관리", 위협 모델 T44). 급할 때는 서버 명령(axes_reset_username)."""
+        from datetime import timedelta
+
+        from axes.models import AccessAttempt, AccessFailureLog, AccessLog
+        from django.utils import timezone
+
+        old = timezone.now() - timedelta(days=1)  # 만료된 시도도 화면의 정리 동작으로 지우지 못한다
+        attempt = AccessAttempt.objects.create(username="locked", ip_address="10.0.0.9", user_agent="ua", failures_since_start=5, attempt_time=old)
+        log = AccessLog.objects.create(username="locked", ip_address="10.0.0.9", user_agent="ua")
+        failure = AccessFailureLog.objects.create(username="locked", ip_address="10.0.0.9", user_agent="ua", locked_out=True)
+        counts = lambda: (AccessAttempt.objects.count(), AccessLog.objects.count(), AccessFailureLog.objects.count())  # noqa: E731
+        before = counts()
+        for name, obj in (("accessattempt", attempt), ("accesslog", log), ("accessfailurelog", failure)):
+            base = f"/test-admin/axes/{name}/"
+            self.assertEqual(self.client.get(base).status_code, 200, name)  # 목록·상세 보기는 남는다
+            self.assertEqual(self.client.get(f"{base}{obj.pk}/change/").status_code, 200, name)
+            self.assertEqual(self.client.post(f"{base}{obj.pk}/delete/", {"post": "yes"}).status_code, 403, name)
+            self.assertEqual(self.client.post(f"{base}{obj.pk}/change/", {"username": "x"}).status_code, 403, name)
+            for action in ("delete_selected", "cleanup_expired_attempts"):
+                self.client.post(base, {"action": action, "_selected_action": [obj.pk], "post": "yes"})
+        self.assertEqual(counts(), before)
+        self.assertEqual(AccessAttempt.objects.get(pk=attempt.pk).username, "locked")
 
     def test_user_admin_lists_users_with_kst_column(self):
         r = self.client.get("/test-admin/foundation/user/")
