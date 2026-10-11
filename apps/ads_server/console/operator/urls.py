@@ -15,4 +15,10 @@ urlpatterns = [
     path("slots/<str:slot_id>/policy", views.slot_policy, name="slot_policy"),
     path("policies/", views.policy_bulk, name="policy_bulk"),
     path("keys/<str:key_id>/revoke", views.key_revoke, name="key_revoke"),
+    path("campaigns/", views.campaign_monitor, name="campaign_monitor"),
+    path("campaigns/<str:campaign_id>/suspend", views.campaign_suspend, name="campaign_suspend"),
+    path("campaigns/<str:campaign_id>/release", views.campaign_release, name="campaign_release"),
+    path("reviews/", views.review_queue, name="review_queue"),
+    path("reviews/<str:review_request_id>/reject", views.review_reject, name="review_reject"),
+    path("assets/<str:name>", views.asset, name="asset"),
 ]

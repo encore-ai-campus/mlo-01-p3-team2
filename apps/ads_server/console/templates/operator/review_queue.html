@@ -1,0 +1,33 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › 재검토 대기{% endblock %}
+{% block content %}
+<p class="help">중단된 캠페인의 광고주가 보낸 재검토 요청입니다(오래된 것부터). 해제하면 광고가 다시 나가고, 반려하면 중단은 그대로이며 답변이 광고주에게 보입니다.</p>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">캠페인</th><th scope="col">광고주</th><th scope="col">중단 사유</th><th scope="col">광고주 메모</th><th scope="col">소재</th><th scope="col">요청 (KST)</th><th scope="col">조치</th></tr></thead>
+    <tbody>
+    {% for item in items %}{% with c=item.campaign r=item.review %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>{% with person=people|get_item:c.owner_id %}{{ person.nickname }}({{ person.class_label }}){% endwith %}</td>
+        <td>{{ c.suspension.reason }}</td>
+        <td>{{ r.message|default:"(없음)" }}</td>
+        <td>{% include "operator/_creatives.html" with creatives=creatives|get_item:c.campaign_id %}</td>
+        <td>{{ r.created_at|kst }}</td>
+        <td>
+          <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="reviews"><button type="submit">해제</button></form>
+          <form method="post" action="{% url 'operator:review_reject' r.review_request_id %}">{% csrf_token %}
+            <label for="note-{{ r.review_request_id }}">반려 답변</label>
+            <input type="text" name="note" id="note-{{ r.review_request_id }}" maxlength="500" required>
+            <button type="submit">반려</button>
+          </form>
+        </td>
+      </tr>
+    {% endwith %}{% empty %}
+      <tr><td colspan="7">대기 중인 재검토 요청이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

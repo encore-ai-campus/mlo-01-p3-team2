@@ -1,5 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
 {# 운영 화면 공통: Django admin 모양 + 되돌릴 수 없는 동작의 확인 창(정적 파일, JS 가 없어도 동작) #}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'console/operator.css' %}">{% endblock %}
 {% block extrahead %}{{ block.super }}<script src="{% static 'console/confirm.js' %}" defer></script>{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">홈</a>{% block crumbs %}{% endblock %}</div>{% endblock %}

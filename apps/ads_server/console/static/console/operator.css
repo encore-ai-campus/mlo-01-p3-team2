@@ -1,0 +1,5 @@
+/* 운영 화면(Django admin 모양) 보조 스타일. 색은 admin 의 변수를 따른다(라이트·다크). */
+#content td { vertical-align: top; min-width: 4.5em; }
+#content td:first-child, #content td:nth-child(2) { min-width: 7em; }
+.creative { display: flex; gap: 8px; align-items: flex-start; min-width: 260px; margin-bottom: 6px; }
+.creative img { object-fit: contain; border: 1px solid var(--hairline-color); background: #fff; flex: none; }

@@ -1,18 +1,21 @@
-"""관리자 운영 화면(Step 3-1a: 매체·슬롯·키). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 masters 서비스, 예외의 화면 변환은 console/errors.
+"""관리자 운영 화면(Step 3-1: 매체·슬롯·키, 입찰 정책, 광고 모니터링·중단·재검토). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 masters 서비스, 예외의 화면 변환은 console/errors.
 
 화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
 예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 한 번 쓰는 폼 토큰으로 다시 제출을 막는다.
 """
 from django.contrib import admin, messages
+from django.http import FileResponse, Http404
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 
+from assets.api import asset_exists, content_type, open_asset
+from campaigns import api as campaigns
+from foundation.api import profiles
 from masters import api as masters
 
 from .. import once
-from foundation.api import usernames
-
 from ..errors import HANDLED, fetch, form_errors, message_of, status_of
+from ..paging import page_of
 from .forms import BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, SlotForm
 
 
@@ -100,7 +103,7 @@ def slot_policy(request, slot_id):
             return redirect("operator:slot_policy", slot_id=slot.slot_id)
     history = masters.list_policy_versions(request.user, slot.slot_id)
     return _render(request, "operator/slot_policy.html", f"입찰 정책: {slot.name}", status=400 if status == 200 and form.errors else status,
-                   slot=slot, form=form, history=history, names=usernames([p.changed_by for p in history]))
+                   slot=slot, form=form, history=history, people=profiles([p.changed_by for p in history]))
 
 
 def policy_bulk(request):
@@ -162,3 +165,70 @@ def key_revoke(request, key_id):
     else:
         messages.success(request, "키를 폐기했습니다.")
     return redirect("operator:media_detail", media_id=media.media_id)
+
+
+# ---------------------------------------------------------------- 광고 모니터링·중단·재검토 (Step 3-1c)
+
+BACK = {"campaigns": "operator:campaign_monitor", "reviews": "operator:review_queue"}  # 처리 뒤 돌아갈 곳(정한 값만 — 열린 리다이렉트 없음)
+
+
+def _back(request):
+    return redirect(BACK.get(request.POST.get("back"), "operator:campaign_monitor"))
+
+
+def campaign_monitor(request):
+    """모든 광고주의 캠페인·소재(마지막 변경순). 썸네일·이동 주소 도메인·광고주를 함께 본다(S5)."""
+    page = page_of(campaigns.monitoring_list(request.user), request)
+    return _render(request, "operator/campaign_monitor.html", "광고 모니터링", page=page,
+                   people=profiles([item.campaign.owner_id for item in page]))
+
+
+@require_POST
+def campaign_suspend(request, campaign_id):
+    try:
+        campaigns.suspend_campaign(request.user, campaign_id, request.POST.get("reason", ""))
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        messages.success(request, "캠페인을 중단했습니다. 광고주 화면에 사유가 보입니다.")
+    return _back(request)
+
+
+@require_POST
+def campaign_release(request, campaign_id):
+    try:
+        campaigns.release_campaign(request.user, campaign_id)
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        messages.success(request, "중단을 해제했습니다. 열린 재검토 요청은 해제로 닫혔습니다.")
+    return _back(request)
+
+
+def review_queue(request):
+    """열린 재검토 요청(오래된 것부터). 소재 썸네일을 함께 보여 판단을 돕는다."""
+    items = campaigns.open_review_queue(request.user)
+    waiting = {item.campaign.campaign_id for item in items}
+    creatives = {m.campaign.campaign_id: m.creatives for m in campaigns.monitoring_list(request.user) if m.campaign.campaign_id in waiting} if items else {}
+    return _render(request, "operator/review_queue.html", "재검토 대기", items=items, creatives=creatives,
+                   people=profiles([item.campaign.owner_id for item in items]))
+
+
+@require_POST
+def review_reject(request, review_request_id):
+    try:
+        campaigns.reject_review_request(request.user, review_request_id, request.POST.get("note", ""))
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        messages.success(request, "재검토 요청을 반려했습니다. 중단은 그대로입니다.")
+    return redirect("operator:review_queue")
+
+
+@require_safe
+def asset(request, name):
+    """관리자 전용 소재 이미지. 공개 경로(`/assets/…`)는 중단·종료 캠페인의 이미지를 막지만, 관리자는 그 소재를 봐야 판단할 수 있다.
+    관리자 경로 아래라 다른 사람에게는 404 다. 형식이 틀린 이름은 저장소가 거른다(`asset_exists` 거짓 → 404). 캐시는 기본(`no-store`)."""
+    if not asset_exists(name):
+        raise Http404
+    return FileResponse(open_asset(name), content_type=content_type(name))

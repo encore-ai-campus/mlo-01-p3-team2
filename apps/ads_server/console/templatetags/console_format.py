@@ -1,9 +1,12 @@
+from urllib.parse import urlsplit
+
 from django import template
 
+from campaigns.api import CampaignStatus
 from masters.api import Audience, PricingUnit
 
 register = template.Library()
-_UNITS, _AUDIENCES = dict(PricingUnit.choices), dict(Audience.choices)
+_UNITS, _AUDIENCES, _STATUSES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices)
 
 
 @register.filter
@@ -30,3 +33,18 @@ def points(value):
 def get_item(mapping, key):
     """사전에서 키로 꺼낸다(템플릿은 변수 키로 사전을 못 읽는다)."""
     return mapping.get(key) if mapping else None
+
+
+@register.filter
+def domain(url):
+    """이동 주소의 도메인(관리자 화면에서 눈에 띄게 보인다 — 피싱 주소를 알아보게). 해석하지 못하면 빈 문자열."""
+    try:
+        return urlsplit(url).hostname or ""
+    except ValueError:
+        return ""
+
+
+@register.filter
+def status_label(value):
+    """캠페인 상태 코드 → 화면 이름."""
+    return _STATUSES.get(value, value)

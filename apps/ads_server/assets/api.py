@@ -4,6 +4,13 @@ from django.utils.module_loading import import_string
 
 from .validation import ImageRejected, ValidatedImage, validate_image
 
+CONTENT_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
+
+
+def content_type(name: str) -> str:
+    """소재 이름(`<sha256>.<ext>`)의 응답 형식. 이름 형식은 저장소가 검사한다(`asset_exists` 가 거짓이면 열지 않는다)."""
+    return CONTENT_TYPES[name.rsplit(".", 1)[1]]
+
 
 def get_storage():
     return import_string(settings.ASSET_STORAGE)(settings.MEDIA_ROOT)
@@ -29,5 +36,5 @@ def asset_url(name: str) -> str:
 
 
 __all__ = [
-    "ImageRejected", "ValidatedImage", "validate_image", "store", "asset_exists", "open_asset", "asset_url",
+    "ImageRejected", "ValidatedImage", "validate_image", "store", "asset_exists", "open_asset", "asset_url", "content_type",
 ]

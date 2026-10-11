@@ -19,7 +19,9 @@ from masters import api as masters
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
 from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
-from .types import AdGroupView, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, ReviewRequestView, SuspensionView
+from .types import (
+    AdGroupView, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem, ReviewRequestView, SuspensionView,
+)
 
 
 def _now(now=None):
@@ -289,6 +291,35 @@ def reject_review_request(actor, review_request_id, note, now=None):
         tr.close_review_request(review, ReviewStatus.REJECTED, now, note)
         _audit(actor, "campaign.review_rejected", ("campaigns.campaign", review.campaign_id), {"review_request_id": str(review.review_request_id), "note": note})
     return _review_view(review)
+
+
+# ---------------------------------------------------------------- 관리자 모니터링 (Step 3-1c, S5)
+
+def monitoring_list(actor, now=None):
+    """모든 광고주의 캠페인과 소재. **마지막 변경**(캠페인·소재 중 늦은 쪽)이 최근인 순 — 소재의 이동 주소만 바꿔도 위로 올라온다(피싱 주소 바꿔치기를 놓치지 않게).
+    중단·종료 캠페인도 포함한다. 질의는 세 번(캠페인·소재·열린 재검토 요청)."""
+    # ponytail: 전부 읽어 파이썬에서 정렬한다. 광고주 150명 × 캠페인 상한 20 규모면 충분하다. 커지면 마지막 변경 시각을 열로 두고 DB 에서 정렬·쪽 나누기
+    require_admin(actor)
+    now = _now(now)
+    open_reviews = dict(ReviewRequest.objects.filter(status=ReviewStatus.OPEN).values_list("campaign_id", "review_request_id"))
+    creatives = {}
+    for creative in Creative.objects.select_related("ad_group").order_by("created_at"):
+        creatives.setdefault(creative.ad_group.campaign_id, []).append(creative)
+    items = []
+    for c in Campaign.objects.all():
+        own = creatives.get(c.campaign_id, [])
+        items.append(MonitoredCampaign(
+            _campaign_view(c, now, open_reviews.get(c.campaign_id)), tuple(_creative_view(x) for x in own), max([c.updated_at, *(x.updated_at for x in own)]),
+        ))
+    return sorted(items, key=lambda item: item.last_changed_at, reverse=True)
+
+
+def open_review_queue(actor, now=None):
+    """열린 재검토 요청(오래된 것부터)과 그 캠페인. 관리자가 해제(`release_campaign`)하거나 반려(`reject_review_request`)한다."""
+    require_admin(actor)
+    now = _now(now)
+    rows = ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at")
+    return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id)) for r in rows]
 
 
 # ---------------------------------------------------------------- 광고그룹·입찰

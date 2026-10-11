@@ -23,7 +23,7 @@
         <td>{{ p.policy_version }}</td>
         <td>{{ p.floor|points }} / {{ p.base|points }} / {{ p.cap|points }}</td>
         <td>{{ p.reason }}</td>
-        <td>{{ names|get_item:p.changed_by|default:"(알 수 없음)" }}</td>
+        <td>{% with person=people|get_item:p.changed_by %}{{ person.username|default:"(알 수 없음)" }}{% endwith %}</td>
         <td>{{ p.changed_at|kst }}</td>
       </tr>
     {% endfor %}

@@ -64,9 +64,10 @@ def _profile_view(user):
     return ProfileView(user.pk, user.username, user.nickname, user.class_label, user.created_at)
 
 
-def usernames(user_ids):
-    """표시용 아이디(질의 한 번). 없는·형식이 틀린 ID 는 결과에 없다. 이력의 `changed_by` 같은 사용자 ID 를 화면에 보일 때 쓴다."""
-    return dict(User.objects.filter(pk__in=parse_uuids(user_ids)).values_list("pk", "username"))
+def profiles(user_ids):
+    """표시용 사용자 정보 {user_id: ProfileView}(질의 한 번). 없는·형식이 틀린 ID 는 결과에 없다.
+    이력의 `changed_by`·캠페인의 `owner_id` 같은 사용자 ID 를 화면에 아이디·닉네임·반으로 보일 때 쓴다."""
+    return {u.pk: _profile_view(u) for u in User.objects.filter(pk__in=parse_uuids(user_ids))}
 
 
 def update_profile(user, nickname=None, class_label=None):

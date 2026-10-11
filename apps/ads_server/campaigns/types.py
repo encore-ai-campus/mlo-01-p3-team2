@@ -71,6 +71,15 @@ class CreatedAd:
 
 
 @dataclass(frozen=True)
+class MonitoredCampaign:
+    """관리자 광고 모니터링의 한 줄(S5): 캠페인과 그 소재, 캠페인·소재 중 늦은 마지막 변경 시각."""
+
+    campaign: CampaignView
+    creatives: tuple  # CreativeView 들
+    last_changed_at: datetime
+
+
+@dataclass(frozen=True)
 class ReviewRequestView:
     review_request_id: uuid.UUID
     campaign_id: uuid.UUID
@@ -103,3 +112,11 @@ class CandidateFacts:
     title: str
     redirect_url: str
     image_name: str
+
+
+@dataclass(frozen=True)
+class ReviewQueueItem:
+    """관리자 재검토 대기 목록의 한 줄: 열린 요청과 그 캠페인(중단 사유 포함)."""
+
+    review: ReviewRequestView
+    campaign: CampaignView

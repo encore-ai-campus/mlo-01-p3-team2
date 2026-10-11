@@ -43,11 +43,12 @@ class SignupTests(TestCase):
         self.assertFalse(u.is_superuser)
         self.assertFalse(u.is_staff)
 
-    def test_usernames_for_display(self):
-        from foundation.api import usernames
+    def test_profiles_for_display(self):
+        from foundation.api import profiles
 
         u = create_advertiser("name_lookup", PW, "닉네임", "1반")
-        self.assertEqual(usernames([u.pk, uuid.uuid4(), "not-a-uuid"]), {u.pk: "name_lookup"})  # 없는·형식이 틀린 ID 는 빠진다
+        found = profiles([u.pk, uuid.uuid4(), "not-a-uuid"])  # 없는·형식이 틀린 ID 는 빠진다
+        self.assertEqual({k: (v.username, v.nickname, v.class_label) for k, v in found.items()}, {u.pk: ("name_lookup", "닉네임", "1반")})
 
     def test_service_has_no_role_parameter(self):
         self.assertNotIn("role", inspect.signature(create_advertiser).parameters)
