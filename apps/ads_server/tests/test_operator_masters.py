@@ -166,7 +166,9 @@ class MediaKeyPageTests(OperatorBase):
 
     def test_rotate_keeps_the_old_key_for_the_chosen_grace(self):
         old = masters.issue_media_key(self.admin, self.media.media_id)
-        token = request_key(self.client.get(self.detail).content.decode(), "key-rotate")
+        html = self.client.get(self.detail).content.decode()
+        self.assertRegex(html, r'<form[^>]*id="key-rotate"[^>]*data-confirm="[^"]*즉시 만료')  # 즉시 만료는 폐기처럼 매체 서버를 바로 끊는다
+        token = request_key(html, "key-rotate")
         before = timezone.now()
         r = self.client.post(reverse("operator:key_rotate", args=[self.media.media_id]), {"grace_seconds": "3600", "label": "", "request_key": token})
         self.assertEqual(r.status_code, 200)

@@ -47,7 +47,7 @@ def _detail(request, media_id, status=200, slot_form=None):
         request, "operator/media_detail.html", f"매체: {media.name}", status=status, media=media,
         slots=masters.list_slots(active_only=False, media_id=media.media_id), keys=masters.list_media_keys(request.user, media.media_id),
         slot_form=slot_form or SlotForm(), issue_form=KeyIssueForm(initial={"request_key": secrets.token_urlsafe(16)}),
-        rotate_form=KeyRotateForm(initial={"request_key": secrets.token_urlsafe(16)}),
+        rotate_form=KeyRotateForm(initial={"request_key": secrets.token_urlsafe(16)}, auto_id="rotate_%s"),  # 한 화면의 두 폼 — 칸 id 가 겹치지 않게
     )
 
 

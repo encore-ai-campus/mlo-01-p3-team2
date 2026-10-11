@@ -505,7 +505,7 @@ def add_bid(user, ad_group_id, amount, expected_version, now=None):
         current = _current_bid(g)
         current_version = current.bid_version if current else None
         if expected_version != current_version:
-            raise errors.StaleVersion(f"현재 버전은 {current_version} 입니다.")
+            raise errors.StaleVersion(f"다른 곳에서 먼저 바뀌었습니다(현재 버전 {current_version}). 새로 불러와 다시 넣으세요.")
         try:
             with transaction.atomic():
                 bid = Bid.objects.create(ad_group=g, bid_version=(current_version or 0) + 1, amount=amount, created_by=user.pk, created_at=now)

@@ -2,7 +2,7 @@
 
 - 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·로그인 화면의 캐시 금지.
 - CSP 위반이 될 마크업: 인라인 스크립트(데이터 블록 제외)·`style` 속성·`on…` 이벤트 속성. 브라우저가 막아 화면이 깨지거나 기능이 죽는다.
-- 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`).
+- 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`), 비밀번호 칸의 `autocomplete`(현재·새 비밀번호), 겹치지 않는 id.
 - 색 대비: 디자인 토큰(`console/static/console/app.css`)의 글자·배경 쌍이 라이트·다크 모두 WCAG AA(4.5:1) 이상.
 """
 import re
@@ -11,11 +11,11 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
-from django.test import Client, TestCase, tag
+from django.test import Client, TestCase, override_settings, tag
 from django.urls import reverse
 
 from campaigns import api as campaigns
-from tests.factories import World
+from tests.factories import World, png_file
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
 
@@ -27,9 +27,12 @@ class PageAudit(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.problems, self.labels_for, self.inputs, self.lang, self.main = [], set(), [], None, False
         self.label_depth, self.button_text, self.in_button, self.button_attrs, self.script_open = 0, "", False, {}, None
+        self.ids = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if a.get("id"):
+            self.ids.append(a["id"])
         if tag == "html":
             self.lang = a.get("lang")
         if tag == "main" or a.get("role") == "main":
@@ -42,6 +45,8 @@ class PageAudit(HTMLParser):
         if tag == "script":
             if not a.get("src") and a.get("type") not in ("application/json", "application/ld+json"):
                 self.problems.append("인라인 스크립트")
+        if tag == "input" and a.get("type") == "password" and a.get("autocomplete") not in ("current-password", "new-password"):
+            self.problems.append(f"비밀번호 칸의 autocomplete: <input name={a.get('name')!r} autocomplete={a.get('autocomplete')!r}>")  # 비밀번호 관리자가 칸을 구분한다
         if tag == "img" and "alt" not in a:
             self.problems.append(f"대체 글 없는 이미지: {a.get('src')}")
         if tag == "label":
@@ -77,6 +82,7 @@ class PageAudit(HTMLParser):
             problems.append(f"html lang: {self.lang!r}")
         if not self.main:
             problems.append("main 영역 없음")
+        problems += [f"겹친 id: {i}" for i in sorted({i for i in self.ids if self.ids.count(i) > 1})]  # 이름표(for)가 다른 폼의 칸을 가리킨다
         return problems
 
 
@@ -87,6 +93,8 @@ class ScreenQualityTests(TestCase):
         self.suspended = campaigns.create_campaign(self.w.adv, "<b>중단된 캠페인</b>", self.w.campaign.starts_at, None, 1000)
         campaigns.suspend_campaign(self.w.admin, self.suspended.campaign_id, "<i>사유</i>")
         campaigns.create_review_request(self.w.adv, self.suspended.campaign_id, "고쳤습니다")
+        with override_settings(MAX_CREATIVES_PER_AD_GROUP=2):  # 소재마다 폼이 되풀이된다(V1 은 1개, 설정으로 늘린다)
+            campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))
 
     def pages(self):
         adv = [reverse(n, args=a) for n, a in (

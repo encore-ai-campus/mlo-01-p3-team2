@@ -45,6 +45,11 @@ class AdGroupPageBase(TestCase):
         found = dict(re.findall(rf'name="{prefix}-(title|redirect_url|updated_at)"[^>]*?value="([^"]*)"', html))
         return {f"{prefix}-{k}": v for k, v in {**found, **over}.items()}
 
+    def image_fields(self, image, creative=None, updated_at=None):
+        """소재마다 따로인 이미지 교체 폼(접두사 = 소재 ID)."""
+        creative = creative or self.creative()
+        return {f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
+
 
 class DetailTests(AdGroupPageBase):
     def test_shows_bid_effects_history_slots_and_the_creative(self):
@@ -76,7 +81,7 @@ class BidTests(AdGroupPageBase):
     def test_a_concurrent_bid_is_explained_and_nothing_is_overwritten(self):
         campaigns.add_bid(self.w.adv, self.gid, 40, expected_version=1)  # 다른 탭에서 먼저
         r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 60, "expected_version": 1})
-        self.assertContains(r, "현재 버전은 2", status_code=409)
+        self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다(현재 버전 2)", status_code=409)  # 다른 낙관적 잠금 충돌과 같은 안내
         self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [40, 30])
 
     def test_bad_amount_and_ended_campaign_are_refused_by_the_service(self):
@@ -134,16 +139,30 @@ class CreativeTests(AdGroupPageBase):
         old = self.creative().image_name
         self.client.post(reverse("creative_enabled", args=[self.crid]), {"enabled": "0"})
         self.assertFalse(self.creative().enabled)
-        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), {"image": png_file((5, 6, 7)), "updated_at": self.seen_creative()}), self.detail)
+        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((5, 6, 7)))), self.detail)
         self.assertNotEqual(self.creative().image_name, old)
         self.assertEqual(set(CreativeImage.objects.filter(creative_id=self.crid).values_list("image_name", flat=True)), {old, self.creative().image_name})
 
     def test_a_rejected_image_shows_the_reason(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        r = self.client.post(reverse("creative_image", args=[self.crid]), {"image": SimpleUploadedFile("x.png", b"nope", content_type="image/png"), "updated_at": self.seen_creative()})
+        r = self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(SimpleUploadedFile("x.png", b"nope", content_type="image/png")))
         self.assertEqual(r.status_code, 400)
-        self.assertRegex(r.content.decode(), r'id="id_image_error"><li>[^<]+</li>')
+        self.assertRegex(r.content.decode(), rf'id="image_{self.crid}-image_error"><li>[^<]+</li>')
+
+    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)  # V1 은 1개지만 설정만 올리면 늘어난다(설계 §10)
+    def test_each_creative_has_its_own_image_form(self):
+        """3-3 브라우저 점검: 이미지 교체 폼 하나를 모든 소재가 같이 써서, 한 소재의 거절 사유가 모든 소재 아래에 나오고 이름표(id)가 겹쳤다."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        second = campaigns.create_creative(self.w.adv, self.gid, "둘째", "https://example.com/2", png_file((9, 9, 9)))
+        r = self.client.post(reverse("creative_image", args=[second.creative_id]),
+                             self.image_fields(SimpleUploadedFile("x.png", b"nope", content_type="image/png"), second))
+        html = r.content.decode()
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(re.findall(r'id="([^"]+_error)"', html), [f"image_{second.creative_id}-image_error"])  # 그 소재 아래에만
+        files = re.findall(r'<input type="file"[^>]*id="([^"]+)"', html)
+        self.assertEqual(len(set(files)), 2)
 
     @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")
     def test_the_owner_sees_the_image_while_suspended_and_nobody_else_does(self):
@@ -198,6 +217,6 @@ class StaleSameFieldTests(AdGroupPageBase):
     def test_a_stale_image_form_does_not_replace_a_newer_image(self):
         seen = self.seen_creative()
         newer = campaigns.replace_creative_image(self.w.adv, self.crid, png_file((1, 2, 3)))
-        r = self.client.post(reverse("creative_image", args=[self.crid]), {"image": png_file((7, 7, 7)), "updated_at": seen})
+        r = self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((7, 7, 7)), updated_at=seen))
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
         self.assertEqual(self.creative().image_name, newer.image_name)

@@ -16,29 +16,36 @@ from ..forms import BidForm, CreativeEditForm, GroupNameForm, GroupSlotsForm, Im
 from ..queries.ad_groups import ad_group_page
 
 
-def _page(request, ad_group_id, status=200, edit=None, **bound):
-    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼, `edit` 는 (소재 ID, 다시 그릴 소재 수정 폼)."""
+def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
+    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼, `edit`·`image` 는 (소재 ID, 다시 그릴 그 소재의 수정·이미지 폼)."""
     page = fetch(ad_group_page, request.user, ad_group_id)
     group = page.group
     forms = {
         "bid_form": BidForm(initial={"expected_version": group.current_bid.bid_version if group.current_bid else None}),
         "name_form": GroupNameForm(initial={"name": group.name, "updated_at": group.updated_at.isoformat()}),
         "slots_form": GroupSlotsForm(slots=page.choices, initial={"slot_ids": [str(s) for s in group.slot_ids], "updated_at": group.updated_at.isoformat()}),
-        "image_form": ImageForm(),
         **bound,
     }
     edits = {c.creative_id: _edit_form(c) for c in page.creatives}
+    images = {c.creative_id: _image_form(c) for c in page.creatives}
     if edit is not None:
         edits[edit[0]] = edit[1]
+    if image is not None:
+        images[image[0]] = image[1]
     return render(request, "console/ad_group_detail.html", {
         "page": page, "group": group, "effects": [(page.linked.get(e.slot_id), e) for e in page.effects],
-        "creatives": [(c, edits[c.creative_id]) for c in page.creatives], **forms,
+        "creatives": [(c, edits[c.creative_id], images[c.creative_id]) for c in page.creatives], **forms,
     }, status=status)
 
 
 def _edit_form(creative, data=None):
     initial = {"title": creative.title, "redirect_url": creative.redirect_url, "updated_at": creative.updated_at.isoformat()}
     return CreativeEditForm(data, prefix=str(creative.creative_id), initial=initial)
+
+
+def _image_form(creative, data=None, files=None):
+    """소재마다 따로(접두사 = 소재 ID) — 한 소재의 거절 사유가 다른 소재 아래에 나오지 않고 이름표가 겹치지 않는다."""
+    return ImageForm(data, files, prefix=str(creative.creative_id), auto_id="image_%s", initial={"updated_at": creative.updated_at.isoformat()})  # id 는 수정 폼과 다르게
 
 
 def ad_group_detail(request, ad_group_id):
@@ -138,16 +145,17 @@ def creative_enabled(request, creative_id):
 
 @require_POST
 def creative_image(request, creative_id):
-    group_id = _creative_group(request, creative_id)
-    form = ImageForm(request.POST, request.FILES)
+    current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
+    group_id = current.ad_group_id
+    form = _image_form(current, request.POST, request.FILES)
     if form.is_valid():
         try:
             campaigns.replace_creative_image(request.user, creative_id, form.cleaned_data["image"], expected_updated_at=form.cleaned_data["updated_at"])
         except HANDLED as e:
             form_errors(form, e, image_field="image")
-            return _page(request, group_id, status=status_of(e), image_form=form)
+            return _page(request, group_id, status=status_of(e), image=(current.creative_id, form))
         return _done(request, group_id, "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.")
-    return _page(request, group_id, status=400, image_form=form)
+    return _page(request, group_id, status=400, image=(current.creative_id, form))
 
 
 @require_safe

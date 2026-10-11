@@ -72,7 +72,7 @@
 </form>
 <h3>키 교체</h3>
 <p class="help">새 키를 발급하고, 지금 유효한 키는 고른 시간 뒤에 만료됩니다(그동안 두 키가 모두 유효 — 매체 서버 설정을 바꿀 시간).</p>
-<form method="post" action="{% url 'operator:key_rotate' media.media_id %}" id="key-rotate">{% csrf_token %}
+<form method="post" action="{% url 'operator:key_rotate' media.media_id %}" id="key-rotate" data-confirm="새 키를 발급하고 지금 유효한 키를 고른 시간 뒤에 만료합니다. ‘즉시 만료’면 그 키를 쓰는 매체 서버는 바로 인증에 실패합니다.">{% csrf_token %}
   {{ rotate_form.as_div }}
   <button type="submit">교체</button>
 </form>

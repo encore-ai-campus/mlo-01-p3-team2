@@ -58,6 +58,14 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertRegex(html, r'<button[^>]*value="create"[^>]*data-confirm=')  # 집행 버튼만 확인 창
         self.assertNotRegex(html, r"\sstyle=")
 
+    def test_enter_in_a_field_creates_instead_of_redrawing(self):
+        """3-3 브라우저 점검: 칸에서 Enter 를 누르면 폼의 첫 제출 버튼이 눌린다. 그것이 숨긴 '단위 보기'여서 화면만 다시 그리며 고른 이미지를 말없이 잃었다."""
+        form = self.client.get(URL).content.decode().split('class="ad-create"', 1)[1]
+        first = re.search(r"<button[^>]*>", form).group(0)
+        self.assertIn('value="create"', first)
+        self.assertIn("data-confirm=", first)  # JS 가 있으면 확인 창
+        self.assertIn(" hidden", first)
+
     def test_choosing_a_unit_without_js_keeps_the_input_and_creates_nothing(self):
         r = self.client.post(URL, self.fields(action="unit", pricing_unit="CLICK", image=""))
         self.assertEqual(r.status_code, 200)
