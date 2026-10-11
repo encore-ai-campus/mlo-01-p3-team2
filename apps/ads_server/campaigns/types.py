@@ -133,3 +133,27 @@ class AdvertiserUsage:
     creative_limit: int
     image_bytes: int
     image_bytes_limit: int
+
+
+@dataclass(frozen=True)
+class SlotEffect:
+    """입찰 금액 하나가 **이 게재 위치의 현재 정책**에서 어떻게 취급되는지(C6 `SlotEffect`). 적용 금액 규칙은 engine 한 곳(`effect_of`)."""
+
+    slot_id: uuid.UUID
+    eligible: bool
+    applied_amount: int | None
+    reason: str  # within_range | capped_at_cap | below_floor | no_policy | slot_inactive
+    policy_version: int | None
+
+
+@dataclass(frozen=True)
+class AdGroupEffects:
+    """광고그룹 하나의 현재 입찰과 게재 위치별 결과(알림·화면 조립용). 입찰이 없으면 `bid_amount` 가 `None` 이고 `effects` 는 비어 있다."""
+
+    ad_group_id: uuid.UUID
+    campaign_id: uuid.UUID
+    name: str
+    enabled: bool
+    bid_amount: int | None
+    bid_created_at: datetime | None
+    effects: tuple  # SlotEffect 들

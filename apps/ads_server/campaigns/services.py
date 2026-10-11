@@ -12,7 +12,7 @@ from django.db.models import Count, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from assets.api import store, validate_image
-from engine.api import is_expired
+from engine.api import effect_of, is_expired
 from foundation.api import MAX_AMOUNT, clean_text, errors, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
 from masters import api as masters
 
@@ -20,8 +20,8 @@ from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
 from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
-    AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem, ReviewRequestView,
-    SuspensionView,
+    AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem,
+    ReviewRequestView, SlotEffect, SuspensionView,
 )
 
 
@@ -286,6 +286,15 @@ def list_review_requests(user, campaign_id):
     return [_review_view(r) for r in ReviewRequest.objects.filter(campaign=c).order_by("-created_at")]
 
 
+def latest_review_requests(user):
+    """캠페인마다 가장 최근의 재검토 요청 `{campaign_id: ReviewRequestView}`(알림용 — 반려 답변을 보인다). 질의 한 번."""
+    require_advertiser(user)
+    latest = {}
+    for r in ReviewRequest.objects.filter(campaign__owner=user).order_by("created_at"):
+        latest[r.campaign_id] = _review_view(r)
+    return latest
+
+
 def reject_review_request(actor, review_request_id, note, now=None):
     """반려: 정지는 유지하고 요청만 닫는다. 사유는 필수."""
     require_admin(actor)
@@ -460,6 +469,39 @@ def add_bid(user, ad_group_id, amount, expected_version, now=None):
             raise errors.StaleVersion()
         _audit(user, "bid.added", ("campaigns.ad_group", g.ad_group_id), {"version": bid.bid_version, "amount": amount})
     return _bid_view(bid)
+
+
+def ad_group_effects(user):
+    """광고주의 모든 광고그룹과 현재 입찰의 게재 위치별 결과 `[AdGroupEffects]`(알림 조립용). 질의 수는 그룹 수와 무관(그룹 1 + 위치 1 + 정책 1)."""
+    require_advertiser(user)
+    latest = Bid.objects.filter(ad_group=OuterRef("pk")).order_by("-bid_version")
+    groups = list(
+        AdGroup.objects.filter(campaign__owner=user)
+        .annotate(bid_amount=Subquery(latest.values("amount")[:1]), bid_created_at=Subquery(latest.values("created_at")[:1]))
+        .order_by("created_at")
+    )
+    links = {}
+    for group_id, slot_id in AdGroupSlot.objects.filter(ad_group__in=groups).order_by("slot_id").values_list("ad_group_id", "slot_id"):
+        links.setdefault(group_id, []).append(slot_id)
+    every_slot = {slot_id for ids in links.values() for slot_id in ids}
+    policies = masters.get_slots_with_policy(every_slot) if every_slot else {}
+
+    def effects(g):
+        if g.bid_amount is None:
+            return ()
+        return tuple(_effect(g.bid_amount, slot_id, policies.get(slot_id)) for slot_id in links.get(g.pk, []))
+    return [AdGroupEffects(g.ad_group_id, g.campaign_id, g.name, g.enabled, g.bid_amount, g.bid_created_at, effects(g)) for g in groups]
+
+
+def _effect(amount, slot_id, slot):
+    """입찰 금액 하나가 게재 위치 하나에서 어떻게 취급되는지(C6 `SlotEffect`). 적용 금액은 engine 의 `effect_of` 한 곳이 정한다.
+    꺼진 위치(슬롯·매체 비활성)는 `slot_inactive`, 없는 위치는 `no_policy`. 3-2c·3-2d 의 입찰 안내도 이것을 쓴다."""
+    if slot is None:
+        return SlotEffect(slot_id, False, None, "no_policy", None)
+    if not (slot.is_active and slot.media_is_active):
+        return SlotEffect(slot_id, False, None, "slot_inactive", slot.policy.policy_version)
+    e = effect_of(amount, slot.policy.floor, slot.policy.cap)
+    return SlotEffect(slot_id, e.eligible, e.applied_amount, e.reason, slot.policy.policy_version)
 
 
 def list_bids(user, ad_group_id):

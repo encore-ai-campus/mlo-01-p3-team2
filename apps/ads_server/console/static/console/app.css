@@ -58,3 +58,8 @@ td.num, th.num { text-align: right; }
 .chart .axis { stroke: var(--border); }
 .chart text { fill: var(--muted); font-size: 11px; }
 tr.partial td { color: var(--muted); }
+.alerts { list-style: none; padding: 0; margin: 0; }
+.alert { padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border: 1px solid var(--border); font-size: 14px; }
+.alert.critical { background: var(--error-bg); border-color: var(--error-border); }
+.alert.warning { background: var(--warn-bg); border-color: var(--warn-border); }
+.badge { font-weight: 700; margin-right: 6px; }

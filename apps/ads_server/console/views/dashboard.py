@@ -1,4 +1,4 @@
-"""광고주 대시보드(Step 3-2a). 기간의 일별 성과(`records.daily_report`)·상위 캠페인(`console/queries`)·포인트(`billing.get_wallet`)를 부르고 그리기만 한다.
+"""광고주 대시보드(Step 3-2a). 기간의 일별 성과(`records.daily_report`)·상위 캠페인·알림(`console/queries`)·포인트(`billing.get_wallet`)를 부르고 그리기만 한다.
 
 기간은 **오늘을 포함한 최근 N일**(예산 일 경계)이고 비교는 바로 앞의 같은 길이 구간이다(설계 D3-5). 오늘 칸은 아직 집계 중이라 표시한다.
 """
@@ -12,6 +12,7 @@ from foundation.api import errors
 from records import api as records
 
 from ..forms import METRICS, PeriodForm
+from ..queries.alerts import alerts_for
 from ..queries.dashboard import TOP, top_campaigns
 
 
@@ -35,4 +36,5 @@ def advertiser_home(request):
     return render(request, "console/advertiser_home.html", {
         "form": form, "days": chosen["days"], "metric": chosen["metric"], "metric_label": dict(METRICS)[chosen["metric"]],
         "metrics": METRICS, "report": report, "today": today, "wallet": wallet, "top": top_campaigns(request.user, start, end), "top_limit": TOP,
+        "alerts": alerts_for(request.user, now),
     })

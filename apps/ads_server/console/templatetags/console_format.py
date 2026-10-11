@@ -82,3 +82,12 @@ def number(value):
 def percent(ratio):
     """비율(0~1) → '12.5%'. 분모가 0 이라 비율이 없으면(`None`) '—'."""
     return "—" if ratio is None else f"{ratio * 100:.1f}%"
+
+
+_SEVERITIES = {"critical": "긴급", "warning": "주의", "info": "알림"}
+
+
+@register.filter
+def severity_label(value):
+    """알림 심각도 → 화면 이름."""
+    return _SEVERITIES.get(value, value)
