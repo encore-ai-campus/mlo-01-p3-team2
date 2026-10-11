@@ -68,7 +68,7 @@
       <tbody>
       {% for g, summary in groups %}
         <tr>
-          <td>{{ g.name }}</td>
+          <td><a href="{% url 'ad_group_detail' g.ad_group_id %}">{{ g.name }}</a></td>
           <td>{{ g.pricing_unit|unit_label }}</td>
           <td>{% if g.enabled %}켜짐{% else %}꺼짐{% endif %}</td>
           <td class="num">{% if g.bid_amount is not None %}{{ g.bid_amount|points }}{% else %}없음{% endif %}</td>

@@ -125,3 +125,38 @@ class AdCreateForm(forms.Form):
         self.fields["pricing_unit"].choices = list(units)
         self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
         self.fields["image"].widget.attrs["data-max-bytes"] = settings.ASSET_MAX_BYTES
+
+
+# ---------------------------------------------------------------- 광고그룹 상세(3-2d) — 동작마다 작은 폼이라, 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다
+
+class BidForm(forms.Form):
+    """새 입찰(추가만). `expected_version` 은 화면이 본 현재 버전(첫 입찰이면 빈 값) — 그 사이 다른 곳에서 입찰이 바뀌었으면 서비스가 거절한다."""
+
+    amount = forms.IntegerField(label="새 입찰(포인트)")
+    expected_version = forms.IntegerField(required=False, widget=forms.HiddenInput)
+
+
+class GroupNameForm(forms.Form):
+    name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
+
+
+class GroupSlotsForm(forms.Form):
+    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+
+    def __init__(self, *args, slots=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
+
+
+class CreativeEditForm(forms.Form):
+    """제목·이동 주소. `updated_at` 은 화면이 본 마지막 변경 시각 — 그 사이 바뀌었으면(이미지 교체 포함) 서비스가 거절한다. 바뀐 칸만 넘긴다."""
+
+    title = forms.CharField(label="제목", max_length=200, strip=False)
+    redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False)
+    updated_at = forms.DateTimeField(widget=forms.HiddenInput)
+
+    EDITABLE = ("title", "redirect_url")
+
+
+class ImageForm(forms.Form):
+    image = forms.FileField(label="새 이미지", widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg"}))

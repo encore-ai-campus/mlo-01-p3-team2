@@ -1,0 +1,113 @@
+{% extends "console/base.html" %}
+{% load kst console_format %}
+{% block title %}{{ group.name }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'campaign_detail' page.campaign.campaign_id %}">← {{ page.campaign.name }}</a></p>
+
+<section class="card" aria-label="광고그룹">
+  <h1>{{ group.name }} <span class="status{% if not group.enabled %} paused{% endif %}">{% if group.enabled %}켜짐{% else %}꺼짐{% endif %}</span></h1>
+  <p>과금 단위 <strong>{{ group.pricing_unit|unit_label }}</strong> <span class="muted">(만든 뒤에는 바꿀 수 없습니다)</span></p>
+  <form method="post" action="{% url 'ad_group_enabled' group.ad_group_id %}">{% csrf_token %}
+    <input type="hidden" name="enabled" value="{% if group.enabled %}0{% else %}1{% endif %}">
+    <button type="submit" class="secondary">{% if group.enabled %}끄기{% else %}켜기{% endif %}</button>
+  </form>
+  <form method="post" action="{% url 'ad_group_name' group.ad_group_id %}">{% csrf_token %}
+    {{ name_form.name.as_field_group }}
+    <button type="submit" class="secondary">이름 저장</button>
+  </form>
+</section>
+
+<section class="card" aria-label="입찰">
+  <h1>입찰</h1>
+  {% if group.current_bid %}
+  <p>현재 입찰 <strong>{{ group.current_bid.amount|points }}</strong> <span class="muted">(버전 {{ group.current_bid.bid_version }})</span></p>
+  {% else %}
+  <p><strong>입찰이 없습니다.</strong> 입찰을 넣어야 광고가 나갑니다.</p>
+  {% endif %}
+  {% if effects %}
+  <div class="table-wrap">
+    <table>
+      <caption class="muted">현재 입찰의 게재 위치별 결과(지금 정책 기준)</caption>
+      <thead><tr><th scope="col">게재 위치</th><th scope="col">하한 ~ 상한</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th></tr></thead>
+      <tbody>
+      {% for slot, e in effects %}
+        <tr>
+          <td>{% if slot %}{{ slot.media_name }} · {{ slot.name }}{% else %}{{ e.slot_id }}{% endif %}</td>
+          <td>{% if slot %}{{ slot.policy.floor|points }} ~ {{ slot.policy.cap|points }}{% endif %}</td>
+          <td>{{ e.reason|effect_label }}</td>
+          <td class="num">{% if e.applied_amount is not None %}{{ e.applied_amount|points }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  <form method="post" action="{% url 'ad_group_bid' group.ad_group_id %}">{% csrf_token %}
+    {{ bid_form.expected_version }}
+    {% if bid_form.non_field_errors %}<div class="notice error" role="alert">{{ bid_form.non_field_errors }}</div>{% endif %}
+    {{ bid_form.amount.as_field_group }}
+    <p class="muted">입찰은 고치지 않고 새 버전으로 더합니다. 하한 미만도 저장되지만 그 위치에는 나가지 않고, 상한을 넘으면 상한 금액으로 적용됩니다.</p>
+    <button type="submit">새 입찰 넣기</button>
+  </form>
+  {% if page.bids %}
+  <div class="table-wrap">
+    <table>
+      <caption class="muted">입찰 변경 이력</caption>
+      <thead><tr><th scope="col" class="num">버전</th><th scope="col" class="num">금액</th><th scope="col">넣은 시각 (KST)</th></tr></thead>
+      <tbody>
+      {% for b in page.bids %}<tr><td class="num">{{ b.bid_version }}</td><td class="num">{{ b.amount|points }}</td><td>{{ b.created_at|kst }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card" aria-label="게재 위치">
+  <h1>게재 위치</h1>
+  <form method="post" action="{% url 'ad_group_slots' group.ad_group_id %}">{% csrf_token %}
+    {% if slots_form.non_field_errors %}<div class="notice error" role="alert">{{ slots_form.non_field_errors }}</div>{% endif %}
+    {{ slots_form.slot_ids.errors }}
+    <fieldset class="slots">
+      <legend>{{ group.pricing_unit|unit_label }} 단위의 켜진 게재 위치</legend>
+      {% for s in page.choices %}
+      <label class="slot"><input type="checkbox" name="slot_ids" value="{{ s.slot_id }}"{% if s.slot_id|stringformat:"s" in slots_form.slot_ids.value %} checked{% endif %}>
+        {{ s.media_name }} · {{ s.name }} <span class="muted">{{ s.audience|audience_label }} · 하한 {{ s.policy.floor|points }} ~ 상한 {{ s.policy.cap|points }} · 기준가 {{ s.policy.base|points }}</span></label>
+      {% empty %}
+      <p class="muted">고를 수 있는 게재 위치가 없습니다.</p>
+      {% endfor %}
+    </fieldset>
+    {% if page.inactive_linked %}
+    <p class="muted">지금 꺼진 위치: {% for s in page.inactive_linked %}{{ s.media_name }} · {{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %} — 위치를 다시 저장하면 빠집니다.</p>
+    {% endif %}
+    <button type="submit" class="secondary">게재 위치 저장</button>
+  </form>
+</section>
+
+<section class="card" aria-label="소재">
+  <h1>소재</h1>
+  {% for c, edit in creatives %}
+  <div class="creative">
+    <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 소재 이미지">
+    <p><strong>{{ c.title }}</strong> → <strong>{{ c.redirect_url|domain }}</strong> <span class="status{% if not c.enabled %} paused{% endif %}">{% if c.enabled %}켜짐{% else %}꺼짐{% endif %}</span></p>
+    <form method="post" action="{% url 'creative_enabled' c.creative_id %}">{% csrf_token %}
+      <input type="hidden" name="enabled" value="{% if c.enabled %}0{% else %}1{% endif %}">
+      <button type="submit" class="secondary">{% if c.enabled %}끄기{% else %}켜기{% endif %}</button>
+    </form>
+    <form method="post" action="{% url 'creative_edit' c.creative_id %}">{% csrf_token %}
+      {% if edit.non_field_errors %}<div class="notice error" role="alert">{{ edit.non_field_errors }}</div>{% endif %}
+      {{ edit.updated_at }}
+      {{ edit.title.as_field_group }}
+      {{ edit.redirect_url.as_field_group }}
+      <button type="submit" class="secondary">제목·주소 저장</button>
+    </form>
+    <form method="post" action="{% url 'creative_image' c.creative_id %}" enctype="multipart/form-data">{% csrf_token %}
+      {{ image_form.image.as_field_group }}
+      <p class="muted">PNG·JPEG. 이전 이미지는 이미 나간 광고를 위해 보관하며, 보관분도 업로드 총량에 들어갑니다.</p>
+      <button type="submit" class="secondary">이미지 바꾸기</button>
+    </form>
+  </div>
+  {% empty %}
+  <p class="muted">소재가 없습니다.</p>
+  {% endfor %}
+</section>
+{% endblock %}

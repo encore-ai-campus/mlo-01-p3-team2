@@ -78,3 +78,6 @@ fieldset.slots .media { font-weight: 600; margin: 10px 0 4px; }
 label.slot { margin: 4px 0; }
 .counter { margin-left: 6px; }
 img.preview { display: block; max-width: 240px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; }
+/* 광고그룹 상세(3-2d) */
+.creative { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+.card form + form { margin-top: 8px; }
