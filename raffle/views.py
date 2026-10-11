@@ -2,13 +2,15 @@ from functools import wraps
 import json
 
 from django.db import DatabaseError
-from django.http import JsonResponse
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
 
 from accounts.models import needs_profile_setup
 from . import service
+from . import survey
 
 
 def api(method):
@@ -37,6 +39,34 @@ def api(method):
 @api("GET")
 def state(request):
     return JsonResponse(service.snapshot(request.user))
+
+
+@api("POST")
+def connect_survey(request):
+    if not request.user.is_staff:
+        raise service.RaffleError("관리자만 설문을 연결할 수 있어요.", 403)
+    if request.content_type != "application/json":
+        raise service.RaffleError("JSON 형식으로 요청해 주세요.", 415)
+    try:
+        if len(request.body) > 4096:
+            raise service.RaffleError("입력한 내용이 너무 깁니다.", 413)
+        data = json.loads(request.body)
+        if not isinstance(data, dict):
+            raise ValueError
+    except (ValueError, UnicodeError, RecursionError):
+        raise service.RaffleError("요청 내용을 확인해 주세요.", 400)
+    survey.connect(data.get("endpoint"), data.get("accessKey"))
+    return JsonResponse(service.snapshot(request.user))
+
+
+@api("GET")
+def survey_script(request):
+    if not request.user.is_staff:
+        raise service.RaffleError("관리자만 설문 연결 코드를 받을 수 있어요.", 403)
+    script = (settings.BASE_DIR / "scripts" / "GOOGLE_RAFFLE_SURVEY.gs").read_text(encoding="utf-8")
+    response = HttpResponse(script, content_type="text/plain; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="GOOGLE_RAFFLE_SURVEY.gs"'
+    return response
 
 
 @api("POST")

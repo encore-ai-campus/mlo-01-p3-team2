@@ -15,9 +15,11 @@ def scheduler_loop(stop):
         if stop.wait(1):
             return
     from .service import advance_due
+    from .survey import poll_due
     while not stop.is_set():
         try:
             close_old_connections()
+            poll_due()
             advance_due()
         except Exception:
             logger.exception("Rooftop event scheduling failed; retrying")

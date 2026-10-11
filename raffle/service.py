@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from accounts.models import get_nickname
 from .live import publish_change
-from .models import Control, Entry, Event
+from .models import Control, Entry, Event, SurveyAttempt
 
 BUZZER_POINT = (1540, 384)
 ENTRY_RADIUS = 50  # Small allowance for the existing 100-ms movement reports.
@@ -49,6 +49,8 @@ def snapshot(user=None):
         data = {"revision": control.revision, "serverNow": iso(timezone.now()),
                 "event": None, "participants": [], "myEntryId": None,
                 "canManage": bool(user and user.is_staff), "popupGraceSeconds": 60}
+        from .survey import view_state
+        data["survey"] = view_state(user, event.pk if event else None)
         if event is None:
             return data
         entries = list(event.entries.all())
@@ -112,11 +114,15 @@ def draw_locked(event, now):
     event.winner_entry = winner
     event.winner_nickname = winner.nickname if winner else ""
     event.save(update_fields=("status", "drawn_at", "winner_entry", "winner_nickname"))
+    event.survey_attempts.filter(status=SurveyAttempt.Status.PENDING).update(status=SurveyAttempt.Status.CLOSED, closed_reason="not_submitted")
     return True
 
 
 @retry_locked
 def control_event(action, expected_id, *, title=None, opens_at=None, draw_at=None):
+    if action == "draw":
+        from .survey import prepare_manual_draw
+        prepare_manual_draw(expected_id)
     now = timezone.now()
     with transaction.atomic():
         control = locked_control()
@@ -170,6 +176,10 @@ def advance_due(now=None):
     due_open = candidate.status == Event.Status.DRAFT and candidate.opens_at and now >= candidate.opens_at
     if not (due_draw or due_open):
         return False
+    if due_draw:
+        from .survey import ready_for_scheduled_draw
+        if not ready_for_scheduled_draw(candidate):
+            return False
     with transaction.atomic():
         control = locked_control()
         event = control.current_event

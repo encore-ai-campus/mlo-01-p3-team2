@@ -181,5 +181,7 @@ eventSocket.receive({type:'raffle_state',state:{...eventState,revision:2}});
 eventSocket.receive({type:'raffle_entry',entryId:'entry-1',created:true,state:eventState});
 eventSocket.receive({type:'raffle_error',message:'이미 마감됐어요.'});
 assert.equal(eventLive.raffleStates.length,2);assert.equal(eventLive.raffleEntries.length,1);assert.equal(eventLive.raffleErrors.length,1);
+Object.assign(eventLive.player,{floor:'campus'});
+assert.equal(eventLive.presence.joinRaffle('raffle-event',{resume:true}),true,'An already requested survey can reopen after switching floors');
 eventLive.presence.close();assert.equal(eventLive.presence.joinRaffle('raffle-event'),false);
 console.log('PASS: standalone preview, nickname roster, movement, chat, doors, rooftop raffle packets, reconnect, logout, expired session, WSS');

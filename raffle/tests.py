@@ -193,6 +193,10 @@ class RaffleSocketTests(TransactionTestCase):
         self.fail(f"Missing {kind}")
 
     async def test_entries_are_shared_across_floors_and_reconnect_restores_own_entry(self):
+        from . import survey
+        from .models import SurveyAttempt
+        from .test_survey import configure_bridge, google_result
+        await database_sync_to_async(configure_bridge)()
         await database_sync_to_async(service.control_event)("open", None)
         event_id = (await database_sync_to_async(service.snapshot)(self.alice))["event"]["id"]
         async with self.connections(self.a, self.b) as (a,b):
@@ -200,17 +204,27 @@ class RaffleSocketTests(TransactionTestCase):
             self.assertEqual(first["raffle"]["event"]["id"], event_id)
             await a.send_json_to({"type":"raffle_enter", "eventId":event_id, "nickname":"사칭"})
             self.assertEqual((await self.next_type(a,"raffle_error"))["message"], "옥상 이벤트 부저 가까이에서 참여해 주세요.")
+            await asyncio.sleep(.81)
             await a.send_json_to(self.movement(**buzzer_position()))
             await self.next_type(b,"move")
             await a.send_json_to({"type":"raffle_enter", "eventId":event_id, "nickname":"사칭"})
-            accepted = await self.next_type(a,"raffle_entry")
-            self.assertTrue(accepted["created"])
+            issued = await self.next_type(a,"raffle_survey")
+            self.assertIn('entry.123456789=', issued['url'])
+            self.assertNotIn('사칭', issued['url'])
+            self.assertEqual(await database_sync_to_async(Entry.objects.count)(), 0)
+            waiting = await self.next_type(b,"raffle_state")
+            self.assertEqual(waiting['state']['participants'], [])
+            attempt = await database_sync_to_async(SurveyAttempt.objects.get)(user=self.alice)
+            result = google_result([{'token':attempt.token, 'responseId':'qa-socket-response', 'submittedAt':timezone.now().isoformat()}])
+            with patch('raffle.survey.google_request', return_value=result):
+                self.assertEqual(await database_sync_to_async(survey.synchronize)(), 1)
+            entry_id = str((await database_sync_to_async(Entry.objects.get)(user=self.alice)).pk)
             shared = await self.next_type(b,"raffle_state")
             self.assertEqual(shared["state"]["participants"][0]["nickname"], "조원 하나")
             self.assertIsNone(shared["state"]["myEntryId"])
         async with self.connections(self.a) as (a,):
             restored = await a.receive_json_from()
-            self.assertEqual(restored["raffle"]["myEntryId"], accepted["entryId"])
+            self.assertEqual(restored["raffle"]["myEntryId"], entry_id)
 
     async def test_draw_broadcast_has_identical_result_for_rooftop_and_18f(self):
         await database_sync_to_async(service.control_event)("open", None)

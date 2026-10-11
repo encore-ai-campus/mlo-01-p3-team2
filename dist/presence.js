@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleError = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
@@ -120,6 +120,8 @@
             onRaffle(message.state);
           } else if (ready && message.type === 'raffle_entry' && message.state && typeof message.entryId === 'string') {
             onRaffleEntry(message);
+          } else if (ready && message.type === 'raffle_survey' && message.state && typeof message.url === 'string' && typeof message.eventId === 'string') {
+            onRaffleSurvey(message);
           } else if (ready && message.type === 'raffle_error' && typeof message.message === 'string') {
             onRaffleError(message.message);
           }
@@ -175,8 +177,8 @@
         peers, close,
         get connected() {return ready;},
         get selfId() {return selfId;},
-        joinRaffle(eventId) {
-          if(!ready||socket?.readyState!==WebSocket.OPEN||player.floor!=='rooftop'||typeof eventId!=='string')return false;
+        joinRaffle(eventId, {resume=false}={}) {
+          if(!ready||socket?.readyState!==WebSocket.OPEN||(!resume&&player.floor!=='rooftop')||typeof eventId!=='string')return false;
           publish(performance.now(),true);socket.send(JSON.stringify({type:'raffle_enter',eventId}));return true;
         },
         requestDoor(doorId, open) {

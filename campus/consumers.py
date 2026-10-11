@@ -22,6 +22,7 @@ from eventing.catalog import floor_uuid
 from eventing.events import ensure_platform_session, raw_identity, record_chat, record_floor_transfer, touch_platform_session
 from eventing.publisher import submit_movement
 from raffle import live as raffle_live, service as raffle_service
+from raffle import survey as raffle_survey
 from . import session_registry
 from .doors import DOORS, distance as door_distance, footprint as door_footprint
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
@@ -82,6 +83,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_move = 0
         self.last_chat = -math.inf
         self.last_door = -math.inf
+        self.last_survey = -math.inf
         self.last_checkpoint = self.last_seen
         self.position_changed_at = None
         identity = await database_sync_to_async(get_identity)(self.user)
@@ -267,27 +269,28 @@ class CampusConsumer(AsyncWebsocketConsumer):
         await self.touch_activity()
 
     async def receive_raffle(self, data):
-        try:
-            result = await self.join_raffle(data.get("eventId"), self.state.copy())
-        except raffle_service.RaffleError as exc:
-            await self.send_packet({"type": "raffle_error", "message": exc.message})
-            return
-        except DatabaseError:
-            await self.send_packet({"type": "raffle_error", "message": "참여를 저장하지 못했어요. 잠시 후 다시 눌러 주세요."})
-            return
-        if result is None:
+        # The authenticated socket supplies the real account and last reported
+        # position. This only issues a survey code; it never registers an entry.
+        if await self.current_identity() is None:
             await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})
             return
-        self.last_seen = time.monotonic()
-        await self.touch_activity()
-        entry_id, created = result
-        state = await database_sync_to_async(raffle_service.snapshot)(self.user)
-        await self.send_packet({"type": "raffle_entry", "entryId": entry_id, "created": created, "state": state})
-
-    @database_sync_to_async
-    def join_raffle(self, event_id, position):
-        user = self.session_user()
-        return raffle_service.join(user, position, event_id) if user else None
+        now = time.monotonic()
+        if now - self.last_survey < .8:
+            await self.send_packet({"type": "raffle_error", "message": "잠시 후 다시 눌러 주세요."})
+            return
+        self.last_survey = self.last_seen = now
+        try:
+            event_id = data.get("eventId")
+            if not isinstance(event_id, str) or len(event_id) != 36:
+                raise raffle_service.RaffleError("대상 이벤트를 확인해 주세요.", 400)
+            url = await database_sync_to_async(raffle_survey.begin)(self.user, self.state.copy(), event_id)
+            state = await database_sync_to_async(raffle_service.snapshot)(self.user)
+            await self.send_packet({"type": "raffle_survey", "eventId": event_id, "url": url, "state": state})
+            await self.touch_activity()
+        except raffle_service.RaffleError as error:
+            await self.send_packet({"type": "raffle_error", "message": error.message})
+        except DatabaseError:
+            await self.send_packet({"type": "raffle_error", "message": "설문 참여 정보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."})
 
     async def raffle_changed(self, event):
         if self.player_id in room.players:

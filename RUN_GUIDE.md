@@ -227,13 +227,13 @@ Django에서 로그인한 상태로 외부 출입구로 나가면 “나가시�
 서버 기능은 프로젝트 가상환경에서 실행합니다. 실제 계정과 분리된 임시 DB에서 검사합니다.
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py test accounts campus config community
+.\.venv\Scripts\python.exe manage.py test accounts campus config community raffle eventing
 ```
 
-Node.js가 있으면 지도 배치·좌표 변환·유리문 충돌·실시간 공유·옥상 연결 검사도 실행합니다.
+Node.js가 있으면 지도 배치·좌표 변환·유리문 충돌·실시간 공유·옥상 연결과 설문 연결 스크립트 검사도 실행합니다.
 
 ```powershell
-node --test tests/isometric.test.cjs tests/classroom-doors.test.cjs tests/presence.test.cjs tests/rooftop.test.cjs tests/raffle-map.test.cjs tests/floor-transition.test.cjs
+node --test tests/isometric.test.cjs tests/classroom-doors.test.cjs tests/presence.test.cjs tests/rooftop.test.cjs tests/raffle-map.test.cjs tests/floor-transition.test.cjs tests/survey-bridge.test.cjs
 ```
 
 브라우저에서는 서로 다른 두 로그인 세션으로 문 상태 공유를 확인합니다. 복도 양 입구와 책장 옆 휴식 공간의 통로, 대형 게시판·우하단 축소창의 카드 선택, 프린터 앞 시야와 전체 접속 표시 옆 줌 조작도 확인합니다.
@@ -301,7 +301,7 @@ Raw payload는 사용자·세션·과정 UUID와 해당 이벤트의 식별자·
 ## 옥상 이벤트 참여와 추첨
 
 1. 관리자는 위쪽 **이벤트 관리**에서 **참여 시작**을 누릅니다. 처음에는 운영 시간과 추첨 시간이 비어 있습니다.
-2. 사용자는 옥상 중앙 계단 바로 앞 넓은 광장의 빨간 부저 옆에서 **E** 또는 클릭으로 창을 열고 **부저 눌러 참여하기**를 누릅니다. 참여 완료 닉네임과 참가자 목록은 부저 팝업에 실시간으로 표시합니다. 같은 이벤트에는 계정당 한 번만 참여할 수 있습니다. 지도 위의 별도 이벤트 참가 명단 게시판은 제거했습니다.
+2. 사용자는 옥상 중앙 계단 바로 앞 넓은 광장의 빨간 부저 옆에서 **E** 또는 클릭으로 창을 엽니다. 상단에 **설문 조사를 완료해야 이벤트에 등록됩니다.**를 표시하며, **부저 눌러 설문 조사하기** 또는 링크로 폼을 새 탭에서 엽니다. 부저 요청 시 계정·이벤트별 참가 확인 코드를 설문에 자동 입력합니다. 서버가 기본 10초마다 Google 제출 결과를 확인해 참가 명단에 자동 등록합니다. 링크를 열기만 해서는 등록하지 않습니다. 최초 한 번 아래 Google 연결 설정을 완료해야 하며, 연결 전에는 참가 버튼을 준비 중 상태로 표시합니다. 참여 완료 닉네임과 참가자 목록은 부저 팝업에 실시간으로 표시합니다. 같은 이벤트에는 계정당 한 번만 참여할 수 있습니다. 지도 위의 별도 이벤트 참가 명단 게시판은 제거했습니다.
 3. 관리자의 **지금 추첨**은 참여를 마감하고 18층·옥상 전체 접속자에게 슬롯 추첨을 보여줍니다. 한 명의 당첨자를 서버에서 한 번 정하므로 모든 화면의 결과는 같습니다.
 4. 다음 이벤트는 **새 이벤트 준비**로 만듭니다. **이벤트 이름 · 시간 설정**에서 한국 시간의 참여 시작·추첨 시각을 입력하면 해당 시각에 자동 진행합니다. 비워 두면 수동으로 진행합니다. 미래의 추첨 시각은 참여 시작 이후여야 합니다.
 5. 참여와 결과는 SQLite 운영 DB에 남습니다. 새로고침·재로그인·서버 재시작 후에도 유지하며, 여러 탭의 중복 참여와 같은 이벤트의 중복 추첨을 막습니다. 추첨창을 닫으면 지도를 계속 이용합니다.
@@ -315,5 +315,29 @@ Raw payload는 사용자·세션·과정 UUID와 해당 이벤트의 식별자·
 | `CAMPUS_RAFFLE_SCHEDULER_ENABLED` | `1` | 예약된 참여 시작·추첨 처리 켬·끔 |
 | `CAMPUS_RAFFLE_POLL_SECONDS` | `1` | 예약 확인 간격(초) |
 | `CAMPUS_RAFFLE_ANIMATION_SECONDS` | `10` | 새 이벤트의 슬롯 애니메이션 시간(1~60초) |
+| `CAMPUS_RAFFLE_SURVEY_URL` | 플랫폼 이용 만족도 설문 | 게시된 Google Forms 응답 URL. 다른 설문으로 변경할 때 설정 후 서버 재시작 필요 |
+| `CAMPUS_RAFFLE_SURVEY_FORM_ID` | 기존 만족도 설문 ID | Google 설문 편집 주소의 원본 ID. 연결 대상 검증에 사용 |
+| `CAMPUS_RAFFLE_SURVEY_POLL_SECONDS` | `10` | 설문 제출 결과 조회 간격 (초) |
+| `CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS` | `20` | Google 조회 요청 제한 시간 (초) |
 
 장치 배치는 `dist/rooftop-data.js`, 표현은 `dist/isometric.js`, 이벤트 화면은 `dist/raffle.js`·`dist/raffle.css`에 있습니다. DB 모델·추첨·예약은 `raffle/`, 웹소켓 전달은 `campus/consumers.py`·`dist/presence.js`에 있습니다. 부저 위치를 바꾸면 `raffle/service.py`의 `BUZZER_POINT`도 맵 상호작용 좌표와 맞춥니다. 부저 참여·추첨 이벤트와 실제 기프티콘 지급은 현재 Raw Kafka 범위에 포함되지 않습니다.
+
+
+### Google 설문 제출 확인 연결 (최초 한 번)
+
+현재 로컬 서버가 Google 응답을 가져오는 방식이며, Django 공개 주소가 필요하지 않습니다. Google Forms 소유 계정에서 아래 설정이 필요합니다. 설문 링크 연결만으로는 제출 결과를 읽을 수 없습니다.
+
+1. `encore` 관리자 계정으로 **이벤트 관리 → 설문 제출 확인 연결 → Google 연결 코드 다운로드**를 선택합니다. 같은 코드는 `scripts/GOOGLE_RAFFLE_SURVEY.gs`에 있습니다.
+2. [Google Apps Script](https://script.google.com/)에서 기존 설문 생성 프로젝트에 새 스크립트 파일을 추가하거나 새 프로젝트를 만들고, 코드 전체를 붙여 넣습니다. 기존 질문은 삭제하지 않습니다.
+3. 함수 목록에서 `setupRaffleSurvey`를 골라 실행하고 Google 권한 요청을 승인합니다. 현재 설문에 **이벤트 참가 확인 코드** 항목이 한 번만 추가되며, 실행 로그에 **연결 키**가 표시됩니다. 코드는 부저에서 설문을 열 때 자동 입력되므로 응답자가 변경할 필요가 없습니다. 설정 함수를 재실행해도 항목·연결 키는 유지됩니다.
+4. **배포 → 새 배포 → 웹 앱**을 선택하고, 실행 계정은 **나**, 액세스 권한은 **모든 사용자**로 설정해 배포합니다. 복사할 주소는 `/exec`로 끝나는 웹 앱 주소이며, 설문 `/viewform` 주소와 다릅니다. 응답 조회는 서버의 연결 키를 확인한 뒤에만 허용됩니다.
+5. 플랫폼 관리자의 **설문 제출 확인 연결**에 웹 앱 주소와 실행 로그의 연결 키를 입력하고 **설문 연결**을 누릅니다. 서버가 실제 Google 설문 ID·응답 주소·자동 입력 항목을 확인한 후 저장합니다. 연결 키는 일반 접속자나 상태 API에 반환하지 않습니다.
+6. 이벤트 참여가 시작된 상태에서 부저로 설문을 열고 제출하면, 확인 주기와 Google 요청 처리 시간이 지난 뒤 참가 명단과 참여 완료 표시가 자동 갱신됩니다. 설문 창을 닫는 것만으로는 등록되지 않습니다. 설문을 열었다가 다시 로그인해도 같은 계정·이벤트의 확인 코드를 재사용합니다.
+
+서버에는 설문 답변 원문 대신 계정·이벤트·참가 코드·Google 응답 ID·제출 시각·확인 시각·등록 결과를 저장합니다. 응답자는 본인 참가 코드만 받고, 닉네임은 서버 계정의 값을 사용합니다. 계정·이벤트당 한 번만 등록하며, 동일 Google 응답의 중복 처리도 막습니다. Google 연결 장애가 발생하면 미확인 참여를 유지하고 재시도합니다.
+
+참여 마감은 Google 제출 시각으로 판단합니다. 마감 전에 제출한 응답이 조회 지연으로 늦게 들어온 경우도 등록합니다. 수동 추첨 버튼은 먼저 참여를 마감하고 미확인 제출을 조회하며, 예약 추첨도 마감 시점까지의 제출 확인에 성공한 뒤에만 진행합니다. Google 조회에 실패하면 추첨을 보류하므로, 관리자는 연결 상태를 확인한 뒤 재시도할 수 있습니다.
+
+Google 연결 코드를 변경한 경우에는 새 버전으로 웹 앱 배포를 갱신해야 합니다. 다른 설문으로 변경할 때는 환경 변수의 응답 주소·설문 ID와 스크립트의 `RAFFLE_FORM_ID`를 함께 바꾸고 다시 연결합니다.
+
+Google API 근거: [Form.getResponses](https://developers.google.com/apps-script/reference/forms/form#getresponsestimestamp), [FormResponse.toPrefilledUrl](https://developers.google.com/apps-script/reference/forms/form-response#toprefilledurl), [Apps Script 웹 앱](https://developers.google.com/apps-script/guides/web).

@@ -116,6 +116,16 @@ CAMPUS_SESSION_CLEANUP_TIME = os.environ.get("CAMPUS_SESSION_CLEANUP_TIME", "04:
 CAMPUS_SESSION_CLEANUP_STATE = BASE_DIR / "var" / "session-cleanup.json"
 
 # Raffle dates are unset until an administrator chooses them in the campus UI.
+# The local server reads completed Google submissions; it needs no public callback URL.
+CAMPUS_RAFFLE_SURVEY_URL = os.environ.get(
+    "CAMPUS_RAFFLE_SURVEY_URL",
+    "https://docs.google.com/forms/d/e/1FAIpQLSf4dkDBcM-7uXtJNXjgsYUsstKRHDPUQ_M3WfCaZne_CUcIEA/viewform?usp=publish-editor",
+).strip()
+CAMPUS_RAFFLE_SURVEY_FORM_ID = os.environ.get("CAMPUS_RAFFLE_SURVEY_FORM_ID", "117DNOSfnLfgmBkv-DkWruqjXKeuFQe--UbeeEg2L34c").strip()
+CAMPUS_RAFFLE_SURVEY_POLL_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_SURVEY_POLL_SECONDS", "10"))
+CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS", "20"))
+if min(CAMPUS_RAFFLE_SURVEY_POLL_SECONDS, CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS) <= 0:
+    raise ValueError("Survey polling and request timeout must be positive seconds")
 CAMPUS_RAFFLE_SCHEDULER_ENABLED = os.environ.get("CAMPUS_RAFFLE_SCHEDULER_ENABLED", "1") == "1"
 CAMPUS_RAFFLE_POLL_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_POLL_SECONDS", "1"))
 CAMPUS_RAFFLE_ANIMATION_SECONDS = int(os.environ.get("CAMPUS_RAFFLE_ANIMATION_SECONDS", "10"))
