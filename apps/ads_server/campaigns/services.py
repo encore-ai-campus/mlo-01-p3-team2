@@ -72,6 +72,25 @@ def _creative(user, creative_id):
     )
 
 
+def _locked_group(user, ad_group_id):
+    """광고그룹을 바꾸는 동작용: 소유를 확인한 뒤 **캠페인 행을 먼저 잠그고**(캠페인 행 잠금 규약 — 종료·기간 종료·중단과 줄을 선다) 광고그룹 행을
+    잠가 다시 읽는다. 잠그지 않고 읽은 객체를 통째로 저장하면 그 사이의 다른 변경을 되돌리고, 끝난 캠페인에도 쓸 수 있었다(Step 3-2d). 트랜잭션 안에서만."""
+    found = _ad_group(user, ad_group_id)
+    campaign = Campaign.objects.select_for_update().get(pk=found.campaign_id)
+    group = AdGroup.objects.select_for_update().get(pk=found.pk)
+    group.campaign = campaign
+    return group
+
+
+def _locked_creative(user, creative_id):
+    """소재를 바꾸는 동작용: `_locked_group` 과 같은 순서(캠페인 → 소재)로 잠가 다시 읽는다. 트랜잭션 안에서만."""
+    found = _creative(user, creative_id)
+    campaign = Campaign.objects.select_for_update().get(pk=found.ad_group.campaign_id)
+    creative = Creative.objects.select_related("ad_group").select_for_update(of=("self",)).get(pk=found.pk)
+    creative.ad_group.campaign = campaign
+    return creative
+
+
 def _campaign_view(c, now, open_review_id=None):
     expired = is_expired(c.ends_at, now)
     ended = c.status == CampaignStatus.ENDED or expired
@@ -437,7 +456,7 @@ def update_ad_group(user, ad_group_id, changes, now=None):
     if "pricing_unit" in changes:
         raise UnitImmutable()  # 보내면 항상 거절한다(같은 값이어도)
     with transaction.atomic():
-        g = _ad_group(user, ad_group_id)
+        g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
         if "name" in changes:
             g.name = clean_text(changes["name"], "광고그룹 이름", "/name")
@@ -461,7 +480,7 @@ def add_bid(user, ad_group_id, amount, expected_version, now=None):
     now = _now(now)
     _amount(amount)
     with transaction.atomic():
-        g = _ad_group(user, ad_group_id)
+        g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
         current = _current_bid(g)
         current_version = current.bid_version if current else None
@@ -646,15 +665,18 @@ def list_creatives(user, ad_group_id):
 CREATIVE_FIELDS = {"title", "redirect_url", "enabled"}
 
 
-def update_creative(user, creative_id, changes, now=None):
+def update_creative(user, creative_id, changes, now=None, expected_updated_at=None):
+    """제목·이동 주소·켜기/끄기. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 다르면 409 — 옛 폼이 그 사이의 변경(이미지 교체 포함)을 덮지 않게."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CREATIVE_FIELDS
     if unknown or not changes:
         raise _problem("/", f"바꿀 수 있는 필드: {sorted(CREATIVE_FIELDS)}")
     with transaction.atomic():
-        c = _creative(user, creative_id)
+        c = _locked_creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
+        if expected_updated_at is not None and expected_updated_at != c.updated_at:
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
         if "title" in changes:
             c.title = clean_text(changes["title"], "제목", "/title", 200)
         if "redirect_url" in changes:
@@ -675,7 +697,7 @@ def replace_creative_image(user, creative_id, image_file, now=None):
     now = _now(now)
     image = validate_image(image_file)
     with transaction.atomic():
-        c = _creative(user, creative_id)
+        c = _locked_creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
         _check_image_quota(user, image)
         c.image_name, c.image_bytes, c.updated_at = store(image), len(image.data), now
