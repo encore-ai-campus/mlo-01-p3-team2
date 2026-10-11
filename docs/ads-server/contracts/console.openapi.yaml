@@ -38,7 +38,7 @@ info:
     | 과금 단위 고정 | 광고그룹의 `pricing_unit`은 만들 때 정하고 **바꿀 수 없다**(409). 고른 슬롯은 모두 그 단위여야 한다(400 `unit_mismatch`) |
     | 입찰은 추가만 | 입찰 변경은 새 `bid_version` 추가(`POST .../bids`). 수정·삭제 없음 |
     | 입력은 거절하지 않는다 | 하한 미만·상한 초과 입찰도 저장된다. 응답의 `effects`가 **슬롯별 노출 여부와 적용 금액**을 알려준다 |
-    | 동시 수정 보호 | 입찰 생성 시 본 버전(`expected_version`)이 현재와 다르면 409 `stale_version`. 캠페인·소재 수정 폼은 본 마지막 변경 시각(`expected_updated_at`, 선택)을 함께 보내고 다르면 409 `stale_version`(켜기·끄기·종료는 대조하지 않음) |
+    | 동시 수정 보호 | 입찰 생성 시 본 버전(`expected_version`)이 현재와 다르면 409 `stale_version`. 캠페인·광고그룹·소재 수정과 소재 이미지 교체는 본 마지막 변경 시각(`expected_updated_at`, 선택)을 함께 보내고 다르면 409 `stale_version`(켜기·끄기·종료는 대조하지 않음) |
     | 관리자 중단 | `SUSPENDED` 캠페인은 광고주가 `status`를 바꿀 수 없다(409 `suspended`). 사유는 읽을 수 있다. **그 밖의 수정(소재·입찰·기간 등)은 허용**하고, 고친 뒤 **재검토 요청**(`POST .../review-requests`)으로 관리자에게 알린다. 요청은 정지 중에만, 동시에 하나만(409 `not_suspended`·`review_pending`) |
     | 종료는 확정 | `ENDED`(기간이 끝났거나 `POST .../end`로 조기 종료)는 **어떤 값도 수정할 수 없다**(409 `ended`). 소속 광고그룹·소재·입찰의 쓰기도 막힌다. 판정은 저장된 `status`가 아니라 `ends_at ≤ 현재`다(상태 갱신 전에도 같다) |
     | 종료일 변경 | 종료 전에는 늘리거나 줄일 수 있다. 새 값은 현재 시각보다 뒤여야 한다(400) |
@@ -868,6 +868,9 @@ paths:
                   type: string
                   contentMediaType: application/octet-stream
                   description: JPEG 또는 PNG. 용량 상한(설정값, 기본 2MB).
+                expected_updated_at:
+                  $ref: "#/components/schemas/DateTimeUtc"
+                  description: 선택. 화면이 본 소재의 `updated_at`. 현재와 다르면 409 `stale_version`(옛 화면의 교체가 그 사이의 교체를 덮지 않게).
             encoding:
               image:
                 contentType: image/jpeg, image/png
@@ -1411,7 +1414,7 @@ components:
 
     AdGroup:
       type: object
-      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, current_bid, effects, created_at]
+      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, current_bid, effects, created_at, updated_at]
       additionalProperties: false
       properties:
         ad_group_id:
@@ -1441,6 +1444,9 @@ components:
             $ref: "#/components/schemas/SlotEffect"
         created_at:
           $ref: "#/components/schemas/DateTimeUtc"
+        updated_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+          description: 마지막 변경 시각. 수정 때 `expected_updated_at`으로 돌려보낸다.
 
     AdGroupCreate:
       type: object
@@ -1483,6 +1489,9 @@ components:
         pricing_unit:
           description: 보내면 항상 409(`unit_immutable`)다. 과금 단위는 바꿀 수 없다.
           $ref: "#/components/schemas/PricingUnit"
+        expected_updated_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+          description: 선택. 폼을 열 때 본 광고그룹의 `updated_at`. 현재와 다르면 409 `stale_version`(같은 칸의 옛 폼이 최신 변경을 덮지 않게). 켜기·끄기에는 보내지 않는다.
 
     Bid:
       type: object
@@ -1533,7 +1542,7 @@ components:
 
     Creative:
       type: object
-      required: [creative_id, ad_group_id, title, redirect_url, image, enabled, created_at]
+      required: [creative_id, ad_group_id, title, redirect_url, image, enabled, created_at, updated_at]
       additionalProperties: false
       properties:
         creative_id:
@@ -1555,6 +1564,9 @@ components:
           type: boolean
         created_at:
           $ref: "#/components/schemas/DateTimeUtc"
+        updated_at:
+          $ref: "#/components/schemas/DateTimeUtc"
+          description: 마지막 변경 시각(이미지 교체 포함). 수정·교체 때 `expected_updated_at`으로 돌려보낸다.
 
     CreativeImage:
       type: object

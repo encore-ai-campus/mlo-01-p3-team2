@@ -189,6 +189,7 @@ erDiagram
     billing_wallet ||--o{ billing_ledger_entry : "wallet"
     masters_media ||--o{ masters_media_key : "media"
     campaigns_creative ||--o{ campaigns_creative_image : "creative (보유 파일)"
+    foundation_user ||--o| campaigns_advertiser_quota : "owner (상한 잠금, 1:1)"
 
     foundation_user {
         uuid id PK
@@ -308,6 +309,10 @@ erDiagram
         string image_name
         int image_bytes
     }
+    campaigns_advertiser_quota {
+        uuid quota_id PK
+        uuid owner_id FK "UK, 잠금 전용"
+    }
     foundation_audit_log {
         uuid log_id PK
         uuid actor_id
@@ -336,6 +341,7 @@ erDiagram
 | O5 | 입찰 `campaigns_bid` | campaigns | 운영(추가 전용 버전) | 광고주 | 입찰 변경마다 | [구현] |
 | O6 | 재검토 요청 `campaigns_review_request` | campaigns | 운영 | 광고주(생성), 관리자·시스템(닫기) | 요청마다 | [구현] |
 | O7 | 소재 이미지 보유 `campaigns_creative_image` | campaigns | 운영(추가 전용) | 소재 등록·이미지 교체 | 이미지가 바뀔 때마다 | [구현] |
+| O8 | 광고주 상한 잠금 `campaigns_advertiser_quota` | campaigns | 잠금 전용(값 없음) | 만들기·이미지 교체 | 광고주가 처음 만들 때 | [구현] `f6d4cdf` |
 | B1 | 지갑 `billing_wallet` | billing | 운영 | 가입 흐름 | 광고주 가입 | [구현] |
 | B2 | 원장 `billing_ledger_entry` | billing | 기록(추가 전용) | 가입 지급·과금·관리자 조정 | 포인트가 움직일 때마다 | [구현] |
 | B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] |
@@ -483,6 +489,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `pricing_unit` | 코드 | N | 변경 시 거부 | 고른 슬롯은 모두 같은 단위여야 한다 |
 | `enabled` | 불리언 | N | | 광고주가 켜고 끈다 |
 | `created_at` | 시각 | N | | |
+| `updated_at` | 시각 | N | | 마지막 변경(이름·게재 위치·켜기/끄기). 화면이 본 값과 대조해 옛 폼이 그 사이의 변경을 덮지 않게(`expected_updated_at`) [구현 `f6d4cdf`] |
 
 #### O3. 광고그룹-슬롯 `campaigns_ad_group_slot` [구현]
 
@@ -544,6 +551,16 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `creative_id` | UUID | N | FK→O4 `PROTECT`, UNIQUE(creative, image_name) | |
 | `image_name` | 문자 80 | N | 인덱스 | `<sha256>.<ext>` |
 | `image_bytes` | 정수 | N | | 쿼터 계산용 |
+| `created_at` | 시각 | N | | |
+
+#### O8. 광고주 상한 잠금 `campaigns_advertiser_quota` [구현 `f6d4cdf`, 잠금 전용]
+
+광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)을 지키는 **잠금 행**. **값을 담지 않는다** — 수는 이 행을 잠근 안에서 센다. 캠페인·광고그룹·소재 만들기와 이미지 교체가 **가장 먼저** 잠근다(그다음 캠페인 → 광고그룹·소재, 설계 §10 "캠페인 행 잠금 규약"). **처음 쓸 때 만든다**(동시에 처음 만들면 한쪽은 유일 제약에서 기다렸다가 있는 행을 읽는다). 사용자 행 대신 따로 두는 것은 인증·계정 경로와 잠금 순서를 섞지 않기 위해서다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `quota_id` | UUID | N | PK | |
+| `owner_id` | UUID | N | FK→A1 `PROTECT`, UNIQUE | 광고주 하나에 행 하나 |
 | `created_at` | 시각 | N | | |
 
 #### B1. 지갑 `billing_wallet` [구현]
@@ -651,7 +668,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
-| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409 | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
+| 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
+| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
@@ -1192,6 +1210,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.27 | 2026-10-11 | 외부 검토(56c66cf) 보완 `f6d4cdf`: O8 `campaigns_advertiser_quota`(광고주 상한 잠금 행, 값 없음, 처음 쓸 때 만듦)와 ER, O2 `updated_at`, §5 불변식 표(상한은 동시 쓰기에도 넘지 않음) |
 | 0.26 | 2026-10-11 | 3-2c 광고 만들기(`f10f1c4`): O1 `request_key`(광고 만들기 요청의 멱등 키, UNIQUE·NULL 허용)와 ER, §5 불변식·멱등 키 표 |
 | 0.25 | 2026-10-11 | 광고주 비활성화의 효과(사용자 결정, 구현 3-1d `f9a7a2e`): §6 수명주기와 `is_active` 설명에 로그인·세션·광고 송출·공개 이미지가 멈추고 다시 활성화하면 그대로 다시 나간다는 점. 외부 검토 3-1d 보완(`b4faf8a`): A1 `session_epoch`, B2 `adjust_key`, `role`·`is_superuser`는 사용자 관리 화면에서도 바꿀 수 없음(`002f90b` 포함), §5 멱등 키·불변식 표와 §5.5 감사 로그(`account.admin_created`가 더 이상 생기지 않음). M4 `request_key`(`4450a59`, 발급 요청의 멱등 키) |
 | 0.24 | 2026-10-10 | 외부 재검토(`f52d1df`) 보완 반영: 구간 manifest 게시의 직렬화 단위를 "파일별"에서 "내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지), 폴더 단위 잠금"으로 고침(로컬 파일시스템 전제 유지) |
