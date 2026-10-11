@@ -20,8 +20,9 @@
   const canvas=$('mapCanvas'), ctx=canvas.getContext('2d');
   const viewport=$('viewport'), dialog=$('detailDialog'), boardDialog=$('boardDialog'), exitDialog=$('exitDialog'), transferDialog=$('transferDialog'), logoutForm=$('campusLogoutForm');
   const boardCards=[...boardDialog.querySelectorAll('[data-board-choice]')];
+  const communityUI=window.CampusCommunity.create({onBack:()=>showBoardChoices()});
   let menuRequest=null,menuVersion=0;
-  const isDialogOpen=()=>dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking;
+  const isDialogOpen=()=>window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -30,11 +31,27 @@
   let exitReturnPoint={x:spawn[0],y:spawn[1]}, logoutPending=false;
   let vw=0,vh=0,dpr=1,nearby=null,hover=null,lastRoom='',lastTime=0,toastTimer,lastPortalAt=-Infinity;
   const keys=new Set();
+  const movementKeys=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
+  const suppressedKeys=new Set();
+  const floorTransition=window.CampusFloorTransition.create({
+    onStart(){
+      for(const key of keys)suppressedKeys.add(key);
+      keys.clear();player.moving=false;player.walkTime=0;press=null;hover=nearby=null;
+      $('interactionPrompt').hidden=true;viewport.setAttribute('aria-busy','true');
+    },
+    onFinish(){
+      keys.clear();player.moving=false;lastPortalAt=performance.now();
+      viewport.removeAttribute('aria-busy');
+      if(!window.CampusSession?.ending)canvas.focus({preventScroll:true});
+    },
+  });
   const social=window.CampusSocial.create({config:accountConfig,onFocus(){keys.clear();player.moving=false;},onSend:text=>presence.sendChat(text),getSelfId:()=>presence.selfId});
   let pendingTransfer=null,ignoredPortalId=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value),onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message)});
+  const raffleUI=window.CampusRaffle.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});},onState:state=>{for(const view of renderers.values())view.setRaffleState(state);},onJoin:id=>presence.joinRaffle(id),isNear:()=>{const point=worlds.rooftop.objects.find(o=>o.id==='roof-event-buzzer').interactionPoint;return D.id==='rooftop'&&Math.hypot(player.x-point[0],player.y-point[1])<35;},notify:toast});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleError:message=>raffleUI.onError(message)});
   const solidTypes=new Set(['desk','chair','bar','counter','water','coffee-machine','printer','bin','pillar','bookshelf','bookshelf-side','sofa','bench','coffee','roundtable','ottoman','cabinet','box','tv','plant','fire-extinguisher','noticeboard','stool','woodwall','glass-wall','tree','planter','terrace-bench','festival-booth','festival-stage','speaker','photo-frame','booth-collider','booth-side','game-arcade','game-gomoku-table','game-pc-station','game-console-display','game-controller-shelf','creator-screen','camera-tripod','microphone-stand','creator-console','creator-award','photo-backdrop','ring-light','phone-podium','photo-display','psych-test-backdrop','psych-type-wheel','psych-question-kiosk','psych-mood-cards','fountain','plaza-display','plaza-lamp']);
+  solidTypes.add('raffle-buzzer');
   function distRect(x,y,o){if(o.type==='glass-door')return window.CampusDoors.distance(o,x,y);if(o.interactionPoint)return Math.hypot(x-o.interactionPoint[0],y-o.interactionPoint[1]);const r=renderer.footprint(o);return Math.hypot(Math.max(r.x-x,0,x-r.x-r.w),Math.max(r.y-y,0,y-r.y-r.h));}
   const inside=(r,x,y)=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
   // Bucket nearby wall and furniture footprints for keyboard movement.
@@ -56,6 +73,7 @@
   }
   const roomAt=(x,y)=>[...D.rooms].reverse().find(r=>inside(r,x,y))||(D.entrance&&inside(D.entrance,x,y)?D.entrance:null);
   function move(dx,dy){
+    if(floorTransition.blocking||window.CampusSession?.ending){player.moving=false;return false;}
     const px=player.x,py=player.y;
     if(walkable(player.x+dx,player.y))player.x+=dx;
     if(walkable(player.x,player.y+dy))player.y+=dy;
@@ -69,6 +87,7 @@
     const q=renderer.projectActor(player);camera.x=vw/2-q.x*camera.zoom;camera.y=vh/2-q.y*camera.zoom;
   }
   function zoomBy(factor){
+    if(floorTransition.blocking)return;
     const anchor={x:(vw/2-camera.x)/camera.zoom,y:(vh/2-camera.y)/camera.zoom};
     camera.zoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,camera.zoom*factor));
     if(camera.follow)focusPlayer();else{camera.x=vw/2-anchor.x*camera.zoom;camera.y=vh/2-anchor.y*camera.zoom;}
@@ -140,17 +159,27 @@
     if(D.entrance)exitReturnPoint={x:target.x,y:Math.min(target.y,D.entrance.y-12)};
     if(refresh){focusPlayer(true);nav();updateFloorUI();updateZoom();loadPlazaDisplays(D,renderer);}
   }
-  function switchFloor(id,arrival){
-    if(!Object.hasOwn(worlds,id)||id===D.id)return false;
-    keys.clear();hover=nearby=null;lastRoom='';
-    D=worlds[id];window.CampusData=D;
-    renderer=renderers.get(id)||window.CampusIsometric.create({data:D});renderers.set(id,renderer);P=renderer.projection;scene=renderer.scene;
-    rebuildCollision();const target=closestOpen(...(arrival||D.spawn));if(!target)throw new Error('Floor arrival must be walkable');
-    Object.assign(player,{floor:id,x:target.x,y:target.y,moving:false,visualZ:D.elevationAt?.(target.x,target.y)||0});lastPortalAt=performance.now();
-    ignoredPortalId=D.portals.find(portal=>inside(portal,player.x,player.y))?.objectId||null;
-    focusPlayer(true);nav();updateFloorUI();updateZoom();
-    loadPlazaDisplays(D,renderer);
-    canvas.focus({preventScroll:true});toast(id==='rooftop'?'옥상 광장에 도착했어요.':'18층 캠퍼스로 내려왔어요.');return true;
+  async function switchFloor(id,arrival){
+    if(!Object.hasOwn(worlds,id)||id===D.id||isDialogOpen())return false;
+    const from=D.id;
+    try{
+      return await floorTransition.run(()=>{
+        if(D.id!==from)return false;
+        const data=worlds[id],view=renderers.get(id)||window.CampusIsometric.create({data});
+        keys.clear();hover=nearby=null;lastRoom='';
+        D=data;window.CampusData=D;renderer=view;renderers.set(id,renderer);P=renderer.projection;scene=renderer.scene;
+        renderer.setRaffleState(raffleUI.state);
+        rebuildCollision();const target=closestOpen(...(arrival||D.spawn));if(!target)throw new Error('Floor arrival must be walkable');
+        Object.assign(player,{floor:id,x:target.x,y:target.y,moving:false,walkTime:0,visualZ:D.elevationAt?.(target.x,target.y)||0});
+        ignoredPortalId=D.portals.find(portal=>inside(portal,player.x,player.y))?.objectId||null;
+        focusPlayer(true);nav();updateFloorUI();updateZoom();loadPlazaDisplays(D,renderer);
+        render(performance.now());toast(id==='rooftop'?'옥상 광장에 도착했어요.':'18층 캠퍼스로 내려왔어요.');
+        return true;
+      });
+    }catch(error){
+      ignoredPortalId=D.portals.find(portal=>inside(portal,player.x,player.y))?.objectId||null;
+      console.error('Floor transition failed',error);toast('층을 이동하지 못했어요. 잠시 후 다시 시도해 주세요.');return false;
+    }
   }
   function checkPortals(t){
     if(isDialogOpen())return;
@@ -160,7 +189,7 @@
     if(portal){const object=D.objects.find(o=>o.id===portal.objectId);if(object.confirmTransfer)requestTransfer(object);else switchFloor(object.toFloor,object.arrival);}
   }
   function requestTransfer(item){
-    if(transferDialog.open||!worlds[item.toFloor]||distRect(player.x,player.y,item)>=35)return;
+    if(isDialogOpen()||!worlds[item.toFloor]||distRect(player.x,player.y,item)>=35)return;
     keys.clear();player.moving=false;pendingTransfer={floor:D.id,item};
     $('transferDescription').textContent=worlds[item.toFloor].name+'으로 이동합니다. 예를 누르면 이동하고, 아니오를 누르면 현재 위치에 머뭅니다.';
     transferDialog.showModal();$('transferNo').focus();
@@ -230,8 +259,10 @@
     logoutForm.requestSubmit();
   }
   function showDetail(item,{keyboard=false}={}){
+    if(floorTransition.blocking||window.CampusSession?.ending)return;
     if(item.info===false)return;
     if(item.type==='glass-door'){toggleDoor(item);return;}
+    if(item.action==='raffle'){raffleUI.open();return;}
     if(item.action==='booth'){if(distRect(player.x,player.y,item)<35)boothUI.open(item);else toast('부스 중앙의 E 표시 가까이로 이동해 주세요.');return;}
     if(item.toFloor&&(keyboard||(item.confirmTransfer&&distRect(player.x,player.y,item)<35))){useStairs(item);return;}
     if(item.type==='noticeboard'){showBoard();return;}
@@ -266,6 +297,7 @@
   }
   function cancelMenuRequest(){menuRequest?.abort();menuRequest=null;menuVersion++;$('boardMenuImage').onload=$('boardMenuImage').onerror=null;$('boardMenuImage').removeAttribute('src');}
   function showBoardChoices(focus=true){
+    communityUI.hide();
     cancelMenuRequest();$('boardMenuView').hidden=true;$('boardChoices').hidden=false;$('boardDescription').hidden=false;$('boardSelection').hidden=false;
     if(focus)$('boardMenuCard').focus({preventScroll:true});
   }
@@ -295,28 +327,46 @@
   // Facility clicks open information; an administrator may drag the unlocked camera.
   function pointerPosition(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
   let press=null;
-  canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;press={...pointerPosition(e),cameraX:camera.x,cameraY:camera.y,dragging:false};canvas.setPointerCapture(e.pointerId);canvas.focus({preventScroll:true});});
-  canvas.addEventListener('pointermove',e=>{const p=pointerPosition(e);if(press&&isAdmin&&!camera.follow&&(press.dragging||Math.hypot(p.x-press.x,p.y-press.y)>5)){press.dragging=true;camera.x=press.cameraX+p.x-press.x;camera.y=press.cameraY+p.y-press.y;hover=null;canvas.style.cursor='grabbing';return;}hover=renderer.hitTest((p.x-camera.x)/camera.zoom,(p.y-camera.y)/camera.zoom);canvas.style.cursor=hover?'pointer':isAdmin&&!camera.follow?'grab':'default';});
-  canvas.addEventListener('pointerup',e=>{if(e.button!==0||!press)return;const p=pointerPosition(e),start=press;press=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(start.dragging||Math.hypot(p.x-start.x,p.y-start.y)>5){updateZoom();return;}const item=renderer.hitTest((p.x-camera.x)/camera.zoom,(p.y-camera.y)/camera.zoom);if(item)showDetail(item);});
+  canvas.addEventListener('pointerdown',e=>{if(e.button!==0||floorTransition.blocking)return;press={...pointerPosition(e),cameraX:camera.x,cameraY:camera.y,dragging:false};canvas.setPointerCapture(e.pointerId);canvas.focus({preventScroll:true});});
+  canvas.addEventListener('pointermove',e=>{if(floorTransition.blocking)return;const p=pointerPosition(e);if(press&&isAdmin&&!camera.follow&&(press.dragging||Math.hypot(p.x-press.x,p.y-press.y)>5)){press.dragging=true;camera.x=press.cameraX+p.x-press.x;camera.y=press.cameraY+p.y-press.y;hover=null;canvas.style.cursor='grabbing';return;}hover=renderer.hitTest((p.x-camera.x)/camera.zoom,(p.y-camera.y)/camera.zoom);canvas.style.cursor=hover?'pointer':isAdmin&&!camera.follow?'grab':'default';});
+  canvas.addEventListener('pointerup',e=>{if(floorTransition.blocking){press=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);return;}if(e.button!==0||!press)return;const p=pointerPosition(e),start=press;press=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(start.dragging||Math.hypot(p.x-start.x,p.y-start.y)>5){updateZoom();return;}const item=renderer.hitTest((p.x-camera.x)/camera.zoom,(p.y-camera.y)/camera.zoom);if(item)showDetail(item);});
   canvas.addEventListener('pointercancel',()=>{press=null;updateZoom();});canvas.addEventListener('pointerleave',()=>{if(!press)hover=null;});
   canvas.addEventListener('wheel',e=>{e.preventDefault();zoomBy(Math.exp(-e.deltaY*.0015));},{passive:false});
   $('followBtn').onclick=()=>{if(!isAdmin)return;camera.follow=!camera.follow;press=null;hover=null;if(camera.follow)focusPlayer();updateZoom();};
   nav();updateFloorUI();updateZoom();new ResizeObserver(resize).observe(viewport);
-  document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.isComposing||isDialogOpen()||e.target.closest?.('input,textarea,[contenteditable="true"]'))return;if(k==='escape'&&!e.repeat){e.preventDefault();social.openSettings();}else if(k==='enter'&&!e.repeat){if(social.focusChat())e.preventDefault();}else if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){e.preventDefault();keys.add(k);}else if(k==='e'&&nearby&&!e.repeat){e.preventDefault();showDetail(nearby,{keyboard:true});}else if(k==='+'||k==='='){e.preventDefault();zoomBy(1.2);}else if(k==='-'){e.preventDefault();zoomBy(1/1.2);}});
-  document.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));window.addEventListener('blur',()=>keys.clear());
+  document.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase();
+    if(floorTransition.blocking){
+      if(movementKeys.has(k))suppressedKeys.add(k);
+      if(movementKeys.has(k)||['e','escape','enter','+','=','-'].includes(k))e.preventDefault();
+      return;
+    }
+    if(suppressedKeys.has(k)){e.preventDefault();return;}
+    if(e.isComposing||isDialogOpen()||e.target.closest?.('input,textarea,[contenteditable="true"]'))return;
+    if(k==='escape'&&!e.repeat){e.preventDefault();social.openSettings();}
+    else if(k==='enter'&&!e.repeat){if(social.focusChat())e.preventDefault();}
+    else if(movementKeys.has(k)){e.preventDefault();keys.add(k);}
+    else if(k==='e'&&nearby&&!e.repeat){e.preventDefault();showDetail(nearby,{keyboard:true});}
+    else if(k==='+'||k==='='){e.preventDefault();zoomBy(1.2);}
+    else if(k==='-'){e.preventDefault();zoomBy(1/1.2);}
+  });
+  document.addEventListener('keyup',e=>{const k=e.key.toLowerCase();keys.delete(k);suppressedKeys.delete(k);});
+  window.addEventListener('blur',()=>{keys.clear();suppressedKeys.clear();});
   $('zoomIn').onclick=()=>zoomBy(1.25);$('zoomOut').onclick=()=>zoomBy(1/1.25);
   $('fullscreenBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.map-shell').requestFullscreen();}catch{toast('현재 창에서는 전체 화면을 사용할 수 없습니다.');}};
   $('closeDialog').onclick=$('detailClose').onclick=()=>{dialog.close();canvas.focus({preventScroll:true});};
-  $('closeBoardDialog').onclick=$('boardClose').onclick=()=>boardDialog.close();
+  $('closeBoardDialog').onclick=$('boardClose').onclick=()=>{if(communityUI.canLeave())boardDialog.close();};
   $('openBoardShortcut').onclick=()=>{if(D.id==='campus'&&!isDialogOpen())showBoard();};
   for(const card of boardCards)card.addEventListener('click',()=>{
     for(const option of boardCards){const selected=option===card;option.setAttribute('aria-pressed',String(selected));option.querySelector('.board-card-state').textContent=selected?'선택됨':'선택하기';}
     $('boardSelection').textContent=card.dataset.boardChoice+' 카드가 선택됐어요.';
     if(card.id==='boardMenuCard')showMenuPhoto();
+    if(card.id==='boardEncoreCard'){cancelMenuRequest();communityUI.open();}
   });
   $('boardMenuBack').onclick=()=>showBoardChoices();
-  boardDialog.addEventListener('close',()=>{cancelMenuRequest();keys.clear();canvas.focus({preventScroll:true});});
-  boardDialog.addEventListener('click',e=>{if(e.target!==boardDialog)return;const r=boardDialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)boardDialog.close();});
+  boardDialog.addEventListener('close',()=>{cancelMenuRequest();communityUI.hide();keys.clear();canvas.focus({preventScroll:true});});
+  boardDialog.addEventListener('cancel',e=>{if(!communityUI.canLeave())e.preventDefault();});
+  boardDialog.addEventListener('click',e=>{if(e.target!==boardDialog)return;const r=boardDialog.getBoundingClientRect();if((e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)&&communityUI.canLeave())boardDialog.close();});
   $('transferNo').onclick=cancelTransfer;$('transferYes').onclick=confirmTransfer;
   transferDialog.addEventListener('cancel',event=>{event.preventDefault();cancelTransfer();});
   $('exitNo').onclick=cancelExit;$('exitYes').onclick=confirmExit;
@@ -327,7 +377,7 @@
   function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar);$('avatarPreview').src=`assets/characters/${id}-preview.png`;$('avatarName').textContent=window.CampusAvatars.definitions[id].name;}
   updateAvatarPreview();
   window.addEventListener('campus:avatar',updateAvatarPreview);
-  window.CampusApp={walkable,roomAt,showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,closestOpen,get navigation(){return navigation;},canZoom:true,canFreeCamera:isAdmin,boothUI,social,presence,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,move,render,toast,zoomBy};
+  window.CampusApp={walkable,roomAt,showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,closestOpen,get navigation(){return navigation;},canZoom:true,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,move,render,toast,zoomBy};
   requestAnimationFrame(update);
   setInterval(()=>{if(D.id==='rooftop'&&!document.hidden)loadPlazaDisplays(D,renderer);},60000);
 })();

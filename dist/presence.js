@@ -2,12 +2,12 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
       const peers = new Map();
-      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, requestDoor(){return false;}, tick() {}, close() {}};
+      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, requestDoor(){return false;}, joinRaffle(){return false;}, tick() {}, close() {}};
       const config = JSON.parse(configElement.textContent);
       let socket = null, selfId = null, ready = false, closed = false;
       let welcomed = false;
@@ -78,6 +78,8 @@
           let message;
           try {message = JSON.parse(event.data);} catch {return;}
           if (message.type === 'welcome' && Array.isArray(message.players)) {
+            window.CampusSession?.receive(message.session);
+            if(message.raffle)onRaffle(message.raffle);
             selfId = message.selfId; peers.clear();
             const own = message.players.find(p => p.id === selfId);
             applyIdentity(own);
@@ -93,6 +95,8 @@
             heartbeat = setInterval(() => {
               if (current.readyState === WebSocket.OPEN) current.send(JSON.stringify({type: 'ping'}));
             }, 15000);
+          } else if (message.type === 'session_expired') {
+            window.CampusSession?.expire(message.reason);
           } else if (ready && message.type === 'identity') {
             applyIdentity(message.player);
           } else if (ready && (message.type === 'join' || message.type === 'move')) {
@@ -112,6 +116,12 @@
             onDoorError(message.message);
           } else if (ready && message.type === 'chat_error' && typeof message.message === 'string') {
             onChatError(message.message);
+          } else if (ready && message.type === 'raffle_state' && message.state) {
+            onRaffle(message.state);
+          } else if (ready && message.type === 'raffle_entry' && message.state && typeof message.entryId === 'string') {
+            onRaffleEntry(message);
+          } else if (ready && message.type === 'raffle_error' && typeof message.message === 'string') {
+            onRaffleError(message.message);
           }
         };
         current.onclose = event => {
@@ -120,7 +130,9 @@
           if (closed) return;
           if (event.code === 4401) {
             closed = true; setStatus('로그인이 필요해요', 'disconnected');
-            onAuthExpired(); window.location.assign(config.loginUrl); return;
+            onAuthExpired();
+            if(window.CampusSession)window.CampusSession.expire();else window.location.assign(config.loginUrl);
+            return;
           }
           setStatus('연결 끊김 · 다시 연결 중…', 'disconnected');
           retry = setTimeout(connect, retryDelay); retryDelay = Math.min(retryDelay * 2, 10000);
@@ -163,6 +175,10 @@
         peers, close,
         get connected() {return ready;},
         get selfId() {return selfId;},
+        joinRaffle(eventId) {
+          if(!ready||socket?.readyState!==WebSocket.OPEN||player.floor!=='rooftop'||typeof eventId!=='string')return false;
+          publish(performance.now(),true);socket.send(JSON.stringify({type:'raffle_enter',eventId}));return true;
+        },
         requestDoor(doorId, open) {
           if(!ready||socket?.readyState!==WebSocket.OPEN||(player.floor||'campus')!=='campus'||!doorIds.has(doorId)||typeof open!=='boolean')return false;
           publish(performance.now(),true);socket.send(JSON.stringify({type:'door',doorId,open}));return true;

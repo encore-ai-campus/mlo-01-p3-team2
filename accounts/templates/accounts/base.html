@@ -8,6 +8,7 @@
   <title>{% block title %}{% endblock %} · PLAYDATA 캠퍼스</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23167d79'/%3E%3Cpath d='M9 24V8h8a6 6 0 0 1 0 12h-4v4zm4-8h4a2 2 0 0 0 0-4h-4z' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="{% static 'accounts/auth.css' %}?v=course-signup-v1">
+  {% if user.is_authenticated %}<link rel="stylesheet" href="{% static 'campus/session-policy.css' %}?v=session-policy-v1">{% endif %}
   {% block extra_head %}{% endblock %}
 </head>
 <body class="auth-page">
@@ -27,5 +28,9 @@
     </section>
     <p class="auth-footer">PLAYDATA · 함께 배우고 성장하는 캠퍼스</p>
   </main>
+{% if user.is_authenticated %}
+  {{ session_policy_config|json_script:"campusSessionPolicyConfig" }}
+  <script src="{% static 'campus/session-policy.js' %}?v=session-policy-v1"></script>
+{% endif %}
 </body>
 </html>

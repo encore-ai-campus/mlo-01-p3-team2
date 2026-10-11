@@ -9,8 +9,11 @@ from channels.testing import WebsocketCommunicator
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import Client, TransactionTestCase, override_settings
+from django.utils import timezone
 
 from accounts.models import Profile
+from accounts.session_policy import ACTIVITY, STARTED
+from eventing.models import ChatMessage, EventOutbox, PlatformSession
 from config.asgi import application
 from . import consumers
 
@@ -19,6 +22,13 @@ from . import consumers
 class CampusSocketTests(TransactionTestCase):
     def setUp(self):
         consumers.room = consumers.CampusRoom()
+        from eventing.catalog import FLOORS, floor_uuid
+        from eventing.models import MapFloor
+        # TransactionTestCase flushes migration data between socket tests.
+        for code, name in FLOORS:
+            MapFloor.objects.get_or_create(floor_uuid=floor_uuid(code), defaults={"code": code, "name": name})
+        from raffle.models import Control
+        Control.objects.get_or_create(pk=1)
         self.alice = get_user_model().objects.create_user(username="alice", password="Test!River4820")
         self.bob = get_user_model().objects.create_user(username="bob", password="Test!River4820")
         Profile.objects.create(user=self.alice, nickname="조원 하나", avatar="female-2")
@@ -245,6 +255,18 @@ class CampusSocketTests(TransactionTestCase):
             self.assertEqual(message["text"], "안녕하세요!")
             self.assertIsNotNone(datetime.fromisoformat(message["sentAt"]).tzinfo)
             self.assertTrue(message["id"])
+            @database_sync_to_async
+            def stored_message():
+                saved = ChatMessage.objects.get(pk=message["id"])
+                event = EventOutbox.objects.get(event_type="chat_sent")
+                return saved.body, str(saved.floor.floor_uuid), event.raw_data
+
+            body, floor_uuid, raw = await stored_message()
+            self.assertEqual(body, message["text"])
+            self.assertEqual(raw["message_uuid"], message["id"])
+            self.assertEqual(raw["floor_uuid"], floor_uuid)
+            self.assertNotIn("text", raw)
+            self.assertNotIn("nickname", raw)
             self.assertTrue(await a.receive_nothing())
             self.assertTrue(await b.receive_nothing())
 
@@ -313,6 +335,7 @@ class CampusSocketTests(TransactionTestCase):
             expected = {"type": "door_state", "doorId": "door-class1", "open": True}
             self.assertEqual(await a.receive_json_from(), expected)
             self.assertEqual(await b.receive_json_from(), expected)
+            self.assertFalse(await database_sync_to_async(ChatMessage.objects.exists)())
             later = self.socket(self.a)
             try:
                 self.assertTrue((await later.connect())[0])
@@ -359,3 +382,37 @@ class CampusSocketTests(TransactionTestCase):
             self.assertEqual(await a.receive_output(timeout=2), {"type": "websocket.close", "code": 4401})
             self.assertEqual(await b.receive_json_from(), {"type": "leave", "id": first["selfId"]})
             self.assertFalse(consumers.room.doors["door-class1"])
+
+    async def test_expired_legacy_socket_does_not_create_a_new_platform_session(self):
+        @database_sync_to_async
+        def make_idle():
+            session = self.a.session
+            old = timezone.now().timestamp() - 3600
+            session[STARTED] = session[ACTIVITY] = old
+            session.save()
+
+        await make_idle()
+        ws = self.socket(self.a)
+        try:
+            connected, code = await ws.connect()
+            self.assertFalse(connected)
+            self.assertEqual(code, 4401)
+            self.assertFalse(await database_sync_to_async(PlatformSession.objects.exists)())
+            self.assertFalse(await database_sync_to_async(EventOutbox.objects.exists)())
+        finally:
+            await ws.disconnect()
+
+    async def test_legacy_socket_preserves_policy_and_reconnects_to_same_log_session(self):
+        @database_sync_to_async
+        def saved_session():
+            data = self.a.session.load()
+            return data[STARTED], data[ACTIVITY], data["platform_session_uuid"]
+
+        async with self.connections(self.a) as (first,):
+            await first.receive_json_from()
+            initial = await saved_session()
+        async with self.connections(self.a) as (second,):
+            await second.receive_json_from()
+            self.assertEqual(await saved_session(), initial)
+        self.assertEqual(await database_sync_to_async(PlatformSession.objects.count)(), 1)
+        self.assertFalse(await database_sync_to_async(EventOutbox.objects.filter(event_type="session_ended").exists)())

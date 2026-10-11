@@ -27,4 +27,8 @@ if __name__ == "__main__":
     if os.environ.get("RUN_MAIN") == "true" or "--noreload" in server_args:
         from campus.menu_updater import start_menu_updater
         start_menu_updater()
+        from accounts.session_cleanup import start_session_cleanup
+        start_session_cleanup()
+        from raffle.scheduler import start_raffle_scheduler
+        start_raffle_scheduler()
     execute_from_command_line([str(root / "manage.py"), "runserver", f"0.0.0.0:{port}", *server_args])
