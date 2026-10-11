@@ -74,13 +74,13 @@ security-rules는 SG 참조용 peer 규칙과 IPv4 CIDR용 public 규칙을 각�
 | root_block_device | 암호화 gp3, root_gib 크기, delete_on_termination = true |
 | metadata_options / credit_specification | IMDSv2 토큰 필수, CPU 크레딧 unlimited |
 | user_data | /etc/aws-infra/node.json에 이름·역할·계정 기록 |
-| local.disks / aws_ebs_volume.data | 노드/디스크 키로 별도 암호화 EBS 생성. EC2와 같은 AZ, 현재 prevent_destroy = false |
+| local.disks / aws_ebs_volume.data | 노드/디스크 키로 별도 암호화 EBS 생성. EC2와 같은 AZ, 현재 prevent_destroy = true |
 | aws_volume_attachment.data | 설정한 device_name으로 EBS 연결 |
 | aws_eip.this / aws_eip_association.this | public_ip가 true인 노드에 EIP 생성·연결 |
 
 instances 출력은 노드별 ID, role, private_ip, public_ip, instance_type, availability_zone, data_volumes다. OS 설치 이후 프로그램 설치·EBS 포맷/마운트·DB 초기화는 하지 않는다. [bootstrap 경계](../bootstrap/README.md)를 함께 확인한다.
 
-현재 데이터 EBS의 Terraform 삭제 보호는 꺼져 있다. 전체 삭제 스크립트는 이 값을 자동으로 변경하지 않으며, 보호가 true인 상태에서는 사용자가 false로 바꾼 뒤 새 Plan을 준비해야 한다. 이번 문서 대조는 기존 작업 파일의 값을 기록한 것이며 보호 설정을 수정하지 않았다. 삭제 흐름은 [전체 삭제 문서](../scripts/destroy-all.ps1.md)에 있다.
+현재 데이터 EBS의 Terraform 삭제 보호는 prevent_destroy=true다. 데이터 삭제·교체 Plan은 이 보호 때문에 실패할 수 있다. 전체 삭제의 DeleteDataVolumes는 데이터 삭제 선택이며 보호 해제 옵션이 아니다. Destroy와 DisableDataVolumeProtection을 함께 지정하면 이 선언을 Plan 전에 잠시 false로 바꾸고 종료 시 원래 바이트로 복원한다. 별도 Plan·Apply에서는 자동 변경하지 않으며 직접 설정을 바꾸면 새 Plan을 준비해야 한다. 삭제 흐름은 [전체 삭제 문서](../scripts/destroy-all.ps1.md)에 있다.
 
 ## bastion
 

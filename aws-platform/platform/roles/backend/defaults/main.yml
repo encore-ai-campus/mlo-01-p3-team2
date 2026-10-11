@@ -1,4 +1,14 @@
 ---
-# Backend: MySQL Router 설치까지만 한다. 애플리케이션 런타임과 Router 설정(bootstrap)은 서비스 영역이다.
-# 저장소는 roles/mysql과 같다 (MySQL 8.4 LTS, mysql_* 변수는 그 role의 defaults).
-backend_packages: [mysql-router-community]
+# game·spark·backend 서버에서 로컬 Router를 구성한다. 앱 런타임은 별도로 설치한다.
+backend_packages: [mysql-router-community, mysql-community-client]
+backend_router_user: mysqlrouter
+backend_router_service: mysqlrouter
+backend_router_config: /etc/mysqlrouter/mysqlrouter.conf
+backend_router_stamp: /etc/mysqlrouter/infra-bootstrap.sha256
+mysql_cluster_name: infra
+mysql_port: 3306
+mysql_router_bind_address: 127.0.0.1
+mysql_router_rw_port: 6446
+mysql_router_ro_port: 6447
+mysql_router_source_groups: [game, spark, backend]
+backend_no_log: true

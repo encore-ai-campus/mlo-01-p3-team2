@@ -1,15 +1,15 @@
 ---
-# 모든 노드: dev 계정으로 SELECT 1
 - name: dev 계정으로 SELECT 1
   ansible.builtin.command: mysql -udev -S {{ mysql_socket }} -N -e "SELECT 1"
   environment:
     MYSQL_PWD: "{{ vault_mysql_passwords.dev }}"
   register: mysql_select
+  until: mysql_select.rc == 0 and mysql_select.stdout == '1'
+  retries: 20
+  delay: 3
   changed_when: false
-  failed_when: mysql_select.stdout != '1'
   no_log: "{{ mysql_no_log }}"
 
-# dev는 계정·권한 정보가 있는 시스템 스키마를 읽을 수 없어야 한다.
 - name: dev 계정으로 mysql 스키마 조회 시도
   ansible.builtin.command: mysql -udev -S {{ mysql_socket }} -N -e "SELECT COUNT(*) FROM mysql.user"
   environment:
@@ -19,38 +19,43 @@
   failed_when: mysql_dev_system.rc == 0
   no_log: "{{ mysql_no_log }}"
 
-# ReplicaSet: 기본 노드에서 복제 상태 확인
-- name: ReplicaSet 상태 조회
+- name: InnoDB Cluster 상태 조회
   ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
   args:
-    stdin: "{{ lookup('ansible.builtin.template', 'replicaset-status.js.j2') }}"
-  register: mysql_rs_status
-  changed_when: false
-  when: mysql_is_primary and mysql_secondary_ips | length > 0
-  no_log: "{{ mysql_no_log }}"
-
-- name: ReplicaSet 상태 검증
-  ansible.builtin.assert:
-    that:
-      - mysql_rs_status_json.replicaSet.status == 'AVAILABLE'
-      - mysql_rs_status_json.replicaSet.topology | length == groups['mysql'] | length
-      - mysql_rs_status_json.replicaSet.topology.values() | map(attribute='status') | unique | list == ['ONLINE']
-    fail_msg: ReplicaSet이 AVAILABLE이 아니거나 모든 멤버가 ONLINE이 아니다.
-  vars:
-    mysql_rs_status_json: "{{ mysql_rs_status.stdout_lines | select('match', '^[{]') | first | from_json }}"
-  when: mysql_is_primary and mysql_secondary_ips | length > 0
-
-# ReplicaSet + Backend: Router용 계정이 Backend IP마다 있고(Secondary에는 복제되어 온다), Backend 이외의 출처는 없다.
-- name: Router 계정 확인
-  ansible.builtin.command: >-
-    mysql -uroot -S {{ mysql_socket }} -N -e
-    "SELECT host FROM mysql.user WHERE user = 'router' ORDER BY host"
-  environment:
-    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
-  register: mysql_router_hosts
-  until: mysql_router_hosts.stdout_lines == (groups['backend'] | map('extract', hostvars, 'ip') | sort | list)
-  retries: 10
+    stdin: "{{ lookup('ansible.builtin.template', 'cluster-status.js.j2') }}"
+  register: mysql_cluster_status
+  until: >-
+    mysql_cluster_status.rc == 0 and
+    (mysql_cluster_status.stdout_lines | select('match', '^[{]') | first | from_json).defaultReplicaSet.status == 'OK'
+  retries: 40
   delay: 3
   changed_when: false
-  when: mysql_secondary_ips | length > 0 and groups.get('backend', []) | length > 0
+  when: mysql_is_bootstrap
+  no_log: "{{ mysql_no_log }}"
+
+- name: InnoDB Cluster 상태 검증
+  ansible.builtin.assert:
+    that:
+      - mysql_state.status == 'OK'
+      - mysql_state.topologyMode == 'Single-Primary'
+      - mysql_state.topology | length == groups['mysql'] | length
+      - mysql_state.topology.values() | map(attribute='status') | unique | list == ['ONLINE']
+      - mysql_state.topology.values() | selectattr('memberRole', 'equalto', 'PRIMARY') | list | length == 1
+      - mysql_state.primary in mysql_state.topology
+      - mysql_state.topology[mysql_state.primary].mode == 'R/W'
+      - mysql_state.topology.values() | selectattr('memberRole', 'equalto', 'SECONDARY') | map(attribute='mode') | unique | list == ['R/O']
+    fail_msg: Cluster의 모든 멤버가 ONLINE이고 Primary가 정확히 1대인 정상 상태가 필요하다.
+  vars:
+    mysql_state: "{{ (mysql_cluster_status.stdout_lines | select('match', '^[{]') | first | from_json).defaultReplicaSet }}"
+  when: mysql_is_bootstrap
+
+- name: Router 계정 출처 확인
+  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }} -N -e "SELECT host FROM mysql.user WHERE user = 'router' ORDER BY host"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  register: mysql_router_hosts_actual
+  until: mysql_router_hosts_actual.stdout_lines == (mysql_router_hosts | map('extract', hostvars, 'ip') | unique | sort | list)
+  retries: 20
+  delay: 3
+  changed_when: false
   no_log: "{{ mysql_no_log }}"

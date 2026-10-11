@@ -79,12 +79,12 @@ run "account1_default_closed" {
     error_message = "game→Kafka는 해당 계정의 Kafka SG를 참조해야 합니다."
   }
 }
-run "account2_two_nodes" {
+run "account2_three_nodes" {
   state_key = "account2"
   command   = apply
   variables { account_key = "account2" }
   assert {
-    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2"]) &&
+    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2", "flatten-1"]) &&
     output.inventory.alb_dns_name == null)
     error_message = "Account 2의 서버 배치 또는 ALB 범위가 잘못되었습니다."
   }

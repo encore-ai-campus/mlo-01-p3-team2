@@ -14,11 +14,11 @@
 
 ## 3. 현재 기본 서버 구성
 
-[현재 계정별 배치](costs/account-allocation.md)는 서비스 15대와 선택적 배스천 1대다. Account 1은 Front 2대·game·ad와 별도 배스천을, Account 2는 Mongo-1·Spark-2를 가진다. MySQL 2대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
+[현재 계정별 배치](costs/account-allocation.md)는 서비스 17대와 선택적 배스천 1대다. Account 1은 Front 2대·game·ad와 별도 배스천을, Account 2는 Mongo-1·Spark-2와 평탄화 Consumer flatten-1을 가진다. flatten-1은 t3a.medium, Private A(apne2-az1), role=consumer이며 Kafka 세 브로커의 9092에 접속한다. 프로그램 배포는 별도다. MySQL 3대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
 
-MySQL은 2노드 InnoDB ReplicaSet이며 수동 failover를 사용한다. 과거 기록의 MySQL 3노드 InnoDB Cluster와 다르다. Spark는 Master 2개·Worker 3개, ZooKeeper ensemble 3개다. Kafka는 Broker/Controller 3개, MongoDB는 Replica Set 3개다. AZ A에 다수 노드가 있는 배치는 A 전체 장애에서도 클러스터 가용성을 보장하지 않는다.
+인프라에는 MySQL EC2 세 대가 선언돼 있다. mysql-3는 Account 4 Private A의 t3a.small이며 2026-10-10 current 프로필의 EC2·디스크·SG를 실제 반영했다. [플랫폼 MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 3~9대의 InnoDB Cluster를 요구한다. 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽·Cluster 설치와 장애 전환 검증은 별도다. 기존 ReplicaSet은 이전 구현이며 자동 데이터 이전은 제공하지 않는다. Spark는 Master 2개·Worker 3개, ZooKeeper ensemble 3개다. Kafka는 Broker/Controller 3개, MongoDB는 Replica Set 3개다. AZ A에 다수 노드가 있는 배치는 A 전체 장애에서도 클러스터 가용성을 보장하지 않는다.
 
-기본 t3a.small / t3a.large, OS 20GiB/대, 전체 EBS 4,120GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
+기본 t3a.small / t3a.medium / t3a.large, OS 20GiB/대, 전체 EBS 4,260GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
 
 ## 4. 네트워크와 다운로드
 
@@ -34,14 +34,14 @@ Terraform은 foundation·connectivity·workload·bastion 상태를 분리해 서
 
 ## 6. 삭제와 데이터 보관
 
-현재 compute 데이터 EBS의 prevent_destroy는 false다. 전체 삭제 실행기는 저장 계획과 명시적 데이터 삭제 동의를 요구하고 소스의 보호 설정을 자동 변경하지 않는다. EBS·서비스 상태·키를 삭제하는 작업과 문서 정리는 별개다. 실제 삭제 범위와 순서는 [실행 안내](deployment-runbook.md)를 따른다.
+현재 compute 데이터 EBS의 prevent_destroy는 true다. 전체 삭제 실행기는 명시적 데이터 삭제 선택을 요구한다. Plan·Apply는 소스의 보호 설정을 자동 변경하지 않는다. 단일 Destroy에 DisableDataVolumeProtection을 지정하면 Plan 전에 임시 해제하고 종료 시 원본으로 복원한다. EBS·서비스 상태·키를 삭제하는 작업과 문서 정리는 별개다. 실제 삭제 범위와 순서는 [실행 안내](deployment-runbook.md)를 따른다.
 
 ## 7. 확인이 필요한 범위와 관련 문서
 
 실제 계정 잔액·AMI 제공·AZ 배치·서비스 복제·장애 복구·부하·데이터 보관 정책은 별도 확인한다. 문서의 과거 로컬 테스트 기록은 새로 생성한 EC2의 검증 결과가 아니다.
 
 - [프로젝트 개요](../README.md), [배포·설치 실행 안내](deployment-runbook.md)
-- [현재 자원과 과거 비용 견적](costs/README.md), [상세 과거 견적](costs/dual-az.md)
+- [현재 자원과 과거 비용 견적](costs/costs.md), [상세 과거 견적](costs/dual-az.md)
 - [코드 탐색용 라우팅 문서](infra-routing/ROUTING-README.md), [플랫폼 설치 안내](../../aws-platform/platform/README.md)
 
 아래 기록은 당시 사용자 답변과 설계 논의의 이력이다. 초기 MySQL 3대·medium 사양·NAT 등 과거 결정 항목이 현재 코드와 다를 수 있으며, 현재 구현을 설명하는 명령이나 배치로 재사용하지 않는다. 이번 문서 정리를 새 설계 승인으로 기록하지 않는다.
@@ -60,3 +60,5 @@ Terraform은 foundation·connectivity·workload·bastion 상태를 분리해 서
 | 2026-10-08 | Kafka 우선 쓰기 | 로그인·계정 변경·게임 상태 변경까지 모든 애플리케이션 쓰기를 Kafka 경유로 처리 | 사용자 ‘로그인·게임 상태 변경까지 모든 쓰기를 Kafka 경유’ 답변 |
 | 2026-10-08 | 초기 사양 선택 | Frontend·Bastion t3.small, MongoDB·MySQL t3.medium, Kafka 3대·Spark Worker 2대 t3.large. 선택표 밖의 Master·Backend·광고는 기존 medium 계산값 유지 | 사용자가 추천표를 선택해 README 수정·비용 재계산 요청 |
 | 2026-10-08 | 5개 계정 균등 배치 설계 | 5개 계정의 지출을 비슷하게 하려는 요구. 사양·총량을 유지하고 계정별 기본 비용 약 $24.06~$25.90, MongoDB·Kafka·MySQL 각각 3개 계정에 분산하는 새 배치 제안 | 사용자 계정별 금액을 비슷하게 나누는 설계·문서화 요청 |
+
+이번 MySQL 증설의 [AWS 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 현재 상태 근거로 추가했다. ALB는 코드에 활성화돼 있지만 실제 AWS에서는 없고 사용자 요청에 따라 재생성을 보류했다. 이후 account1 전체 Plan의 ALB 생성은 별도 검토 대상이다.

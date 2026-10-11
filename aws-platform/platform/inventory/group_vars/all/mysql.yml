@@ -1,0 +1,8 @@
+---
+# MySQL Cluster와 로컬 Router가 함께 사용하는 연결 설정이다.
+mysql_cluster_name: infra
+mysql_port: 3306
+mysql_router_source_groups: [game, spark, backend]
+mysql_router_bind_address: 127.0.0.1
+mysql_router_rw_port: 6446
+mysql_router_ro_port: 6447

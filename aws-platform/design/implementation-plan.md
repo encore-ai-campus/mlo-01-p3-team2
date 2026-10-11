@@ -1,24 +1,18 @@
 > Status: Approved  
 > 기준 문서: [infra-automation-design.md](infra-automation-design.md)  
-> 목적: 인프라 자동화(`aws-platform/platform/`)를 어떤 순서로, 어떤 완료 기준으로 구현할지 정의하는 계획 문서
+> 목적: 인프라 자동화(`platform/`)를 어떤 순서로, 어떤 완료 기준으로 구현할지 정의하는 계획 문서
+
+> 아래 P0~P8은 당시 구현·서버 시험의 기록이다. 현재 MySQL은 3~9대의 InnoDB Cluster와 앱 서버의 로컬 Router를 사용하며, 이전 ReplicaSet·Standalone 완료 기록은 새 Cluster의 원격 검증 결과가 아니다. 현재 설치 조건과 실행 방법은 [플랫폼 README](../platform/README.md)와 [라우팅 문서](../platform/docs/ROUTING-README.md)를 따른다.
 
 ---
 
-# 현재 통합 상태 — 2026-10-10
-
-아래 P0~P8의 날짜별 시험 결과는 과거 시험 구성의 기록이다. 이번 문서 갱신에서 원격 Ansible·AWS·서비스 시험을 재실행하지 않았고, 과거 완료 표가 새 EC2의 설치 완료를 뜻하지 않는다. 현재 AWS 기본 구성은 서비스 15대와 선택적 Bastion 1대이며 Frontend 2대·game·ad를 포함하고 Backend·Monitoring은 선택 그룹이다.
-
-현재 실행은 서버 생성 → Inventory → Proxy 준비 → 플랫폼 역할 설치 → 역할별 검증 순서다. Squid·APT 준비와 common 태그만으로 DB·Kafka·Spark를 설치하지 않는다. --tags zookeeper만 실행하면 Spark는 설치되지 않으므로 --tags zookeeper,spark --limit spark를 실행한다. DB Secret과 생성 인벤토리 경로를 명시하는 명령은 [README](../platform/README.md)를 따른다.
-
-Spark는 Master 7077·내부 UI 8080, Worker 7100, Driver 7078–7094, BlockManager 7079–7095를 사용한다. 작업 포트 재시도는 16회, 데몬은 0회다. ZooKeeper 2181·2888·3888은 Spark 3개 노드 간 AWS 규칙과 함께 허용해야 한다. Worker UI 8081은 원격 공개 SG 규칙이 없다. 현재 파일 위치와 검증 작업은 [Spark 라우팅 문서](../platform/platform-routing/roles/spark/README.md), [ZooKeeper 라우팅 문서](../platform/platform-routing/roles/zookeeper/README.md)를 따른다.
-
 # 1. 구현 원칙
 
-- 설계 문서의 실행 순서를 따른다: 프록시 활성 시 설치 준비 → 공통 보안 → 방화벽 → 서비스 → 인벤토리에 있는 Backend/Frontend·Monitoring → 통합.
-- 역할은 해당 클러스터 전체를 --limit으로 선택해 실행한다. 태그를 좁힐 때는 프록시·facts·등록 변수 등 선행 작업이 필요하며 verify 태그만의 독립 실행을 보장하지 않는다.
+- 설계 문서의 실행 순서를 따른다: 공통 보안 → 방화벽 → 서비스 → Backend/Frontend → Monitoring → 통합.
+- 역할(role) 하나는 독립적으로 실행하고 검증할 수 있어야 한다 (`--limit`, `--tags`).
 - 각 단계는 **자기 검증을 포함**한다. 설치가 끝난 것이 아니라 검증이 통과해야 완료다.
 - 가장 작은 구성(VM 한 대)에서 먼저 확인하고 구성을 늘린다.
-- 구현 중 확인된 사실은 설계 문서의 14장 "구현하며 확인할 것"에 반영하고, 구현 상태는 [aws-platform/platform/README.md](../platform/README.md)의 표에 반영한다.
+- 구현 중 확인된 사실은 설계 문서의 14장 "구현하며 확인할 것"에 반영하고, 구현 상태는 [platform/README.md](../platform/README.md)의 표에 반영한다.
 
 ---
 
@@ -40,7 +34,7 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 
 ## P0. 골격 + 공통 보안
 
-- 산출물: `aws-platform/platform/` 골격(`ansible.cfg`, `site.yml`, `inventory/`), `roles/common`
+- 산출물: `platform/` 골격(`ansible.cfg`, `site.yml`, `inventory/`), `roles/common`
 - 내용: sshd 보안 설정, 팀원 계정과 sudo, 시간 동기화와 UTC, 검증
 - 검증 결과 (AL2023 `t3a.nano` 1대, 2026-10-05)
   - 첫 실행에서 검증이 모두 통과했고, 재실행은 변경 없음(`changed=0`)이었다.
@@ -61,7 +55,7 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
   - 포트 목록이 확정되기 전에는 허용된 출처의 **모든 포트**를 연다. 단 SSH(22)는 제외하고 Bastion·Monitoring 규칙으로만 허용한다. Frontend는 외부에 80/443만 연다. 포트가 확정되면 규칙 데이터만 고친다.
 - 검증: 규칙 적용 확인, 허용 출처에서 접속 성공, 허용되지 않은 출처에서 접속 거부, 서비스 포트가 열린 출처에서도 SSH는 거부(Bastion·Monitoring 제외), 재실행 후에도 SSH 유지
 - 주의: 잠김 위험이 가장 큰 단계이므로 서버 한 대에서 먼저 확인한다.
-- 주의: `nftables`는 AL2023 기본 이미지에 없어 설치가 필요하다. `t3a.nano`(RAM 약 418MiB)에서는 `dnf`가 메모리 부족으로 종료되므로, 이 단계는 1GiB 이상의 VM에서 확인한다. 인터넷이 없는 서버에서는 dnf가 오래 멈출 수 있으므로 사용할 수 있는 다운로드 경로가 필요하다. 현재 Ubuntu 기본 구성은 NAT 대신 Bastion Proxy를 준비한다. AL2023의 프록시 전달은 Ubuntu 전용 준비 플레이북의 지원 범위가 아니다.
+- 주의: `nftables`는 AL2023 기본 이미지에 없어 설치가 필요하다. `t3a.nano`(RAM 약 418MiB)에서는 `dnf`가 메모리 부족으로 종료되므로, 이 단계는 1GiB 이상의 VM에서 확인한다. 인터넷이 없는 서버에서는 `dnf`가 오래 멈추므로 임시 NAT가 연결되어 있어야 한다.
 - 구현: 규칙은 후보 파일로 만들어 `nft -c`로 문법을 검사하고, 복구 타이머를 예약한 뒤 원자적으로 적용한다. 새 SSH 연결이 확인되면 타이머를 해제하고 후보 파일을 정식 파일로 교체한다 (접속이 안 되는 규칙이 재부팅 후에 되살아나지 않게 하기 위함). 부팅 때는 `infra-firewall.service`가 정식 파일을 로드한다.
 - 검증 결과 (AL2023 `t3a.micro` 2대, 2026-10-05)
   - 한 대(Bastion 없음): 설치·적용·재실행(`changed=0`)이 통과했고, 외부 출처에서 80은 열리고 443은 방화벽을 통과했으며 8080과 3306은 차단되었다.
@@ -147,8 +141,8 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 
 - 산출물: `roles/zookeeper`, `roles/spark`
 - 내용: ZooKeeper 3노드 ensemble(`myid`는 서버 이름에서 생성, 상태 조회 명령 허용), Spark Master 2(YAML 순서의 앞 2대) + Worker 3, ZooKeeper 기반 recovery mode, `spark-env.sh` 설정(`SPARK_LOCAL_IP`가 서버에 할당된 IP인지 확인 포함), 로그 경로 분리(`SPARK_LOG_DIR`), systemd unit
-- PySpark: Ubuntu는 시스템 Python 3.12를 사용하고 AL2023은 별도 Python 3.12를 설치한다. PYSPARK_PYTHON·PYSPARK_DRIVER_PYTHON을 맞추고 AL2023 시스템 Python 3.9는 유지한다.
-- 커넥터 JAR 사전 설치: Kafka 커넥터, MySQL JDBC 드라이버, MongoDB Spark 커넥터와 전이 의존성 JAR을 체크섬 검증 후 Spark 노드의 JAR 폴더에 배포한다. 설치용 인터넷 경로가 준비되었을 때 받아 둔다. 현재 Ubuntu 구성은 Bastion HTTPS 프록시를 사용한다.
+- PySpark: Spark 노드에 Python 3.12를 설치하고 `PYSPARK_PYTHON`, `PYSPARK_DRIVER_PYTHON`을 지정한다 (시스템 Python 3.9는 유지).
+- 커넥터 JAR 사전 설치: Kafka 커넥터, MySQL JDBC 드라이버, MongoDB Spark 커넥터와 전이 의존성 JAR을 체크섬 검증 후 Spark 노드의 JAR 폴더에 배포한다. 임시 NAT가 있을 때 받아 둔다.
 - 검증: ZooKeeper 상태 응답, Master ALIVE 1·STANDBY 1, Worker 3 등록, 작은 PySpark 작업(client mode) 제출 성공
 - 주의: Spark 노드는 Master, Worker, ZooKeeper가 한 VM에 동거하므로 Worker 메모리는 전체 RAM에서 OS 몫, Master·Worker 데몬 메모리, ZooKeeper heap을 뺀 값으로 계산한다.
 - 확인할 것: Python 3.12 설치와 실행 경로, 커넥터 JAR의 전이 의존성 목록·체크섬·호환, 작업 제출 위치(미확정, Backend로 예상)
@@ -249,7 +243,7 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 - **임시 NAT 제거 후 재실행**: Bastion을 뺀 14대의 외부 아웃바운드를 막은 상태(VPC·링크로컬만 허용)에서 전체를 재실행했고 15대 모두 `failed=0`, `changed=0`이었다. 시험에서 `rpm_key`가 매번 URL에서 키를 받아 인터넷이 없으면 실패하는 것을 찾아, 이미 등록된 키(`rpm -q gpg-pubkey-<ID>`)는 건너뛰게 고쳤다(MySQL, MongoDB). 나머지(패키지, tarball, 커넥터 JAR)는 이미 설치되어 있으면 네트워크를 쓰지 않는다.
 - **작은 구성(MySQL 1대 Standalone + MongoDB 1대 Standalone, Bastion 없이 직접 접속)**: 구축과 검증이 통과했고, 재실행과 외부 차단 상태의 재실행이 모두 `changed=0`이었다.
 - **방화벽 허용 관계**: 실제 연결 27개를 시험해 모두 설계와 같았다. Bastion은 SSH 외 서비스 포트(MySQL, MongoDB, Kafka, Spark, Backend)에 접근하고, Backend·Spark·클러스터 노드끼리의 허용이 열리며, 허용 관계에 없는 연결(예: Frontend→MySQL, Kafka→MySQL, MySQL→MongoDB, Monitoring→MySQL 3306)과 SSH(22, Bastion·Monitoring 외)는 막힌다.
-- **Spark 커넥터 연동**(`aws-platform/platform/tests/spark_integration.py`, Spark 노드에서 제출): Kafka 토픽 100건을 Spark가 읽어 MySQL(JDBC, Connector/J 9.7.0)과 MongoDB(커넥터 11.1.0)에 쓰고 다시 읽어 건수가 일치했다. MySQL 2대와 MongoDB 3대 모두에 100건이 복제되어 있었다. 이로써 Kafka 4.3.1 브로커(kafka-clients 3.9.2), MySQL 8.4(기본 인증 MySQL의 caching_sha2_password 인증), MongoDB 8.0(드라이버 5.1.4)과의 호환이 확인되었다.
+- **Spark 커넥터 연동**(`platform/tests/spark_integration.py`, Spark 노드에서 제출): Kafka 토픽 100건을 Spark가 읽어 MySQL(JDBC, Connector/J 9.7.0)과 MongoDB(커넥터 11.1.0)에 쓰고 다시 읽어 건수가 일치했다. MySQL 2대와 MongoDB 3대 모두에 100건이 복제되어 있었다. 이로써 Kafka 4.3.1 브로커(kafka-clients 3.9.2), MySQL 8.4(기본 인증 `caching_sha2_password`), MongoDB 8.0(드라이버 5.1.4)과의 호환이 확인되었다.
 - **수동 장애 확인**(통합 환경, Monitoring이 함께 감지)
   - MongoDB: Primary 중지 → 약 25초 안에 새 Primary 선출, `dev`로 `w:majority` 쓰기 성공. Monitoring은 중지된 노드를 `unit_mongod=inactive`로, 새 Primary를 `mongo_primary=1`로 표시했다.
   - Kafka: 브로커 1대 중지 → `acks=all` produce와 consume 성공(`min.insync.replicas=2`). Monitoring은 `unit_kafka=failed kafka_port=down`으로 표시했다.
@@ -267,13 +261,13 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 1. 해당 role의 검증이 통과한다.
 2. 같은 명령을 다시 실행하면 변경이 없다.
 3. 설계 문서 14장에서 해당 단계의 확인 항목이 처리되었다 (확인됨 또는 문서 보완).
-4. [aws-platform/platform/README.md](../platform/README.md)의 구현 상태 표가 갱신되었다.
+4. [platform/README.md](../platform/README.md)의 구현 상태 표가 갱신되었다.
 
 ---
 
 # 4. 테스트 환경과 진행 방식
 
-- 테스트는 사전에 구성된 AWS 서버에서 한다. 패키지 설치에 필요한 인터넷 경로를 준비하며 현재 Ubuntu 구성은 Bastion Proxy를 사용한다. 기본 시험 OS는 Ubuntu 24.04 LTS이고, Amazon Linux 2023은 회귀 시험으로 유지한다 ([ubuntu-porting-plan.md](ubuntu-porting-plan.md)). 위 P0~P8의 시험 결과는 AL2023에서 얻은 것이다.
+- 테스트는 사전에 구성된 AWS 서버에서 한다. 패키지 설치를 위해 임시 NAT가 연결되어 있어야 한다. 기본 시험 OS는 Ubuntu 24.04 LTS이고, Amazon Linux 2023은 회귀 시험으로 유지한다 ([ubuntu-porting-plan.md](ubuntu-porting-plan.md)). 위 P0~P8의 시험 결과는 AL2023에서 얻은 것이다.
 - 구성은 작은 것부터 늘린다.
 - 서비스 사용자, systemd unit, 설치·데이터 경로, OS 한도 같은 세부 값은 각 role을 구현할 때 기본값을 정해 설계 문서에 기록한다.
 | 순서 | 구성 | 확인 대상 |
@@ -287,7 +281,7 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 | 7 | Monitoring + 위 서버들 | P7 |
 | 8 | 전체 | P8 |
 
-- 서버 대수는 프로그램이 검증하지 않으므로, 테스트용 inventory 예시는 `aws-platform/platform/inventory/`에 두고 README의 "가능한 구성"과 일치시킨다.
+- 서버 대수는 프로그램이 검증하지 않으므로, 테스트용 inventory 예시는 `platform/inventory/`에 두고 README의 "가능한 구성"과 일치시킨다.
 - 메모리가 작은 VM에서는 Kafka, Spark, MongoDB를 정상 검증할 수 없다. 해당 단계는 서비스가 올라갈 수 있는 크기의 VM에서 한다.
 
 ---
@@ -299,7 +293,7 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 | 방화벽 적용 중 SSH 접속이 끊긴다 | Bastion SSH 허용 → 연결 검증 → default deny 순서, 서버 한 대에서 먼저 확인, nftables 원자적 교체 |
 | sshd 설정이 적용되지 않거나 깨진다 | 문법 검사와 실패 시 설정 롤백, 유효 설정 검증 (P0에 구현) |
 | MySQL 8.4 설치와 호환 문제 | P2를 서버 한 대에서 먼저 확인하고 설계 문서 14장에 기록 |
-| 다운로드 경로를 끊은 재실행이 실패한다 | 과거 P8의 설치 생략 시험과 현재 Proxy의 외부 검사를 구분하고, 필요한 다운로드·검사 경로를 복구 |
+| NAT 제거 후 재실행이 실패한다 | P8에서 확인하고, 필요하면 NAT 재연결을 절차로 문서화 |
 | Spark 노드의 메모리 부족 (3개 데몬 동거) | RAM 기반 메모리 분배, P5에서 실제 확인 |
 | 로그 수집(셸)이 복잡하다 | P7을 마지막에 두고, 문제가 되면 수집 대상을 단계적으로 줄인다 |
 | 가정에 기댄 항목이 틀렸다 | 해당 단계에서 확인하고 설계 문서를 보완한다 |
@@ -308,6 +302,22 @@ P2~P5는 서로 의존하지 않는다. 설계 문서의 실행 순서(MySQL →
 
 # 6. 이 계획에 포함하지 않는 것
 
-- game·ad 비즈니스 앱과 외부 Driver의 통신 경로 확정. 현재 기본 서비스 포트는 코드에 반영됨
+- 포트 목록 확정 (확정되면 P1의 규칙 데이터에 반영)
 - Monitoring UI, 보관된 로그의 후처리, MySQL 자동 failover
 - 일정과 담당자 (프로젝트 운영 문서에서 관리한다)
+
+---
+
+# 별도 참고: 현재 구성 안내 — 2026-10-10
+
+이 아래 내용은 후속 문서 정리에서 추가한 현재 구성 안내이며, 위 원문 작성자의 작업·완료·시험 기록에 포함되지 않는다.
+
+위 P0~P8의 날짜별 시험 결과는 과거 시험 구성의 기록이다. 이번 문서 갱신에서 원격 Ansible·AWS·서비스 시험을 재실행하지 않았고, 과거 완료 표가 새 EC2의 설치 완료를 뜻하지 않는다. 현재 AWS 기본 구성은 서비스 16대와 선택적 Bastion 1대이며 Frontend 2대·game·ad·평탄화 Consumer flatten-1을 포함한다. Backend·Monitoring은 선택 그룹이고 Consumer 프로그램은 별도로 배포한다.
+
+현재 실행은 서버 생성 → Inventory → Proxy 준비 → 플랫폼 역할 설치 → 역할별 검증 순서다. Squid·APT 준비와 common 태그만으로 DB·Kafka·Spark를 설치하지 않는다. --tags zookeeper만 실행하면 Spark는 설치되지 않으므로 --tags zookeeper,spark --limit spark를 실행한다. DB Secret과 생성 인벤토리 경로를 명시하는 명령은 [README](../platform/README.md)를 따른다.
+
+Spark는 Master 7077·내부 UI 8080, Worker 7100, Driver 7078–7094, BlockManager 7079–7095를 사용한다. 작업 포트 재시도는 16회, 데몬은 0회다. ZooKeeper 2181·2888·3888은 Spark 3개 노드 간 AWS 규칙과 함께 허용해야 한다. Worker UI 8081은 원격 공개 SG 규칙이 없다. 현재 파일 위치와 검증 작업은 [Spark 라우팅 문서](../platform/docs/platform-routing/roles/spark/README.md), [ZooKeeper 라우팅 문서](../platform/docs/platform-routing/roles/zookeeper/README.md)를 따른다.
+
+## MySQL InnoDB Cluster 전환 — 2026-10-10
+
+기존 P2/P6의 ReplicaSet·Router 설치 서버 검증은 과거 구현 기록으로 유지한다. 현재 코드는 MySQL 그룹 전체 3~9대의 단일 Primary InnoDB Cluster와 game·Spark·선택 Backend의 로컬 Router bootstrap·서비스·Primary 연결 검증으로 전환했다. GTID 초기화를 제거하고 실제 Primary 계정 적용, 신규 clone 데이터 보호, 기존 멤버 증분 재가입, 기존 토폴로지·정족수 보호를 추가했다. 로컬 템플릿·AdminAPI 모의 27개·Ansible 인벤토리·재실행 보호 11개·playbook 문법 검사를 통과했다. 현재 생성 인벤토리의 MySQL 2대 확장, 실제 EC2 설치, 자동 선출·Router 재접속·쓰기·복귀 검증은 남아 있다.

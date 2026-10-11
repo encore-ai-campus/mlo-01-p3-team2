@@ -4,18 +4,10 @@
 |---|---|
 | 상태 | **구현·검증 완료** (2026-10-08). 기본 OS를 Ubuntu 24.04 LTS로 전환함 (7장, 10장) |
 | 작성일 | 2026-10-08 |
-| 대상 | `aws-platform/platform/`의 Amazon Linux 2023(AL2023) 구현 전체를 Ubuntu 24.04 LTS에서도 동작하게 한다 |
+| 대상 | `platform/`의 Amazon Linux 2023(AL2023) 구현 전체를 Ubuntu 24.04 LTS에서도 동작하게 한다 |
 | 관련 문서 | [설계](infra-automation-design.md), [구현 계획](implementation-plan.md) |
 
 ---
-
-# 현재 배포 연결 범위 — 2026-10-10
-
-이 문서의 구현·검증 완료 상태와 2026-10-08 서버 시험은 당시 포팅 결과다. 이번 문서 갱신은 로컬 코드·라우팅 문서의 반영이며 새 AWS 배포나 외부 호환성 시험을 수행한 결과가 아니다.
-
-포팅 후 추가된 prepare-proxy.yml과 bootstrap-proxy.yml은 Ubuntu 24.04 amd64 기본 이미지에 한정한다. 기존 서비스 역할의 AL2023 지원을 이 프록시 준비에도 적용할 수 있다고 해석하지 않는다. 현재 NAT 0개 구성에서는 Bastion의 Squid를 설치하고 HTTPS APT·원격 다운로드를 준비한 후 역할을 설치한다. 생성된 hosts.current.yml을 명시하는 실행·Vault 절차는 [플랫폼 README](../platform/README.md)를 따른다.
-
-현재 Spark 통신은 Master 7077·8080, Worker 7100, Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888이다. zookeeper만 실행해 성공했더라도 Spark 설치는 별도이므로 두 역할을 함께 선택한다. AWS 규칙 적용과 서비스 설치를 각각 확인한다. [Spark 설정 지도](../platform/platform-routing/roles/spark/README.md), [준비 플레이북 지도](../platform/platform-routing/prepare-proxy.yml.md)를 참고한다.
 
 # 1. 목적과 범위
 
@@ -160,7 +152,7 @@ U0~U5의 단계별 시험은 소규모 서버 몇 대를 짧게 쓰므로 합계
 저장소에는 `default_os` 같은 설정 변수가 **없다.** OS는 서버에서 자동 감지하므로 코드에는 "기본 OS"가 존재하지 않고, 기본 OS는 문서·예시·시험 기준에만 나타난다. 지시에 따라 아래를 Ubuntu 24.04 LTS 기준으로 바꿨다.
 
 - 설계 문서 3장의 OS 항목, 11장 소프트웨어 버전 표(두 OS의 설치 출처), 입력 예시의 `ansible_user: ubuntu`
-- `aws-platform/platform/README.md`(지원 OS, 접속 사용자), `inventory/hosts.example.yml`
+- `platform/README.md`(지원 OS, 접속 사용자), `inventory/hosts.example.yml`
 - 구현 계획 4장(기본 시험 OS는 Ubuntu, AL2023은 회귀 시험으로 유지), `docs/README.md`
 
 AL2023은 "지원(회귀 시험 유지)"로 남는다. 코드에는 새 변수를 추가하지 않았다. 메인 인프라 쪽에서 `default_os`라는 실제 설정 항목을 따로 두고 이 저장소가 그 값을 참조해야 한다면, 항목의 위치와 형식을 알려 주면 반영한다.
@@ -186,7 +178,7 @@ AL2023은 "지원(회귀 시험 유지)"로 남는다. 코드에는 새 변수�
 2. 작은 구성(MySQL 1대 + MongoDB 1대)이 통과한다.
 3. 방화벽 허용 관계, Spark 커넥터 연동, 수동 장애 확인이 AL2023과 같은 결과다.
 4. AL2023 전체 회귀가 통과한다.
-5. 설계 문서·구현 계획·`aws-platform/platform/README.md`가 두 OS 기준으로 갱신되고, 기본 OS가 Ubuntu 24.04 LTS로 바뀐다.
+5. 설계 문서·구현 계획·`platform/README.md`가 두 OS 기준으로 갱신되고, 기본 OS가 Ubuntu 24.04 LTS로 바뀐다.
 
 ---
 
@@ -236,3 +228,15 @@ AL2023은 "지원(회귀 시험 유지)"로 남는다. 코드에는 새 변수�
 - MongoDB가 새 커널을 지원하는 버전이 나왔을 때 커널 교체 단계를 빼는 시점.
 - 두 OS를 한 클러스터에 섞는 구성 (지원 범위가 아니다).
 - 서버 수십 대 규모, 수집 서버 재부팅 뒤 동작 (AL2023 때와 같음).
+
+---
+
+# 별도 참고: 현재 구성 안내 — 2026-10-10
+
+이 아래 내용은 후속 문서 정리에서 추가한 현재 구성 안내이며, 위 원문 작성자의 작업·완료·시험 기록에 포함되지 않는다.
+
+이 문서의 구현·검증 완료 상태와 2026-10-08 서버 시험은 당시 포팅 결과다. 이번 문서 갱신은 로컬 코드·라우팅 문서의 반영이며 새 AWS 배포나 외부 호환성 시험을 수행한 결과가 아니다.
+
+포팅 후 추가된 prepare-proxy.yml과 bootstrap-proxy.yml은 Ubuntu 24.04 amd64 기본 이미지에 한정한다. 기존 서비스 역할의 AL2023 지원을 이 프록시 준비에도 적용할 수 있다고 해석하지 않는다. 현재 NAT 0개 구성에서는 Bastion의 Squid를 설치하고 HTTPS APT·원격 다운로드를 준비한 후 역할을 설치한다. 생성된 hosts.current.yml을 명시하는 실행·Vault 절차는 [플랫폼 README](../platform/README.md)를 따른다.
+
+현재 Spark 통신은 Master 7077·8080, Worker 7100, Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888이다. zookeeper만 실행해 성공했더라도 Spark 설치는 별도이므로 두 역할을 함께 선택한다. AWS 규칙 적용과 서비스 설치를 각각 확인한다. [Spark 설정 지도](../platform/docs/platform-routing/roles/spark/README.md), [준비 플레이북 지도](../platform/docs/platform-routing/prepare-proxy.yml.md)를 참고한다.

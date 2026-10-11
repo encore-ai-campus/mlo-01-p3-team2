@@ -2,6 +2,120 @@
 
 [탐색 시작점](ROUTING-README.md) · [적용 규칙](../../AGENTS.md)
 
+## 2026-10-10 광고 서버 AZ A 배치 설정
+
+사용자 요청으로 기본 topology와 로컬 profiles/current의 nodes.ad-server.az를 c에서 a로 변경했다. account1·role=ad·private·t3a.large·OS 20GiB·별도 데이터 디스크 없음은 유지한다. 선언상 Bastion 포함 AZ별 대수는 A 13대·C 5대다. 기존 클러스터의 A 2대·C 1대 배치는 그대로다.
+
+이 기록은 설정 변경이며 실제 AWS 이전 완료를 뜻하지 않는다. compute의 subnet_id가 private_a를 선택하게 되므로 실제 계획에서 EC2 교체 범위를 확인해야 한다. 광고 서버 루트 디스크는 delete_on_termination=true이므로 앱·설정·데이터 보존 후 이전한다. account1 workload의 일반 Plan에는 수동 삭제한 ALB 재생성이 포함될 수 있다. Terraform Apply와 생성 인벤토리 갱신은 아직 수행하지 않았다. 현재 인벤토리를 원하는 AZ에 맞춰 수동 변경하지 않는다.
+
+두 JSON은 ad-server의 az 외 의미상 변경이 없음을 검사했다. Python AST 기반 routing-doc-sync는 실제 Git 최상위 C:/third_project를 기준으로 실행하며 JSON·Terraform 동작과 AWS 상태는 분석 대상이 아니다.
+
+account1 workload Plan을 시도했으나 샌드박스의 STS 네트워크 연결 실패로 중단됐다. 네트워크 접근을 위한 추가 실행 승인은 사용자가 거절했으므로 재실행하지 않았다. 저장된 새 Terraform 계획은 없으며 실제 교체·삭제·ALB 생성은 실행하지 않았다. 라우팅 대조는 참조 불일치 0, needs_review/role not_verified로 기존 Python 변경 검토가 남아 있다. AWS 계획 검증이 완료되지 않아 이번 변경의 자동 스테이징과 커밋은 수행하지 않았다.
+
+## 2026-10-10 mysql-3 증설과 실제 AWS 검증
+
+사용자 승인 범위는 기본 topology와 로컬 profiles/current에 mysql-3를 추가하고 account4 foundation·다섯 workload의 MySQL 변경을 반영한 뒤 관련 문서를 갱신하는 작업이다. 비교 기준 HEAD는 3274dee0ac642345c3e8b4094a2a372b1a45b4d4이며 시작 시 존재하던 문서 개편·flatten-1·통신 설정·삭제 기능 변경은 보존했다. 이번 작업은 current 프로필과 기존 aws-infra-v2 상태 경로를 사용했다.
+
+| 대상 | 최초 전체 Plan | 실제 Apply | 검토한 범위 |
+| --- | --- | --- | --- |
+| account4 foundation | 1 추가, 변경·삭제 0 | 1 추가, 변경·삭제 0 | 기존 VPC·서브넷 유지, mysql SG만 생성 |
+| account1 workload | 7 추가, 변경·삭제 0 | 3 추가, 변경·삭제 0 | MySQL SG 규칙 3개만 별도 제한 계획으로 적용. ALB 관련 4개 생성 제외 |
+| account2 workload | 1 추가, 변경·삭제 0 | 1 추가, 변경·삭제 0 | Spark → 새 MySQL SG egress |
+| account3 workload | 3 추가, 변경·삭제 0 | 3 추가, 변경·삭제 0 | Spark → 새 MySQL 및 MySQL 멤버 입출력 |
+| account4 workload | 17 추가, 변경·삭제 0 | 17 추가, 변경·삭제 0 | mysql-3 EC2·데이터 EBS·연결 3개와 SG 규칙 14개 |
+| account5 workload | 2 추가, 변경·삭제 0 | 2 추가, 변경·삭제 0 | 기존 MySQL과 새 MySQL의 입출력 |
+
+account4 foundation의 새 SG는 aws-infra-account4-mysql(sg-0e2c89a2d778c1960)이다. 기존 VPC vpc-09666b7b72132ae38과 Private A subnet-06c482871395a1d55를 사용했다. 기존 Peering·CIDR·AZ 배치는 수정하지 않았다. 기존 traffic의 MySQL·Spark·game·SSH·Proxy 관계를 model이 새 SG로 확장하므로 이번에 traffic이나 Terraform 생성 코드를 변경하지 않았다.
+
+| mysql-3 항목 | 실제 AWS 조회 결과 |
+| --- | --- |
+| 계정 / 사양 | account4(688567306400) / t3a.small |
+| EC2 | i-08021a300ea08a530, running |
+| AZ / 서브넷 | ap-northeast-2a, 논리 A / Private A |
+| 주소 | 사설 10.40.10.155, 공인 IPv4 없음 |
+| OS EBS | vol-00bfb1fc1d79e7267, gp3 20GiB, 암호화·연결 확인 |
+| 데이터 EBS | vol-08cfe8ff4429480d7, gp3 100GiB, 암호화·연결 확인 |
+
+다섯 workload의 신규 자원 26개 중 23개는 보안규칙이다. AWS describe-security-group-rules로 계정별 3 / 1 / 3 / 14 / 2개 규칙의 실제 존재와 ingress/egress·TCP 포트·소스 SG/접두사 목록을 저장 계획과 대조했다. 기존 서비스 EC2는 계정별 4 / 3 / 4 / 2 / 3대, 총 16대의 같은 ID가 남아 있고 새 mysql-3를 더하면 17대다. 저장 계획에서 기존 서버·디스크의 변경·삭제가 없음을 확인했다. 모든 서비스의 데이터 내용이나 복제 상태를 검사했다는 뜻은 아니다.
+
+account1의 최초 전체 Plan은 현재 AWS에서 사라진 ALB·HTTP listener·static/ad rule 4개도 다시 만들려고 했다. 사용자가 비용 증가를 원하지 않아 복원을 보류했다. 이번에만 같은 backend와 선택한 입력으로 MySQL 규칙 3개에 -target을 지정한 별도 저장 계획을 준비했다. 코드·설정 fingerprint, backend bucket/key, 계획 해시와 허용 자원 목록을 확인한 뒤 적용했다. 사용한 부분 계획과 원래 7개 전체 계획은 적용 후 제거했다. 이 예외 적용은 일반 실행기에 부분 배포 기능을 추가한 것이 아니다.
+
+실제 ELB 조회에서 aws-infra-account1 ALB가 없는 것을 확인했다. alb.enabled=true 설정은 유지되므로 이후 일반 account1 workload Plan은 다시 ALB 생성을 제안할 수 있다. ALB가 없는 동안 기존 ALB URL을 통한 웹 접속은 불가하다. 재생성한다면 새 기본 DNS를 Output으로 확인하고 Django 허용 호스트·직접 적은 URL을 갱신한다. 서버 장애 자동 복구나 ALB 자동 생성 예약을 구성한 것은 아니다.
+
+두 topology에서 mysql-3를 제거하면 추가 전 JSON과 의미상 동일함을 확인했고 model 계산으로 MySQL 세 노드·account4의 kafka/mysql/spark 역할·관련 flow 확장을 확인했다. 라우팅 문서와 현재 수량·계정별 EBS·유휴 비용을 대조했다. 비용표는 ALB 포함 선언 시나리오와 실제 ALB 미생성 조건을 구분하며 과거 16·17대 계산은 당시 기록으로 보존한다.
+
+이번에 하지 않은 검증은 MySQL 설치·Cluster 가입·자동 Primary 선출·Router 연결·실제 서비스 TCP 통신·OS 방화벽·데이터 EBS 포맷/마운트·Ansible 실행이다. Inventory와 Proxy도 아직 재실행하지 않았다. 세 MySQL의 배치는 A 두 대·C 한 대이므로 A 전체 장애에는 정족수가 유지되지 않는다. 모의 테스트의 account4 fixture와 두 노드 기대값은 아직 이전 입력 기준이며 이번에 수정하거나 전체 테스트를 재실행하지 않았다.
+
+문서 변경 18개의 로컬 링크·제목 앵커 354개는 오류 0개였다. 두 topology의 MySQL 3대·서비스 계정별 4/3/4/3/3대·Bastion 포함 18대·EBS 4,260GiB를 계산해 문서와 대조했고 유휴 요금표도 Decimal로 검산했다. routing-doc-sync의 변경 전후 비교에서 참조 2개, mismatch=0, diagnostics=0이다. 최종 structural_status=needs_review·role_status=not_verified·도구 판정 exit_code=3이며 Python AST 범위 밖의 Terraform·JSON 역할 의미는 수동 대조했다. 이를 전체 자동 검증 통과로 기록하지 않는다.
+
+로컬 감사 자료는 Git에서 제외되는 infra/.local/mysql3-workload/에 plan-review.json, apply-results.json, account1-mysql-only-review.json, account1-mysql-only-apply-result.json, aws-verification.json, document-verification.json과 로그로 보관했다. foundation 결과는 해당 프로필의 account4/foundation 로컬 경로에 있다. routing-doc-sync 보고서는 infra/.local/mysql3-workload-routing-before.json·mysql3-workload-routing-after.json이다. 모의 테스트 기대값의 남은 차이와 기존 혼합 변경 때문에 이번에 스테이징·커밋은 진행하지 않았다. 아래 기존 검증 기록은 각 당시 작업의 결과이며 이번에 재실행한 결과로 해석하지 않는다.
+
+## 2026-10-10 README와 관련 안내의 라우팅 기준 동기화
+
+사용자 요청에 따라 [인프라 README](../../README.md)와 [플랫폼 README](../../../aws-platform/platform/README.md), 연결된 배포·보안·설계·설치·검증 안내를 갱신했다. 본문 내용의 근거는 현재 양쪽 라우팅 문서이며, 실행 코드 본문을 읽어 새 동작을 추정하거나 AWS 배포 상태를 조회하지 않았다. Python 문서 참조의 구조 검사에는 routing-doc-sync의 AST 보고서를 사용했다.
+
+- 서비스 EC2 16대·선택 Bastion 1대, account2의 평탄화 Consumer와 프록시·Kafka 통신 설명을 맞췄다. 인프라 MySQL 2대와 플랫폼 InnoDB Cluster 3~9대의 조건 차이를 명시하고, 세 번째 서버·통신·인벤토리 준비 전에는 MySQL 역할을 실행하지 않도록 안내했다.
+- game·Spark·선택 backend의 로컬 Router 설치 순서와 loopback RW 6446·RO 6447을 반영했다. 이전 ReplicaSet·Standalone 서버 시험은 새 Cluster·Router의 원격 검증 결과로 바꾸지 않았다.
+- 현재 데이터 EBS 보호 true와 전체 삭제의 Plan/Apply·단일 Destroy를 구분했다. DeleteDataVolumes는 삭제 선택이며, Destroy와 DisableDataVolumeProtection을 함께 지정했을 때만 일시 해제·원본 복원한다.
+- Terraform 생성·Proxy 준비·플랫폼 서비스 설치·별도 앱 배포의 경계를 맞췄다. 준비된 Endpoint를 사용하는 팀 접속 스크립트도 안내하되 Endpoint·IAM·SG·키 등록을 생성하는 기능으로 설명하지 않았다.
+- 시작 검사의 잘못된 파일 링크·제목 앵커는 17개였다. 이번 작업에서 16개를 수정했고 나머지 1개는 작업 중 이미 갱신된 상태를 보존했다. 최종 양쪽 Markdown 183개에서 상대 링크·제목 앵커 누락은 0개다. 외부 URL·가격·배포처 버전은 조회하지 않았다.
+
+비교 기준은 HEAD 3274dee0ac642345c3e8b4094a2a372b1a45b4d4 → WORKTREE다. Python 대응 문서 4개의 참조 28개는 일치하며 mismatch=0, diagnostics=0이다. 스킬 판정은 needs_review, role_status=not_verified로 유지한다. 이 결과는 PowerShell·Terraform·Ansible·Bash의 실행이나 역할 의미·서비스 동작 검증이 아니다. 문서 변경분의 git diff --check도 통과했다.
+
+이번 수정 대상은 Markdown 30개이며 AWS·Terraform·SSH·Ansible 실행, 코드·설정 변경, 스테이징·커밋 명령은 수행하지 않았다. 시작 시 저장한 비Markdown 파일 192개 중 flatten.tftest.hcl과 Git index가 작업 중 달라진 것을 관찰했다. 이 변화의 원인은 조사하지 않았고 현재 내용을 덮어쓰거나 되돌리지 않았다. HEAD는 동일하다. 과거 시험·비용 계산은 당시 가정과 결과로 보존한다.
+
+시작 사본, 링크 검사, AST 보고서와 범위 기록은 infra/.local/readme-doc-sync-20261010/의 baseline.json, links-before.json, links-after.json, routing-reference-check.json, scope-after.json에 보관한다. 아래 기록은 각 당시 작업의 범위이며 이번에 재실행한 시험으로 해석하지 않는다.
+
+## 2026-10-10 복원·운영 절차 분리
+
+사용자 요청에 따라 scripts.md의 S3 설정·AMI·접속 IP·배스천 전원·SSH 키 전환·전체 삭제 절차 6개를 [복원·운영 문서](../operations-recovery.md)로 옮겼다. 명령 설명·비용별 배포는 scripts.md에 남기고, deployment-runbook.md의 관련 단계와 장애 표에서 새 문서의 해당 제목으로 이동하도록 연결했다. 새 문서에는 원인 확인 뒤 배포 단계로 돌아오는 링크와 SSH·프록시·Vault·ZooKeeper·PowerShell/WSL·Terraform 장애 안내를 추가했다.
+
+- 이동 대상에 있던 PowerShell 명령 블록 10개가 새 문서에 그대로 남아 있고 scripts.md의 이전 10~15절은 제거됐다.
+- Windows PowerShell 5.1 파서로 변경 문서의 예제 블록 53개를 검사해 구문 오류 0개를 확인했다. 명령을 실행한 검사는 아니다.
+- 변경 문서의 상대 파일 링크·제목 앵커를 검사하고 이동된 절을 가리키던 참조를 새 경로로 수정했다. 이미 이름이 바뀐 안내 파일은 현재 파일로 연결했다.
+- routing-doc-sync의 파일·Python 선언 참조 21개에서 mismatch=0, diagnostics=0을 확인했다. 전체 상태는 needs_review, 역할 의미는 not_verified다. 비Python 파일명·설정 키를 Python 선언으로 오인하던 표기는 강조 표기로 정리했다. 비Python 실행 동작은 AST 검사 범위 밖이다.
+- 시작 사본의 기존 변경을 보존했고 이번 작업에서 수정한 파일은 Markdown 10개다. 작업 중 compute/main.tf의 해시 변경이 관찰됐으며 최종 조회한 prevent_destroy 값은 true다. 해당 소스를 수정한 명령은 이번 작업에서 실행하지 않았고 변경 원인은 확인하지 않았다. 다른 파일의 해시와 Git index는 시작 기준과 동일하다. AWS·Terraform·SSH·Ansible 원격 명령은 실행하지 않았다. 기존 변경이 섞인 문서가 있어 추가 스테이징·커밋은 하지 않았다.
+
+비교 기준은 HEAD 3274dee0ac642345c3e8b4094a2a372b1a45b4d4 → WORKTREE다. 사전·사후 AST 보고서, 시작 사본·해시, 링크·명령 보존 검사와 PowerShell 파서 결과는 infra/.local/diagnostics/operations-docs-20261010/에 남겼다. 이전 실행 기록은 아래에 당시 결과로 보존한다.
+
+## 2026-10-10 단일 호출 전체 삭제 구현
+
+사용자가 승인한 삭제 실행기·명령 안내·삭제 라우팅·모의 테스트 범위에 Destroy 동작을 추가했다. 실행기는 새 ID로 Plan → 기존 검사 → Apply → 결과 검증을 이어 수행하고 전체 호출 동안 실행 잠금을 유지한다. DisableDataVolumeProtection은 Destroy에서만 허용하며, 데이터 EBS 보호를 해제할 때 원본 바이트·해시를 먼저 저장한다. 첫 삭제 전에 원본 사본을 검사하고 종료 시 복원한다. 복원 후 Verify는 별도의 보호 해제 전 fingerprint를 사용하며 저장 Plan의 fingerprint는 바꾸지 않는다.
+
+- 신규 단일 삭제 테스트: Windows PowerShell 5.1·PowerShell 7 각각 12개 시나리오 통과. 정상 12단계 순서, 같은 실행 ID, BOM/CRLF 복원, 이후 Status/Verify, Plan·Apply 실패 중단, 입력 거부, 기존 false 유지, 지원하지 않는 선언과 외부 수정·사본 변조의 실패를 검사했다.
+- 기존 전체 삭제 테스트: Windows PowerShell 5.1에서 17개 시나리오 통과. 이 시험이 가정하는 보호 초기값 true는 격리 사본에서만 설정했다. 서비스 콘솔 SSH 삭제 경계 16개도 통과했다.
+- PowerShell 5.1·7에서 현재 삭제 실행기를 파싱하여 오류가 없음을 확인했다. routing-doc-sync는 대상 테스트 사본과 직접 관련 문서만 대조했으며 최종 Python 참조 20개 일치, mismatch=0, diagnostics=0이다. 전체 결과는 needs_review, role_status=not_verified, 종료 코드 3이다. 비Python 동작과 실제 서비스·권한·provider 실행은 이 AST 검사 범위 밖이다.
+- 작업 시작 시 compute/main.tf의 보호 값은 이미 false였으며 이 파일의 바이트는 보존했다. 위의 이전 true 기록은 당시 상태다. 실제 AWS 조회·Plan/Apply·원격 설치나 삭제는 실행하지 않았다.
+- 작업 중 실행 안내가 infra/scripts/README.md에서 infra/scripts/scripts.md로 이동했다. 이동된 파일에 이번 명령 설명이 유지됨을 확인하고 삭제 문서의 링크만 새 경로로 맞췄다. 다른 영역의 문서 이동을 되돌리거나 조사하지 않았다.
+
+실행 방법은 [명령 안내](../operations-recovery.md#6-전체-인프라-삭제), 구현 흐름은 [삭제 실행기 문서](scripts/destroy-all.ps1.md), 모의 시험 선언은 [삭제 테스트 문서](tests/destroy-tests.md)에 있다. 이번 기준 사본·사전/사후 AST 보고서·최종 점검은 infra/.local/diagnostics/destroy-once-20261010/에 보관한다. 기존 문서 변경과 동시 이동은 이번 코드 변경으로 취급하지 않으며 추가 스테이징·커밋은 하지 않는다.
+
+## 2026-10-10 compute 변경에 한정한 문서 반영
+
+이번 요청의 비교 기준은 HEAD 3274dee0ac642345c3e8b4094a2a372b1a45b4d4 → WORKTREE다. Git 변경 목록에서 실행 코드의 변경은 compute/main.tf의 데이터 EBS 보호가 prevent_destroy=false에서 true로 바뀐 한 곳이다. 이 소스와 직접 대응하는 모듈·workload·배포·전체 삭제 문서만 대조했다. 다른 소스나 폴더는 스캔하지 않았다.
+
+- [compute 모듈](terraform/README.md#compute)에 현재 삭제 보호와 DeleteDataVolumes의 차이를 보완했다. 데이터 볼륨의 삭제·교체 Plan은 보호 때문에 실패할 수 있으며, 전체 삭제 옵션은 이 보호를 해제하지 않는다.
+- workload·deploy·destroy-all 문서의 현재 설명은 이미 true 설정과 일치해 추가 수정하지 않았다. 이전 검증 기록은 당시 결과로 보존하고, 아래의 과거 false 설명과 최신 설정을 구분했다.
+- routing-doc-sync는 대상 소스 1개와 관련 문서 4개의 사본만 넣은 Git 저장소 밖 임시 폴더에서 실행했다. --base NONE으로 제한된 사본을 대조하므로 저장소 전체의 Python 파일을 조사하지 않는다. 이번 대상은 Terraform이며 스킬의 Python AST 검사 범위 밖이다. 사전·사후 보고서는 모두 checked_references=0, mismatch=0, diagnostics=0, needs_review, role_status=not_verified, 종료 코드 3이다. 이 결과를 Terraform 구조·역할·실행의 검증 성공으로 해석하지 않는다.
+- Terraform 동작 설명은 해당 소스의 Git 차이와 관련 문서를 수동 대조했다. AWS 조회·Terraform Plan/Apply·원격 Ansible·서비스 검증은 실행하지 않았다. 코드·설정·키·Vault는 수정하지 않았다.
+
+이번 점검의 시작 사본·사전/사후 보고서·변경 범위 점검은 infra/.local/diagnostics/compute-doc-sync-358ffadd/의 baseline.json, pre.json, post.json, final-audit.json에 보관한다. 아래의 전체 문서 스캔 수치와 다른 영역 점검은 이전 작업 기록이며 이번 요청에서 재실행한 검사가 아니다.
+
+## 2026-10-10 하위 폴더 지도와 문서 이동 반영
+
+비교 기준은 HEAD 3274dee0ac642345c3e8b4094a2a372b1a45b4d4 → WORKTREE다. 작업 시작 전에 플랫폼 문서가 이미 이동된 상태였으며, 삭제된 이전 경로를 복원하지 않고 현재 [플랫폼 시작 문서](../../../aws-platform/platform/docs/ROUTING-README.md)와 docs/platform-routing 하위 설명을 기준으로 연결했다. 기존 설계 문서의 변경 내용은 유지하고 라우팅 링크만 수정했다.
+
+- 인프라 scripts·scripts/lib와 플랫폼 scripts에 하위 폴더 지도를 추가했다. 양쪽 시작 문서에 폴더별 책임·탐색 경로를 연결하고 README·플랫폼 AGENTS의 시작 경로를 맞췄다.
+- 이동 전 위치를 가리키던 로컬 링크 292개를 확인하고 현재 위치로 수정했다. 과거 실험·실행 결과는 새 검증 결과로 바꾸지 않았다.
+- 최종 라우팅 문서는 151개이며 시작 문서에서 전부 도달 가능하다. 플랫폼 코드·설정의 파일별 대응은 110/110이다. 생성 인벤토리·실제 Vault·개인키는 문서화 대상에서 제외한다.
+- 전체 검사 범위의 로컬 링크 1,212개와 Markdown 제목 앵커 50개를 검사했다. 깨진 링크·잘못된 앵커·고립 문서·플랫폼 대응 누락은 0개다.
+- routing-doc-sync 최종 검사: 파일 참조 7개, 선언 시그니처 15개 일치; mismatch=0, diagnostics=0. 전체 상태는 needs_review, role_status=not_verified, 종료 코드 3이다. 비Python 문서의 자동 심볼·역할 의미 검사가 지원되지 않는 한계를 유지한다.
+- Terraform 주소를 Python 선언으로 오인하던 인라인 표기는 HCL 코드 블록 또는 강조 표기로 정리했다. Python 구조는 스킬 inventory와 documents.checks로 조사했으며 프로젝트 Python 파일을 import·실행하지 않았다.
+- 작업 중 compute/main.tf의 prevent_destroy가 false에서 true로 바뀐 것을 해시·Git 차이로 관찰했다. 이번 문서 작업은 소스를 수정하지 않았으며 변경 원인은 확인하지 않았다. 현재 true 값을 기준으로 모듈·배포·삭제 문서와 관련 실행 안내의 설명만 맞췄다. 아래 과거 기록의 false는 당시 값이다.
+- 시작 시점과 비교해 다른 비Markdown 파일의 해시와 Git index는 동일하다. 변경분 공백 검사도 통과했다. AWS 조회·Terraform Plan/Apply·원격 Ansible·서비스 검증은 실행하지 않았다.
+
+분석 자료는 infra/.local/diagnostics/routing-refresh/에 pre.json, post.json, baseline.json, final-audit.json으로 남겼다. 기존 문서 이동·설계 변경과 이번 변경이 섞여 있으므로 추가 스테이징·커밋 없이 기존 index를 유지했다.
+
 ## 2026-10-10 양쪽 프로젝트 변경 코드 재대조
 
 사용자 요청에 따라 aws-infra/docs/infra-routing와 platform/docs/platform-routing의 현재 문서 148개를 함께 조사했다. 비교 기준은 HEAD e7c0f7533bfe68649035db3a15395d80b3d2e489 → WORKTREE이며 브랜치는 infra;#5다. 아래 이전 기록의 수치·미실행 항목은 각 당시 시점의 기록으로 보존한다.
@@ -48,11 +162,11 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 기존 workload.tftest.hcl에는 Account 1의 Bastion 포함 노드 기대값과 다른 계정의 bare SG ID 기대값이 남아 현재 구현과 불일치한다. 코드 수정은 이번 요청 범위에 포함되지 않는다. 이 미해결 상태와 기존 변경이 섞여 있으므로 자동 스테이징·커밋을 추가하지 않고 기존 index를 유지한다.
 
-아래 기록의 “현재”와 검사 수치는 각 당시 시점의 값이다. 특히 데이터 EBS 보호가 유지된다는 과거 설명은 2026-10-10 작업 파일의 false 설정을 설명하지 않는다. 현재 구현은 위 기록과 영역별 문서를 기준으로 확인한다.
+아래 기록의 “현재”와 검사 수치는 각 당시 시점의 값이다. 데이터 EBS의 false 기록과 보호가 유지된다는 설명도 각각 당시 설정을 뜻한다. 최신 작업 파일은 prevent_destroy=true이며 현재 값과 검사 범위는 이 문서 상단의 최신 기록과 compute 모듈 문서를 기준으로 확인한다.
 
 ## 2026-10-09~10 전체 삭제 기능 구현 당시 기록
 
-사용자가 요청한 전체 삭제 실행기를 추가했다. [destroy-all.ps1](scripts/destroy-all.ps1.md)은 모든 삭제 Plan을 준비하고 검토한 실행 ID로 Bastion → workload 5개 → connectivity → foundation 5개를 순차 적용한다. [infra-destroy.ps1](scripts/lib/infra-destroy.ps1.md)에 범위·태그·계획·상태·결과 검사를 두고, 기존 실행기와 fingerprint에 연결했다. 실제 명령은 [실행 README 15절](../../infra/scripts/README.md#15-전체-인프라-삭제)에 있다.
+사용자가 요청한 전체 삭제 실행기를 추가했다. [destroy-all.ps1](scripts/destroy-all.ps1.md)은 모든 삭제 Plan을 준비하고 검토한 실행 ID로 Bastion → workload 5개 → connectivity → foundation 5개를 순차 적용한다. [infra-destroy.ps1](scripts/lib/infra-destroy.ps1.md)에 범위·태그·계획·상태·결과 검사를 두고, 기존 실행기와 fingerprint에 연결했다. 실제 명령은 [실행 README 15절](../operations-recovery.md#6-전체-인프라-삭제)에 있다.
 
 데이터 EBS의 prevent_destroy는 사용자가 수동으로 false로 변경한다. 이번 구현은 원본 compute/main.tf·topology·traffic·backend·키를 수정하거나 보호 해제용 override를 만들지 않는다. 전체 삭제는 데이터 EBS를 포함하며 S3 상태 버킷·이력과 상태 밖 수동 자원은 유지한다. Plan·Apply·Status·Verify 외에 부분 삭제나 AWS 직접 삭제 API는 추가하지 않았다.
 
@@ -86,7 +200,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 - [실행기](scripts/infra.ps1.md)·[관리 스크립트](scripts/bastion.ps1.md)·[공통 함수](scripts/lib/infra-common.ps1.md)에 bastion 단계, 생성/삭제 저장 계획 구분, 전용 자원 범위·태그·중복 검사를 반영했다. 상태 경로는 서비스 11개와 선택 Bastion 1개로 분리한다.
 - workload의 다른 계정 SG 참조는 소유 계정 ID/SG ID 형식이다. Account 1 Bastion SG에는 콘솔용 EC2 Instance Connect 접두사 목록 TCP 22 규칙이 별도 자원으로 선언되어 있다. 코드 선언 대조이며 실제 AWS 적용 상태를 새로 확인한 것은 아니다.
 - 다섯 계정의 AMI·계정별 공개키 경로와 관리자·사용자 CIDR 입력이 채워진 현재 설정을 반영했다. 구체적인 접속 IP는 문서에 기재하지 않는다.
-- [setup-proxy.sh](../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md)는 수동 Squid 패키지 설치만 수행한다. Proxy ACL·클라이언트 설정·실제 송신 검증이나 Terraform의 자동 설치 기능으로 기록하지 않는다.
+- [setup-proxy.sh](../../../aws-platform/platform/docs/platform-routing/scripts/install-squid.sh.md)는 수동 Squid 패키지 설치만 수행한다. Proxy ACL·클라이언트 설정·실제 송신 검증이나 Terraform의 자동 설치 기능으로 기록하지 않는다.
 
 ## 이번 검사 결과와 한계
 
@@ -259,10 +373,18 @@ AWS Plan·Apply와 원격 ZooKeeper 재검증은 사용자 실행 단계로 남�
 
 ## 2026-10-10 전체 삭제의 서비스 콘솔 SSH 허용 목록 보완
 
-사용자가 전체 삭제를 준비하는 과정에서 `aws_vpc_security_group_ingress_rule.service_console_ssh["ad"]`를 단계 밖 자원으로 거부하는 오류를 보고했다. workload/main.tf에는 해당 역할별 자원이 있지만 Assert-InfraDeletePlan의 workload 허용 목록에는 기존 Bastion 콘솔 SSH 주소만 있었다.
+사용자가 전체 삭제를 준비하는 과정에서 **aws_vpc_security_group_ingress_rule.service_console_ssh["ad"]**를 단계 밖 자원으로 거부하는 오류를 보고했다. workload/main.tf에는 해당 역할별 자원이 있지만 Assert-InfraDeletePlan의 workload 허용 목록에는 기존 Bastion 콘솔 SSH 주소만 있었다.
 
 infra-destroy.ps1의 workload 주소 패턴에 정확한 service_console_ssh 이름과 문자열 역할 키 형식만 추가했다. 단계 순서·태그·계정·delete/no-op·데이터 EBS 동의·저장 계획 해시 검사는 유지한다. 소스 변경으로 기존 실패 실행 ID를 재사용하지 않고 새 Plan을 생성해야 한다.
 
 별도 test_destroy_console_ssh.ps1에서 실제 오류 주소를 포함한 현재 서비스 역할 7개와 기존 Bastion 주소를 허용하고, 비슷한 자원 이름·잘못된 키·추가 주소·관련 없는 자원·다른 단계·계정 태그 불일치·수정·import를 거부하는 16개 검사를 Windows PowerShell 5.1에서 통과했다. AWS·Terraform 실행 파일은 호출하지 않았다. 기존 전체 삭제 모의 테스트 17개를 이번에 재실행한 결과로 취급하지 않는다.
 
 관련 라우팅 문서와 테스트 탐색 링크를 갱신했다. Python AST 분석기의 역할 의미 not_verified와 비Python 검사 한계를 유지하며 PowerShell 실행 검사와 구분한다. 실제 사용자 삭제 Plan·Apply·AWS 삭제 완료는 아직 확인하지 않았고, 기존 Git 스테이징 상태를 보존했다.
+
+
+## 2026-10-11 스테이징 범위 문서 대조
+
+기존 스테이징 13개 파일(Consumer·비용·보안규칙·Terraform 모의 검사·팀 접속 스크립트·common sudo 수정)을 보존하고 광고 서버 AZ A 변경과 직접 관련된 안내·라우팅 문서만 추가했다. MySQL-3 증설과 Consumer OS 방화벽 등 기존 비스테이징 소스는 포함하지 않는다. 따라서 스테이징 topology는 서비스 EC2 16대·선택 Bastion 포함 17대, A 12대·C 5대·MySQL 2대이며 작업 파일의 3노드 MySQL 구성과 다르다. 이 스테이징만으로 InnoDB Cluster 구축 준비가 완료됐다고 판단하지 않는다. 기존 AWS 검증 기록은 당시 이력으로 보존하며 사용자의 전체 자원 삭제 확인은 사용자 진술로 구분한다. 문서 이동 중인 관련 경로는 스테이징에 존재하는 신규·기존 문서를 연결해 미선택 문서 이동을 섞지 않는다. AWS 생성·삭제·원격 Ansible·커밋은 실행하지 않았다.
+
+
+스테이징 snapshot을 별도 폴더에 복사해 routing-doc-sync를 실행했다. 전체 영향 문서의 자동 검사에서 비용 수식·EC2 유형·JSON 키·YAML/PowerShell 파일명을 Python 심볼로 해석한 38개 missing_symbol이 나왔으며, 모두 Python 선언이 아닌 표기여서 Python 불일치로 확정하지 않는다. 실제 Python 참조와 비Python 링크·설정은 별도로 대조한다. 전체 스킬 결과를 성공으로 표현하지 않는다.

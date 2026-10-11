@@ -16,6 +16,10 @@ all:
       hosts:
         mysql-01: { ip: 10.30.20.11 }
         mysql-02: { ip: 10.50.20.11 }
+        mysql-03: { ip: 10.20.20.11 }
+    game:
+      hosts:
+        game-01: { ip: 10.10.20.21 }  # 같은 서버에 로컬 Router를 설치한다.
     kafka:
       hosts:
         kafka-01: { ip: 10.30.20.21 }

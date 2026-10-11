@@ -9,10 +9,10 @@
 문서 탐색 시작점은 다음과 같다.
 
 - 통합 README: `./README.md`
-- 통합 라우팅 문서: `./platform-routing/ROUTING-README.md`
+- 통합 라우팅 문서: `./docs/ROUTING-README.md`
 - 하위 README, 영역별 라우팅 문서, 파일별 문서: 위 문서에서 안내하는 경로
 
-상위 저장소에서 보면 문서 탐색 시작점은 각각 `./aws-platform/platform/README.md`와 `./aws-platform/platform/platform-routing/ROUTING-README.md`다.
+상위 저장소에서 보면 문서 탐색 시작점은 각각 `./aws-platform/platform/README.md`와 `./aws-platform/platform/docs/ROUTING-README.md`다.
 
 하위 문서의 위치와 파일별 문서의 대응 규칙은 기존 문서를 확인하여 따른다. 문서가 없거나 경로가 불명확하면 임의로 확정하지 않고 해당 사항을 보고한다.
 
@@ -51,7 +51,7 @@ Python 분석 방법과 일치 여부 판정 절차는 `routing-doc-sync` 스킬
 
 1. 문서 루트의 `README.md`를 먼저 읽는다.
 2. 현재 작업과 관련된 하위 README가 있으면 읽는다.
-3. 통합 `./platform-routing/ROUTING-README.md`와 관련 README가 안내하는 라우팅 문서를 확인한다.
+3. 통합 `./docs/ROUTING-README.md`와 관련 README가 안내하는 라우팅 문서를 확인한다.
 4. 문서를 기준으로 작업에 필요한 소스와 설정 파일을 확인한다.
 
 확인할 파일 수를 임의로 제한하지 않는다. 문서가 누락되었거나 오래되었거나 검증에 필요한 정보가 부족하면 관련 문서와 파일을 추가로 확인한다.

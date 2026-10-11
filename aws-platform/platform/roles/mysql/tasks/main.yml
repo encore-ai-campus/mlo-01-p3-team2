@@ -1,6 +1,5 @@
 ---
-# MySQL: Standalone(1대) 또는 InnoDB ReplicaSet(2대). 모드는 서버 대수에서 정해진다.
-# 첫 번째 서버(YAML 순서)가 초기 Primary다.
+# MySQL: 3~9대의 단일 Primary InnoDB Cluster. 첫 번째 서버는 최초 구축 담당이다.
 - name: OS별 변수 로드
   ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
 
@@ -16,12 +15,78 @@
       작은따옴표·큰따옴표·백슬래시·달러·백틱은 쓸 수 없다 (inventory/group_vars/all/vault.example.yml 참고).
   no_log: true
 
+- name: Cluster 인벤토리 확인
+  ansible.builtin.assert:
+    that:
+      - groups.get('mysql', []) | length >= 3
+      - groups['mysql'] | length <= 9
+      - ansible_play_hosts_all | sort == groups['mysql'] | sort
+      - mysql_cluster_name is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$')
+      - mysql_port | int > 0 and mysql_port | int <= 65535
+      - mysql_cluster_auto_rejoin_tries | int >= 0
+      - groups['mysql'] | select('search', '[0-9]+$') | list | length == groups['mysql'] | length
+      - groups['mysql'] | map('regex_search', '[0-9]+$') | map('int') | unique | list | length == groups['mysql'] | length
+      - groups['mysql'] | map('regex_search', '[0-9]+$') | map('int') | min > 0
+      - groups['mysql'] | map('regex_search', '[0-9]+$') | map('int') | max <= 4294967295
+      - groups['mysql'] | map('extract', hostvars, 'ip') | unique | list | length == groups['mysql'] | length
+    fail_msg: >-
+      InnoDB Cluster는 서로 다른 IP·노드 ID의 MySQL 3~9대가 필요하며 mysql 그룹 전체를 대상으로 실행해야 한다.
+      현재 2대 인벤토리라면 세 번째 서버를 준비하고 인벤토리를 다시 생성한다.
+
 - name: 역할 내부 값 계산
   ansible.builtin.set_fact:
     mysql_server_id: "{{ inventory_hostname | regex_search('[0-9]+$') | int }}"
     mysql_buffer_pool_mb: "{{ [(ansible_facts['memtotal_mb'] * mysql_buffer_pool_ratio) | int, mysql_buffer_pool_min_mb] | max }}"
-    mysql_is_primary: "{{ inventory_hostname == groups['mysql'][0] }}"
-    mysql_secondary_ips: "{{ groups['mysql'][1:] | map('extract', hostvars, 'ip') | list }}"
+    mysql_is_bootstrap: "{{ inventory_hostname == groups['mysql'][0] }}"
+    mysql_router_hosts: "{{ groups | dict2items | selectattr('key', 'in', mysql_router_source_groups) | map(attribute='value') | flatten | unique | list }}"
+
+# 기존 서버는 패키지·설정을 바꾸기 전에 메타데이터를 확인한다.
+- name: 기존 MySQL 소켓 확인
+  ansible.builtin.stat:
+    path: "{{ mysql_socket }}"
+  register: mysql_existing_socket
+
+- name: 기존 MySQL 데이터 디렉터리 확인
+  ansible.builtin.stat:
+    path: /var/lib/mysql/auto.cnf
+  register: mysql_existing_data
+
+- name: 중지된 기존 MySQL 보호
+  ansible.builtin.assert:
+    that:
+      - not mysql_existing_data.stat.exists or mysql_existing_socket.stat.exists
+    fail_msg: 기존 MySQL 데이터가 있지만 소켓이 없다. 서비스를 시작해 기존 토폴로지를 확인한 뒤 다시 실행한다.
+
+- name: 기존 MySQL 메타데이터 확인
+  ansible.builtin.command: >-
+    mysql -uroot -S {{ mysql_socket }} -N -e
+    "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'mysql_innodb_cluster_metadata';
+    SELECT COUNT(*) FROM performance_schema.replication_group_members"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  register: mysql_existing_metadata
+  changed_when: false
+  when: mysql_existing_socket.stat.exists
+  no_log: "{{ mysql_no_log }}"
+
+- name: 기존 가입 여부 계산
+  ansible.builtin.set_fact:
+    mysql_has_metadata: "{{ mysql_existing_socket.stat.exists and (mysql_existing_metadata.stdout_lines | default(['0']))[0] | int > 0 }}"
+
+- name: 관리되지 않는 Group Replication 확인
+  ansible.builtin.assert:
+    that:
+      - mysql_has_metadata or (mysql_existing_metadata.stdout_lines | default(['0', '0']))[1] | int == 0
+    fail_msg: 기존 Group Replication을 자동 채택하지 않는다. 기존 토폴로지를 먼저 점검한다.
+  when: mysql_existing_socket.stat.exists
+
+- name: 기존 InnoDB Cluster 확인
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'cluster-inspect.js.j2') }}"
+  changed_when: false
+  when: mysql_has_metadata
+  no_log: "{{ mysql_no_log }}"
 
 # --- 설치 ---
 - name: 저장소 등록 (repo.yml)
@@ -49,8 +114,42 @@
     line: "!includedir /etc/my.cnf.d"
     regexp: '^!includedir /etc/my\.cnf\.d'
     insertafter: EOF
+  check_mode: true
+  register: mysql_include_candidate
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: 가입된 Cluster의 설정 포함 변경 제한
+  ansible.builtin.assert:
+    that:
+      - not mysql_has_metadata or not mysql_include_candidate.changed
+    fail_msg: 가입된 Cluster의 설정 포함 경로가 바뀌었다. 순차 유지보수로 적용한 뒤 다시 실행한다.
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: 설정 디렉터리 포함 적용
+  ansible.builtin.lineinfile:
+    path: /etc/my.cnf
+    line: "!includedir /etc/my.cnf.d"
+    regexp: '^!includedir /etc/my\.cnf\.d'
+    insertafter: EOF
   notify: Restart mysqld
   when: ansible_facts['os_family'] == 'RedHat'
+
+# 가입된 서버의 설정 변경은 동시 재시작으로 정족수를 잃을 수 있어 별도 순차 유지보수로 처리한다.
+- name: MySQL 설정 변경 사전 확인
+  ansible.builtin.template:
+    src: infra.cnf.j2
+    dest: "{{ mysql_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  check_mode: true
+  register: mysql_config_candidate
+
+- name: 가입된 Cluster의 설정 변경 제한
+  ansible.builtin.assert:
+    that:
+      - not mysql_has_metadata or not mysql_config_candidate.changed
+    fail_msg: 가입된 Cluster의 설정이 바뀌었다. 멤버별 ONLINE 복귀를 확인하는 순차 유지보수 후 다시 실행한다.
 
 - name: MySQL 설정 배포
   ansible.builtin.template:
@@ -83,64 +182,40 @@
 - name: root 비밀번호 설정
   ansible.builtin.include_tasks: "root-password-{{ ansible_facts['os_family'] | lower }}.yml"
 
-# --- 계정 ---
-# ReplicaSet에 합류한 노드는 읽기 전용(super_read_only)이라 계정을 만들 수 없다. 이런 노드는 건너뛴다.
-# (두 번째 노드의 계정은 합류할 때 Primary에서 복제되어 온다.)
-- name: 쓰기 가능 여부 확인
-  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }} -N -e "SELECT @@global.super_read_only"
+- name: 신규 인스턴스 준비
+  ansible.builtin.include_tasks: prepare-instance.yml
+  when: not mysql_has_metadata
+
+- name: InnoDB Cluster 구성
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'cluster.js.j2') }}"
+  register: mysql_cluster_result
+  changed_when: "'INFRA_' in mysql_cluster_result.stdout"
+  when: mysql_is_bootstrap
+  no_log: "{{ mysql_no_log }}"
+
+- name: 현재 멤버 역할 조회
+  ansible.builtin.command: >-
+    mysql -uroot -S {{ mysql_socket }} -N -e
+    "SELECT MEMBER_ROLE FROM performance_schema.replication_group_members
+    WHERE MEMBER_ID = @@server_uuid AND MEMBER_STATE = 'ONLINE'"
   environment:
     MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
-  register: mysql_super_read_only
+  register: mysql_member_role
+  until: mysql_member_role.stdout in ['PRIMARY', 'SECONDARY']
+  retries: 40
+  delay: 3
   changed_when: false
   no_log: "{{ mysql_no_log }}"
 
-# 계정 SQL은 CREATE USER와 ALTER USER(비밀번호 재설정)를 쓰므로 실행할 때마다 DB가 바뀐다(바이너리 로그에도 남는다).
-# 그래서 마지막으로 적용한 SQL의 해시를 서버에 남겨 두고, 같으면 건너뛴다.
-# DB를 직접 바꿨다면 해시 파일을 지우고 다시 실행해 되돌린다.
-- name: 계정 SQL 해시 계산
+- name: 운영 중 Primary 계산
   ansible.builtin.set_fact:
-    mysql_accounts_sql: "{{ lookup('ansible.builtin.template', 'accounts.sql.j2') }}"
-  when: mysql_super_read_only.stdout == '0'
-  no_log: "{{ mysql_no_log }}"
+    mysql_is_primary: "{{ mysql_member_role.stdout == 'PRIMARY' }}"
 
-- name: 적용된 계정 SQL 해시 조회
-  ansible.builtin.slurp:
-    src: "{{ mysql_accounts_stamp }}"
-  register: mysql_accounts_stamp_current
-  failed_when: false
-  when: mysql_super_read_only.stdout == '0'
-
-- name: 계정 생성과 권한 부여
-  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }}
-  args:
-    stdin: "{{ mysql_accounts_sql }}"
-  environment:
-    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
-  changed_when: true
-  when:
-    - mysql_super_read_only.stdout == '0'
-    - (mysql_accounts_stamp_current.content | default('') | b64decode) != (mysql_accounts_sql | hash('sha256'))
-  no_log: "{{ mysql_no_log }}"
-
-# 위 task가 성공한 뒤에만 기록하므로, 실패하면 다음 실행에서 다시 적용한다.
-- name: 적용한 계정 SQL 해시 기록
-  ansible.builtin.copy:
-    content: "{{ mysql_accounts_sql | hash('sha256') }}"
-    dest: "{{ mysql_accounts_stamp }}"
-    owner: root
-    group: root
-    mode: "0600"
-  when: mysql_super_read_only.stdout == '0'
-
-# --- ReplicaSet (2대 이상일 때, 기본 노드에서만) ---
-- name: ReplicaSet 구성
-  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
-  args:
-    stdin: "{{ lookup('ansible.builtin.template', 'replicaset.js.j2') }}"
-  register: mysql_replicaset
-  changed_when: "'INFRA_' in mysql_replicaset.stdout"
-  when: mysql_is_primary and mysql_secondary_ips | length > 0
-  no_log: "{{ mysql_no_log }}"
+- name: 현재 Primary에서 계정 구성
+  ansible.builtin.include_tasks: accounts.yml
+  when: mysql_is_primary
 
 - name: 검증
   ansible.builtin.import_tasks: verify.yml

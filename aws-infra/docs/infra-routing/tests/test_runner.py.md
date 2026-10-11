@@ -24,7 +24,7 @@ routing-doc-sync의 inventory로 파일과 선언을 조사했다. 원본 Python
 
 분석기가 수집한 import는 pathlib.Path, json, os, shutil, subprocess, sys, uuid다. 최상위 calls_syntax에는 파일 쓰기, 설정 읽기, copytree, 환경 복사·갱신, subprocess.run, run, count_apply 등이 나타난다. 문자열로 생성하는 모의 Python 코드는 별도 원본 파일 선언으로 확정하지 않는다.
 
-정확한 시나리오 설명은 [기존 테스트 안내](../../../infra/tests/README.md)에 있다. 이번 작업에서 이 테스트를 실행하거나 기존 성공 기록을 갱신하지 않았다. 구조 일치와 실제 테스트 성공은 별도다.
+정확한 시나리오 설명은 [기존 테스트 안내](../../../infra/tests/TEST-README.md)에 있다. 이번 작업에서 이 테스트를 실행하거나 기존 성공 기록을 갱신하지 않았다. 구조 일치와 실제 테스트 성공은 별도다.
 
 ## 갱신 방법
 

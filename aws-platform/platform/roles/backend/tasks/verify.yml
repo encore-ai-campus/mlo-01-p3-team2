@@ -4,3 +4,24 @@
   register: backend_router_version
   changed_when: false
   failed_when: "'8.4.' not in backend_router_version.stdout"
+
+- name: Router 읽기 쓰기 포트 대기
+  ansible.builtin.wait_for:
+    host: "{{ mysql_router_bind_address }}"
+    port: "{{ mysql_router_rw_port }}"
+    timeout: 60
+
+# 포트가 열렸다는 사실뿐 아니라 실제 Primary까지 연결되는지 확인한다.
+- name: Router를 통한 Primary 접속 확인
+  ansible.builtin.command: >-
+    mysql --protocol=TCP -h {{ mysql_router_bind_address }} -P {{ mysql_router_rw_port }} -udev -N -e
+    "SELECT @@global.super_read_only, MEMBER_ROLE FROM performance_schema.replication_group_members
+    WHERE MEMBER_ID = @@server_uuid AND MEMBER_STATE = 'ONLINE'"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.dev }}"
+  register: backend_router_primary
+  until: backend_router_primary.rc == 0 and backend_router_primary.stdout == '0\tPRIMARY'
+  retries: 20
+  delay: 3
+  changed_when: false
+  no_log: "{{ backend_no_log }}"

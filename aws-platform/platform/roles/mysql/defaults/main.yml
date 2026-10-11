@@ -7,20 +7,28 @@ mysql_gpg_key_id: a8d3785c   # 위 키의 key ID 끝 8자리 (rpm의 gpg-pubkey 
 mysql_packages: [mysql-community-server, mysql-shell]
 
 mysql_accounts_stamp: /etc/mysql-infra-accounts.sha256
+mysql_admin_accounts_stamp: /etc/mysql-infra-admin-accounts.sha256
+mysql_router_accounts_stamp: /etc/mysql-infra-router-accounts.sha256
 
 # innodb_buffer_pool_size = 전체 RAM의 비율 (서버 타입에 의존하지 않도록 RAM에서 계산한다)
 mysql_buffer_pool_ratio: 0.5
 mysql_buffer_pool_min_mb: 128
 
 # 계정 접속 허용 출처 (YAML 서버 목록의 그룹)
-mysql_dev_source_groups: [backend, spark, bastion]
+mysql_dev_source_groups: [game, backend, spark, bastion]
 mysql_failover_extra_source_groups: [bastion]
 
 # dev 계정 권한. 시스템 스키마에서는 모두 뺀다.
 mysql_dev_privileges: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, INDEX, REFERENCES, CREATE VIEW, SHOW VIEW, TRIGGER, EVENT, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, CREATE TEMPORARY TABLES
 mysql_system_schemas: [mysql, sys]  # performance_schema는 root도 revoke할 수 없다 (쓰기는 setup_* 테이블 UPDATE 정도로 제한된다)
 
-mysql_replicaset_name: infra
+# Group Replication은 단일 Primary와 MYSQL 통신 스택을 사용한다.
+mysql_cluster_name: infra
+mysql_port: 3306
+mysql_cluster_auto_rejoin_tries: 3
+# 신규 멤버의 업무 데이터가 있으면 clone을 중단한다. 데이터 폐기는 운영자가 별도로 승인한다.
+mysql_cluster_allow_clone_data_loss: false
+mysql_router_source_groups: [game, spark, backend]
 
 # 비밀번호가 들어가는 task의 출력을 숨긴다. 문제를 찾을 때만 -e mysql_no_log=false 로 끈다.
 mysql_no_log: true

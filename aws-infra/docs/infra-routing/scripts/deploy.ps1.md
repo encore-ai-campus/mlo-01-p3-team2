@@ -1,6 +1,6 @@
 # infra/scripts/deploy.ps1
 
-[탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/deploy.ps1) · [실행 안내](../../../infra/scripts/README.md)
+[탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/deploy.ps1) · [실행 안내](../../../infra/scripts/scripts.md)
 
 ## 역할
 
@@ -41,7 +41,7 @@ NewProfile은 현재 infra/config의 topology·traffic을 복사하고 플랫폼
 
 현재 Terraform 제약인 account1~5, 서울 리전의 두 AZ, account1의 bastion 한 대는 유지한다. 서비스 EC2의 크기·대수·계정 배치는 nodes에서 바꾼다. 서비스 역할 자체를 없애면 traffic의 연결과 ALB 조건도 함께 맞춰야 한다.
 
-계정/AZ 이동·노드 삭제는 데이터 이전이 아니다. deploy.ps1은 데이터 EBS의 prevent_destroy 값을 변경하거나 우회하지 않는다. 현재 [compute 모듈](../terraform/README.md#compute)의 값은 false이므로 배치 변경 시 데이터 볼륨 삭제·교체 계획도 확인해야 한다. 실행 중 역할을 다른 계정으로 옮겨 기존 SG가 제거되는 경우에는 기존 EC2·SG 참조 정리와 데이터 이전을 별도 단계로 계획해야 한다. Deploy 한 번으로 모든 기존 클러스터를 무중단 이전하는 기능은 아니다.
+계정/AZ 이동·노드 삭제는 데이터 이전이 아니다. deploy.ps1은 데이터 EBS의 prevent_destroy 값을 변경하거나 우회하지 않는다. 현재 [compute 모듈](../terraform/README.md#compute)의 값은 true이므로 데이터 볼륨 삭제·교체가 포함된 계획은 실패할 수 있다. 실행 중 역할을 다른 계정으로 옮겨 기존 SG가 제거되는 경우에는 기존 EC2·SG 참조 정리와 데이터 이전을 별도 단계로 계획해야 한다. Deploy 한 번으로 모든 기존 클러스터를 무중단 이전하는 기능은 아니다.
 
 ## 인벤토리와 SSH 연결
 

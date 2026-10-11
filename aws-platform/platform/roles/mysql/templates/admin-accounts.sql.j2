@@ -1,0 +1,16 @@
+{# 가입 전의 관리 계정만 로컬에 준비한다. 임의 GTID 초기화는 하지 않는다. #}
+SET sql_log_bin = 0;
+{% set sources = [] %}
+{% for h in groups['mysql'] %}
+{% set _ = sources.append(hostvars[h].ip) %}
+{% endfor %}
+{% for g in mysql_failover_extra_source_groups %}
+{% for h in groups.get(g, []) %}
+{% set _ = sources.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% for source in sources | unique %}
+CREATE USER IF NOT EXISTS 'failover'@'{{ source }}' IDENTIFIED BY '{{ vault_mysql_passwords.failover }}';
+ALTER USER 'failover'@'{{ source }}' IDENTIFIED BY '{{ vault_mysql_passwords.failover }}';
+GRANT ALL PRIVILEGES ON *.* TO 'failover'@'{{ source }}' WITH GRANT OPTION;
+{% endfor %}

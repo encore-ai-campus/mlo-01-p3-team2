@@ -91,7 +91,7 @@ run "account2_service_console_ssh" {
   variables { account_key = "account2" }
   # 대상 역할을 명시해 Bastion·ALB 제외와 역할별 중복 제거를 확인한다.
   assert {
-    condition     = toset(keys(aws_vpc_security_group_ingress_rule.service_console_ssh)) == toset(["mongo", "spark"])
+    condition     = toset(keys(aws_vpc_security_group_ingress_rule.service_console_ssh)) == toset(["mongo", "spark", "consumer"])
     error_message = "account2 서비스 EC2 보안그룹만 한 번씩 선택해야 합니다."
   }
   assert {

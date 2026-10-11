@@ -1,3 +1,0 @@
-// MySQL Shell 스크립트 (roles/mysql). ReplicaSet 상태를 JSON 한 줄로 출력한다.
-shell.connect({user: 'failover', password: '{{ vault_mysql_passwords.failover }}', host: '{{ ip }}', port: 3306});
-print(JSON.stringify(dba.getReplicaSet().status()));

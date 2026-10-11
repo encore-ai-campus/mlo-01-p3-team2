@@ -29,10 +29,12 @@
 
 # 키 인증만 쓰므로 비밀번호가 없다. sudo도 비밀번호 없이 허용한다.
 # 한 파일에 전체 목록을 선언해, YAML에서 빠진 팀원의 sudo 권한은 사라진다.
+# 팀원 목록이 비어도 주석을 남겨 copy에 빈 content가 전달되지 않도록 한다.
 - name: 팀원 sudo 허용
   ansible.builtin.copy:
     dest: /etc/sudoers.d/90-team
     content: |
+      # Ansible로 관리하는 팀원 sudo 권한.
       {% for u in users | default([]) %}
       {{ u.name }} ALL=(ALL) NOPASSWD:ALL
       {% endfor %}

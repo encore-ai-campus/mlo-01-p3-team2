@@ -13,13 +13,14 @@ firewall_rules:
   backend:
     from: [frontend, spark, bastion]
   mysql:
-    from: [backend, spark, bastion]
+    from: [game, backend, spark, bastion]
     self: true
   mongodb:
     from: [backend, spark, bastion]
     self: true
   kafka:
-    from: [backend, spark, bastion]
+    # 평탄화 Consumer의 Kafka 연결을 허용한다. AWS SG에서는 TCP 9092로 제한한다.
+    from: [backend, spark, bastion, consumer]
     self: true
   spark:
     from: [backend, bastion]

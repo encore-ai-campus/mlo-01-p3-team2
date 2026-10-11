@@ -1,0 +1,14 @@
+// 기존 메타데이터를 Cluster로 읽지 못하면 중단한다. ReplicaSet을 자동 삭제하거나 전환하지 않는다.
+shell.connect({user: 'failover', password: {{ vault_mysql_passwords.failover | to_json }}, host: {{ ip | to_json }}, port: {{ mysql_port }}});
+var cluster = dba.getCluster({{ mysql_cluster_name | to_json }});
+var stack = shell.getSession().runSql('SELECT @@global.group_replication_communication_stack').fetchOne()[0];
+if (stack !== 'MYSQL') {
+  throw new Error('기존 Cluster의 통신 스택은 MYSQL이어야 합니다. 통신 스택 전환은 별도 운영 절차입니다.');
+}
+var state = cluster.status().defaultReplicaSet;
+if (state.topologyMode !== 'Single-Primary') {
+  throw new Error('단일 Primary InnoDB Cluster만 지원합니다.');
+}
+if (state.status.indexOf('OK') !== 0) {
+  throw new Error('정족수가 있는 Cluster를 확인할 수 없습니다. 전체 중단 복구는 운영자가 수행해야 합니다.');
+}

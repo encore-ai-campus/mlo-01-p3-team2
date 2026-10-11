@@ -1,16 +1,19 @@
 # infra/scripts/destroy-all.ps1
 
-[탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/destroy-all.ps1) · [삭제 공통 함수](lib/infra-destroy.ps1.md) · [실행 명령](../../../infra/scripts/README.md#15-전체-인프라-삭제)
+[탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/destroy-all.ps1) · [삭제 공통 함수](lib/infra-destroy.ps1.md) · [실행 명령](../../operations-recovery.md#6-전체-인프라-삭제)
 
 ## 역할과 입력
 
 이 프로젝트의 최대 12개 Terraform 상태를 대상으로 전체 삭제 계획을 준비하고 검토한 계획을 순서대로 적용한다. 다른 프로젝트나 상태 밖 자원을 계정 전체에서 찾아 삭제하는 기능은 아니다. S3 상태 버킷과 버전 이력은 유지한다.
 
+Destroy는 새 Plan → 기존 계획·상태 검사 → Apply → 결과 검증을 한 호출에서 수행한다. 실행 ID는 자동 생성하며 전체 흐름 동안 같은 operation.lock을 유지한다. 추가 입력 대기 없이 실제 삭제까지 진행하므로 DeleteDataVolumes를 반드시 지정한다. 기존 Plan·Apply·Status·Verify 명령도 유지한다.
+
 | 입력 | 의미 |
 | --- | --- |
-| Action | Plan / Apply / Status / Verify. 필수 |
-| RunId | Plan은 새 GUID 32자 ID 생성. 나머지 동작은 출력된 ID를 반드시 지정 |
-| DeleteDataVolumes | Plan·Apply에 필수. 서비스 데이터 EBS도 삭제한다는 명시적 선택 |
+| Action | Plan / Apply / Status / Verify / Destroy. 필수 |
+| RunId | Plan·Destroy는 새 GUID 32자 ID 생성하며 입력을 거부한다. 나머지 동작은 출력된 ID를 반드시 지정 |
+| DeleteDataVolumes | Plan·Apply·Destroy에 필수. 서비스 데이터 EBS도 삭제한다는 명시적 선택 |
+| DisableDataVolumeProtection | Destroy에서만 허용. 지원하는 compute 데이터 EBS 선언의 true를 Plan 전에 false로 바꾸고 종료 시 원래 바이트로 복원. 이미 false이면 변경하지 않음 |
 | PluginDirectory | 기존 provider 디렉터리를 공통 실행기에 전달하는 선택 입력 |
 
 ## 실행 흐름
@@ -24,11 +27,26 @@
 
 Status는 로컬 run.json의 단계별 상태를 표시한다. AWS 실시간 상태 조회가 아니다. Verify는 Verifying·VerificationFailed·Complete 실행에만 허용하며 삭제가 미완료된 실행을 건너뛰는 명령이 아니다.
 
+## 한 번에 실행과 보호 복원
+
+```powershell
+# 프로젝트의 데이터 EBS까지 새 계획으로 검사한 뒤 자동 삭제한다.
+.\infra\scripts\destroy-all.ps1 -Action Destroy -DeleteDataVolumes -DisableDataVolumeProtection
+```
+
+Set-DestroyDataProtection은 compute/main.tf의 aws_ebs_volume.data와 한 줄 lifecycle 선언을 각각 하나로 식별한다. 지원하지 않는 형식은 추측해서 수정하지 않고 중단한다. true인 경우 data-protection.original.tf에 원본을 보관하고 original_sha256·disabled_sha256·original_fingerprint와 Prepared 상태를 먼저 run.json에 저장한 뒤 파일을 교체한다. Plan·Apply는 보호를 해제한 동일 fingerprint를 사용하며 첫 삭제 전에 원본 사본의 해시도 검사한다. 기존 삭제 대상·태그·순서·원격 상태 검사는 우회하지 않는다.
+
+Restore-DestroyDataProtection은 finally에서 원본 사본과 현재 파일의 해시를 검사한 뒤 원래 바이트를 복원한다. BOM·줄바꿈도 보존한다. 정상 완료뿐 아니라 Plan·Apply·결과 검증 실패에서도 복원하며, 원래 false이면 AlreadyDisabled로 기록하고 파일을 쓰지 않는다. 실행 중 외부 수정이나 사본 변조가 발견되면 덮어쓰지 않고 ProtectionRestoreFailed로 기록하여 실패로 종료한다. 완료 메시지는 복원 검사 후에만 출력한다.
+
+복원 후에는 저장 Plan의 fingerprint를 바꾸지 않고 별도 verification_fingerprint에 보호 해제 전 기준을 남긴다. 이후 읽기 전용 Verify는 이 기준으로 코드·설정 변경을 검사한다. 실패한 Destroy 실행은 Apply로 재사용하지 않고 새 Destroy 또는 새 Plan으로 시작한다.
+
+프로세스 강제 종료·전원 중단은 finally 실행을 보장하지 않는다. 이 경우 run.json의 보호 상태와 해당 실행 폴더의 data-protection.original.tf를 확인하고 현재 파일과 비교하여 원래 설정을 복구한 뒤 새 계획을 만든다. 상태 파일을 지우거나 기존 계획을 강제 적용하지 않는다.
+
 ## 파일과 보호 경계
 
 작업 경로는 infra/.local/destroy-all/{RunId}/다. run.json은 진행 기록, run.previous.json은 직전 기록이다. Save-DestroyRun 함수는 임시 파일을 기록한 뒤 교체한다. 계정/단계 하위의 saved.tfplan, saved-plan.json, delete-summary.json, remote-state.json과 terraform 캐시는 일반 배포의 .local/{Account}/{Stage}와 분리한다. delete_count는 Terraform 삭제 자원과 EC2에 연결된 OS 디스크 검증 항목 수이며 Terraform Plan의 destroy 개수와 다를 수 있다.
 
-삭제 허용 검사와 원격 상태 조회는 [infra-destroy.ps1](lib/infra-destroy.ps1.md), 기존 계정·Plan 해시 검사는 [infra.ps1](infra.ps1.md)이 담당한다. 서비스 데이터 EBS의 prevent_destroy는 스크립트가 변경하지 않는다. 2026-10-10 현재 [compute/main.tf](../../../infra/terraform/modules/compute/main.tf)의 값은 false다. true인 상태에서 삭제하려면 사용자가 수동으로 false로 바꾼 뒤 새 Plan을 만들어야 한다. 코드 사본이나 override 파일은 생성하지 않는다. 값을 바꾸면 기존 Plan의 코드 해시가 달라지므로 새 Plan이 필요하다.
+삭제 허용 검사와 원격 상태 조회는 [infra-destroy.ps1](lib/infra-destroy.ps1.md), 기존 계정·Plan 해시 검사는 [infra.ps1](infra.ps1.md)이 담당한다. 현재 [compute의 데이터 EBS 보호](../terraform/README.md#compute)는 prevent_destroy=true다. 이전 구현 검증 당시의 false 값은 [검증 기록](../verification.md)에 당시 상태로 보존한다. DeleteDataVolumes만 지정하면 보호 값은 변경하지 않는다. 자동 해제·복원은 Destroy와 DisableDataVolumeProtection을 함께 지정한 경우에만 수행한다. 별도 Plan·Apply에서 보호 설정을 직접 변경했다면 새 Plan이 필요하다. override나 배포용 코드 사본은 만들지 않으며 복구용 원본은 해당 삭제 실행 폴더에만 보관한다.
 
 Terraform은 각 상태에 S3 잠금을 사용한다. operation.lock은 같은 PC에만 적용되며, 삭제 중 다른 PC에서 배포·Bastion 전원 작업·수동 콘솔 변경을 동시에 수행하는 것을 전체적으로 잠그지는 않는다. 상태 변경은 사전 해시 검사와 Terraform 저장 Plan 검사로 거부한다.
 

@@ -18,7 +18,14 @@
 
 managed 변경은 해당 단계의 기존 모듈·자원 주소만 허용한다. 생성·수정·교체·import·미완성·deferred 변경과 삭제 후 managed 자원이 남는 계획은 거부한다. tags_all을 제공하는 자원은 Project·Account·ManagedBy=Terraform·Layout=v2를 대조한다. shared Peering에서는 모듈의 requester/accepter 계정에 맞춰 Account를 판단한다.
 
-workload의 콘솔 SSH 주소는 `aws_vpc_security_group_ingress_rule.bastion_console_ssh[0]`와 `aws_vpc_security_group_ingress_rule.service_console_ssh["역할"]`이다. 서비스 역할별 규칙도 workload가 생성하므로 전체 삭제 대상에 포함한다. 이 정확한 자원 이름과 문자열 키 형식만 추가로 허용하며 다른 단계·이름·태그 검사와 delete/no-op 제한은 유지한다. [회귀 검사](../../../../infra/tests/test_destroy_console_ssh.ps1)는 실제 AWS 없이 허용·거부 경계를 확인한다.
+workload의 콘솔 SSH Terraform 주소는 다음과 같다.
+
+```hcl
+aws_vpc_security_group_ingress_rule.bastion_console_ssh[0]
+aws_vpc_security_group_ingress_rule.service_console_ssh["역할"]
+```
+
+서비스 역할별 규칙도 workload가 생성하므로 전체 삭제 대상에 포함한다. 이 정확한 자원 이름과 문자열 키 형식만 추가로 허용하며 다른 단계·이름·태그 검사와 delete/no-op 제한은 유지한다. [회귀 검사](../../../../infra/tests/test_destroy_console_ssh.ps1)는 실제 AWS 없이 허용·거부 경계를 확인한다.
 
 데이터 EBS는 DeleteDataVolumes가 필요하다. EC2 루트 디스크가 delete_on_termination=false이면 계획을 거부한다. 자동 삭제되는 루트 디스크 ID는 결과 검증 목록에 포함한다. 이 함수는 prevent_destroy를 수정하지 않는다. Bastion은 기존 Assert-InfraBastionPlan의 전용 주소·Stage 태그 검사도 함께 받는다.
 

@@ -37,6 +37,8 @@
 - name: MySQL
   hosts: mysql
   become: true
+  strategy: linear  # 모든 노드의 준비 작업이 끝난 뒤 첫 노드가 Cluster를 생성한다.
+  any_errors_fatal: true  # 일부 노드 준비가 실패하면 Cluster 생성과 후속 Router 구축을 중단한다.
   environment: "{{ proxy_environment }}"
   roles:
     - { role: mysql, tags: [mysql] }
@@ -64,13 +66,14 @@
     - { role: zookeeper, tags: [zookeeper] }
     - { role: spark, tags: [spark] }
 
-# Backend: MySQL Router 설치까지. Frontend는 공통 보안과 방화벽만 적용하므로 별도 play가 없다.
-- name: Backend
-  hosts: backend
+# DB에 접속하는 기존 서버에 로컬 Router를 구성한다. 앱 런타임 설치는 별도다.
+- name: MySQL Router
+  hosts: game:spark:backend
   become: true
+  any_errors_fatal: true
   environment: "{{ proxy_environment }}"
   roles:
-    - { role: backend, tags: [backend] }
+    - { role: backend, tags: [backend, mysql_router] }
 
 # Monitoring: 모든 서버에 읽기 전용 수집 설정을 하고, Monitoring 서버에 수집 루프를 올린다. 서비스가 모두 올라간 뒤에 적용한다.
 - name: Monitoring

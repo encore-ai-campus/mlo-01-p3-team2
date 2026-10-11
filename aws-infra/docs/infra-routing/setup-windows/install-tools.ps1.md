@@ -1,6 +1,6 @@
 # infra/setup-windows/install-tools.ps1
 
-[탐색 시작점](../ROUTING-README.md) · [원본 설치기](../../../infra/setup-windows/install-tools.ps1) · [기존 설치 안내](../../../infra/setup-windows/README.md)
+[탐색 시작점](../ROUTING-README.md) · [원본 설치기](../../../infra/setup-windows/install-tools.ps1) · [기존 설치 안내](../../../infra/setup-windows/setup-windows.md)
 
 ## 용도와 입력
 

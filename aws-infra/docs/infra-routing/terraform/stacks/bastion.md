@@ -30,7 +30,7 @@ topology.nodes.bastion과 accounts.account1을 읽는다. 현재 Public A·t3a.s
 - PlanDelete → 검토 → Delete는 PlanMode=Delete Plan·Apply에 대응하며 저장 삭제 계획을 적용한다.
 - 공통 실행기는 EC2·키페어·model helper 외 변경, 교체·import·deferred 변경, 생성/삭제 계획 혼용을 거부한다. 전용 상태 밖에 기존 Bastion이 있으면 자동 이관하지 않고 중단한다.
 
-전체 인프라 삭제는 별도 [destroy-all.ps1](../../scripts/destroy-all.ps1.md)이 담당한다. 서비스 데이터 EBS의 prevent_destroy는 현재 false이며 해당 스크립트가 변경하지 않는다. true로 설정되어 있으면 사용자가 수동으로 해제한 뒤 새 삭제 Plan을 준비해야 한다. 기존 Bastion Delete는 전용 상태에만 적용된다.
+전체 인프라 삭제는 별도 [destroy-all.ps1](../../scripts/destroy-all.ps1.md)이 담당한다. 서비스 데이터 EBS의 prevent_destroy는 현재 true다. Plan·Apply와 DeleteDataVolumes만으로는 보호를 해제하지 않으며, Destroy에 DisableDataVolumeProtection을 함께 지정하면 새 Plan 전에 잠시 해제하고 종료 시 원본으로 복원한다. 별도 Plan·Apply에서 보호를 직접 변경했다면 새 삭제 Plan을 준비해야 한다. 기존 Bastion Delete는 전용 상태에만 적용된다.
 
 ## 출력
 
@@ -40,6 +40,6 @@ bastion.ps1의 Status·Output은 Terraform 출력 대신 AWS CLI로 현재 주�
 
 ## 설치와 재생성 경계
 
-user_data는 /etc/aws-infra/node.json 역할 정보만 기록한다. [install-squid.sh](../../../../../aws-platform/platform/platform-routing/scripts/install-squid.sh.md)의 Squid 설치, Proxy ACL·클라이언트 설정, [팀원 공개키 등록](../../scripts/account-keys.ps1.md)은 별도 작업이다. 재생성 후 공인·사설 주소와 SSH·Proxy 설정을 갱신한다.
+user_data는 /etc/aws-infra/node.json 역할 정보만 기록한다. [install-squid.sh](../../../../../aws-platform/platform/docs/platform-routing/scripts/install-squid.sh.md)의 Squid 설치, Proxy ACL·클라이언트 설정, [팀원 공개키 등록](../../scripts/account-keys.ps1.md)은 별도 작업이다. 재생성 후 공인·사설 주소와 SSH·Proxy 설정을 갱신한다.
 
 Stop·Start·Restart는 같은 EC2의 전원 동작이다. Stop은 루트 디스크 삭제가 아니며, 사용 후 EC2와 OS 디스크를 없애려면 저장된 PlanDelete를 검토한 뒤 Delete를 사용한다.

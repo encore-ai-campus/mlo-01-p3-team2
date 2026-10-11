@@ -1,0 +1,18 @@
+# Ansible로 관리한다. 패키지의 기본 설정 경로와 전용 사용자로 Router를 실행한다.
+[Unit]
+Description=MySQL Router for InnoDB Cluster
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ backend_router_user }}
+Group={{ backend_router_user }}
+RuntimeDirectory=mysqlrouter
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/mysqlrouter --config={{ backend_router_config }}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

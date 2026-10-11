@@ -65,4 +65,4 @@ S3에는 계정별 foundation/workload 10개와 shared/connectivity 1개, 총 11
 
 ## 변경할 때 함께 확인
 
-입력 검사·해시 범위는 [공통 함수 문서](lib/infra-common.ps1.md), 실행기 보호 동작은 [Python 테스트 문서](../tests/test_runner.py.md), 실제 옵션 안내는 [실행 README](../../../infra/scripts/README.md)를 함께 확인한다. 문서 파일은 fingerprint 대상에 포함되지 않는다.
+입력 검사·해시 범위는 [공통 함수 문서](lib/infra-common.ps1.md), 실행기 보호 동작은 [Python 테스트 문서](../tests/test_runner.py.md), 실제 옵션 안내는 [실행 README](../../../infra/scripts/scripts.md)를 함께 확인한다. 문서 파일은 fingerprint 대상에 포함되지 않는다.

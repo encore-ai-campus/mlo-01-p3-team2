@@ -24,8 +24,8 @@ run "account2_private" {
     error_message = "Account 2 기본 구성은 Private A·C만 만듭니다."
   }
   assert {
-    condition     = toset(keys(output.foundation.sg_ids)) == toset(["mongo", "spark"])
-    error_message = "광고 서버 이동 후 Account 2에는 mongo·spark SG만 있어야 합니다."
+    condition     = toset(keys(output.foundation.sg_ids)) == toset(["mongo", "spark", "consumer"])
+    error_message = "Account 2에는 mongo·spark와 평탄화 노드의 consumer SG가 있어야 합니다."
   }
 }
 run "nat_per_az" {

@@ -1,6 +1,6 @@
 # infra/scripts/bastion.ps1
 
-[탐색 시작점](../ROUTING-README.md) · [원본 스크립트](../../../infra/scripts/bastion.ps1) · [실행 안내](../../../infra/scripts/README.md#13-배스천-상태-조회와-중지시작) · [전용 Terraform 단계](../terraform/stacks/bastion.md)
+[탐색 시작점](../ROUTING-README.md) · [원본 스크립트](../../../infra/scripts/bastion.ps1) · [실행 안내](../../operations-recovery.md#4-배스천-상태-조회와-중지시작) · [전용 Terraform 단계](../terraform/stacks/bastion.md)
 
 ## 역할과 입력
 
