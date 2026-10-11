@@ -1,4 +1,8 @@
+from datetime import datetime, timezone as dt_timezone
+from zoneinfo import ZoneInfo
+
 from django import forms
+from django.utils import timezone
 
 
 class SignupForm(forms.Form):
@@ -55,3 +59,37 @@ class PeriodForm(forms.Form):
             self.is_valid()  # 칸별로 검증해 맞는 칸만 cleaned_data 에 남는다
         data = getattr(self, "cleaned_data", {})
         return {name: data.get(name) or default for name, default in self.DEFAULTS.items()}
+
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+class KstDateTimeField(forms.DateTimeField):
+    """화면의 날짜·시각은 KST 로 읽고 쓴다(브라우저의 `datetime-local` 은 시간대가 없다). 서비스에는 UTC 로 넘긴다."""
+
+    widget = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
+    input_formats = ["%Y-%m-%dT%H:%M"]
+
+    def to_python(self, value):
+        with timezone.override(KST):
+            result = super().to_python(value)
+        return result.astimezone(dt_timezone.utc) if result else result
+
+    def prepare_value(self, value):
+        return value.astimezone(KST).strftime("%Y-%m-%dT%H:%M") if isinstance(value, datetime) and value.tzinfo else value
+
+
+class CampaignEditForm(forms.Form):
+    """캠페인 수정(이름·일예산·끝나는 시각). 규칙(이름 형식·금액 범위·끝 시각)은 서비스가 판단한다. 바뀐 칸만 서비스에 넘긴다.
+    `updated_at` 은 폼을 열 때 본 마지막 변경 시각 — 그 사이 다른 곳에서 바뀌었으면 서비스가 거절한다(옛 폼이 덮어쓰지 않게)."""
+
+    name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
+    daily_budget = forms.IntegerField(label="일예산(포인트)")
+    ends_at = KstDateTimeField(label="끝나는 시각(KST, 비우면 끝 없음)", required=False)
+    updated_at = forms.DateTimeField(widget=forms.HiddenInput)
+
+    EDITABLE = ("name", "daily_budget", "ends_at")
+
+
+class ReviewRequestForm(forms.Form):
+    message = forms.CharField(label="고친 내용(선택)", max_length=500, required=False, strip=False, widget=forms.Textarea(attrs={"rows": 3}))

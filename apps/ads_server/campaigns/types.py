@@ -153,6 +153,7 @@ class AdGroupEffects:
     ad_group_id: uuid.UUID
     campaign_id: uuid.UUID
     name: str
+    pricing_unit: str
     enabled: bool
     bid_amount: int | None
     bid_created_at: datetime | None

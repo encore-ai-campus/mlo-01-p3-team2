@@ -3,11 +3,12 @@ from urllib.parse import urlsplit
 from django import template
 
 from billing.api import EntryType
-from campaigns.api import CampaignStatus
+from campaigns.api import CampaignStatus, ReviewStatus
 from masters.api import Audience, PricingUnit
 
 register = template.Library()
 _UNITS, _AUDIENCES, _STATUSES, _ENTRIES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
+_REVIEWS = dict(ReviewStatus.choices)
 
 
 @register.filter
@@ -91,3 +92,9 @@ _SEVERITIES = {"critical": "긴급", "warning": "주의", "info": "알림"}
 def severity_label(value):
     """알림 심각도 → 화면 이름."""
     return _SEVERITIES.get(value, value)
+
+
+@register.filter
+def review_label(value):
+    """재검토 요청 상태 코드 → 화면 이름."""
+    return _REVIEWS.get(value, value)

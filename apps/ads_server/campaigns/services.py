@@ -154,8 +154,11 @@ def list_campaigns(user, now=None):
 CAMPAIGN_FIELDS = {"name", "ends_at", "daily_budget", "status"}
 
 
-def update_campaign(user, campaign_id, changes, now=None):
-    """`changes` 는 바꿀 필드만 담는다(name·ends_at·daily_budget·status). status 는 ACTIVE↔PAUSED 만."""
+def update_campaign(user, campaign_id, changes, now=None, expected_updated_at=None):
+    """`changes` 는 바꿀 필드만 담는다(name·ends_at·daily_budget·status). status 는 ACTIVE↔PAUSED 만.
+
+    `expected_updated_at`: 화면이 본 캠페인의 마지막 변경 시각. 주면 잠금 안에서 지금과 대조해 다르면 `StaleVersion`(409) — 폼을 연 뒤 다른 탭·기기에서
+    바뀐 값을 옛 폼이 덮어쓰지 않게(Step 3-2b). 켜기·끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CAMPAIGN_FIELDS
@@ -164,6 +167,8 @@ def update_campaign(user, campaign_id, changes, now=None):
     with transaction.atomic():
         c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)  # 종료된 캠페인(상태 갱신 전 포함)은 어떤 값도 못 바꾼다
+        if expected_updated_at is not None and expected_updated_at != c.updated_at:
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
         if "status" in changes:
             target = changes["status"]
             if target not in (CampaignStatus.ACTIVE, CampaignStatus.PAUSED):
@@ -490,7 +495,7 @@ def ad_group_effects(user):
         if g.bid_amount is None:
             return ()
         return tuple(_effect(g.bid_amount, slot_id, policies.get(slot_id)) for slot_id in links.get(g.pk, []))
-    return [AdGroupEffects(g.ad_group_id, g.campaign_id, g.name, g.enabled, g.bid_amount, g.bid_created_at, effects(g)) for g in groups]
+    return [AdGroupEffects(g.ad_group_id, g.campaign_id, g.name, g.pricing_unit, g.enabled, g.bid_amount, g.bid_created_at, effects(g)) for g in groups]
 
 
 def _effect(amount, slot_id, slot):

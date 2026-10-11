@@ -1,0 +1,39 @@
+{% extends "console/base.html" %}
+{% load kst console_format %}
+{% block title %}캠페인{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>캠페인</h1>
+  <p class="muted">오늘 소진은 예산 일 기준이고 매일 09:00(KST)에 새로 시작합니다. 성과는 오늘을 포함한 최근 7일입니다.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th><th scope="col">켜기·끄기</th><th scope="col">기간 (KST)</th>
+        <th scope="col" class="num">일예산</th><th scope="col" class="num">오늘 소진</th><th scope="col" class="num">노출</th><th scope="col" class="num">클릭</th><th scope="col" class="num">전환</th></tr></thead>
+      <tbody>
+      {% for row in rows %}{% with c=row.campaign %}
+        <tr>
+          <td><a href="{% url 'campaign_detail' c.campaign_id %}">{{ c.name }}</a></td>
+          <td><span class="status {{ c.status|lower }}">{{ c.status|status_label }}</span>{% if c.suspension %}<br><span class="muted">사유: {{ c.suspension.reason }}</span>{% endif %}</td>
+          <td>
+            {% if c.status == "ACTIVE" or c.status == "PAUSED" %}
+            <form method="post" action="{% url 'campaign_status' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="list">
+              <input type="hidden" name="status" value="{% if c.status == 'ACTIVE' %}PAUSED{% else %}ACTIVE{% endif %}">
+              <button type="submit" class="secondary" aria-label="{{ c.name }} {% if c.status == 'ACTIVE' %}끄기{% else %}켜기{% endif %}">{% if c.status == "ACTIVE" %}끄기{% else %}켜기{% endif %}</button>
+            </form>
+            {% elif c.status == "SUSPENDED" %}<span class="muted">중단됨 — 상세에서 재검토 요청</span>{% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td>{{ c.starts_at|kst }} ~ {% if c.ends_at %}{{ c.ends_at|kst }}{% else %}끝 없음{% endif %}</td>
+          <td class="num">{{ c.daily_budget|points }}</td>
+          <td class="num">{{ row.today.spent|points }}</td>
+          <td class="num">{{ row.recent.impressions|default:0|number }}</td>
+          <td class="num">{{ row.recent.clicks|default:0|number }}</td>
+          <td class="num">{{ row.recent.conversions|default:0|number }}</td>
+        </tr>
+      {% endwith %}{% empty %}
+        <tr><td colspan="9">캠페인이 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

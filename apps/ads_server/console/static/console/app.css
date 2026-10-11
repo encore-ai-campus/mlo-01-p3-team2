@@ -63,3 +63,10 @@ tr.partial td { color: var(--muted); }
 .alert.critical { background: var(--error-bg); border-color: var(--error-border); }
 .alert.warning { background: var(--warn-bg); border-color: var(--warn-border); }
 .badge { font-weight: 700; margin-right: 6px; }
+/* 캠페인(3-2b) */
+.status { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); vertical-align: middle; }
+.status.paused { background: var(--warn-bg); border-color: var(--warn-border); }
+.status.suspended { background: var(--error-bg); border-color: var(--error-border); }
+.status.ended { color: var(--muted); }
+td form { margin: 0; }
+td form button { margin-top: 0; }
