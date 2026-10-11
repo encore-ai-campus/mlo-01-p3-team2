@@ -2,11 +2,12 @@ from urllib.parse import urlsplit
 
 from django import template
 
+from billing.api import EntryType
 from campaigns.api import CampaignStatus
 from masters.api import Audience, PricingUnit
 
 register = template.Library()
-_UNITS, _AUDIENCES, _STATUSES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices)
+_UNITS, _AUDIENCES, _STATUSES, _ENTRIES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
 
 
 @register.filter
@@ -48,3 +49,9 @@ def domain(url):
 def status_label(value):
     """캠페인 상태 코드 → 화면 이름."""
     return _STATUSES.get(value, value)
+
+
+@register.filter
+def entry_label(value):
+    """원장 항목 종류 코드 → 화면 이름(가입 지급·반응 과금·관리자 조정)."""
+    return _ENTRIES.get(value, value)

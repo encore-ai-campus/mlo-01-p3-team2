@@ -158,10 +158,9 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
         return ChargeResult(_entry_view(existing), charged=-existing.amount, shortfall=existing.shortfall, duplicate=True)
 
 
-def get_wallet(user, now=None):
-    now = _now(now)
+def _wallet_view(owner_id, now):
     try:
-        wallet = Wallet.objects.get(owner=user)
+        wallet = Wallet.objects.get(owner_id=owner_id)
     except Wallet.DoesNotExist:
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
     day = budget_day_of(now)
@@ -170,18 +169,38 @@ def get_wallet(user, now=None):
         LedgerEntry.objects.filter(wallet=wallet, entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1))
         .aggregate(s=Sum("amount"))["s"] or 0
     )
-    return WalletView(owner_id=user.pk, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
+    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
 
 
-def list_ledger(user, before=None, limit=50):
-    """원장 내역(최신순). `before` 는 앞 쪽의 `next_cursor`(지갑 안의 순번 `seq`). 반환: (항목 목록, 다음 커서 또는 None)."""
+def _ledger(owner_id, before, limit):
     limit = max(1, min(int(limit), 200))
-    qs = LedgerEntry.objects.filter(wallet__owner=user).order_by("-seq")
+    qs = LedgerEntry.objects.filter(wallet__owner_id=owner_id).order_by("-seq")
     if before is not None:
         qs = qs.filter(seq__lt=int(before))
     rows = list(qs[: limit + 1])
     next_cursor = rows[limit - 1].seq if len(rows) > limit else None
     return [_entry_view(e) for e in rows[:limit]], next_cursor
+
+
+def get_wallet(user, now=None):
+    return _wallet_view(user.pk, _now(now))
+
+
+def list_ledger(user, before=None, limit=50):
+    """원장 내역(최신순). `before` 는 앞 쪽의 `next_cursor`(지갑 안의 순번 `seq`). 반환: (항목 목록, 다음 커서 또는 None)."""
+    return _ledger(user.pk, before, limit)
+
+
+def wallet_of(actor, owner_id, now=None):
+    """관리자가 보는 광고주의 지갑(Step 3-1d). 광고주 화면의 `get_wallet` 과 같은 값."""
+    require_admin(actor)
+    return _wallet_view(parse_uuid(owner_id, "지갑"), _now(now))
+
+
+def ledger_of(actor, owner_id, before=None, limit=50):
+    """관리자가 보는 광고주의 원장(Step 3-1d). `list_ledger` 와 같은 쪽 나누기."""
+    require_admin(actor)
+    return _ledger(parse_uuid(owner_id, "지갑"), before, limit)
 
 
 def balances(owner_ids):

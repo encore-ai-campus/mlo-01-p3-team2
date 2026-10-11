@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from assets.api import store, validate_image
@@ -20,7 +20,8 @@ from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
 from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
-    AdGroupView, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem, ReviewRequestView, SuspensionView,
+    AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem, ReviewRequestView,
+    SuspensionView,
 )
 
 
@@ -328,6 +329,24 @@ def monitoring_list(actor, now=None):
     return sorted(items, key=lambda item: item.last_changed_at, reverse=True)
 
 
+def advertiser_usage(actor, owner_ids):
+    """광고주마다 캠페인·소재 수와 보유 이미지 총량, 그리고 상한 {owner_id: AdvertiserUsage}(관리자 광고주 목록, Step 3-1d).
+    상한 검사와 같은 기준으로 센다(이미지는 교체한 과거 파일 포함, 같은 파일은 한 번). 없는 광고주도 0 으로 채운다. 질의 세 번."""
+    require_admin(actor)
+    ids = parse_uuids(owner_ids)
+    owner = "ad_group__campaign__owner_id"
+    campaigns = dict(Campaign.objects.filter(owner_id__in=ids).values("owner_id").annotate(n=Count("pk")).values_list("owner_id", "n"))
+    creatives = dict(Creative.objects.filter(**{f"{owner}__in": ids}).values(owner).annotate(n=Count("pk")).values_list(owner, "n"))
+    held = {}
+    for owner_id, _name, size in CreativeImage.objects.filter(**{f"creative__{owner}__in": ids}).values_list(f"creative__{owner}", "image_name", "image_bytes").distinct():
+        held[owner_id] = held.get(owner_id, 0) + size
+    return {
+        i: AdvertiserUsage(campaigns.get(i, 0), settings.MAX_CAMPAIGNS_PER_ADVERTISER, creatives.get(i, 0), settings.MAX_CREATIVES_PER_ADVERTISER,
+                           held.get(i, 0), settings.MAX_UPLOAD_BYTES_PER_ADVERTISER)
+        for i in ids
+    }
+
+
 def open_review_queue(actor, now=None):
     """열린 재검토 요청(오래된 것부터)과 그 캠페인. 관리자가 해제(`release_campaign`)하거나 반려(`reject_review_request`)한다."""
     require_admin(actor)
@@ -575,6 +594,7 @@ def replace_creative_image(user, creative_id, image_file, now=None):
 
 def candidate_facts_for_slot(slot_id):
     """슬롯 하나의 후보 사실. **질의 한 번.** 조회 조건은 구조적 소속(저장된 상태·꺼짐 여부·그 슬롯을 고른 그룹)만 쓴다.
+    비활성화된 광고주의 광고도 꺼진 것으로 본다(Step 3-1d — 캠페인 상태는 그대로라 다시 활성화하면 다시 후보다).
 
     기간·금액 판정은 넣지 않는다(판정은 engine 한 곳). 상태 갱신이 늦은 종료 캠페인이 섞여 와도 engine 이 거른다.
     입찰이 없는 광고그룹은 후보가 아니다.
@@ -583,7 +603,8 @@ def candidate_facts_for_slot(slot_id):
     latest = Bid.objects.filter(ad_group=OuterRef("ad_group")).order_by("-bid_version")
     rows = (
         Creative.objects.filter(
-            enabled=True, ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__slot_links__slot_id=slot_id,
+            enabled=True, ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__campaign__owner__is_active=True,
+            ad_group__slot_links__slot_id=slot_id,
         )
         .select_related("ad_group", "ad_group__campaign")
         .annotate(
@@ -611,11 +632,12 @@ def candidate_facts_for_slot(slot_id):
 def is_asset_servable(name, now=None):
     """C3 이미지를 내보내도 되는가: 그 이름을 **보유한**(현재 또는 과거 교체분) 소재가 있고 그 캠페인이 ACTIVE·PAUSED 이며 기간이 끝나지 않았을 때만.
 
-    교체 후에도 과거 결정의 이미지 URL 은 계속 열린다(캠페인이 살아 있는 동안). 중단·종료되면 이전·현재 이미지 모두 404 다.
+    교체 후에도 과거 결정의 이미지 URL 은 계속 열린다(캠페인이 살아 있는 동안). 중단·종료되거나 광고주가 비활성화되면 이전·현재 이미지 모두 404 다.
 
     `config` 가 `ASSET_SERVABLE_CHECK` 로 연결한다(assets 는 campaigns 를 import 하지 않는다).
     """
     now = _now(now)
     return CreativeImage.objects.filter(
         image_name=name, creative__ad_group__campaign__status__in=[CampaignStatus.ACTIVE, CampaignStatus.PAUSED],
+        creative__ad_group__campaign__owner__is_active=True,
     ).filter(Q(creative__ad_group__campaign__ends_at__isnull=True) | Q(creative__ad_group__campaign__ends_at__gt=now)).exists()

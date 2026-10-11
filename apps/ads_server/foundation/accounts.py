@@ -7,10 +7,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
-from .access import require_advertiser
+from .access import require_admin, require_advertiser
 from .audit import record_audit
+from .errors import Conflict, NotFound
 from .models import Role, User
-from .validators import clean_class_label, clean_nickname, parse_uuids, validate_username
+from .validators import clean_class_label, clean_nickname, clean_text, parse_uuid, parse_uuids, validate_username
 
 
 def create_advertiser(username, password, nickname, class_label):
@@ -132,3 +133,60 @@ def change_password(user, current_password, new_password, request=None):
     user.password = row.password
     if request is not None:
         update_session_auth_hash(request, row)
+
+
+# ---------------------------------------------------------------- 관리자: 광고주 계정 (Step 3-1d)
+
+@dataclass(frozen=True)
+class AdvertiserAccount:
+    """관리자 화면의 광고주 한 명(비밀번호 해시 등은 내지 않는다)."""
+
+    user_id: uuid.UUID
+    username: str
+    nickname: str
+    class_label: str
+    is_active: bool
+    created_at: datetime
+    last_login: datetime | None
+
+
+def _account(user):
+    return AdvertiserAccount(user.pk, user.username, user.nickname, user.class_label, user.is_active, user.created_at, user.last_login)
+
+
+def list_advertisers(actor):
+    """모든 광고주(비활성 포함, 최근 가입순)."""
+    require_admin(actor)
+    return [_account(u) for u in User.objects.filter(role=Role.ADVERTISER).order_by("-created_at")]
+
+
+def _advertiser(user_id, lock=False):
+    qs = User.objects.filter(role=Role.ADVERTISER)
+    try:
+        return (qs.select_for_update() if lock else qs).get(pk=parse_uuid(user_id, "광고주"))
+    except User.DoesNotExist:
+        raise NotFound("광고주를 찾을 수 없습니다.")
+
+
+def get_advertiser(actor, user_id):
+    require_admin(actor)
+    return _account(_advertiser(user_id))
+
+
+def set_advertiser_active(actor, user_id, active, reason=""):
+    """광고주 비활성화·다시 활성화(감사 로그 `account.deactivated`·`account.reactivated`). 비활성화는 사유가 필수다.
+
+    비활성 광고주는 로그인할 수 없고 이미 열린 세션도 끝난다(인증 백엔드가 비활성 사용자를 세션에서 읽지 않는다).
+    **광고도 나가지 않는다**: 후보 조회와 공개 이미지가 소유자의 활성 여부를 본다(campaigns). 캠페인 상태는 바꾸지 않으므로 다시 활성화하면 그대로 다시 나간다.
+    """
+    require_admin(actor)
+    active = bool(active)
+    reason = clean_text(reason, "사유", "/reason", 200) if not active or reason else ""
+    with transaction.atomic():
+        row = _advertiser(user_id, lock=True)
+        if row.is_active == active:
+            raise Conflict("이미 활성 계정입니다." if active else "이미 비활성화된 계정입니다.")
+        row.is_active = active
+        row.save(update_fields=["is_active"])
+        record_audit(None, "account.reactivated" if active else "account.deactivated", target=row, actor=actor, detail={"reason": reason})
+    return _account(row)

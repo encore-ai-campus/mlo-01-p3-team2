@@ -120,3 +120,15 @@ class ReviewQueueItem:
 
     review: ReviewRequestView
     campaign: CampaignView
+
+
+@dataclass(frozen=True)
+class AdvertiserUsage:
+    """관리자 광고주 목록의 사용량과 상한(남용 방지, 설계 §5.1). 업로드는 보유한 이미지 파일 총량(교체한 과거 파일 포함 — 상한 검사와 같은 기준)."""
+
+    campaigns: int
+    campaign_limit: int
+    creatives: int
+    creative_limit: int
+    image_bytes: int
+    image_bytes_limit: int

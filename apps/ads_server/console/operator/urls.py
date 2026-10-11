@@ -20,5 +20,9 @@ urlpatterns = [
     path("campaigns/<str:campaign_id>/release", views.campaign_release, name="campaign_release"),
     path("reviews/", views.review_queue, name="review_queue"),
     path("reviews/<str:review_request_id>/reject", views.review_reject, name="review_reject"),
+    path("advertisers/", views.advertiser_list, name="advertiser_list"),
+    path("advertisers/<str:user_id>/", views.advertiser_detail, name="advertiser_detail"),
+    path("advertisers/<str:user_id>/active", views.advertiser_active, name="advertiser_active"),
+    path("advertisers/<str:user_id>/adjust", views.advertiser_adjust, name="advertiser_adjust"),
     path("assets/<str:name>", views.asset, name="asset"),
 ]

@@ -1,0 +1,59 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › <a href="{% url 'operator:advertiser_list' %}">광고주</a> › {{ account.username }}{% endblock %}
+{% block content %}
+<h2>계정</h2>
+<p>{{ account.nickname }}({{ account.class_label }}) · 가입 {{ account.created_at|kst }} · 마지막 로그인 {{ account.last_login|kst|default:"없음" }}</p>
+<p>상태: {% if account.is_active %}활성{% else %}<strong>비활성</strong> — 로그인할 수 없고 이 광고주의 광고가 나가지 않습니다{% endif %}
+  · <a href="{% url 'admin:auth_user_password_change' account.user_id %}">비밀번호 초기화</a></p>
+{% if account.is_active %}
+<form method="post" action="{% url 'operator:advertiser_active' account.user_id %}" data-confirm="이 계정을 비활성화합니다. 로그인한 세션이 모두 끝나고 이 광고주의 광고가 바로 나가지 않습니다.">{% csrf_token %}
+  <input type="hidden" name="active" value="0">
+  <label for="deactivate-reason">비활성화 사유</label>
+  <input type="text" name="reason" id="deactivate-reason" maxlength="200" required>
+  <button type="submit">비활성화</button>
+</form>
+{% else %}
+<form method="post" action="{% url 'operator:advertiser_active' account.user_id %}">{% csrf_token %}
+  <input type="hidden" name="active" value="1">
+  <label for="reactivate-reason">사유(선택)</label>
+  <input type="text" name="reason" id="reactivate-reason" maxlength="200">
+  <button type="submit">다시 활성화</button>
+</form>
+{% endif %}
+
+<h2>포인트</h2>
+<p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }} (예산 일 {{ wallet.budget_day|date:"Y-m-d" }}, {{ wallet.resets_at|kst }}에 바뀜)</p>
+<h3 id="adjust">포인트 조정</h3>
+<p class="help">원장은 고치지 않고 새 항목을 더합니다. 잔액을 0 밑으로 내릴 수 없고, 사유와 함께 감사 로그에 남습니다.</p>
+<form method="post" action="{% url 'operator:advertiser_adjust' account.user_id %}">{% csrf_token %}
+  <input type="hidden" name="once" value="{{ adjust_once }}">
+  {{ adjust_form.as_div }}
+  <button type="submit">조정</button>
+</form>
+
+<h3>원장 (최신순)</h3>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">시각 (KST)</th><th scope="col">종류</th><th scope="col">금액</th><th scope="col">잔액</th><th scope="col">사유 · 정책</th><th scope="col">못 받은 포인트</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.created_at|kst }}</td>
+        <td>{{ e.entry_type|entry_label }}</td>
+        <td>{{ e.amount|points }}</td>
+        <td>{{ e.balance_after|points }}</td>
+        <td>{{ e.note }}{{ e.charge_policy }}</td>
+        <td>{% if e.shortfall %}{{ e.shortfall|points }}{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">원장 항목이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="pager" aria-label="원장 쪽 이동">
+  {% if request.GET.before %}<a href="{% url 'operator:advertiser_detail' account.user_id %}">처음으로</a>{% endif %}
+  {% if next_cursor %}<a href="{% querystring before=next_cursor %}" rel="next">더 이전 항목</a>{% endif %}
+</nav>
+{% endblock %}
