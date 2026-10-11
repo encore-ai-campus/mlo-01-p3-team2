@@ -142,35 +142,37 @@ def _html_error(status, title, message):
     return HttpResponse(html, status=status)
 
 
-def _respond(request, error, message):
+def error_response(request, error, message):
+    """API 경로는 problem+json, 화면 경로는 HTML 오류 화면."""
     if is_api_path(request.path):
         return problem_response(request, error)
     return _html_error(error.status, error.title, message)
 
 
+
 def bad_request(request, exception=None):
-    return _respond(request, InvalidRequest(), "요청을 처리할 수 없습니다.")
+    return error_response(request, InvalidRequest(), "요청을 처리할 수 없습니다.")
 
 
 def permission_denied(request, exception=None):
-    return _respond(request, Forbidden(), "이 화면에 접근할 권한이 없습니다.")
+    return error_response(request, Forbidden(), "이 화면에 접근할 권한이 없습니다.")
 
 
 def not_found(request, exception=None):
-    return _respond(request, NotFound(), "요청한 페이지를 찾을 수 없습니다.")
+    return error_response(request, NotFound(), "요청한 페이지를 찾을 수 없습니다.")
 
 
 def server_error(request):
-    return _respond(request, ApiError(), "잠시 후 다시 시도해 주세요.")
+    return error_response(request, ApiError(), "잠시 후 다시 시도해 주세요.")
 
 
 def transient_db_error(request):
     """교착·잠금 대기 초과(MySQL 1213·1205)가 뷰 밖으로 나왔을 때: 500 대신 503 + `Retry-After`. 이 두 오류는 서버가 그 트랜잭션을 되돌린 것이라
     같은 요청을 다시 보내면 된다(`is_transient_lock_error`). 커밋 결과가 불명확한 오류(연결 끊김 등)·다른 오류는 여기 오지 않는다(외부 검토 7936ac7)."""
-    response = _respond(request, Unavailable(retry_after=1), "잠시 혼잡해 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
+    response = error_response(request, Unavailable(retry_after=1), "잠시 혼잡해 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
     response["Retry-After"] = "1"
     return response
 
 
 def csrf_failure(request, reason=""):
-    return _respond(request, Forbidden(), "요청을 확인할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.")
+    return error_response(request, Forbidden(), "요청을 확인할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.")

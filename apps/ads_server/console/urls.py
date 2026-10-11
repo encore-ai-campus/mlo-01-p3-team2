@@ -3,6 +3,7 @@ from django.urls import path
 
 from .views.account import my_account, my_password
 from .views.auth import ConsoleLoginView, ConsoleLogoutView, SignupView
+from .views.ads import ad_create
 from .views.campaigns import campaign_detail, campaign_end, campaign_list, campaign_review, campaign_status
 from .views.dashboard import advertiser_home
 from .views.home import root
@@ -13,6 +14,7 @@ urlpatterns = [
     path("accounts/login/", login_not_required(ConsoleLoginView.as_view()), name="login"),
     path("accounts/logout/", ConsoleLogoutView.as_view(), name="logout"),
     path("advertiser/", advertiser_home, name="advertiser_home"),
+    path("advertiser/ads/new/", ad_create, name="ad_create"),
     path("advertiser/campaigns/", campaign_list, name="campaign_list"),
     path("advertiser/campaigns/<str:campaign_id>/", campaign_detail, name="campaign_detail"),
     path("advertiser/campaigns/<str:campaign_id>/status", campaign_status, name="campaign_status"),

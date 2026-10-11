@@ -68,6 +68,7 @@ class CreatedAd:
     campaign: CampaignView
     ad_group: AdGroupView
     creative: CreativeView
+    duplicate: bool = False  # 같은 요청 키로 이미 만든 것을 돌려줬다(새로 만들지 않았다)
 
 
 @dataclass(frozen=True)

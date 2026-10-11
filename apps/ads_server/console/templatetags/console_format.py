@@ -98,3 +98,13 @@ def severity_label(value):
 def review_label(value):
     """재검토 요청 상태 코드 → 화면 이름."""
     return _REVIEWS.get(value, value)
+
+
+_EFFECTS = {"within_range": "그대로 적용", "capped_at_cap": "상한으로 적용", "below_floor": "하한 미만 — 노출 안 됨",
+            "slot_inactive": "꺼진 위치 — 노출 안 됨", "no_policy": "알 수 없는 위치"}
+
+
+@register.filter
+def effect_label(value):
+    """위치별 적용 결과(C6 `SlotEffect.reason`) → 화면 문구. 모르는 값은 그대로(계약: 알 수 없는 값을 오류로 다루지 않는다)."""
+    return _EFFECTS.get(value, value)

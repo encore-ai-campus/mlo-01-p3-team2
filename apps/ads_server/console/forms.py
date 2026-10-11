@@ -2,6 +2,7 @@ from datetime import datetime, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.conf import settings
 from django.utils import timezone
 
 
@@ -93,3 +94,34 @@ class CampaignEditForm(forms.Form):
 
 class ReviewRequestForm(forms.Form):
     message = forms.CharField(label="고친 내용(선택)", max_length=500, required=False, strip=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+
+class AdCreateForm(forms.Form):
+    """광고 만들기(단계 제목이 있는 한 페이지 폼, 설계 D3-3). 입력 변환만 한다 — 단위와 위치가 맞는지·금액 범위·이미지 규격은 서비스(`create_ad`)가 판단한다.
+    `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 캠페인 행에 함께 저장해 같은 폼의 다시 보냄으로는 하나만 만든다."""
+
+    pricing_unit = forms.ChoiceField(label="과금 단위", widget=forms.RadioSelect)
+    campaign_name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
+    starts_at = KstDateTimeField(label="시작 시각(KST)")
+    ends_at = KstDateTimeField(label="끝나는 시각(KST, 비우면 끝 없음)", required=False)
+    daily_budget = forms.IntegerField(label="일예산(포인트)")
+    group_name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
+    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    bid_amount = forms.IntegerField(label="입찰(포인트)")
+    title = forms.CharField(label="제목", max_length=200, strip=False)
+    redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False)
+    image = forms.FileField(label="이미지", widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg", "data-preview": "image-preview"}))
+    request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
+
+    # 서비스 오류의 위치(`create_ad` 가 부분 이름을 붙인다) → 이 폼의 칸
+    POINTERS = {
+        "/campaign/name": "campaign_name", "/campaign/starts_at": "starts_at", "/campaign/ends_at": "ends_at", "/campaign/daily_budget": "daily_budget",
+        "/ad_group/name": "group_name", "/ad_group/pricing_unit": "pricing_unit", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
+        "/creative/title": "title", "/creative/redirect_url": "redirect_url",
+    }
+
+    def __init__(self, *args, units=(), slots=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["pricing_unit"].choices = list(units)
+        self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
+        self.fields["image"].widget.attrs["data-max-bytes"] = settings.ASSET_MAX_BYTES

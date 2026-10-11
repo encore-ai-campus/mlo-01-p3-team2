@@ -578,16 +578,60 @@ def _part(prefix, create, *args, **kwargs):
         raise
 
 
-def create_ad(user, campaign, ad_group, creative, now=None):
+def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
     """캠페인·광고그룹(입찰 포함)·소재를 **한 트랜잭션**으로 만든다(광고 만들기 화면의 한 번 제출). 하나라도 실패하면 아무것도 남지 않는다
     (이미지가 거절돼도 빈 캠페인이 남지 않는다). 규칙은 각 부분의 서비스 그대로다. `campaign`·`ad_group`·`creative` 는 그 서비스의 인자(dict).
-    입력 오류의 위치는 `/campaign/…`·`/ad_group/…`·`/creative/…` 다. 이미지 거절(`ImageRejected`)은 그대로 전달한다. 역할 검사는 각 부분 서비스가 한다."""
+    입력 오류의 위치는 `/campaign/…`·`/ad_group/…`·`/creative/…` 다. 이미지 거절(`ImageRejected`)은 그대로 전달한다. 역할 검사는 각 부분 서비스가 한다.
+
+    `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키로는 한 번만** 만든다: 키는 캠페인 행에 같은 트랜잭션으로 저장되고(유일 제약), 두 번 누름·
+    동시 제출·응답이 실패한 뒤 재시도는 처음 만든 것을 `duplicate=True` 로 돌려준다(세션 토큰은 이 경우들을 막지 못했다 — 3-1d 외부 검토)."""
     now = _now(now)
-    with transaction.atomic():
-        c = _part("/campaign", create_campaign, user, now=now, **campaign)
-        g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
-        cr = _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
+    if request_key is not None and not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
+        raise _problem("/request_key", "1~64자 문자열이어야 합니다.")
+    done = _created_by_key(user, request_key)
+    if done is not None:
+        return done
+    try:
+        with transaction.atomic():
+            c = _part("/campaign", create_campaign, user, now=now, **campaign)
+            g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
+            cr = _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
+            if request_key is not None:
+                Campaign.objects.filter(pk=c.campaign_id).update(request_key=request_key)  # 동시에 같은 키가 오면 여기서 유일 제약이 막는다
+    except IntegrityError:
+        done = _created_by_key(user, request_key)
+        if done is None:
+            raise
+        return done
     return CreatedAd(c, g, cr)
+
+
+def _created_by_key(user, request_key):
+    """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 남의 캠페인에 붙은 키(위조한 폼)면 409."""
+    if request_key is None:
+        return None
+    c = Campaign.objects.filter(request_key=request_key).first()
+    if c is None:
+        return None
+    if c.owner_id != user.pk:
+        raise errors.Conflict("이 광고 만들기 폼은 이미 처리됐습니다. 새로 불러와 다시 만드세요.")
+    g = AdGroup.objects.filter(campaign=c).order_by("created_at").first()
+    cr = Creative.objects.filter(ad_group=g).order_by("created_at").first()
+    return CreatedAd(_campaign_view(c, _now()), _ad_group_view(g, _current_bid(g)), _creative_view(cr), duplicate=True)
+
+
+def bid_effects(amount, slot_ids):
+    """입찰 금액 하나가 고른 게재 위치마다 어떻게 취급되는지(광고 만들기의 '미리보기', C6 `effects`). 적용 금액은 engine 한 곳(`_effect`). 질의 한 번.
+    형식이 틀린 위치 ID 는 `no_policy` 로 보인다(입력은 막지 않는다 — 저장은 `create_ad` 가 다시 검증한다)."""
+    _amount(amount, "/bid_amount")
+    parsed = [(raw, _maybe_uuid(raw)) for raw in slot_ids]
+    slots = masters.get_slots_with_policy([u for _, u in parsed if u is not None])
+    return tuple(_effect(amount, u or raw, slots.get(u)) for raw, u in parsed)
+
+
+def _maybe_uuid(value):
+    ids = parse_uuids([value])
+    return ids[0] if ids else None
 
 
 def get_creative(user, creative_id):

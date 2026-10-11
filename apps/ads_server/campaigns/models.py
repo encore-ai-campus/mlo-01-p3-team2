@@ -37,11 +37,13 @@ class Campaign(models.Model):
     suspended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 광고 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다)
 
     class Meta:
         db_table = "campaigns_campaign"
         indexes = [models.Index(fields=["status", "ends_at"])]
         constraints = [
+            models.UniqueConstraint(fields=["request_key"], name="campaigns_campaign_once_per_request"),  # NULL(키 없이 만든 캠페인)은 서로 다르다
             models.CheckConstraint(condition=Q(daily_budget__gt=0, daily_budget__lte=MAX_AMOUNT), name="campaigns_campaign_budget_range"),
             models.CheckConstraint(condition=Q(ends_at__isnull=True) | Q(ends_at__gte=F("starts_at")), name="campaigns_campaign_period_order"),
         ]
