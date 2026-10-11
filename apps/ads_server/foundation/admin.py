@@ -3,17 +3,12 @@ from axes import admin as axes_admin
 from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.admin.utils import unquote
 
-from .admin_site import PasswordOnlySave, ReadOnlyAdmin, current_login_only
+from .admin_site import ReadOnlyAdmin, current_login_only
 from .audit import record_audit
 from .models import AuditLog, User
 from .templatetags.kst import kst
-
-
-class PasswordResetForm(PasswordOnlySave, AdminPasswordChangeForm):
-    pass
 
 
 @admin.register(User)
@@ -28,7 +23,6 @@ class UserAdmin(BaseUserAdmin):
       역할과 따로 바뀌면 "들어가지만 아무것도 못 보는 관리자"처럼 뜻이 엇갈린다 — 관리자 ⇔ 슈퍼유저를 계정을 만든 곳(매니저)이 정한다.
     """
 
-    change_password_form = PasswordResetForm
     list_display = ("username", "nickname", "class_label", "role", "is_active", "created_kst")
     list_filter = ("role", "is_active")
     search_fields = ("username", "nickname")
@@ -64,7 +58,8 @@ class UserAdmin(BaseUserAdmin):
         record_audit(request, "account.admin_updated", target=obj, detail={"changed": changed, "role": obj.role})
 
     def user_change_password(self, request, id, form_url=""):
-        response = current_login_only(super().user_change_password)(request, id, form_url)
+        # 대상 행도 함께 잠근다. 그래서 화면이 대상을 잠근 뒤에 읽어, Django 폼의 통째 저장도 최신 값을 쓴다(그 사이의 비활성화를 되돌리지 않는다)
+        response = current_login_only(super().user_change_password, id)(request, id, form_url)
         if response.status_code == 302:  # 성공(리다이렉트)일 때만
             record_audit(request, "account.password_reset_by_admin", target=self.get_object(request, unquote(id)))
         return response

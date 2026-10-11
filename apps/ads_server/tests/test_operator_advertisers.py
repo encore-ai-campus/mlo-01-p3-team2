@@ -468,7 +468,8 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         self.assertEqual(AuditLog.objects.get(action="account.admin_updated").detail["changed"], ["nickname"])
 
     def test_a_password_reset_does_not_undo_a_deactivation_made_in_between(self):
-        """같은 결함의 다른 길: Django 의 관리자 비밀번호 초기화 폼도 사용자 객체를 통째로 저장했다."""
+        """같은 결함의 다른 길: 사용자 관리의 비밀번호 초기화가 대상을 통째로 저장했다. 지금은 초기화가 대상 행을 먼저 잠그므로, 겹친 비활성화는
+        그 잠금을 기다렸다가 초기화 뒤에 적용된다 — 어느 쪽도 다른 쪽을 지우지 않는다."""
         adv = make_advertiser()
         paused, release = threading.Event(), threading.Event()
         url = reverse("admin:auth_user_password_change", args=[adv.pk])
@@ -476,12 +477,16 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         worker = Worker(pausing_before("UPDATE", "foundation_user", lambda: self.client.post(url, data), paused, release))
         worker.start()
         self.assertTrue(paused.wait(WAIT), "비밀번호 저장에 이르지 않았다")
-        set_advertiser_active(make_admin(), adv.pk, False, "스팸 소재")
+        deactivate = Worker(lambda: set_advertiser_active(make_admin(), adv.pk, False, "스팸 소재"))
+        deactivate.start()
+        deactivate.join(BLOCKED)
+        self.assertTrue(deactivate.is_alive(), "비활성화가 초기화의 대상 행 잠금을 기다리지 않았다")
         self.finish(worker, release)
+        deactivate.join(WAIT)
+        self.assertEqual(deactivate.errors, [])
         row = User.objects.get(pk=adv.pk)
         self.assertEqual((row.is_active, row.session_epoch), (False, 1))
         self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
-
 
 SERVER_PW = "Server-Chosen-9-pass"
 
@@ -568,3 +573,36 @@ class EmergencyPasswordResetTests(TransactionTestCase):
         self.assertEqual(r.status_code, 302)
         self.assertTrue(User.objects.get(pk=self.me.pk).check_password("Mine-Again-7-pass"))
         self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)  # 바꾼 그 세션은 이어진다
+
+
+@tag("security")
+class MutualResetTests(TransactionTestCase):
+    """외부 검토(3-1d 38aafb9) P2: 두 관리자가 서로의 비밀번호를 동시에 초기화하면, 요청자 행을 먼저 잠그고 대상 행은 저장할 때 잠가 순서가 엇갈렸다 —
+    교착(MySQL 1213)으로 한 요청이 500. 요청자와 대상을 ID 순서로 함께 잠그면 줄을 서고, 뒤의 요청은 앞의 초기화로 바뀐 자기 인증 근거 때문에 403 이다."""
+
+    def test_two_admins_resetting_each_other_queue_up_without_a_deadlock(self):
+        a, b = make_admin(), make_admin()
+        client_a, client_b = Client(), Client()
+        client_a.force_login(a)
+        client_b.force_login(b)
+
+        def reset(client, target, password):
+            return client.post(reverse("admin:auth_user_password_change", args=[target.pk]),
+                               {"password1": password, "password2": password, "usable_password": "true"})
+        paused, release = threading.Event(), threading.Event()
+        first = Worker(pausing_before("UPDATE", "foundation_user", lambda: reset(client_a, b, "Set-By-A-1-pass"), paused, release))
+        first.start()
+        self.assertTrue(paused.wait(WAIT), "A 의 초기화가 B 행 UPDATE 에 이르지 않았다")  # A 는 잠금을 쥔 채
+        second = Worker(lambda: reset(client_b, a, "Set-By-B-2-pass"))
+        second.start()
+        second.join(BLOCKED)
+        self.assertTrue(second.is_alive(), "B 의 초기화가 잠금을 기다리지 않았다")
+        release.set()
+        first.join(WAIT)
+        second.join(WAIT)
+        self.assertEqual((first.errors, second.errors), ([], []))  # 교착·500 없음
+        self.assertEqual((first.result.status_code, second.result.status_code), (302, 403))
+        self.assertTrue(User.objects.get(pk=b.pk).check_password("Set-By-A-1-pass"))
+        self.assertTrue(User.objects.get(pk=a.pk).check_password(PW))  # 뒤의 요청은 반영되지 않았다
+        self.assertEqual(client_b.get(reverse("admin:index")).status_code, 404)  # B 의 옛 세션은 끝났다
+        self.assertEqual(client_a.get(reverse("admin:index")).status_code, 200)
