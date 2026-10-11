@@ -59,6 +59,80 @@
       if(text){g.save();if(v.x<0){g.translate(width,0);g.scale(-1,1);}g.font=`500 ${Math.min(16,width/7)}px ${font}`;g.fillStyle=textColor;g.textAlign='center';g.textBaseline='middle';g.fillText(text,width/2,height/2,width-8);g.restore();}
       g.restore();
     }
+    function playdataNoticeboard(width,height) {
+      g.save();g.scale(width/510,height/100);
+      g.fillStyle='#756b5c';g.fillRect(0,0,510,100);
+      const surface=g.createLinearGradient(0,0,510,100);
+      surface.addColorStop(0,'#253c35');surface.addColorStop(.5,'#1c302e');surface.addColorStop(1,'#152629');
+      g.fillStyle=surface;g.fillRect(4,4,502,92);
+      g.strokeStyle='#c1baa5';g.lineWidth=.7;g.strokeRect(2,2,506,96);
+      g.save();g.beginPath();g.rect(5,5,500,90);g.clip();
+      // Faint, deterministic chalk wipe marks keep the cached panel quiet and textured.
+      g.save();g.strokeStyle='#e1eee1';g.globalAlpha=.045;g.lineWidth=.6;
+      for(let i=0;i<55;i++){
+        const x=9+(i*73)%478,y=9+(i*29)%81;
+        g.beginPath();g.moveTo(x,y);g.quadraticCurveTo(x+13,y-1,x+30+(i%5)*3,y+.4);g.stroke();
+      }
+      g.restore();
+      const halo=g.createRadialGradient(325,46,5,325,46,165);
+      halo.addColorStop(0,'#b5e4ff15');halo.addColorStop(1,'#b5e4ff00');
+      g.fillStyle=halo;g.fillRect(150,8,348,82);
+
+      // The shield, rocket and ribbon echo the illuminated campus badge.
+      g.save();g.translate(24,7);g.scale(.96,.85);
+      const shield=new Path2D('M50 2 L85 15 Q85 28 96 36 L96 71 Q88 79 83 88 L50 100 L17 88 Q12 79 4 71 L4 36 Q15 28 15 15 Z');
+      g.shadowColor='#d2edff';g.shadowBlur=7;g.fillStyle='#edf3ed';g.fill(shield);
+      g.shadowBlur=0;g.strokeStyle='#343e3e';g.lineWidth=2;g.stroke(shield);
+      g.font='500 6.2px Arial, sans-serif';g.fillStyle='#35413f';g.textAlign='center';g.textBaseline='middle';
+      const caption='Coding Educational Institute',radius=37;
+      const advances=[...caption].map(letter=>g.measureText(letter).width+.35);
+      let angle=-Math.PI/2-advances.reduce((sum,value)=>sum+value,0)/radius/2;
+      [...caption].forEach((letter,index)=>{
+        const step=advances[index]/radius;angle+=step/2;
+        g.save();g.translate(50+Math.cos(angle)*radius,55+Math.sin(angle)*radius);g.rotate(angle+Math.PI/2);g.fillText(letter,0,0);g.restore();angle+=step/2;
+      });
+      g.strokeStyle='#48514c';g.lineWidth=.8;g.beginPath();g.arc(50,55,28,Math.PI,Math.PI*2);g.stroke();
+      g.font='700 6.5px Arial, sans-serif';g.fillText('-2002-',50,34);
+      const rocket=new Path2D('M50 39 Q39 50 39 68 L61 68 Q61 50 50 39 Z M42 53 L35 69 L43 69 M58 53 L65 69 L57 69');
+      g.strokeStyle='#303a36';g.lineWidth=2.2;g.lineJoin='round';g.stroke(rocket);
+      g.beginPath();g.arc(50,54,4.2,0,Math.PI*2);g.stroke();
+      g.fillStyle='#29332f';g.fillRect(-2,66,104,16);
+      g.font='900 15px "Arial Black", Arial, sans-serif';g.fillStyle='#f6f8f0';g.fillText('PLAYDATA',50,74.6,96);
+      g.font='500 7.4px Arial, sans-serif';g.fillStyle='#35413b';g.fillText('Bootcamp',50,90);
+      g.beginPath();g.moveTo(31,94);g.lineTo(69,94);g.strokeStyle='#67716b';g.lineWidth=.7;g.stroke();
+      g.restore();
+
+      g.strokeStyle='#91b0a155';g.lineWidth=.6;g.beginPath();g.moveTo(139,17);g.lineTo(139,83);g.stroke();
+      // Block letter outlines reproduce the triangular A shapes without relying on a local font.
+      const glyphs={
+        P:[28,'M0 0 H15 Q28 0 28 12 Q28 24 15 24 H9 V36 H0 Z M9 9 V15 H14 Q19 15 19 12 Q19 9 14 9 Z'],
+        L:[24,'M0 0 H9 V27 H24 V36 H0 Z'],
+        A:[31,'M11 0 H20 L31 36 H21 L18.7 28 H12.3 L10 36 H0 Z M14 21 H17 L15.5 15 Z'],
+        Y:[29,'M0 0 H10 L14.5 12 L19 0 H29 L19 23 V36 H10 V23 Z'],
+        D:[30,'M0 0 H13 Q30 0 30 18 Q30 36 13 36 H0 Z M9 9 V27 H12 Q20 27 20 18 Q20 9 12 9 Z'],
+        T:[28,'M0 0 H28 V9 H19 V36 H9 V9 H0 Z'],
+      };
+      const letters=[...'PLAYDATA'],gap=3,total=letters.reduce((sum,letter)=>sum+glyphs[letter][0],0)+gap*(letters.length-1);
+      g.save();g.translate(158,24);g.scale(319/total,1.23);
+      const ink=g.createLinearGradient(0,0,total,36);ink.addColorStop(0,'#185a5a');ink.addColorStop(1,'#243551');
+      g.fillStyle=ink;g.strokeStyle='#d8f6fc';g.lineWidth=1.2;g.lineJoin='round';
+      let cursor=0;
+      for(const letter of letters){
+        const [span,outline]=glyphs[letter],shape=new Path2D(outline);
+        g.save();g.translate(cursor,0);g.shadowColor='#b1dfff';g.shadowBlur=5;g.stroke(shape);g.shadowBlur=0;g.fill(shape,'evenodd');g.restore();cursor+=span+gap;
+      }
+      g.restore();
+      g.save();g.shadowColor='#c3edff';g.shadowBlur=5;g.strokeStyle='#d8f6fc';g.lineWidth=1.4;
+      g.beginPath();g.arc(486,24,4.5,0,Math.PI*2);g.stroke();g.restore();
+      g.font=`600 13px ${font}`;g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e3efdf';g.fillText('게시판',320,82);
+      g.strokeStyle='#cee0cb99';g.lineWidth=.75;g.beginPath();g.moveTo(298,91);g.quadraticCurveTo(320,92,342,90.8);g.stroke();
+      g.restore();
+      // A narrow chalk rail finishes the board without drawing the popup's menu cards on its face.
+      g.fillStyle='#8c8776';g.fillRect(5,96,500,3);
+      g.fillStyle='#dbddcd';g.fillRect(465,94.4,11,1.7);g.fillStyle='#afd8d0';g.fillRect(480,94.4,8,1.7);
+      g.fillStyle='#9d8b70';g.fillRect(433,92.8,23,3.2);g.fillStyle='#49594d';g.fillRect(434,92.2,21,1.4);
+      g.restore();
+    }
     function platformIcon(cx,cy,size,platform) {
       g.save();
       if(platform==='youtube') {
@@ -200,21 +274,10 @@
         line(p(sx,sy,bottom),p(sx+(axis==='x'?span:0),sy+(axis==='y'?span:0),bottom),'#a9b5a1',2);
       } else if(type==='noticeboard') {
         if(o.mounted){
-          const height=o.panelHeight||29,bottom=o.mountHeight??6,k=height/29;
+          const height=o.panelHeight||29,bottom=o.mountHeight??6;
           const v=drawingVector(1,0),q=p(x,y+h,base+bottom+height);
           g.save();g.transform(v.x,v.y,0,1,q.x,q.y);
-          g.fillStyle='#bda178';g.fillRect(0,0,w,height);
-          g.fillStyle='#f0e6d3';g.fillRect(3*k,3*k,w-6*k,23*k);
-          g.fillStyle='#397565';g.fillRect(6*k,5*k,w-12*k,8*k);
-          g.font=`700 ${8*k}px ${font}`;g.fillStyle='#fffaf0';g.textAlign='center';g.textBaseline='middle';g.fillText('PLAYDATA 게시판',w/2,9*k,w-18*k);
-          const paperWidth=(w-28*k)/2;
-          for(const [index,title] of ['구내식당 메뉴','엔코아 타임'].entries()){
-            const left=10*k+index*(paperWidth+8*k);
-            g.fillStyle='#fffdf6';g.fillRect(left,15*k,paperWidth,10*k);
-            g.fillStyle=index?'#617f70':'#b79855';g.beginPath();g.arc(left+5*k,16*k,1.3*k,0,Math.PI*2);g.fill();
-            g.font=`600 ${7*k}px ${font}`;g.fillStyle='#486356';g.fillText(title,left+paperWidth/2,20*k,paperWidth-14*k);
-          }
-          g.strokeStyle='#917854';g.lineWidth=1.4;g.strokeRect(.7,.7,w-1.4,height-1.4);g.restore();
+          playdataNoticeboard(w,height);g.restore();
         }else{
           const foot=footprint(o),bx=foot.x,by=foot.y+foot.h*.5,span=foot.w;
           for(const lx of [bx+4,bx+span-8]){box(lx,by-4,5,9,0,51,'#dcb77c','#b99158','#976c3e');box(lx-4,by-6,13,13,0,4,'#d5b075','#b58b4f','#97713e');}
@@ -436,6 +499,18 @@
           ellipse(end.x,end.y,10,3,'#d6ffff99');
         }
         line(centre,{x:centre.x,y:centre.y-58},'#e5ffff',5);ellipse(centre.x,centre.y-59,5,4,'#f4ffff');
+      } else if(type==='raffle-buzzer') {
+        const cx=x+w/2,cy=y+h/2,status=o.raffle?.event?.status||'draft';
+        circlePlane(cx,cy,48,base+.5,'#f0dfb977','#bba87a');
+        cylinder(cx,cy,31,base+1,9,'#af9477','#7d7264');
+        cylinder(cx,cy,23,base+10,48,'#ece2cc','#bdae94');
+        cylinder(cx,cy,32,base+58,6,'#454f51','#303c3e');
+        cylinder(cx,cy,27,base+64,12,status==='open'?'#f07464':'#bf6861','#a33837');
+        circlePlane(cx,cy,22,base+76.4,'#ea5149','#f9b290');
+        const light=p(cx+11,cy+13,base+59);ellipse(light.x,light.y,3.5,2.5,status==='open'?'#8ee8ad':status==='drawn'?'#f4cd74':'#97a4a0');
+        label('EVENT',cx,cy,12,'#765a3b','#fff6db',base+94);
+        const q=p(o.interactionPoint[0],o.interactionPoint[1],base+2);circlePlane(o.interactionPoint[0],o.interactionPoint[1],16,base+1,'#fff7e0cc','#ac8754');
+        g.font=`700 12px ${font}`;g.fillStyle='#80643b';g.textAlign='center';g.textBaseline='middle';g.fillText('E',q.x,q.y);
       } else if(type==='plaza-display') {
         const centre=p(x+w/2,y+h/2,base),sw=o.screenWidth||250,sh=o.screenHeight||150;
         // The panel follows the floor axis; a positive screen-X vector keeps images readable.
@@ -641,6 +716,11 @@
     function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites)drawSprite(sg,s);drawLabels(sg);}
     repaintScene();
     function setDisplayImage(id,image){const s=sprites.find(s=>s.o.id===id&&s.o.type==='plaza-display');if(!s)return false;displayImages.set(id,image);Object.assign(s,cacheSprite(s.o,()=>furniture(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2))));repaintScene();return true;}
+    function setRaffleState(state){
+      const targets=sprites.filter(s=>s.o.type==='raffle-buzzer');
+      for(const sprite of targets){sprite.o.raffle=state;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(sprite.o.x+sprite.o.w/2,sprite.o.y+sprite.o.h/2))));}
+      if(targets.length)repaintScene();
+    }
     function setDoorState(id,open){
       const door=D.objects.find(o=>o.id===id&&o.type==='glass-door'),sprite=sprites.find(s=>s.o.id===id);
       if(!door||!sprite||typeof open!=='boolean')return false;
@@ -685,7 +765,7 @@
       drawLabels(ctx,actors);
       for(const actor of actors)if(actor===actors[0]||showNicknames)drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0]);
     }
-    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState};
+    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState};
   }
   window.CampusIsometric={createProjection,create};
 })();
