@@ -7,10 +7,10 @@
   <table>
     <thead><tr><th scope="col">캠페인</th><th scope="col">광고주</th><th scope="col">중단 사유</th><th scope="col">광고주 메모</th><th scope="col">소재</th><th scope="col">요청 (KST)</th><th scope="col">조치</th></tr></thead>
     <tbody>
-    {% for item in items %}{% with c=item.campaign r=item.review %}
+    {% for item in items %}{% with c=item.campaign r=item.review person=people|get_item:item.campaign.owner_id %}
       <tr>
         <td>{{ c.name }}</td>
-        <td>{% with person=people|get_item:c.owner_id %}{{ person.nickname }}({{ person.class_label }}){% endwith %}</td>
+        <td><a href="{% url 'operator:advertiser_detail' c.owner_id %}">{{ person.nickname }}({{ person.class_label }})</a>{% if person and not person.is_active %}<br><strong>광고주 비활성 — 해제해도 광고가 나가지 않습니다</strong>{% endif %}</td>
         <td>{{ c.suspension.reason }}</td>
         <td>{{ r.message|default:"(없음)" }}</td>
         <td>{% include "operator/_creatives.html" with creatives=creatives|get_item:c.campaign_id %}</td>

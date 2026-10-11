@@ -52,17 +52,18 @@ def create_advertiser(username, password, nickname, class_label):
 
 @dataclass(frozen=True)
 class ProfileView:
-    """내 정보(C6 `Profile`). 모델이 아니라 이 값만 밖으로 낸다."""
+    """내 정보(C6 `Profile`). 모델이 아니라 이 값만 밖으로 낸다. `is_active` 는 C6 에 없고 관리자 화면 표시용이다(비활성화된 광고주의 캠페인 표시)."""
 
     user_id: uuid.UUID
     username: str
     nickname: str
     class_label: str
     created_at: datetime
+    is_active: bool
 
 
 def _profile_view(user):
-    return ProfileView(user.pk, user.username, user.nickname, user.class_label, user.created_at)
+    return ProfileView(user.pk, user.username, user.nickname, user.class_label, user.created_at, user.is_active)
 
 
 def profiles(user_ids):

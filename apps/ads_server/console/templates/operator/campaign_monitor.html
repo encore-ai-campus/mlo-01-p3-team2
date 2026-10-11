@@ -7,12 +7,12 @@
   <table>
     <thead><tr><th scope="col">캠페인</th><th scope="col">광고주</th><th scope="col">소재</th><th scope="col">상태</th><th scope="col">마지막 변경 (KST)</th><th scope="col">조치</th></tr></thead>
     <tbody>
-    {% for item in page %}{% with c=item.campaign %}
+    {% for item in page %}{% with c=item.campaign person=people|get_item:item.campaign.owner_id %}
       <tr>
         <td>{{ c.name }}</td>
-        <td>{% with person=people|get_item:c.owner_id %}{{ person.nickname }}({{ person.class_label }}){% endwith %}</td>
+        <td><a href="{% url 'operator:advertiser_detail' c.owner_id %}">{{ person.nickname }}({{ person.class_label }})</a></td>
         <td>{% include "operator/_creatives.html" with creatives=item.creatives %}</td>
-        <td>{{ c.status|status_label }}{% if c.suspension %}<br><span class="help">사유: {{ c.suspension.reason }}</span>{% if c.suspension.open_review_request_id %}<br><a href="{% url 'operator:review_queue' %}">재검토 요청 있음</a>{% endif %}{% endif %}</td>
+        <td>{{ c.status|status_label }}{% if person and not person.is_active %}<br><strong>광고주 비활성 — 광고가 나가지 않습니다</strong>{% endif %}{% if c.suspension %}<br><span class="help">사유: {{ c.suspension.reason }}</span>{% if c.suspension.open_review_request_id %}<br><a href="{% url 'operator:review_queue' %}">재검토 요청 있음</a>{% endif %}{% endif %}</td>
         <td>{{ item.last_changed_at|kst }}</td>
         <td>
           {% if c.status == "SUSPENDED" %}

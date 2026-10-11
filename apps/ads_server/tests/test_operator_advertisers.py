@@ -146,6 +146,19 @@ class AdvertiserPagesTests(OperatorAdvertiserBase):
         self.assertRedirects(self.client.post(url, {"active": "1"}), self.detail)
         self.assertTrue(User.objects.get(pk=self.uid).is_active)
 
+    def test_monitor_and_review_queue_mark_a_deactivated_advertiser(self):
+        """캠페인 상태는 ACTIVE 그대로라 표시가 없으면 나가는 광고로 오해한다. 광고주 이름은 상세(비활성화·조정)로 이어진다."""
+        monitor, queue = reverse("operator:campaign_monitor"), reverse("operator:review_queue")
+        campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유")
+        campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다")
+        for url in (monitor, queue):
+            html = self.client.get(url).content.decode()
+            self.assertIn(self.detail, html)
+            self.assertNotIn("광고주 비활성", html)
+        set_advertiser_active(self.w.admin, self.uid, False, "스팸 소재")
+        self.assertContains(self.client.get(monitor), "광고주 비활성 — 광고가 나가지 않습니다")
+        self.assertContains(self.client.get(queue), "광고주 비활성 — 해제해도 광고가 나가지 않습니다")
+
 
 @tag("security")
 class PointAdjustPageTests(OperatorAdvertiserBase):
