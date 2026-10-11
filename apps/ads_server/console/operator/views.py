@@ -220,10 +220,7 @@ def campaign_release(request, campaign_id):
 def review_queue(request):
     """열린 재검토 요청(오래된 것부터). 소재 썸네일을 함께 보여 판단을 돕는다."""
     items = campaigns.open_review_queue(request.user)
-    waiting = {item.campaign.campaign_id for item in items}
-    creatives = {m.campaign.campaign_id: m.creatives for m in campaigns.monitoring_list(request.user) if m.campaign.campaign_id in waiting} if items else {}
-    return _render(request, "operator/review_queue.html", "재검토 대기", items=items, creatives=creatives,
-                   people=profiles([item.campaign.owner_id for item in items]))
+    return _render(request, "operator/review_queue.html", "재검토 대기", items=items, people=profiles([item.campaign.owner_id for item in items]))
 
 
 @require_POST

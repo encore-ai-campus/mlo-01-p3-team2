@@ -11,7 +11,7 @@ from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
 from .errors import (
-    ApiError, Forbidden, InvalidRequest, NotFound, PayloadTooLarge, UnsupportedMediaType,
+    ApiError, Forbidden, InvalidRequest, NotFound, PayloadTooLarge, Unavailable, UnsupportedMediaType,
 )
 
 API_PREFIX = "/api/"
@@ -162,6 +162,14 @@ def not_found(request, exception=None):
 
 def server_error(request):
     return _respond(request, ApiError(), "잠시 후 다시 시도해 주세요.")
+
+
+def transient_db_error(request):
+    """교착·잠금 대기 초과(MySQL 1213·1205)가 뷰 밖으로 나왔을 때: 500 대신 503 + `Retry-After`. 이 두 오류는 서버가 그 트랜잭션을 되돌린 것이라
+    같은 요청을 다시 보내면 된다(`is_transient_lock_error`). 커밋 결과가 불명확한 오류(연결 끊김 등)·다른 오류는 여기 오지 않는다(외부 검토 7936ac7)."""
+    response = _respond(request, Unavailable(retry_after=1), "잠시 혼잡해 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
+    response["Retry-After"] = "1"
+    return response
 
 
 def csrf_failure(request, reason=""):

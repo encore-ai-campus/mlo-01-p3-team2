@@ -15,8 +15,8 @@ from campaigns import api as campaigns
 from campaigns.models import ReviewRequest
 from records import api as records
 from records.models import Reaction
+from tests.concurrency import WAIT
 from tests.factories import NOW, SUBJECT, World, make_admin, make_advertiser
-from tests.test_receipt_ordering import WAIT
 
 
 def run_together(jobs, timeout=WAIT):

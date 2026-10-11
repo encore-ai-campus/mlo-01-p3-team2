@@ -116,10 +116,11 @@ class CandidateFacts:
 
 @dataclass(frozen=True)
 class ReviewQueueItem:
-    """관리자 재검토 대기 목록의 한 줄: 열린 요청과 그 캠페인(중단 사유 포함)."""
+    """관리자 재검토 대기 목록의 한 줄: 열린 요청과 그 캠페인(중단 사유 포함), 그 캠페인의 소재(썸네일로 판단을 돕는다)."""
 
     review: ReviewRequestView
     campaign: CampaignView
+    creatives: tuple = ()  # CreativeView 들
 
 
 @dataclass(frozen=True)

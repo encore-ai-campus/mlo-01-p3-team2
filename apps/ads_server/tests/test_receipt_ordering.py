@@ -14,27 +14,9 @@ from django.utils import timezone
 
 from records import api as records
 from records.models import Reaction
+from tests.concurrency import BLOCKED, WAIT, Worker
 from tests.factories import NOW, SUBJECT, World
 from tests.test_funnel_rules import FunnelMixin, at
-
-WAIT = 30  # 안전망(시험이 멈춰도 영원히 기다리지 않는다)
-BLOCKED = 0.7  # 이만큼 기다려도 끝나지 않으면 '막혀 있다'고 본다
-
-
-class Worker(threading.Thread):
-    """별도 연결에서 `work()` 를 실행한다. 예외는 모아 둔다."""
-
-    def __init__(self, work):
-        super().__init__(daemon=True)
-        self.work, self.errors, self.result = work, [], None
-
-    def run(self):
-        try:
-            self.result = self.work()
-        except BaseException as error:  # noqa: BLE001
-            self.errors.append(error)
-        finally:
-            connection.close()
 
 
 class InFlightReceipt:

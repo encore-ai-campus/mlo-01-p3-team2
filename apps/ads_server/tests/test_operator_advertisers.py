@@ -8,10 +8,13 @@ import uuid
 from unittest import mock
 
 from django.contrib.admin.utils import quote
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
+from django.http import HttpResponseNotFound
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from billing import api as billing
@@ -23,9 +26,8 @@ from foundation.admin_site import AuditedAdminSite
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
+from tests.concurrency import BLOCKED, WAIT, Worker, arriving_before, pausing_before
 from tests.factories import NOW, PW, SUBJECT, World, make_admin, make_advertiser, png_file
-from tests.test_campaign_expire_race import pausing_before
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 
 @tag("security")
@@ -609,11 +611,15 @@ class MutualResetTests(TransactionTestCase):
         self.mutual_reset(lambda pk: quote(f"urn:uuid:{pk}"))  # 외부 검토(3-1d c029e35): 다른 표기로 대상이 잠금에서 빠지면 교착이 다시 났다
 
     def test_an_unreadable_target_is_404_before_anything_is_locked_or_run(self):
+        """이름이 주장하는 것까지 본다(외부 검토 7936ac7 P3): 404 일 뿐 아니라 행 잠금 SQL 이 나가지 않고 Django 의 초기화 화면도 실행되지 않는다."""
         client = Client()
         client.force_login(make_admin())
-        r = client.post(reverse("admin:auth_user_password_change", args=["not-a-user"]),
-                        {"password1": "Set-By-A-1-pass", "password2": "Set-By-A-1-pass", "usable_password": "true"})
+        with CaptureQueriesContext(connection) as queries, mock.patch.object(BaseUserAdmin, "user_change_password", return_value=HttpResponseNotFound()) as parent:
+            r = client.post(reverse("admin:auth_user_password_change", args=["not-a-user"]),
+                            {"password1": "Set-By-A-1-pass", "password2": "Set-By-A-1-pass", "usable_password": "true"})
         self.assertEqual(r.status_code, 404)
+        self.assertFalse([q["sql"] for q in queries.captured_queries if "FOR UPDATE" in q["sql"]])
+        parent.assert_not_called()
 
     def mutual_reset(self, spell):
         a, b = make_admin(), make_admin()
@@ -628,10 +634,13 @@ class MutualResetTests(TransactionTestCase):
         first = Worker(pausing_before("UPDATE", "foundation_user", lambda: reset(client_a, b, "Set-By-A-1-pass"), paused, release))
         first.start()
         self.assertTrue(paused.wait(WAIT), "A 의 초기화가 B 행 UPDATE 에 이르지 않았다")  # A 는 잠금을 쥔 채
-        second = Worker(lambda: reset(client_b, a, "Set-By-B-2-pass"))
+        self.addCleanup(release.set)
+        arrived = threading.Event()
+        second = Worker(arriving_before("FOR UPDATE", "foundation_user", lambda: reset(client_b, a, "Set-By-B-2-pass"), arrived))
         second.start()
+        self.assertTrue(arrived.wait(WAIT), "B 의 초기화가 잠금 SQL 에 이르지 않았다")
         second.join(BLOCKED)
-        self.assertTrue(second.is_alive(), "B 의 초기화가 잠금을 기다리지 않았다")
+        self.assertTrue(second.is_alive(), "B 의 초기화가 잠금을 기다리지 않았다")  # 잠금 SQL 을 보낸 뒤에도 끝나지 않음 = DB 잠금 대기
         release.set()
         first.join(WAIT)
         second.join(WAIT)
@@ -641,3 +650,75 @@ class MutualResetTests(TransactionTestCase):
         self.assertTrue(User.objects.get(pk=a.pk).check_password(PW))  # 뒤의 요청은 반영되지 않았다
         self.assertEqual(client_b.get(reverse("admin:index")).status_code, 404)  # B 의 옛 세션은 끝났다
         self.assertEqual(client_a.get(reverse("admin:index")).status_code, 200)
+
+
+@tag("security")
+class PasswordAuditAtomicityTests(TransactionTestCase):
+    """외부 검토(7936ac7) P2: 비밀번호 변경·초기화의 성공 감사 기록을 변경이 커밋된 **뒤에** 써서, 기록이 실패하면 응답은 500 인데 비밀번호는 바뀌고
+    기록은 0 건이었다. 기록은 변경과 같은 트랜잭션이라 실패하면 비밀번호도 되돌려진다."""
+
+    def setUp(self):
+        self.me = make_admin()
+        self.client = Client(raise_request_exception=False)
+        self.client.force_login(self.me)
+        self.adv = make_advertiser()
+        self.cases = {
+            "account.password_changed": (reverse("admin:password_change"),
+                                         {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"}, self.me),
+            "account.password_reset_by_admin": (reverse("admin:auth_user_password_change", args=[self.adv.pk]),
+                                                {"password1": "Mine-Again-7-pass", "password2": "Mine-Again-7-pass", "usable_password": "true"}, self.adv),
+        }
+
+    def test_a_failing_success_audit_rolls_the_password_back(self):
+        def fail_audit_insert(execute, sql, params, many, context):
+            if sql.lstrip().upper().startswith("INSERT") and "`foundation_audit_log`" in sql:
+                raise DatabaseError("감사 기록 실패(시험)")
+            return execute(sql, params, many, context)
+        for action, (url, data, user) in self.cases.items():
+            with self.subTest(action), connection.execute_wrapper(fail_audit_insert):
+                self.assertEqual(self.client.post(url, data).status_code, 500)
+            self.assertTrue(User.objects.get(pk=user.pk).check_password(PW), action)  # 바뀌지 않았다
+            self.assertFalse(AuditLog.objects.filter(action=action).exists())
+
+    def test_a_success_writes_exactly_one_audit_with_the_change(self):
+        for action, (url, data, user) in self.cases.items():
+            with self.subTest(action):
+                self.assertEqual(self.client.post(url, data).status_code, 302)
+                self.assertTrue(User.objects.get(pk=user.pk).check_password("Mine-Again-7-pass"))
+                entry = AuditLog.objects.get(action=action)
+                self.assertEqual((entry.actor_id, entry.target_id), (self.me.pk, str(user.pk)))
+
+
+@tag("security")
+class TransientLockOnAdminWriteTests(TransactionTestCase):
+    """외부 검토(7936ac7) P3: 관리자 쓰기에서 잠금 대기 초과가 500(Retry-After 없음)으로 나갔다. 서버가 되돌린 일시 오류는 503 + Retry-After 다."""
+
+    def test_a_lock_wait_timeout_is_503_with_retry_after_and_nothing_changes(self):
+        admin, adv = make_admin(), make_advertiser()
+        client = Client(raise_request_exception=False)
+        client.force_login(admin)
+        held, done = threading.Event(), threading.Event()
+
+        def hold():  # 다른 연결이 대상 행을 잠그고 있다
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=adv.pk)
+                held.set()
+                done.wait(WAIT)
+        holder = Worker(hold)
+        holder.start()
+        self.addCleanup(done.set)
+        self.assertTrue(held.wait(WAIT))
+        with connection.cursor() as cursor:
+            cursor.execute("SET SESSION innodb_lock_wait_timeout = 1")  # 이 연결(요청)만 짧게
+        try:
+            r = client.post(reverse("admin:auth_user_password_change", args=[adv.pk]),
+                            {"password1": "Mine-Again-7-pass", "password2": "Mine-Again-7-pass", "usable_password": "true"})
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SET SESSION innodb_lock_wait_timeout = DEFAULT")
+            done.set()
+            holder.join(WAIT)
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r["Retry-After"], "1")
+        self.assertIn("text/html", r["Content-Type"])
+        self.assertTrue(User.objects.get(pk=adv.pk).check_password(PW))

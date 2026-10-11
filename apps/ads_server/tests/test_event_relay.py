@@ -19,10 +19,10 @@ from events import mongo, relay, store
 from events.models import EventOutbox
 from events.relay import EventConflict, relay_batch
 from records import api as records
+from tests.concurrency import WAIT, Worker
 from tests.factories import NOW, SUBJECT, World
 from tests.mongo_support import MongoDatabaseMixin
 from tests.test_event_outbox import decision_fields
-from tests.test_receipt_ordering import WAIT, Worker
 
 T0 = datetime.datetime(2026, 10, 10, 3, 0, 0, 123456, tzinfo=datetime.timezone.utc)
 

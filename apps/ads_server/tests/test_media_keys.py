@@ -12,9 +12,8 @@ from foundation.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from foundation.models import AuditLog
 from masters import api
 from masters.models import MediaKey
+from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
 from tests.factories import DAY, NOW, make_admin, make_advertiser
-from tests.test_campaign_expire_race import pausing_before
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 KEY_SHAPE = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 

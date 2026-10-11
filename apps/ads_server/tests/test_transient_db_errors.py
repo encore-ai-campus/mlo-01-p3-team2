@@ -14,8 +14,8 @@ from django.test import TestCase, TransactionTestCase, override_settings, tag
 from foundation.api import is_transient_lock_error
 from records import api as records
 from records.models import Reaction
+from tests.concurrency import WAIT, Worker
 from tests.factories import NOW, SUBJECT, World
-from tests.test_receipt_ordering import WAIT, Worker
 
 DEADLOCK = OperationalError(1213, "Deadlock found when trying to get lock; try restarting transaction")
 LOCK_TIMEOUT = OperationalError(1205, "Lock wait timeout exceeded; try restarting transaction")
@@ -119,3 +119,21 @@ class RealLockWaitTimeoutTests(TransactionTestCase):
             holder.join(WAIT)
         self.assertEqual(Reaction.objects.get(pk=view.inbox_id).attempts, 0)
         self.assertEqual(records.process_reaction(view.inbox_id, now=NOW), "ACCEPTED")
+
+
+@tag("security")
+class TransientErrorResponseTests(TestCase):
+    """뷰 밖으로 나온 교착·잠금 대기 초과만 503 + Retry-After 다. 다른 DB 오류(연결 끊김 등 — 커밋 결과가 불명확할 수 있다)는 그대로 500."""
+
+    def test_only_transient_lock_errors_become_503(self):
+        from foundation.middleware import ApiErrorMiddleware
+        from django.test import RequestFactory
+
+        middleware = ApiErrorMiddleware(lambda request: None)
+        for path in ("/advertiser/", "/api/media/v1/decisions"):
+            request = RequestFactory().post(path)
+            for error in (DEADLOCK, LOCK_TIMEOUT):
+                response = middleware.process_exception(request, error)
+                self.assertEqual((response.status_code, response["Retry-After"]), (503, "1"), (path, error))
+            self.assertIsNone(middleware.process_exception(request, OperationalError(2013, "Lost connection")))
+        self.assertEqual(middleware.process_exception(RequestFactory().post("/api/media/v1/decisions"), DEADLOCK)["Content-Type"], "application/problem+json")

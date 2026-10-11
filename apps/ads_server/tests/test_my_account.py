@@ -7,8 +7,8 @@ from django.urls import reverse
 
 from foundation.models import AuditLog, User
 from foundation.api import set_advertiser_active
+from tests.concurrency import WAIT, Worker
 from tests.factories import PW, make_admin
-from tests.test_receipt_ordering import WAIT, Worker
 
 NEW_PW = "Correct-battery-9-staple"
 WRONG = "wrong-password-xyz"

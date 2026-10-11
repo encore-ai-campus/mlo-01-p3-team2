@@ -1,5 +1,6 @@
 """Step 3-1c 관리자 화면: 광고 모니터링(소재 썸네일·이동 주소 도메인·광고주), 중단(사유 필수)·해제, 재검토 대기 목록(해제/반려+답변), 관리자 전용 이미지 경로."""
 import uuid
+from unittest import mock
 
 from django.test import TestCase, override_settings, tag
 from django.urls import reverse
@@ -23,6 +24,18 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual([i.campaign.name for i in items], ["캠페인", "나중 캠페인"])  # 소재의 이동 주소가 바뀌면 위로(피싱 주소 바꿔치기를 놓치지 않게)
         self.assertEqual(items[0].creatives[0].redirect_url, "https://changed.example/")
         self.assertEqual(items[1].creatives, ())
+
+    def test_the_review_queue_reads_only_the_waiting_campaigns_creatives(self):
+        """외부 검토(7936ac7) P3: 재검토 화면이 전체 모니터링 목록(모든 캠페인의 소재)을 만들었다. 대기 중인 캠페인의 소재만 읽는다."""
+        for _ in range(5):
+            World()  # 소재가 있는 다른 캠페인들
+        campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW)
+        campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW)
+        from campaigns import services
+        with mock.patch.object(services, "_creative_view", wraps=services._creative_view) as converted:
+            (item,) = campaigns.open_review_queue(self.w.admin, now=NOW)
+        self.assertEqual([c.creative_id for c in item.creatives], [self.w.creative.creative_id])
+        self.assertEqual(converted.call_count, 1)
 
     def test_review_queue_and_admin_only(self):
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "부적절한 소재", now=NOW)

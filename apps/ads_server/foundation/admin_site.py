@@ -41,14 +41,17 @@ class PasswordOnlySave:
         return user
 
 
-def current_login_only(view, *others):
+def current_login_only(view, *others, audit=None):
     """비밀번호를 바꾸는 POST 는 **요청을 인증한 근거가 아직 유효할 때만** 처리한다: 요청한 사람의 행을 잠그고 세션의 인증 해시를 그 최신 행과 대조한 뒤
     같은 트랜잭션 안에서 처리한다 — 확인과 저장 사이에 다른 변경이 끼지 못한다. 서버 명령 `changepassword` 로 급히 끊은 뒤, 진행 중이던 요청이 서버가 정한
     비밀번호를 덮고 로그인을 이어 가던 것을 막는다(외부 검토 3-1d). 잠금을 쥔 동안 들어온 서버 명령은 기다렸다가 그 뒤에 적용된다(서버 명령이 이긴다).
 
     `others`: 이 요청이 바꿀 다른 사용자의 **해석이 끝난 PK**(사용자 관리의 초기화 대상 — 화면이 대상을 찾는 것과 같은 해석을 호출한 쪽이 한다).
     요청자와 함께 **ID 순서로 한 번에** 잠근다 — 두 관리자가 서로를 동시에 초기화해도 잠금 순서가 같아 교착 없이 줄을 서고, 뒤의 요청은 앞의 초기화로
-    바뀐 자기 인증 근거 때문에 403 이다(요청자부터 잠그면 순서가 엇갈려 교착·500)."""
+    바뀐 자기 인증 근거 때문에 403 이다(요청자부터 잠그면 순서가 엇갈려 교착·500).
+
+    `audit(request)`: 성공(리다이렉트)했을 때 남길 감사 기록. **변경과 같은 트랜잭션**에서 쓴다 — 기록이 실패하면 비밀번호도 되돌려진다
+    (커밋 뒤에 쓰면 응답은 500 인데 비밀번호는 바뀌고 기록은 없었다, 외부 검토 7936ac7)."""
     @wraps(view)
     def guarded(request, *args, **kwargs):
         if request.method != "POST":
@@ -58,7 +61,10 @@ def current_login_only(view, *others):
             me = next((u for u in locked if u.pk == request.user.pk), None)
             if me is None or not me.is_active or not constant_time_compare(request.session.get(HASH_SESSION_KEY, ""), me.get_session_auth_hash()):
                 raise PermissionDenied("로그인 정보가 바뀌었습니다. 다시 로그인하세요.")
-            return view(request, *args, **kwargs)
+            response = view(request, *args, **kwargs)
+            if audit is not None and response.status_code == 302:
+                audit(request)
+            return response
     return guarded
 
 
@@ -70,7 +76,5 @@ class AuditedAdminSite(admin.AdminSite):
     password_change_form = OwnPasswordChangeForm
 
     def password_change(self, request, extra_context=None):
-        response = current_login_only(super().password_change)(request, extra_context)
-        if request.method == "POST" and response.status_code == 302:  # 성공(리다이렉트)일 때만
-            record_audit(request, "account.password_changed", target=request.user, actor=request.user)
-        return response
+        audit = lambda r: record_audit(r, "account.password_changed", target=r.user, actor=r.user)  # noqa: E731
+        return current_login_only(super().password_change, audit=audit)(request, extra_context)

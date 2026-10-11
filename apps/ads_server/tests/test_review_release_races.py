@@ -15,9 +15,8 @@ from campaigns import api
 from campaigns.models import Campaign, ReviewRequest
 from foundation.api import errors
 from foundation.models import AuditLog
+from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
 from tests.factories import DAY, NOW, World
-from tests.test_campaign_expire_race import pausing_before
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 
 @tag("security")

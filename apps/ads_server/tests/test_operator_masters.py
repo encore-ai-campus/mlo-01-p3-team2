@@ -13,9 +13,8 @@ from django.utils import timezone
 from foundation.models import AuditLog
 from masters import api as masters
 from masters.models import MediaKey
+from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
 from tests.factories import make_admin, make_advertiser, make_slot
-from tests.test_campaign_expire_race import pausing_before
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 KEY_RE = re.compile(r"[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
 

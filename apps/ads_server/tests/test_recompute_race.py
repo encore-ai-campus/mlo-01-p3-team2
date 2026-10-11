@@ -12,8 +12,8 @@ from django.test import TransactionTestCase, override_settings, tag
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
+from tests.concurrency import BLOCKED, WAIT, Worker
 from tests.factories import NOW, make_advertiser
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 DAY = date(2026, 10, 7)
 

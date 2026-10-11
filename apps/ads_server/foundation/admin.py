@@ -73,10 +73,8 @@ class UserAdmin(BaseUserAdmin):
             target = User._meta.pk.to_python(unquote(id))
         except ValidationError:
             raise Http404
-        response = current_login_only(super().user_change_password, target)(request, id, form_url)
-        if response.status_code == 302:  # 성공(리다이렉트)일 때만
-            record_audit(request, "account.password_reset_by_admin", target=self.get_object(request, unquote(id)))
-        return response
+        audit = lambda r: record_audit(r, "account.password_reset_by_admin", target=("foundation.user", target))  # noqa: E731
+        return current_login_only(super().user_change_password, target, audit=audit)(request, id, form_url)
 
 
 @admin.register(AuditLog)

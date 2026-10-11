@@ -5,7 +5,8 @@ from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 
 from .errors import ApiError, PayloadTooLarge
-from .http import problem_response
+from .dberrors import is_transient_lock_error
+from .http import problem_response, transient_db_error
 from .logging import request_id_var
 
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -70,7 +71,8 @@ class CsrfExemptPrefixesMiddleware:
 
 
 class ApiErrorMiddleware:
-    """뷰가 던진 ApiError 를 problem+json 으로 바꾼다. (다른 예외는 Django 핸들러가 처리한다.)"""
+    """뷰가 던진 ApiError 를 problem+json 으로 바꾼다. 교착·잠금 대기 초과는 503 + `Retry-After`(화면은 HTML, API 는 problem+json).
+    (다른 예외는 Django 핸들러가 처리한다.)"""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -81,6 +83,8 @@ class ApiErrorMiddleware:
     def process_exception(self, request, exception):
         if isinstance(exception, ApiError):
             return problem_response(request, exception)
+        if is_transient_lock_error(exception):
+            return transient_db_error(request)
         return None
 
 

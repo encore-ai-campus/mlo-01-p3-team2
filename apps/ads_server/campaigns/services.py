@@ -348,11 +348,15 @@ def advertiser_usage(actor, owner_ids):
 
 
 def open_review_queue(actor, now=None):
-    """열린 재검토 요청(오래된 것부터)과 그 캠페인. 관리자가 해제(`release_campaign`)하거나 반려(`reject_review_request`)한다."""
+    """열린 재검토 요청(오래된 것부터)과 그 캠페인·소재. 관리자가 해제(`release_campaign`)하거나 반려(`reject_review_request`)한다.
+    소재는 **대기 중인 캠페인의 것만** 읽는다(질의 두 번 — 전체 모니터링 목록을 만들지 않는다, 외부 검토 7936ac7)."""
     require_admin(actor)
     now = _now(now)
-    rows = ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at")
-    return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id)) for r in rows]
+    rows = list(ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at"))
+    creatives = {}
+    for c in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=[r.campaign_id for r in rows]).order_by("created_at"):
+        creatives.setdefault(c.ad_group.campaign_id, []).append(_creative_view(c))
+    return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id), tuple(creatives.get(r.campaign_id, ()))) for r in rows]
 
 
 # ---------------------------------------------------------------- 광고그룹·입찰

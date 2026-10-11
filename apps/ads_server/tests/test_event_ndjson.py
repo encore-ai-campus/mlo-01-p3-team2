@@ -398,7 +398,7 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
     def test_rows_created_after_the_snapshot_began_are_not_in_the_result(self):
         """검토 재현: 점검이 시작된 뒤 생긴 행(이벤트가 아직 없는 것 포함)이 결과에 섞이지 않는다 — 모든 읽기가 한 스냅샷을 본다."""
         from records.models import Decision
-        from tests.test_receipt_ordering import WAIT, Worker
+        from tests.concurrency import WAIT, Worker
 
         out = self.tmpdir()
         created = []
