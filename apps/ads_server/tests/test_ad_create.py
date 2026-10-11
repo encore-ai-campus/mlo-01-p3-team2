@@ -13,7 +13,7 @@ from django.urls import reverse
 from campaigns.models import AdGroup, Campaign, Creative
 from foundation.models import AuditLog
 from masters import api as masters
-from tests.concurrency import WAIT, Worker, pausing_before
+from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
 from tests.factories import World, make_slot, png_file
 
 URL = reverse("ad_create")
@@ -119,6 +119,23 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertRegex(r.content.decode(), r'id="id_image_error"><li>[^<]+</li>')  # 거절 사유가 이미지 칸에
         self.assertFalse(self.created().exists())
 
+    def test_a_resubmission_after_the_slot_was_turned_off_still_finds_the_first_ad(self):
+        """외부 검토(56c66cf) P2: 폼 검증(지금 켜진 위치 목록)이 먼저 돌아 400 이 됐다. 이미 성공한 제출의 다시 보냄은 검증보다 먼저 처음 결과로 간다."""
+        data = self.fields()
+        first = self.client.post(URL, data)
+        masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
+        data["image"] = png_file((10, 20, 30))
+        second = self.client.post(URL, data)
+        self.assertEqual((second.status_code, second["Location"]), (302, first["Location"]))
+        self.assertEqual(self.created().count(), 1)
+
+    def test_a_time_kst_cannot_express_is_a_field_error_not_a_500(self):
+        """외부 검토(56c66cf) P2: 0001-01-01T00:00 KST 는 UTC 로 바꿀 수 없어 500 이었다."""
+        r = self.client.post(URL, self.fields(starts_at="0001-01-01T00:00"))
+        self.assertContains(r, 'id="id_starts_at_error"', status_code=400)
+        self.assertFalse(self.created().exists())
+        self.assertEqual(self.client.post(URL, self.fields(starts_at="0001-01-01T09:00")).status_code, 302)  # 바로 위 경계(UTC 0001-01-01 00:00)는 정상 값
+
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)
     def test_a_resubmission_at_the_quota_still_finds_the_first_ad(self):
         """처음 제출로 상한(2)에 닿은 뒤 같은 폼을 다시 보내도 '상한 초과'가 아니라 이미 만든 광고로 간다(만들기 전에 요청 키를 먼저 본다)."""
@@ -184,9 +201,11 @@ class AdCreateOnceTests(AdCreateBase, TransactionTestCase):
         self.assertTrue(paused.wait(WAIT), "첫 요청이 요청 키 저장에 이르지 않았다")
         second = Worker(lambda: self.twin().post(URL, data2))
         second.start()
-        second.join(WAIT)  # 둘째가 먼저 끝까지 만든다
+        second.join(BLOCKED)
+        self.assertTrue(second.is_alive(), "둘째가 광고주 잠금을 기다리지 않았다")  # 같은 광고주의 만들기는 줄을 선다
         release.set()
         first.join(WAIT)
+        second.join(WAIT)  # 첫째가 커밋한 뒤 잠금 안에서 키를 다시 보고 처음 결과로 간다
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (302, 302))
         self.assertEqual(first.result["Location"], second.result["Location"])

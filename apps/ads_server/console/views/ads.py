@@ -15,7 +15,7 @@ from django.utils import timezone
 from campaigns import api as campaigns
 from masters import api as masters
 
-from ..errors import HANDLED, form_errors, status_of
+from ..errors import HANDLED, form_errors, message_of, status_of
 from ..forms import AdCreateForm
 
 
@@ -46,8 +46,18 @@ def ad_create(request):
     if not request.POST.get("request_key"):
         messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 만드세요.")
         return redirect("ad_create")
-    form = _form(slots, request.POST, request.FILES)
     action = request.POST.get("action")
+    if action not in ("unit", "preview"):
+        # 이미 성공한 제출의 다시 보냄은 폼 검증보다 먼저 처음 결과로 보낸다 — 그 사이 위치가 꺼지거나 상한에 닿아도(외부 검토 56c66cf)
+        try:
+            done = campaigns.ad_created_by_key(request.user, request.POST["request_key"])
+        except HANDLED as e:
+            messages.error(request, message_of(e))
+            return redirect("ad_create")
+        if done is not None:
+            messages.success(request, "이미 만든 광고입니다(같은 화면을 다시 보내도 하나만 만듭니다).")
+            return redirect("campaign_detail", campaign_id=done.campaign.campaign_id)
+    form = _form(slots, request.POST, request.FILES)
     if action in ("unit", "preview"):
         form.is_valid()  # 맞는 칸만 cleaned_data 에 남긴다
         form.errors.clear()  # 저장하지 않는 동작이라 빈 칸·이미지 등의 오류는 보이지 않는다

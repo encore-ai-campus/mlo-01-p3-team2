@@ -46,6 +46,7 @@ class AdGroupView:
     slot_ids: tuple
     current_bid: BidView | None
     created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)

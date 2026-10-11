@@ -74,7 +74,10 @@ class KstDateTimeField(forms.DateTimeField):
     def to_python(self, value):
         with timezone.override(KST):
             result = super().to_python(value)
-        return result.astimezone(dt_timezone.utc) if result else result
+        try:
+            return result.astimezone(dt_timezone.utc) if result else result
+        except (OverflowError, ValueError):  # 0001-01-01T00:00 KST 는 UTC 로 표현할 수 없다(외부 검토 56c66cf — 500 이었다)
+            raise forms.ValidationError("표현할 수 없는 시각입니다.", code="invalid")
 
     def prepare_value(self, value):
         return value.astimezone(KST).strftime("%Y-%m-%dT%H:%M") if isinstance(value, datetime) and value.tzinfo else value
@@ -137,11 +140,15 @@ class BidForm(forms.Form):
 
 
 class GroupNameForm(forms.Form):
+    """`updated_at` 은 화면이 본 광고그룹의 마지막 변경 시각 — 그 사이 바뀌었으면 서비스가 거절한다(같은 칸의 옛 제출이 최신 변경을 덮지 않게)."""
+
     name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
+    updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
 
 class GroupSlotsForm(forms.Form):
     slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
     def __init__(self, *args, slots=(), **kwargs):
         super().__init__(*args, **kwargs)
@@ -159,4 +166,7 @@ class CreativeEditForm(forms.Form):
 
 
 class ImageForm(forms.Form):
+    """`updated_at` 은 화면이 본 소재의 마지막 변경 시각 — 옛 화면의 교체가 그 사이의 교체를 덮지 않게."""
+
     image = forms.FileField(label="새 이미지", widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg"}))
+    updated_at = forms.DateTimeField(widget=forms.HiddenInput)

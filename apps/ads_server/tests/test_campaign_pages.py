@@ -107,6 +107,13 @@ class EditTests(CampaignPagesBase):
         self.assertContains(self.client.post(self.detail, self.edit_fields(daily_budget="abc")), "daily_budget", status_code=400)
         self.assertIsNone(self.view().ends_at)
 
+    def test_time_edges_are_field_errors_not_500(self):
+        """외부 검토(56c66cf) P2: KST 로 읽은 0001-01-01T00:00 은 UTC 로 표현할 수 없어 500 이었다. 위쪽 끝은 정상 값이다."""
+        self.assertContains(self.client.post(self.detail, self.edit_fields(ends_at="0001-01-01T00:00")), 'id="id_ends_at_error"', status_code=400)
+        self.assertIsNone(self.view().ends_at)
+        self.assertRedirects(self.client.post(self.detail, self.edit_fields(ends_at="9999-12-31T23:59")), self.detail)
+        self.assertEqual(self.view().ends_at, datetime(9999, 12, 31, 14, 59, tzinfo=timezone.utc))
+
     def test_nothing_changed(self):
         """화면은 분 단위라, 초가 있는 끝 시각을 그대로 내도 '바뀌지 않음'이다(끝 시각을 분으로 잘라 몰래 바꾸지 않는다)."""
         campaigns.update_campaign(self.w.adv, self.cid, {"ends_at": datetime(2030, 12, 31, 0, 0, 30, tzinfo=timezone.utc)})

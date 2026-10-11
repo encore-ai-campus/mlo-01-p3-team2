@@ -22,8 +22,8 @@ def _page(request, ad_group_id, status=200, edit=None, **bound):
     group = page.group
     forms = {
         "bid_form": BidForm(initial={"expected_version": group.current_bid.bid_version if group.current_bid else None}),
-        "name_form": GroupNameForm(initial={"name": group.name}),
-        "slots_form": GroupSlotsForm(slots=page.choices, initial={"slot_ids": [str(s) for s in group.slot_ids]}),
+        "name_form": GroupNameForm(initial={"name": group.name, "updated_at": group.updated_at.isoformat()}),
+        "slots_form": GroupSlotsForm(slots=page.choices, initial={"slot_ids": [str(s) for s in group.slot_ids], "updated_at": group.updated_at.isoformat()}),
         "image_form": ImageForm(),
         **bound,
     }
@@ -68,7 +68,7 @@ def ad_group_name(request, ad_group_id):
     form = GroupNameForm(request.POST)
     if form.is_valid():
         try:
-            campaigns.update_ad_group(request.user, ad_group_id, {"name": form.cleaned_data["name"]})
+            campaigns.update_ad_group(request.user, ad_group_id, {"name": form.cleaned_data["name"]}, expected_updated_at=form.cleaned_data["updated_at"])
         except HANDLED as e:
             form_errors(form, e)
             return _page(request, ad_group_id, status=status_of(e), name_form=form)
@@ -82,7 +82,7 @@ def ad_group_slots(request, ad_group_id):
     form = GroupSlotsForm(request.POST, slots=page.choices)
     if form.is_valid():
         try:
-            campaigns.update_ad_group(request.user, ad_group_id, {"slot_ids": form.cleaned_data["slot_ids"]})
+            campaigns.update_ad_group(request.user, ad_group_id, {"slot_ids": form.cleaned_data["slot_ids"]}, expected_updated_at=form.cleaned_data["updated_at"])
         except HANDLED as e:
             form_errors(form, e)
             return _page(request, ad_group_id, status=status_of(e), slots_form=form)
@@ -142,7 +142,7 @@ def creative_image(request, creative_id):
     form = ImageForm(request.POST, request.FILES)
     if form.is_valid():
         try:
-            campaigns.replace_creative_image(request.user, creative_id, form.cleaned_data["image"])
+            campaigns.replace_creative_image(request.user, creative_id, form.cleaned_data["image"], expected_updated_at=form.cleaned_data["updated_at"])
         except HANDLED as e:
             form_errors(form, e, image_field="image")
             return _page(request, group_id, status=status_of(e), image_form=form)

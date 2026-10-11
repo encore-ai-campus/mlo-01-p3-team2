@@ -56,6 +56,7 @@ class AdGroup(models.Model):
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)  # 화면이 본 값과 대조해 옛 폼(이름·게재 위치)이 그 사이의 변경을 덮지 않게(3-2d)
 
     class Meta:
         db_table = "campaigns_ad_group"
@@ -150,3 +151,17 @@ class ReviewRequest(models.Model):
     class Meta:
         db_table = "campaigns_review_request"
         constraints = [models.UniqueConstraint(fields=["open_campaign"], name="campaigns_one_open_review_per_campaign")]
+
+
+class AdvertiserQuota(models.Model):
+    """광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)을 지키는 **잠금 행**(값은 담지 않는다 — 수는 잠금 안에서 센다).
+
+    캠페인마다 잠그면 서로 다른 캠페인의 동시 쓰기가 함께 줄을 서지 않아 상한을 넘었다(외부 검토 56c66cf). 만들기·이미지 교체는 이 행을 **가장 먼저** 잠그고
+    (그다음 캠페인 → 광고그룹·소재), 잠금 안에서 상한을 다시 센 뒤 쓴다. 처음 쓸 때 만든다. 사용자 행을 잠그지 않는 것은 인증·계정 경로와 순서를 섞지 않기 위해서다."""
+
+    quota_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "campaigns_advertiser_quota"

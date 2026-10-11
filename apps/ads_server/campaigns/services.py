@@ -18,7 +18,7 @@ from masters import api as masters
 
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
-from .models import AdGroup, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
+from .models import AdGroup, AdGroupSlot, AdvertiserQuota, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
     AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem,
     ReviewRequestView, SlotEffect, SuspensionView,
@@ -82,6 +82,13 @@ def _locked_group(user, ad_group_id):
     return group
 
 
+def _lock_quota(user):
+    """광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)의 잠금 행. 만들기·이미지 교체가 **가장 먼저** 잡고(그다음 캠페인 → 광고그룹·소재),
+    잠금 안에서 상한을 다시 센다 — 서로 다른 캠페인의 동시 쓰기도 줄을 선다(외부 검토 56c66cf). 처음 쓸 때 만든다. 트랜잭션 안에서만."""
+    AdvertiserQuota.objects.get_or_create(owner_id=user.pk)  # 동시에 처음 만들면 한쪽은 유일 제약에서 기다렸다가 있는 행을 읽는다
+    return AdvertiserQuota.objects.select_for_update().get(owner_id=user.pk)
+
+
 def _locked_creative(user, creative_id):
     """소재를 바꾸는 동작용: `_locked_group` 과 같은 순서(캠페인 → 소재)로 잠가 다시 읽는다. 트랜잭션 안에서만."""
     found = _creative(user, creative_id)
@@ -122,7 +129,7 @@ def _ad_group_view(g, bid=None):
     slot_ids = tuple(sorted(g.slot_links.values_list("slot_id", flat=True), key=str))
     return AdGroupView(
         ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, pricing_unit=g.pricing_unit, enabled=g.enabled,
-        slot_ids=slot_ids, current_bid=_bid_view(bid) if bid else None, created_at=g.created_at,
+        slot_ids=slot_ids, current_bid=_bid_view(bid) if bid else None, created_at=g.created_at, updated_at=g.updated_at,
     )
 
 
@@ -152,6 +159,7 @@ def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None):
     if ends_at is not None and not (ends_at > starts_at and ends_at > now):
         raise _problem("/ends_at", "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다.")
     with transaction.atomic():
+        _lock_quota(user)
         if Campaign.objects.filter(owner=user).count() >= settings.MAX_CAMPAIGNS_PER_ADVERTISER:
             raise LimitExceeded("캠페인 개수 상한에 도달했습니다.")
         c = Campaign.objects.create(owner=user, name=name, starts_at=starts_at, ends_at=ends_at, daily_budget=daily_budget, created_at=now, updated_at=now)
@@ -429,11 +437,12 @@ def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=
     if bid_amount is not None:
         _amount(bid_amount, "/bid_amount")
     with transaction.atomic():
-        c = _campaign(user, campaign_id)
+        _lock_quota(user)
+        c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)
         if AdGroup.objects.filter(campaign__owner=user).count() >= settings.MAX_AD_GROUPS_PER_ADVERTISER:
             raise LimitExceeded("광고그룹 개수 상한에 도달했습니다.")
-        group = AdGroup.objects.create(campaign=c, name=name, pricing_unit=pricing_unit, created_at=now)
+        group = AdGroup.objects.create(campaign=c, name=name, pricing_unit=pricing_unit, created_at=now, updated_at=now)
         AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=group, slot_id=s) for s in ids])
         bid = Bid.objects.create(ad_group=group, bid_version=1, amount=bid_amount, created_by=user.pk, created_at=now) if bid_amount is not None else None
         _audit(user, "ad_group.created", ("campaigns.ad_group", group.ad_group_id), {"name": name, "pricing_unit": pricing_unit, "slots": len(ids)})
@@ -453,7 +462,9 @@ def list_ad_groups(user, campaign_id):
 AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit"}
 
 
-def update_ad_group(user, ad_group_id, changes, now=None):
+def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=None):
+    """이름·켜기/끄기·게재 위치. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 잠금 안에서 대조해 다르면 409 — 옛 폼이 같은 칸의 최신 변경을
+    덮지 않게(외부 검토 56c66cf P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - AD_GROUP_FIELDS
@@ -464,6 +475,8 @@ def update_ad_group(user, ad_group_id, changes, now=None):
     with transaction.atomic():
         g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
+        if expected_updated_at is not None and expected_updated_at != g.updated_at:
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
         if "name" in changes:
             g.name = clean_text(changes["name"], "광고그룹 이름", "/name")
         if "enabled" in changes:
@@ -475,6 +488,7 @@ def update_ad_group(user, ad_group_id, changes, now=None):
             g.slot_links.exclude(slot_id__in=ids).delete()
             have = set(g.slot_links.values_list("slot_id", flat=True))
             AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=g, slot_id=s) for s in ids if s not in have])
+        g.updated_at = now
         g.save()
         _audit(user, "ad_group.updated", ("campaigns.ad_group", g.ad_group_id), {"changed": sorted(changes)})
     return _ad_group_view(g, _current_bid(g))
@@ -580,7 +594,8 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     redirect_url = _redirect_url(redirect_url)
     image = validate_image(image_file)
     with transaction.atomic():
-        g = _ad_group(user, ad_group_id)
+        _lock_quota(user)
+        g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
         _check_creative_count(user, g)
         _check_image_quota(user, image)  # 저장(파일 쓰기) 전에 확인한다: 거절된 업로드는 파일을 남기지 않는다
@@ -618,6 +633,10 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
         return done
     try:
         with transaction.atomic():
+            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
+            done = _created_by_key(user, request_key)  # 첫 조회와 앞선 요청의 커밋 사이의 틈: 잠금 안에서 다시 본다(안 보면 상한 오류로 끝났다)
+            if done is not None:
+                return done
             c = _part("/campaign", create_campaign, user, now=now, **campaign)
             g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
             cr = _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
@@ -629,6 +648,15 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
             raise
         return done
     return CreatedAd(c, g, cr)
+
+
+def ad_created_by_key(user, request_key):
+    """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
+    이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 56c66cf). 남의 키면 409."""
+    require_advertiser(user)
+    if not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
+        return None
+    return _created_by_key(user, request_key)
 
 
 def _created_by_key(user, request_key):
@@ -697,14 +725,18 @@ def update_creative(user, creative_id, changes, now=None, expected_updated_at=No
     return _creative_view(c)
 
 
-def replace_creative_image(user, creative_id, image_file, now=None):
-    """이미지 교체. 새 이름으로 바꾸고 이전 파일은 지우지 않는다(과거 결정이 참조할 수 있다)."""
+def replace_creative_image(user, creative_id, image_file, now=None, expected_updated_at=None):
+    """이미지 교체. 새 이름으로 바꾸고 이전 파일은 지우지 않는다(과거 결정이 참조할 수 있다). 보유량 상한은 광고주 잠금 안에서 센다.
+    `expected_updated_at`(화면이 본 소재의 마지막 변경 시각)을 주면 다르면 409 — 옛 화면의 교체가 그 사이의 교체를 덮지 않게."""
     require_advertiser(user)
     now = _now(now)
     image = validate_image(image_file)
     with transaction.atomic():
+        _lock_quota(user)
         c = _locked_creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
+        if expected_updated_at is not None and expected_updated_at != c.updated_at:
+            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 바꾸세요.")
         _check_image_quota(user, image)
         c.image_name, c.image_bytes, c.updated_at = store(image), len(image.data), now
         c.save()

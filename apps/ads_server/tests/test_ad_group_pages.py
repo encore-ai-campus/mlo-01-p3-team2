@@ -32,6 +32,13 @@ class AdGroupPageBase(TestCase):
     def creative(self):
         return campaigns.get_creative(self.w.adv, self.crid)
 
+    def seen(self):
+        """화면이 싣는 광고그룹의 마지막 변경 시각."""
+        return self.group().updated_at.isoformat()
+
+    def seen_creative(self):
+        return self.creative().updated_at.isoformat()
+
     def edit_fields(self, **over):
         prefix = str(self.crid)
         html = self.html()
@@ -83,9 +90,9 @@ class BidTests(AdGroupPageBase):
 class GroupEditTests(AdGroupPageBase):
     def test_name_slots_and_toggle_are_separate_and_do_not_touch_each_other(self):
         other_slot = make_slot(self.w.admin, name="둘째 위치")
-        self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(self.w.slot.slot_id), str(other_slot.slot_id)]})
+        self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(self.w.slot.slot_id), str(other_slot.slot_id)], "updated_at": self.seen()})
         self.assertEqual(set(self.group().slot_ids), {self.w.slot.slot_id, other_slot.slot_id})
-        self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "새 이름"})
+        self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "새 이름", "updated_at": self.seen()})
         self.client.post(reverse("ad_group_enabled", args=[self.gid]), {"enabled": "0"})
         group = self.group()
         self.assertEqual((group.name, group.enabled, len(group.slot_ids)), ("새 이름", False, 2))  # 앞의 변경이 남아 있다
@@ -93,8 +100,8 @@ class GroupEditTests(AdGroupPageBase):
     def test_slot_rules_are_shown(self):
         click = make_slot(self.w.admin, unit="CLICK", name="클릭 위치")
         self.assertNotIn(str(click.slot_id), self.html())  # 단위가 다른 위치는 고를 수 없다
-        self.assertEqual(self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(click.slot_id)]}).status_code, 400)
-        r = self.client.post(reverse("ad_group_slots", args=[self.gid]), {})
+        self.assertEqual(self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(click.slot_id)], "updated_at": self.seen()}).status_code, 400)
+        r = self.client.post(reverse("ad_group_slots", args=[self.gid]), {"updated_at": self.seen()})
         self.assertContains(r, "게재 위치를 하나 이상 고르세요", status_code=400)
         self.assertEqual(self.group().slot_ids, (self.w.slot.slot_id,))
 
@@ -127,14 +134,14 @@ class CreativeTests(AdGroupPageBase):
         old = self.creative().image_name
         self.client.post(reverse("creative_enabled", args=[self.crid]), {"enabled": "0"})
         self.assertFalse(self.creative().enabled)
-        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), {"image": png_file((5, 6, 7))}), self.detail)
+        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), {"image": png_file((5, 6, 7)), "updated_at": self.seen_creative()}), self.detail)
         self.assertNotEqual(self.creative().image_name, old)
         self.assertEqual(set(CreativeImage.objects.filter(creative_id=self.crid).values_list("image_name", flat=True)), {old, self.creative().image_name})
 
     def test_a_rejected_image_shows_the_reason(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        r = self.client.post(reverse("creative_image", args=[self.crid]), {"image": SimpleUploadedFile("x.png", b"nope", content_type="image/png")})
+        r = self.client.post(reverse("creative_image", args=[self.crid]), {"image": SimpleUploadedFile("x.png", b"nope", content_type="image/png"), "updated_at": self.seen_creative()})
         self.assertEqual(r.status_code, 400)
         self.assertRegex(r.content.decode(), r'id="id_image_error"><li>[^<]+</li>')
 
@@ -166,3 +173,31 @@ class IsolationTests(AdGroupPageBase):
         group = campaigns.get_ad_group(other.adv, gid)
         self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 30))
         self.assertTrue(campaigns.get_creative(other.adv, crid).enabled)
+
+
+class StaleSameFieldTests(AdGroupPageBase):
+    """외부 검토(56c66cf) P3: 작은 폼은 다른 칸을 덮지 않지만, 열어 둔 폼이 **같은 칸**의 최신 변경을 덮었다(S1 → S1+S2 뒤 옛 폼의 S1 이 S2 를 지움).
+    이름·게재 위치·이미지 교체도 화면이 본 변경 시각과 잠금 안에서 대조한다."""
+
+    def test_a_stale_slots_form_does_not_remove_a_slot_added_elsewhere(self):
+        seen = self.seen()  # 옛 탭이 본 시각
+        second = make_slot(self.w.admin, name="둘째 위치")
+        both = [str(self.w.slot.slot_id), str(second.slot_id)]
+        self.assertRedirects(self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": both, "updated_at": seen}), self.detail)
+        r = self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(self.w.slot.slot_id)], "updated_at": seen})
+        self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
+        self.assertEqual(set(self.group().slot_ids), {self.w.slot.slot_id, second.slot_id})
+
+    def test_a_stale_name_form_is_refused(self):
+        seen = self.seen()
+        campaigns.update_ad_group(self.w.adv, self.gid, {"name": "다른 탭"})
+        self.assertContains(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "옛 탭", "updated_at": seen}),
+                            "다른 곳에서 먼저 바뀌었습니다", status_code=409)
+        self.assertEqual(self.group().name, "다른 탭")
+
+    def test_a_stale_image_form_does_not_replace_a_newer_image(self):
+        seen = self.seen_creative()
+        newer = campaigns.replace_creative_image(self.w.adv, self.crid, png_file((1, 2, 3)))
+        r = self.client.post(reverse("creative_image", args=[self.crid]), {"image": png_file((7, 7, 7)), "updated_at": seen})
+        self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
+        self.assertEqual(self.creative().image_name, newer.image_name)
