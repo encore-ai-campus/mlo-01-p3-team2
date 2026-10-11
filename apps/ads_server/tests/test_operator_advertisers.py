@@ -245,7 +245,8 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
 
 @tag("security")
 class UserAdminActiveFlagTests(TestCase):
-    """광고주의 활성 여부를 바꾸는 길은 운영 화면 하나(사유 필수·감사, 송출도 함께 멈춤). 사용자 관리 화면에서는 읽기 전용이고, 관리자 계정은 그대로 바꾼다."""
+    """사용자 관리 화면은 프로필과 비밀번호 초기화만: 계정 추가·역할·활성 여부·슈퍼유저 여부를 바꾸지 않는다. 광고주의 활성 여부는 운영 화면 하나(사유 필수·감사, 송출도 함께 멈춤),
+    관리자 계정은 서버 명령."""
 
     def setUp(self):
         self.root = make_admin()
@@ -264,15 +265,16 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertNotIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
         self.assertFalse(AuditLog.objects.filter(action="account.deactivated").exists())
 
-    def test_user_admin_still_changes_an_admins_active_flag(self):
+    def test_user_admin_cannot_change_an_admins_active_flag_either(self):
+        """관리자 계정도 화면에서 끄지 않는다(설계 §10) — 급히 끊을 때는 서버 명령 changepassword. 탈취한 관리자 세션이 다른 관리자를 끄지 못한다."""
         other = make_admin()
         signed_in = Client()
         signed_in.force_login(other)
-        self.assertEqual(self.save(other, is_superuser="on").status_code, 302)
-        self.assertFalse(User.objects.get(pk=other.pk).is_active)
-        self.assertIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
-        self.assertEqual(self.save(User.objects.get(pk=other.pk), is_active="on", is_superuser="on").status_code, 302)
-        self.assertEqual(signed_in.get(reverse("admin:index")).status_code, 404)  # 껐던 관리자의 옛 세션도 다시 켠 뒤 돌아오지 않는다
+        self.assertContains(self.client.get(reverse("admin:foundation_user_change", args=[other.pk])), "changepassword")  # 끊는 길 안내
+        self.assertEqual(self.save(other).status_code, 302)  # is_active 를 보내지 않음 = 끄기
+        self.assertEqual(User.objects.filter(pk=other.pk).values_list("is_active", "session_epoch").get(), (True, 0))
+        self.assertNotIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
+        self.assertEqual(signed_in.get(reverse("admin:index")).status_code, 200)
 
     def test_user_admin_cannot_add_accounts_or_change_roles(self):
         """관리자는 `createsuperuser` 로만, 광고주는 가입으로만 생긴다(추가 폼으로 만든 광고주는 지갑·가입 지급이 없었다 — 외부 검토 3-1d).
@@ -408,7 +410,7 @@ class AdjustRaceTests(TransactionTestCase):
 @tag("security")
 class UserAdminSaveRaceTests(TransactionTestCase):
     """외부 검토(3-1d) P2: 사용자 관리 화면의 저장이 요청 처음에 읽은 객체를 통째로 써서(`obj.save()`), 그 사이 다른 관리자가 한 비활성화
-    (`is_active`·`session_epoch`)를 되돌렸다 — 읽기 전용 칸도 저장에서는 다시 쓰였다. 편집한 칸만 잠근 최신 행에 쓴다."""
+    (`is_active`·`session_epoch`)를 되돌렸다 — 읽기 전용 칸도 저장에서는 다시 쓰였다. 편집한 칸만 쓴다."""
 
     def setUp(self):
         self.root = make_admin()
@@ -467,19 +469,3 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         row = User.objects.get(pk=adv.pk)
         self.assertEqual((row.is_active, row.session_epoch), (False, 1))
         self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
-
-    def test_an_admin_deactivation_counts_from_the_latest_epoch(self):
-        """관리자 계정을 끄는 저장도 최신 폐기 버전에서 올린다: 그 사이 껐다 켠 뒤 새로 로그인한 세션도 이 저장으로 끝난다."""
-        x = make_admin()
-        worker, release = self.save_paused(x, {"username": x.username, "nickname": x.nickname, "class_label": x.class_label, "_save": "저장"})  # 끄기
-        other = Client()
-        other.force_login(make_admin())
-        base = {"username": x.username, "nickname": x.nickname, "class_label": x.class_label, "_save": "저장"}
-        self.assertEqual(other.post(self.change_url(x), base).status_code, 302)  # 다른 관리자가 끄고(폐기 버전 1)
-        self.assertEqual(other.post(self.change_url(x), {**base, "is_active": "on"}).status_code, 302)  # 다시 켰다
-        relogged = Client()
-        relogged.force_login(User.objects.get(pk=x.pk))  # 폐기 버전 1 에서 새로 로그인
-        self.finish(worker, release)
-        self.assertEqual(User.objects.filter(pk=x.pk).values_list("is_active", "session_epoch").get(), (False, 2))
-        self.assertEqual(other.post(self.change_url(x), {**base, "is_active": "on"}).status_code, 302)
-        self.assertEqual(relogged.get(reverse("admin:index")).status_code, 404)  # 끄기 전의 세션이므로 다시 켠 뒤에도 끝난 채

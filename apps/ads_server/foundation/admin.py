@@ -5,11 +5,10 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.admin.utils import unquote
-from django.db import transaction
 
 from .admin_site import ReadOnlyAdmin
 from .audit import record_audit
-from .models import AuditLog, Role, User
+from .models import AuditLog, User
 from .templatetags.kst import kst
 
 
@@ -24,23 +23,30 @@ class PasswordResetForm(AdminPasswordChangeForm):
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    """계정을 **추가하지 않고 역할을 바꾸지 않는다**(설계 §10 "광고주 비활성화는 송출도 멈춘다" — 역할을 거친 우회). 관리자는 서버 명령(`createsuperuser`)으로만,
-    광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다.
+    """프로필(아이디·닉네임·반)과 비밀번호 초기화만 한다. 계정을 **추가하지 않고, 역할·활성 여부·슈퍼유저 여부를 바꾸지 않는다**(설계 §10).
 
-    `is_superuser` 도 읽기 전용이다: admin 사이트 입장은 역할(`is_staff`)이 정하지만 모델 화면(사용자 관리·감사 로그 등)은 권한 검사라 그룹·권한을 주지 않는
-    이 프로젝트에서는 `is_superuser` 만 통과시킨다. 역할과 따로 바뀌면 "들어가지만 아무것도 못 보는 관리자"처럼 뜻이 엇갈린다 — 관리자 ⇔ 슈퍼유저를 계정을 만든 곳(매니저)이 정한다."""
+    - 관리자는 서버 명령(`createsuperuser`)으로만, 광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다.
+    - 광고주의 활성 여부는 운영 화면(`set_advertiser_active`: 사유 필수·감사·세션 폐기 버전, 송출도 멈춤)으로만 바꾼다. 역할을 바꿀 수 있으면 역할을 거쳐 이를 우회했다.
+    - 관리자 계정은 처음에 몇 개 만들고 끝이라 화면에서 끌 일이 없다. 급히 끊을 때는 서버 명령 `changepassword`(비밀번호가 바뀌면 세션이 모두 끝난다).
+      화면에 두면 관리자 세션을 탈취한 사람이 다른 관리자를 끌 수 있고, 폼을 연 뒤 바뀐 값을 옛 체크박스가 되돌린다.
+    - `is_superuser`: admin 사이트 입장은 역할(`is_staff`)이 정하지만 모델 화면은 권한 검사라, 그룹·권한을 주지 않는 이 프로젝트에서는 `is_superuser` 만 통과시킨다.
+      역할과 따로 바뀌면 "들어가지만 아무것도 못 보는 관리자"처럼 뜻이 엇갈린다 — 관리자 ⇔ 슈퍼유저를 계정을 만든 곳(매니저)이 정한다.
+    """
 
     change_password_form = PasswordResetForm
     list_display = ("username", "nickname", "class_label", "role", "is_active", "created_kst")
     list_filter = ("role", "is_active")
     search_fields = ("username", "nickname")
     ordering = ("-created_at",)
-    readonly_fields = ("role", "is_superuser", "created_at", "last_login")
+    readonly_fields = ("role", "is_active", "is_superuser", "created_at", "last_login")
     filter_horizontal = ()
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         ("프로필", {"fields": ("nickname", "class_label")}),
-        ("권한", {"fields": ("role", "is_active", "is_superuser")}),
+        ("권한", {"fields": ("role", "is_active", "is_superuser"), "description": (
+            "여기서는 바꾸지 않습니다. 광고주의 활성 여부는 관리자 첫 화면의 ‘광고주 · 포인트 조정’에서 사유와 함께 바꿉니다(비활성화하면 광고도 나가지 않습니다). "
+            "관리자 계정을 급히 끊을 때는 서버 명령 changepassword 를 씁니다."
+        )}),
         ("기록", {"fields": ("created_at", "last_login")}),
     )
 
@@ -51,36 +57,13 @@ class UserAdmin(BaseUserAdmin):
     def created_kst(self, obj):
         return kst(obj.created_at)
 
-    def _advertiser(self, obj):
-        return obj is not None and obj.role == Role.ADVERTISER
-
-    def get_readonly_fields(self, request, obj=None):
-        """광고주의 활성 여부는 운영 화면(`set_advertiser_active`: 사유 필수, 감사 `account.deactivated`·`account.reactivated`)으로만 바꾼다
-        — 비활성화는 송출도 멈추므로 바꾸는 길을 하나로 둔다(설계 §10, 위협 모델 T2). 관리자 계정은 여기서 바꾼다."""
-        fields = super().get_readonly_fields(request, obj)
-        return (*fields, "is_active") if self._advertiser(obj) else fields
-
-    def get_fieldsets(self, request, obj=None):
-        if not self._advertiser(obj):
-            return super().get_fieldsets(request, obj)
-        note = "광고주의 활성 여부는 여기서 바꾸지 않습니다. 관리자 첫 화면의 ‘광고주 · 포인트 조정’에서 사유와 함께 바꿉니다(비활성화하면 광고도 나가지 않습니다)."
-        return [(name, {**options, "description": note}) if name == "권한" else (name, options) for name, options in self.fieldsets]
-
     def save_model(self, request, obj, form, change):
-        """**편집한 칸만** 잠근 최신 행에 쓴다. 기본 `obj.save()` 는 요청 처음에 읽은 객체의 모든 열을 다시 써서, 그 사이 운영 화면이 한 광고주 비활성화
+        """**편집한 칸만** 쓴다. 기본 `obj.save()` 는 요청 처음에 읽은 객체의 모든 열을 다시 써서, 그 사이 운영 화면이 한 광고주 비활성화
         (`is_active`·`session_epoch`)를 프로필 편집이 되돌렸다(외부 검토 3-1d). 읽기 전용 칸은 폼에 없으므로 `changed_data` 에도 없다."""
         changed = [name for name in form.changed_data if name in form.cleaned_data and "password" not in name]
-        with transaction.atomic():
-            row = User.objects.select_for_update().get(pk=obj.pk)
-            for name in changed:
-                setattr(row, name, form.cleaned_data[name])
-            fields = list(changed)
-            if "is_active" in changed and not row.is_active:
-                row.session_epoch += 1  # 관리자 계정을 끄면 열린 세션도 끝낸다 — 최신 값에서 올린다(광고주는 운영 화면이 같은 일을 한다)
-                fields.append("session_epoch")
-            if fields:
-                row.save(update_fields=fields)
-            record_audit(request, "account.admin_updated", target=row, detail={"changed": changed, "role": row.role, "is_active": row.is_active})
+        if changed:
+            obj.save(update_fields=changed)
+        record_audit(request, "account.admin_updated", target=obj, detail={"changed": changed, "role": obj.role})
 
     def user_change_password(self, request, id, form_url=""):
         response = super().user_change_password(request, id, form_url)
