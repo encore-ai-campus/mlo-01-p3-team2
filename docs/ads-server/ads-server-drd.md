@@ -232,6 +232,7 @@ erDiagram
         int daily_budget
         string status
         string ended_from
+        string request_key "UK, 광고 만들기 요청 멱등 키"
     }
     campaigns_ad_group {
         uuid ad_group_id PK
@@ -467,6 +468,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `ended_from` | 코드 | Y | | `ENDED` 직전 상태(중단된 채 끝났는지 알 수 있다) |
 | `suspended_reason` | 문자 500 | N | | 관리자 중단 사유 |
 | `suspended_at` | 시각 | Y | | |
+| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 광고 만들기의 멱등 키(화면 폼 하나 = 캠페인 하나). 같은 키로는 다시 만들지 않고 처음 만든 광고를 돌려준다. 키 없이 만든 캠페인은 NULL [구현 `f10f1c4`] |
 | `created_at`, `updated_at` | 시각 | N | | |
 
 #### O2. 광고그룹 `campaigns_ad_group` [구현]
@@ -649,6 +651,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
+| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409 | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
@@ -892,6 +895,7 @@ sequenceDiagram
 | 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
 | 매체 키 발급·교체 | `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 키는 하나(두 번째는 409 + 키 식별자) |
 | 관리자 조정 | `adjust_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 조정은 한 번 |
+| 광고 만들기 | O1 `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도·상한에서 다시 보냄도 광고는 하나 |
 | 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
 | 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
 | 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
@@ -1188,6 +1192,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.26 | 2026-10-11 | 3-2c 광고 만들기(`f10f1c4`): O1 `request_key`(광고 만들기 요청의 멱등 키, UNIQUE·NULL 허용)와 ER, §5 불변식·멱등 키 표 |
 | 0.25 | 2026-10-11 | 광고주 비활성화의 효과(사용자 결정, 구현 3-1d `f9a7a2e`): §6 수명주기와 `is_active` 설명에 로그인·세션·광고 송출·공개 이미지가 멈추고 다시 활성화하면 그대로 다시 나간다는 점. 외부 검토 3-1d 보완(`b4faf8a`): A1 `session_epoch`, B2 `adjust_key`, `role`·`is_superuser`는 사용자 관리 화면에서도 바꿀 수 없음(`002f90b` 포함), §5 멱등 키·불변식 표와 §5.5 감사 로그(`account.admin_created`가 더 이상 생기지 않음). M4 `request_key`(`4450a59`, 발급 요청의 멱등 키) |
 | 0.24 | 2026-10-10 | 외부 재검토(`f52d1df`) 보완 반영: 구간 manifest 게시의 직렬화 단위를 "파일별"에서 "내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지), 폴더 단위 잠금"으로 고침(로컬 파일시스템 전제 유지) |
 | 0.23 | 2026-10-10 | 외부 검토(`b481024`) 보완 반영: 구간 manifest 계약에 중계 지연 후보의 좁힌 정의(부족분 ≤ 미전송), outbox 대조 범위(보존 기준 시각 `retention_cutoff` 이후 시작한 창), 입력 검증 규칙, 게시 직렬화(`flock`)와 고정점(이 실행이 게시한 manifest 해시)·한계 |
