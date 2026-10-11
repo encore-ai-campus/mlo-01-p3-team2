@@ -23,3 +23,9 @@ foundation 출력에는 account_key, account_id, region, vpc_cidr, az_ids, vpc_i
 ## 변경 영향
 
 VPC·서브넷·AZ·역할 목록이 바뀌면 foundation을 검토한 뒤 connectivity·workload·bastion의 상태 의존성을 확인한다. 계정별 상태 key는 {key_prefix}/{account}/foundation/terraform.tfstate다. 기존 자원의 자동 import나 과거 로컬 상태의 자동 이관은 이 stack에 없다.
+
+## ALB 비활성화 시 SG 정리
+
+기본 및 current 설정의 alb.enabled=false에 따라 ALB 비활성화 직후 account1 역할 SG는 4개였으며 edge-1 추가 후 ad·bastion·frontend·game·edge 5개, 전체 18개다. 기존 ALB SG가 사용 중이면 먼저 account1 workload의 ALB와 참조 규칙을 정리한 뒤 foundation을 적용한다. [배포 순서](../../../deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. foundation.tftest.hcl의 account1_proxy도 ALB 없는 역할 집합을 검사한다.
+
+edge-1의 역할 edge가 기존 model.roles에 반영돼 전용 SG를 만든다. 새 VPC·서브넷·IGW는 추가하지 않는다. ALB 삭제가 미완료인 환경에서는 [edge 추가 순서](../../../deployment-runbook.md#진입용-edge-1-추가)에 따라 기존 SG 참조 정리와 새 SG 생성을 나눈다.

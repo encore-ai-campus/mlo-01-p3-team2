@@ -1,0 +1,5 @@
+#!/bin/sh
+# 새 인증서가 준비되어도 설정이 유효할 때만 실행 중 Nginx에 반영한다.
+set -eu
+/usr/sbin/nginx -t
+/bin/systemctl reload nginx

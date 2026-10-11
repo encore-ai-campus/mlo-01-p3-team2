@@ -27,3 +27,7 @@
 ## 검증 범위
 
 관련 MySQL·Router 템플릿을 로컬에서 렌더링하고 AdminAPI 모의 시나리오 및 Ansible 인벤토리 검사·playbook 문법 검사를 수행했다. EC2 설치·실제 복제·장애 전환은 실행하지 않았다. YAML·Jinja·JavaScript는 routing-doc-sync의 Python AST 자동 심볼 검사 범위 밖이다. [검증 기록](verification.md)에서 범위를 확인한다.
+
+## Edge HTTPS
+
+Monitoring 직전에 hosts: edge, role: edge, tags: [edge] play가 실행된다. 실제 EIP·허용 사용자 CIDR이 필수다. 단일 진입 서버를 준비하려면 [edge.yml](edge.yml.md)을 사용한다. [edge 역할](roles/edge/README.md)은 Front 앱 설치를 포함하지 않는다.

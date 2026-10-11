@@ -92,11 +92,13 @@ instance 출력은 id, public_ip, private_ip, root_volume_id, key_name이다. VP
 
 ## alb
 
+현재 기본 및 current 설정은 alb.enabled=false다. 아래는 선택적으로 활성화하고 전용 연결 3개를 복원했을 때의 모듈 동작이다. 기존 자원 정리는 [배포 순서](../../deployment-runbook.md#alb-비활성화-적용-순서)를 따른다.
+
 원본: [modules/alb/main.tf](../../../infra/terraform/modules/alb/main.tf), [versions.tf](../../../infra/terraform/modules/alb/versions.tf).
 
 입력은 name, vpc_id, subnet_ids, sg_id, frontend_targets, game_targets, ad_targets, 세 대상 포트(frontend_port, game_port, ad_port)와 static_path·ad_path 및 세 health_path(frontend_health_path, game_health_path, ad_health_path)다. certificate_arn 입력과 ACM ARN precondition은 제거됐다.
 
-인터넷 공개 ALB, frontend/game/ad HTTP 대상 그룹과 EC2 연결, HTTP 80 listener를 만든다. HTTP 기본 대상은 game이며 같은 listener의 우선순위 10 static_path 규칙은 frontend, 우선순위 20 ad_path 규칙은 ad로 보낸다. 현재 설정은 /static/*→Front 두 대의 80, /ads/*→ad-server 한 대의 8000, 기본→game-server 한 대의 8000이다. 광고 요청의 경로는 변경하지 않는다. HTTPS 443 listener와 HTTPS 리다이렉트는 없다. 출력은 dns_name이며 http://{dns_name}/ads/ 형식으로 광고 경로에 접속한다.
+인터넷 공개 ALB, frontend/game/ad HTTP 대상 그룹과 EC2 연결, HTTP 80 listener를 만든다. HTTP 기본 대상은 game이며 같은 listener의 우선순위 10 static_path 규칙은 frontend, 우선순위 20 ad_path 규칙은 ad로 보낸다. 활성화할 때 사용하는 경로 설정은 /static/*→Front 두 대의 80, /ads/*→ad-server 한 대의 8000, 기본→game-server 한 대의 8000이다. 광고 요청의 경로는 변경하지 않는다. HTTPS 443 listener와 HTTPS 리다이렉트는 없다. 출력은 dns_name이며 http://{dns_name}/ads/ 형식으로 광고 경로에 접속한다.
 
 세 대상 그룹의 health check 경로는 현재 /, 성공 코드는 200~399다. 광고 Django의 실제 URL과 / 응답 여부는 애플리케이션 소스가 없어 확인하지 못했다. EC2 생성과 대상 등록은 웹서버·Django 설치나 healthy 상태를 보증하지 않는다. ALB 외부 인바운드는 [workload](stacks/workload.md)의 game_client_cidrs → TCP 80 규칙으로 제한한다.
 

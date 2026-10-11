@@ -162,6 +162,11 @@ function Write-DeploymentInventory {
             proxy_port = $traffic.ports.proxy
             proxy_client_cidrs = @($accountNames | ForEach-Object { $topology.accounts.$_.vpc_cidr })
         }
+        if ($record.Role -eq 'edge') {
+            if (-not $instance.PSObject.Properties['PublicIpAddress'] -or -not $instance.PublicIpAddress) { throw '진입 서버의 EIP가 없습니다.' }
+            $hostVars.public_ip = $instance.PublicIpAddress
+            $hostVars.edge_https_allowed_cidrs = @($traffic.game_client_cidrs)
+        }
         if ($record.Role -eq 'bastion') {
             if (-not $instance.PSObject.Properties['PublicIpAddress'] -or -not $instance.PublicIpAddress) { throw '배스천 공인 IP가 없습니다.' }
             $hostVars.public_ip = $instance.PublicIpAddress

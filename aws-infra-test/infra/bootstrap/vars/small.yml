@@ -1,0 +1,12 @@
+---
+# 2GiB 테스트 노드용. 실제 부하 처리량은 별도 검증한다.
+kafka_heap_min_mb: 256
+kafka_heap_max_mb: 512
+spark_os_reserve_mb: 640
+spark_daemon_mb: 128
+spark_worker_min_mb: 512
+zookeeper_heap_mb: 128
+mysql_buffer_pool_ratio: 0.25
+mongodb_cache_ratio: 0.25
+mysql_cluster_name: infra_test
+mongodb_replset_name: infra_test

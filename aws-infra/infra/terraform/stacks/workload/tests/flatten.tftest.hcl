@@ -53,20 +53,23 @@ run "account2_flatten_private_a" {
     )
     error_message = "평탄화 노드는 기존 두 서버와 함께 Private A의 medium급 서버로 생성하며 공인 IP·별도 데이터 디스크를 추가하지 않아야 합니다."
   }
-  # Consumer는 모든 브로커로 접속하되 Controller·DB·직접 인터넷 포트를 열지 않는다.
+  # Consumer는 모든 브로커로 접속하되 Controller·MySQL·직접 인터넷 포트를 열지 않는다.
   assert {
     condition = (
       alltrue([for account in ["account3", "account4", "account5"] :
         module.rules.egress["account2/consumer/${account}/kafka/9092"].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account2.sg_ids.consumer &&
         module.rules.egress["account2/consumer/${account}/kafka/9092"].peer_id == "${var.topology.accounts[account].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[account].sg_ids.kafka}"
       ]) &&
-      length([for rule in values(module.rules.egress) : rule if rule.group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account2.sg_ids.consumer]) == 4 &&
+      length([for rule in values(module.rules.egress) : rule if rule.group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account2.sg_ids.consumer]) == 7 &&
+      alltrue([for account in ["account2", "account3", "account5"] :
+        module.rules.egress["account2/consumer/${account}/mongo/27017"].port == 27017
+      ]) &&
       !contains(var.traffic.internet_https_roles, "consumer") &&
       module.rules.ingress["account1/bastion/account2/consumer/22"].port == 22 &&
       module.rules.egress["account2/consumer/account1/bastion/3128"].port == 3128 &&
       contains(keys(aws_vpc_security_group_ingress_rule.service_console_ssh), "consumer")
     )
-    error_message = "평탄화 노드는 Kafka 9092·프록시 3128 송신과 배스천·콘솔 SSH만 연결해야 합니다."
+    error_message = "평탄화 노드는 Kafka 9092·MongoDB 27017·프록시 3128 송신과 배스천·콘솔 SSH만 연결해야 합니다."
   }
 }
 

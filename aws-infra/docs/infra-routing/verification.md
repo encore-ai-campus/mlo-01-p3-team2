@@ -388,3 +388,70 @@ infra-destroy.ps1의 workload 주소 패턴에 정확한 service_console_ssh 이
 
 
 스테이징 snapshot을 별도 폴더에 복사해 routing-doc-sync를 실행했다. 전체 영향 문서의 자동 검사에서 비용 수식·EC2 유형·JSON 키·YAML/PowerShell 파일명을 Python 심볼로 해석한 38개 missing_symbol이 나왔으며, 모두 Python 선언이 아닌 표기여서 Python 불일치로 확정하지 않는다. 실제 Python 참조와 비Python 링크·설정은 별도로 대조한다. 전체 스킬 결과를 성공으로 표현하지 않는다.
+
+## 2026-10-11 애플리케이션 통신 규칙
+
+비교 기준은 ca25963a8a9facea03b29ead07308ab95721b0dc와 작업 파일이다. 현재 저장소 위치는 C:/third-project/aws다. 기본 traffic과 로컬 current 프로필에 Front→게임·광고, 게임↔광고, Consumer·광고→MongoDB, 광고→MySQL, MySQL→Kafka·게임·광고 10종류를 추가했다. 새 역할·계정 SG 연결은 28쌍이고 기존 연결 삭제는 0개다. 외부 CIDR·공개 포트·ALB 배치는 변경하지 않았다.
+
+- Terraform validate: 통과.
+- application-flows.tftest.hcl: 계정별 5건 통과.
+- flatten.tftest.hcl: 4건 통과. MongoDB 3대 송신을 포함해 Consumer egress 기대값을 7개로 변경.
+- workload spark-ports.tftest.hcl: 4건 통과.
+- fixtures.json: 누락돼 있던 account4/mysql 모의 SG 추가.
+- 기본/current 설정 일치, 기존 연결 보존, git diff --check 확인.
+- 플랫폼 firewall: 역할 템플릿 9종과 출처 검사 67건 통과.
+
+13개 Terraform 검사는 모의 AWS provider와 고정 원격 상태를 사용했다. 실제 AWS Plan·Apply, 원격 Ansible, 서비스 데이터 송수신, 전체 Terraform 테스트는 실행하지 않았다. 이번 변경의 통과 결과를 이전 배포·클러스터 장애 검증에 확대하지 않는다.
+
+routing-doc-sync 스킬로 관련 문서를 읽기 전용 분석했다. 이번 JSON·Terraform·YAML 관계는 Python AST 자동 참조 검사의 지원 범위 밖이므로 관계 목록·포트·테스트 선언·문서 링크는 직접 대조한다. 과거 검증 기록은 당시의 결과로 유지한다.
+
+문서 최종 대조에서 수정 문서 11개의 로컬 파일 링크 240개에 누락 경로가 없고, 보안그룹 연결 표 33개와 방화벽 역할 표 8개가 코드와 일치함을 확인했다. routing-doc-sync는 관련 라우팅 문서 3개에서 diagnostics 0·mismatch 0을 반환했지만 지원 참조가 없어 checked_references=0, structural_status=needs_review, role_status=not_verified였다. 이는 자동 검증 완료가 아니며 위 직접 대조와 로컬 실행 결과로 검증 범위를 한정한다.
+
+## 2026-10-11 ALB 비활성화
+
+사용자 요청에 따라 기본 및 profiles/current의 topology.alb.enabled=false와 traffic의 alb_front·alb_game·alb_ad 제거만 설정에 반영했다. 시작 HEAD는 ca25963a8a9facea03b29ead07308ab95721b0dc이며, 앞선 애플리케이션 연결·방화벽 작업의 스테이징 16개 파일과 별도 aws-infra-test/ 폴더를 유지했다. 이번 비교는 그 작업 파일 상태를 기준으로 한다. current 프로필은 Git 제외 대상이다.
+
+- 설정 객체 대조: ALB 활성화 값과 연결 3개 이외의 노드·EIP 입력·디스크·CIDR·포트·서비스 연결은 동일하다. 현재 연결은 30개이며 보안그룹 문서 표의 출발지·목적지·포트와 모두 일치한다.
+- Terraform workload validate 통과. 모의 테스트는 workload 8개, application-flows 5개, flatten 4개, spark-ports 4개, foundation 3개로 총 24개 통과했다. AWS provider 및 원격 상태는 모의 처리했다.
+- ALB SG가 남은 foundation 출력과 SG를 제거한 출력 모두 검사했다. ALB 모듈·DNS·연결 없음, 기존 Front·게임·광고 서버와 Front→게임·광고 8000 유지, 명시적으로 다시 활성화한 프로필을 확인했다. 기존 테스트의 Bastion 분리·mysql-3·계정 간 SG 참조 기대값도 현재 구현에 맞췄다.
+- 관련 문서 9개의 로컬 파일 링크 201개를 확인해 누락 경로가 없었다. 이 검사는 앵커 존재 여부나 원격 사이트 내용을 확인하지 않는다.
+
+기존 ALB 자원은 account1 workload에서 먼저 정리하고, 참조가 사라진 뒤 foundation의 ALB SG를 정리하도록 [배포 절차](../deployment-runbook.md#alb-비활성화-적용-순서)에 기록했다. 실제 AWS Plan·Apply·삭제·SSH·Ansible을 실행하지 않았다. Front 외부 웹 인바운드, Nginx·인증서·HTTPS는 후속 작업이다.
+
+routing-doc-sync의 Python AST 자동 분석은 이번 JSON·Terraform 참조를 지원하지 않는다. 설정·보안그룹 표와 모의 테스트로 해당 범위를 별도 확인하며 자동 심볼 검증 성공으로 해석하지 않는다.
+
+추가 문서 요청에 따라 운영·요구사항·설치·비용 안내까지 관련 문서 21개를 동기화했고 로컬 파일 링크 449개에서 누락 경로가 없었다. 과거 실행·가격 계산은 당시 기록으로 유지했으며 새로운 가격 조회나 비용 재계산은 하지 않았다. routing-doc-sync 자동 검사는 Python 참조가 없는 JSON·Terraform 영역에서 needs_review / not_verified이며 별도 설정 대조와 위 모의 테스트가 검증 근거다.
+
+## 2026-10-11 진입용 edge-1 생성 설정
+
+직전 ALB 비활성화·애플리케이션 연결 작업의 스테이징 32개 파일을 유지한 상태에서 시작했다. HEAD는 ca25963a8a9facea03b29ead07308ab95721b0dc다. 별도 aws-infra-test/는 수정하거나 스테이징하지 않는다.
+
+기본 및 current 설정에 edge-1(account1 Public A, role=edge, t3a.small, OS gp3 20GiB, EIP, 별도 데이터 디스크 없음)을 추가했다. edge_front TCP 80과 기존 admin_nodes·forward_proxy의 edge 확장으로 Front·SSH·다운로드 경로만 준비한다. 기존 모든 노드 객체와 MySQL 3대, 나머지 연결·CIDR·포트·인터넷 송신 설정이 시작 상태와 같음을 객체 대조로 확인했다. 서비스 EC2 18대, Bastion 포함 19대, 전체 EBS 4,280GiB이며 workload EIP는 3개다. 전용 SG를 포함해 총 18개, connections는 31개다.
+
+workload validate 통과. edge 1개·application-flows 5개·flatten 4개·spark-ports 4개·workload 8개가 통과했다. 콘솔 SSH 최초 실행에서는 기존 account4 테스트의 mysql 역할 기대값 누락으로 1개가 실패했으며, 테스트 목록을 실제 선언인 kafka·mysql·spark로 보완한 뒤 콘솔 SSH 5개가 모두 통과했다. foundation 3개도 통과했다. 최종 확인한 고유 모의 테스트는 총 30개다. MySQL 서비스 설정과 실제 서버는 변경하지 않았다.
+
+AWS provider·원격 상태는 모의 처리했다. 실제 AWS Plan·Apply·EC2 생성·인벤토리 생성·SSH·Ansible은 실행하지 않았다. 외부 80·443, Nginx·Certbot·least_conn과 원격 OS 방화벽은 후속 설정이다. EIP를 선언했다고 HTTPS가 동작하는 것은 아니다. 기존 ALB 정리가 남은 환경은 edge 없는 전환 입력으로 ALB 참조를 정리한 뒤 edge foundation→workload를 적용하도록 배포 절차에 기록했다.
+
+보안그룹 표의 31개 연결과 포트를 설정에 대조했고 관련 문서 17개의 로컬 파일 링크 338개에 누락 경로가 없었다. 비용 문서는 새 수량과 과거 견적을 구분했으며 가격 조회·재계산은 하지 않았다. routing-doc-sync의 Python AST 분석이 지원하지 않는 Terraform·JSON 의미는 모의 검사와 설정 대조로 확인한다.
+
+## 2026-10-11 edge HTTPS 실제 구축
+
+시작 HEAD는 ca25963a8a9facea03b29ead07308ab95721b0dc이며 기존 스테이징 35개와 aws-infra-test/를 보존했다. 이번 실제 적용은 Account 1 foundation과 edge 단독 초기 구축이다. 다른 EC2·ALB의 생성이나 전체 삭제는 실행하지 않았다.
+
+- foundation: 22 added, 0 changed, 0 destroyed. workload: 18 added, 0 changed, 0 destroyed.
+- edge-1: i-0fc792099ad53451a, t3a.small, Ubuntu 24.04, root gp3 20GiB, Private IP 10.10.0.39, EIP 54.116.158.93.
+- SG는 인터넷 ACME 80, 현재 허용 사용자 211.117.107.63/32의 443, 관리 SSH, 패키지·ACME용 HTTPS 송신과 지정한 내부 연결을 허용한다. Nginx HTTP는 인증 검증 경로 외 404, HTTPS는 허용 CIDR과 localhost만 수용한다.
+- edge.yml 실제 실행: ok=85, changed=29, unreachable=0, failed=0. Certbot 5.8.0, Nginx, OS 방화벽, 설치 확인 페이지, 인증서 발급과 자동 갱신을 적용했다.
+- 정식 인증서 IP SAN은 54.116.158.93, issuer는 Let's Encrypt YE2, 만료는 2026-10-18 04:26:06 UTC다. 외부 curl의 신뢰 검증을 켠 HTTPS 200, HTTP / 404, 비허용 출처의 Nginx 403을 확인했다.
+- edge-certbot-renew.timer 활성·자동 시작을 확인했다. 최초 발급 사전 검증과 설치 후 renew --dry-run이 모두 성공했고 Nginx 검사·reload 훅도 성공했다. 실제 미래 갱신 결과까지 확인한 것은 아니다.
+- Front upstream은 비어 있어 설치 확인 페이지만 제공한다. Front A/B 화면 배포, 게임·광고 API, least_conn 실제 분산은 아직 검증하지 않았다.
+
+로컬 검증은 Terraform workload validate 및 고유 모의 테스트 28개, 실행기 기존 모의 검사 8개, edge 생성 계획 보호 7개, 삭제 표식·허용 주소 검사 6개가 통과했다. 플랫폼 YAML·Jinja 렌더링, Ubuntu 미러 URL 6종, Nginx 3상태, 방화벽 CIDR, 발급·갱신 인수와 edge.yml/site.yml 문법도 통과했다.
+
+전체 삭제 회귀 검사에서 기존 테스트 fixture가 운영 prevent_destroy=false를 그대로 복사해 보호 거부 시나리오에 실패했다. 테스트 사본에만 시나리오별 보호값을 명시하도록 보완했으며 운영 compute/main.tf는 이번 작업에서 변경하지 않았다. 실제 AWS 삭제 검증과 모의 검사를 구분한다.
+
+routing-doc-sync는 Python 파일·심볼 구조를 분석하며 Terraform·Ansible·Nginx의 의미 검증을 대신하지 않는다. 해당 범위의 근거는 위 모의 실행·렌더링·실제 서버 확인이다.
+
+최종 전체 삭제 회귀 검사 17개가 통과했다. 실제 AWS 삭제는 실행하지 않았다. 관련 변경 문서 31개의 로컬 파일 링크 423개에서 누락 경로가 없었다. 전체 문서를 대상으로 한 routing-doc-sync는 README의 셸 명령과 YAML 이름 등을 Python 경로·심볼로 해석해 9개 mismatch를 출력했다. 실제 Python 실행 파일 경로와 해당 비-Python 문맥을 따로 확인했으며 이 결과를 자동 검증 통과로 표시하지 않는다. Terraform·YAML 의미는 별도 검사 범위다.
+
+삭제 순서 보완 후 실제 edge workload의 새 Plan은 No changes였고 Apply는 0 added·0 changed·0 destroyed였다. 원격 상태에서 connectivity_ready의 edge_bootstrap_guard 의존성을 확인했다. 이 작업은 EC2·EIP를 교체하지 않았다.

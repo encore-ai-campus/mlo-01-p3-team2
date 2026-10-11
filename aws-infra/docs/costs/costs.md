@@ -1,23 +1,23 @@
 # 현재 자원 구성과 과거 비용 견적
 
-문서 갱신: 2026-10-10. 현재 구성은 로컬 topology 설정과 라우팅 문서를 대조했다. AWS 사용액·크레딧 잔액·최신 단가는 이번 문서 정리에서 조회하지 않았다.
+문서 갱신: 2026-10-11. 현재 구성은 로컬 topology 설정과 라우팅 문서를 대조했다. AWS 사용액·크레딧 잔액·최신 단가는 이번 문서 정리에서 조회하지 않았다.
 
 ## 현재 기본 구성
 
-서비스 EC2 17대와 별도 bastion 단계의 배스천 1대다. 배스천을 포함하면 small 9대·medium 1대·large 8대, AZ A 13대·C 5대다. 사양은 t3a.small / t3a.medium / t3a.large이며 배포 프로필에서 변경할 수 있다.
+서비스 EC2 18대와 별도 bastion 단계의 배스천 1대다. 배스천을 포함하면 small 10대·medium 1대·large 8대, AZ A 14대·C 5대다. 사양은 t3a.small / t3a.medium / t3a.large이며 배포 프로필에서 변경할 수 있다.
 
 | 계정 / VPC | AZ A | AZ C | EC2 / 전체 EBS |
 |---|---|---|---|
-| Account 1 / 10.10.0.0/16 | Public Bastion small, Public Front-A small, Private game large | Public Front-C small, Private ad large | 5대 / 100GiB |
+| Account 1 / 10.10.0.0/16 | Public Bastion small, Public Front-A small, Public edge-1 small, Private game·ad large | Public Front-C small | 6대 / 120GiB |
 | Account 2 / 10.20.0.0/16 | Private Mongo-1 small, Spark-2 large, flatten-1 medium | 없음 | 3대 / 1,060GiB |
 | Account 3 / 10.30.0.0/16 | Private Kafka-1 large, MySQL-1 small, Spark-1 large | Private Mongo-2 small | 4대 / 1,380GiB |
 | Account 4 / 10.40.0.0/16 | Private Kafka-2 large, MySQL-3 small | Private Spark-3 large | 3대 / 460GiB |
 | Account 5 / 10.50.0.0/16 | Private Mongo-3 small | Private MySQL-2 small, Kafka-3 large | 3대 / 1,260GiB |
-| 합계 | 12대 | 6대 | 18대 / 4,260GiB |
+| 합계 | 14대 | 5대 | 19대 / 4,280GiB |
 
-전체 EBS는 OS 20GiB/대와 데이터 볼륨을 합산한 할당량이다. 배스천을 생성하지 않으면 17대·4,240GiB다. 아래 과거 견적은 flatten-1과 mysql-3 추가 전 16대 기준이며 두 신규 노드의 비용을 포함하지 않는다. 현재 수량의 24시간 유휴 견적은 [요금 계산 기준](cost-calculator.md)을 따른다. 데이터 볼륨의 포맷·마운트는 자동화되지 않았다. 계정별 상세 배치는 [자원 배분](account-allocation.md)을 따른다.
+전체 EBS는 OS 20GiB/대와 데이터 볼륨을 합산한 할당량이다. 배스천을 생성하지 않으면 18대·4,260GiB다. 아래 과거 견적은 flatten-1과 mysql-3 추가 전 16대 기준이며 flatten-1·mysql-3·edge-1의 비용을 포함하지 않는다. [요금 계산 기준](cost-calculator.md)은 edge-1 추가 전 비교표이며 현재 수량으로 재계산하지 않았다. 데이터 볼륨의 포맷·마운트는 자동화되지 않았다. 계정별 상세 배치는 [자원 배분](account-allocation.md)을 따른다.
 
-Account 1의 ALB 설정은 Public A·C의 HTTP 80 리스너다. 2026-10-10 실제 AWS에는 ALB가 없으며 비용 증가를 원하지 않은 사용자 요청에 따라 이번 MySQL 증설에서 복원하지 않았다. Front 2대에 EIP를 할당하지만 배스천은 자동 공인 IPv4를 사용한다. 배스천 중지 후 시작 시 공인 IP가 바뀔 수 있으므로 고정 IP 3개를 유지한다는 과거 가정을 현재 구성에 적용하면 안 된다. 기본 NAT Gateway는 0개이고 사설 서버의 설치 다운로드는 배스천 Squid 프록시를 사용한다.
+기본 및 current 설정의 ALB는 2026-10-11 비활성화했다. 이후 설명하는 ALB 포함 금액은 과거 비교 시나리오다. 2026-10-10 실제 AWS에는 ALB가 없으며 비용 증가를 원하지 않은 사용자 요청에 따라 이번 MySQL 증설에서 복원하지 않았다. Front 2대와 edge-1에 EIP를 할당하지만 배스천은 자동 공인 IPv4를 사용한다. 배스천 중지 후 시작 시 공인 IP가 바뀔 수 있으므로 고정 IP 3개를 유지한다는 과거 가정을 현재 구성에 적용하면 안 된다. 기본 NAT Gateway는 0개이고 사설 서버의 설치 다운로드는 배스천 Squid 프록시를 사용한다.
 
 현재 기본값은 A=apne2-az1, C=apne2-az3이다. 계정별 AZ 이름보다 물리 AZ ID를 기준으로 비교한다. 선언과 실제 AWS 배치의 일치는 별도 확인 대상이다.
 
@@ -75,3 +75,5 @@ Account 1의 ALB 설정은 Public A·C의 HTTP 80 리스너다. 2026-10-10 실�
 [상세 견적 기록](dual-az.md)은 당시 단가·전송량·계산식을 보관한다. 현재 배치와 과거 계산 배치를 구분해 읽는다. 이전 문서가 안내한 calculate.py와 estimate.json은 현재 비용 문서 폴더에 없으므로 실행 명령과 링크를 제거했다. 이 저장소에 재계산 도구가 구현되어 있다고 안내하지 않는다.
 
 153시간 이후 보관료를 제외했던 가정은 데이터 삭제 정책이 아니다. 종료 후 남기는 EBS·백업·ALB·IP의 비용을 추가하고, 실제 삭제는 [배포·삭제 실행 안내](../deployment-runbook.md)를 따른다.
+
+edge-1 생성 설정으로 EC2·OS 20GiB·EIP가 각각 하나 늘었다. 아래 과거 금액은 그대로 보존하며 새 진입 서버 비용은 포함하지 않는다. 실제 AWS 생성이나 가격 조회는 하지 않았다.

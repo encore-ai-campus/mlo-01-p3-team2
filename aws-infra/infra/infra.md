@@ -22,10 +22,10 @@
 
 - 리전 ap-northeast-2, 논리 A=apne2-az1·C=apne2-az3. 계정 콘솔 AZ 이름과 구분한다.
 - VPC는 10.10·10.20·10.30·10.40·10.50.0.0/16이다. 각 Private A/C는 /24의 세 번째 옥텟 10/11이다.
-- 서비스 서버는 계정별 4/3/4/3/3대, 총 17대다. Bastion은 account1 Public A의 별도 상태로 선택 생성한다. 포함하면 계정별 5/3/4/3/3대, 총 18대다.
-- 광고는 account1 Private A다. account1만 Public A/C·IGW·ALB를 만들며 기본 NAT는 0개다.
-- Front 두 대에 EIP를 만들고 Bastion은 자동 공인 IP를 사용한다. 서비스 OS 디스크는 20GiB, 별도 데이터 디스크는 [프로젝트 구성표](../README.md#서버-수와-사양)를 따른다.
-- ALB는 HTTP 80이며 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. ACM ARN을 요구하거나 HTTPS 리스너를 만들지 않는다.
+- 서비스 서버는 계정별 5/3/4/3/3대, 총 18대다. Bastion은 account1 Public A의 별도 상태로 선택 생성한다. 포함하면 계정별 6/3/4/3/3대, 총 19대다.
+- 광고는 account1 Private A다. account1만 Public A/C·IGW를 만들며 기본 NAT는 0개다. 기본 및 current 설정의 ALB는 비활성화돼 있다.
+- Front 두 대와 edge-1에 EIP를 만들고 Bastion은 자동 공인 IP를 사용한다. 서비스 OS 디스크는 20GiB, 별도 데이터 디스크는 [프로젝트 구성표](../README.md#서버-수와-사양)를 따른다.
+- ALB를 활성화하고 전용 연결을 복원한 프로필은 HTTP 80에서 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000을 사용한다. 현재 기본 구성은 이 경로와 외부→Front 웹 접속 규칙을 만들지 않는다.
 - 현재 관리자·사용자 CIDR은 각각 한 항목이다. 배포 전에 본인의 접속 범위와 맞는지 확인한다. 서비스 콘솔 SSH는 리전별 EC2 Instance Connect IPv4 접두사 목록 → 서비스 역할 SG의 TCP 22 규칙을 별도로 선언한다.
 
 인터넷 다운로드는 [프록시 준비](../../aws-platform/platform/README.md#구성별-프록시-준비-스크립트)가 필요하다. NAT 모드로 바꾸려면 해당 계정의 public_subnets=true·egress=nat로 Public A/C의 AZ별 NAT를 만들고 인터넷 송신 SG·프로그램 Proxy 설정도 맞춘다. 다른 VPC의 NAT를 Peering만으로 공유하는 구성은 아니다.
@@ -85,4 +85,6 @@ S3 상태는 foundation/workload 계정별 10개와 shared/connectivity 1개, �
 
 2026-10-09 개편 당시 대체된 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 보관했다는 기록이 있다. 현재 실행기는 그 파일을 읽지 않는다. 과거 10.11.0.0/16 네트워크·로컬 상태가 새 10.10.0.0/16 S3 구성에 자동 이관된 것은 아니다. 실제 상태·자원 연결은 별도 이관 계획으로 확인한다.
 
-2026-10-10 current 프로필의 mysql-3는 실제 생성됐으며 [검증 기록](../docs/infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에 결과를 남겼다. account1 ALB는 실제로 없고 이번 적용에서는 사용자 요청으로 재생성을 보류했다. alb.enabled=true는 그대로이므로 일반 account1 workload·일괄 Deploy 계획에 ALB 재생성이 포함될 수 있다.
+2026-10-10 current 프로필의 mysql-3는 실제 생성됐으며 [검증 기록](../docs/infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에 결과를 남겼다. account1 ALB는 실제로 없고 이번 적용에서는 사용자 요청으로 재생성을 보류했다. 당시에는 alb.enabled=true를 유지했으나, 2026-10-11 기본 및 current 설정의 ALB를 비활성화하고 전용 연결을 제거했다. 기존 자원 정리는 [배포 순서](../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다.
+
+edge-1 생성 설정과 기존 ALB 정리의 의존성은 [배포 절차](../docs/deployment-runbook.md#진입용-edge-1-추가)를 따른다. 외부 HTTPS 규칙·Nginx 설치는 후속 작업이다.

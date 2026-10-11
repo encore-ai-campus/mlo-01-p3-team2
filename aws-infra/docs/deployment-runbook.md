@@ -69,7 +69,7 @@ $deploymentProfile = 'C:\third_project\aws-infra\infra\config\profiles\current'
 | --- | --- | --- |
 | foundation Plan → Apply | 다섯 계정의 VPC·서브넷·기본 보안그룹 등 | 계획을 확인하고 대문자 `APPLY` 입력 |
 | connectivity Plan → Apply | 계정 간 VPC Peering·라우팅 | 계획을 확인하고 `APPLY` 입력 |
-| workload Plan → Apply | 선택한 topology에 등록된 서비스 EC2·데이터 EBS·통신 규칙·ALB | 계획을 확인하고 `APPLY` 입력 |
+| workload Plan → Apply | 선택한 topology에 등록된 서비스 EC2·데이터 EBS·통신 규칙·선택적 ALB | 계획을 확인하고 `APPLY` 입력 |
 | bastion Plan → Apply | 배스천 EC2 | 계획을 확인하고 `APPLY` 입력 |
 | Inventory | 실제 EC2 주소를 조회해 hosts.current.yml 생성 | `Ansible 인벤토리 갱신` 메시지 확인 |
 | Proxy | 배스천 Squid·방화벽과 서버들의 APT·HTTPS 다운로드 환경 준비 | `프록시 준비 완료` 메시지 확인 |
@@ -123,7 +123,7 @@ $deploymentProfile = 'C:\third_project\aws-infra\infra\config\profiles\current'
 → 구성 선택
 → foundation: VPC·서브넷·기본 보안그룹
 → connectivity: 계정 간 VPC Peering·라우팅
-→ workload: 서비스 EC2·EBS·보안그룹 규칙·ALB
+→ workload: 서비스 EC2·EBS·보안그룹 규칙·선택적 ALB
 → bastion: 배스천 EC2
 → Inventory: 실제 주소로 Ansible 인벤토리 생성
 → Proxy: Squid·APT·다운로드 준비
@@ -260,7 +260,7 @@ Plan·Apply가 실패하면 뒤 단계로 진행하지 않는다. [Terraform 계
 
 ### 5.3 서비스 EC2·EBS·통신 규칙·ALB: workload
 
-2026-10-10 current 프로필의 MySQL 증설은 이미 적용했다. 실제 account1 ALB는 없지만 설정의 alb.enabled=true는 유지돼 아래 일반 Plan에는 ALB 재생성이 포함될 수 있다. 사용자 요청으로 이번 증설에서는 ALB 복원을 보류했으므로 해당 생성까지 포함된 계획을 그대로 Apply하지 않는다. [증설 결과와 적용 범위](#mysql-3-증설-후-현재-상태)를 먼저 확인한다.
+2026-10-10 current 프로필의 MySQL 증설은 적용했다. 이후 2026-10-11 기본 및 current 설정에서 ALB를 비활성화하고 전용 연결 3개를 제거했다. 다른 기존 프로필은 자동 변경되지 않으며, 기존 자원 정리에는 아래 일반 생성 순서 대신 [ALB 비활성화 적용 순서](#alb-비활성화-적용-순서)를 따른다. 실제 AWS 상태는 이번에 조회하지 않았다.
 
 ```powershell
 & $deployScript -Action Plan -Stage workload -ProfileDirectory $deploymentProfile
@@ -652,7 +652,7 @@ $deploymentProfile = 'C:\third_project\aws-infra\infra\config\profiles\current'
 
 2026-10-10 current 프로필에서 account4 foundation 1개와 workload account1~5 각각 3 / 1 / 3 / 17 / 2개를 추가했다. 기존 자원의 변경·삭제는 없었고 [AWS 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에 mysql-3 주소·EC2·EBS와 SG 확인 결과를 남겼다. 기존 두 MySQL의 데이터를 자동으로 이전하거나 새 Cluster에 가입시키는 작업은 이 Terraform 반영에 포함되지 않는다.
 
-account1의 전체 Plan에는 MySQL과 관계없는 ALB 재생성 4개가 섞여 있었다. 사용자 요청으로 복원을 보류하고 이번에만 저장 계획의 MySQL 규칙 3개로 범위를 제한해 적용했다. 기본 배포 명령에 -target 기능을 새로 구현한 것이 아니다. 현재 ALB가 없으므로 ALB URL을 통한 웹 검증은 진행할 수 없다. alb.enabled=true는 유지돼 위 일반 workload·Deploy 명령은 ALB를 다시 만들 수 있다. ALB가 계속 필요 없는 동안에는 그 생성이 포함된 전체 계획을 그대로 적용하지 않는다.
+account1의 전체 Plan에는 MySQL과 관계없는 ALB 재생성 4개가 섞여 있었다. 사용자 요청으로 복원을 보류하고 이번에만 저장 계획의 MySQL 규칙 3개로 범위를 제한해 적용했다. 기본 배포 명령에 -target 기능을 새로 구현한 것이 아니다. 현재 ALB가 없으므로 ALB URL을 통한 웹 검증은 진행할 수 없다. 당시에는 alb.enabled=true를 유지했다. 2026-10-11 기본 및 current 설정은 false로 변경했으며, 다른 기존 프로필의 활성화 값과 전용 연결은 별도로 확인한다.
 
 ALB를 추후 다시 만들면 workload Output의 새 alb_dns_name을 확인하고 브라우저 주소·Django 허용 호스트·주소가 직접 설정된 앱 값을 갱신한다. 현재 MySQL 작업에서는 ALB나 Django 설정을 바꾸지 않았다.
 
@@ -663,4 +663,59 @@ ALB를 추후 다시 만들면 workload Output의 새 alb_dns_name을 확인하�
 
 ## 평탄화 Consumer 변경 연결
 
-flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. Consumer 프로그램 배포와 Kafka의 OS 방화벽 허용은 별도 확인 대상이다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
+flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
+
+## ALB 비활성화 적용 순서
+
+2026-10-11 기본 및 current 설정에만 반영했으며 AWS Apply는 실행하지 않았다. 기존 배포에서 foundation의 ALB SG는 workload의 ALB·연결 규칙이 참조할 수 있으므로 일반 생성 순서인 foundation 우선 적용을 그대로 사용하지 않는다.
+
+1. 선택한 topology의 alb.enabled=false와 traffic의 alb_front·alb_game·alb_ad 제거를 함께 확인한다. 이전 저장 계획은 재사용하지 않는다.
+2. 기존 foundation 출력을 유지한 채 account1 workload의 새 Plan을 확인한다. ALB·리스너·대상 그룹·연결 규칙 정리 외에 EC2·EIP·디스크 변경이나 이전 미적용 변경이 섞였는지 검토한 뒤 적용한다.
+3. ALB와 참조 규칙이 제거된 후 account1 foundation의 새 Plan에서 ALB SG 제거와 다른 자원의 유지 여부를 확인하고 적용한다.
+4. 새 foundation 출력으로 account1 workload를 다시 계획하고 Inventory를 갱신한다. 다른 미적용 변경은 별도로 검토한다.
+
+이 단계만으로 Front 직접 웹 접속이나 HTTPS가 활성화되지는 않는다. Front 외부 80·443 규칙과 Nginx·인증서 설치는 후속 작업이다. 실제 AWS 상태·잔존 SG 참조와 삭제 성공은 아직 확인하지 않았다.
+
+## 진입용 edge-1 추가
+
+기본 및 current 설정은 edge-1(account1 Public A, t3a.small, OS gp3 20GiB, EIP 1개, role=edge)을 선언한다. 정규 모드는 기존 전체 서버 구성을 유지하고, 초기 구축 모드는 아래 절차로 edge-1만 먼저 생성한다. 외부 SG의 ACME 80·사용자 443·관리자 22를 선언하며 Nginx·Certbot 설치는 플랫폼 단계다.
+
+- ALB 정리가 끝난 환경: account1 foundation Plan에서 edge SG 추가를 검토·적용한 뒤 account1 workload Plan에서 새 EC2·OS 디스크·EIP·연결 및 SG 규칙을 검토·적용한다. 그 뒤 Inventory를 갱신해 edge 그룹과 edge-1을 확인하고 Proxy·공통 OS 준비를 진행한다.
+- 기존 ALB나 참조 규칙이 남은 환경: 새 edge SG가 없으므로 최신 설정으로 workload를 먼저 실행하면 SG 조회에 실패한다. 반대로 foundation을 먼저 적용하면 사용 중인 ALB SG 삭제와 충돌할 수 있다. 먼저 edge 추가 전의 ALB 비활성화 입력을 별도 전환 프로필로 준비해 앞 절의 ALB 정리를 완료한 후 최신 edge 설정을 적용한다. 전환 입력은 최신 설정에서 nodes.edge-1·connections.edge_front 및 admin_nodes.targets·forward_proxy.sources의 edge만 제외하고 alb.enabled=false와 ALB 전용 연결 제거는 유지한 구성이다. 기본·current 파일을 이 전환 입력으로 덮어쓰지 않는다.
+
+실제 AWS 상태와 이전 미적용 변경은 조회하지 않았다. 따라서 저장 계획은 새로 만들고 기존 EC2·EIP·디스크 삭제·교체가 섞이지 않았는지 확인한다. Public EC2와 EIP를 선언한 것만으로 HTTPS나 부하 분산이 활성화되지는 않는다.
+
+## edge 단독 초기 구축
+
+다른 EC2가 없는 환경에서 진입 서버만 먼저 만들 때 사용한다. Account 1 foundation을 준비하고 ALB를 비활성화해야 한다. 초기 구축은 다른 계정 foundation·connectivity를 요구하지 않는다. 기존 전체 workload가 있는 환경에서는 사용하지 않는다. 생성 계획에 기존 자원 삭제·교체나 edge-1(t3a.small) 외 EC2가 있으면 실행기가 거부한다.
+
+```powershell
+# aws-infra 폴더에서 선택한 구성으로 edge-1의 저장 계획을 만든다.
+$edgeProfile = (Resolve-Path .\infra\config\profiles\current).Path
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Plan -ConfigurationDirectory $edgeProfile -EdgeBootstrapOnly
+
+# EC2 한 대·EIP·키·SG 연결만 추가되는지 검토한 뒤 적용한다.
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Apply -ConfigurationDirectory $edgeProfile -EdgeBootstrapOnly
+.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Output -ConfigurationDirectory $edgeProfile
+```
+
+다음 날 접속 장소가 달라지면 선택한 traffic의 admin_public_cidrs와 game_client_cidrs를 실제 접속 IP로 갱신하고 새 Plan·Apply를 만든다. 이 값은 서버 EIP와 별개다. 인증서 검증용 80은 외부에서 접근 가능해야 하며 Nginx가 검증 경로만 제공한다.
+
+전체 서버 구축은 다섯 foundation과 connectivity를 준비한 다음 EdgeBootstrapOnly 없이 정규 workload를 Plan한다. 같은 backend·자원 주소를 사용하므로 기존 edge를 유지하며 다른 서버를 추가한다. 현재 선택한 프로필과 기본 config가 다르면 전체 삭제가 사용하는 기본 입력도 반드시 대조한다. 전체 삭제는 상태의 초기 구축 표식을 자동으로 읽어 모드를 맞추며 EC2와 EIP까지 삭제한다. 생성·설치·삭제 성공은 각 실행 결과와 검증 기록으로 구분한다.
+
+## edge HTTPS 설치와 허용 IP 갱신
+
+2026-10-11에는 Account 1 foundation과 edge-1만 실제 생성하고 [플랫폼 edge.yml](../../aws-platform/platform/edge.yml)을 실행했다. Front·게임·광고 애플리케이션 연결은 아직 구성하지 않았다. 현재 HTTPS 응답은 설치 확인 페이지다. 실제 자원과 검증 범위는 [검증 기록](infra-routing/verification.md#2026-10-11-edge-https-실제-구축)을 따른다.
+
+```bash
+# WSL에서 platform 폴더로 이동한 뒤 별도 edge 인벤토리로 설치한다.
+export ANSIBLE_CONFIG="$PWD/ansible.cfg"
+"$HOME/.venvs/platform/bin/ansible-playbook" \
+  -i ../../aws-infra/infra/.local/edge-https/hosts.edge.yml edge.yml
+```
+
+위 인벤토리는 Git에 저장하지 않는 로컬 파일이다. 새 PC에서는 EC2 Output의 EIP·사설 IP, 해당 개인키 경로, edge_https_allowed_cidrs, proxy_enabled=false를 확인해 준비한다. 정규 전체 인벤토리는 deploy.ps1 Inventory로 생성하며 전체 설치는 site.yml에서 실행한다.
+
+부트캠프·PC 공인 IP가 바뀌면 선택한 traffic.game_client_cidrs를 변경하고 workload의 새 Plan·Apply로 443 규칙을 반영한다. SSH 접속 IP도 바뀌면 admin_public_cidrs도 갱신한다. 단독 구축 중에는 EdgeBootstrapOnly를 계속 지정한다. 이어 인벤토리의 edge_https_allowed_cidrs를 같은 값으로 갱신하고 edge.yml --tags firewall,edge를 실행해 OS 방화벽과 Nginx를 맞춘다. 서버 EIP가 그대로면 인증서 재발급은 필요 없다.
+
+전체 삭제 스크립트는 edge와 EIP를 함께 삭제한다. 인증서·Nginx 설정은 EC2 OS 디스크에 있으므로 서버 재생성 후 edge.yml로 다시 설치한다.

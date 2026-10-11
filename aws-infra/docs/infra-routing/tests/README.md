@@ -2,7 +2,7 @@
 
 [탐색 시작점](../ROUTING-README.md) · [기존 검증 기록](../../../infra/tests/TEST-README.md) · [Python 구조 분석](test_runner.py.md)
 
-현재 테스트 파일과 확인된 실행 기록을 안내한다. 2026-10-10 서비스 콘솔 SSH 모의 테스트 5개는 통과했다. 이전 광고 서버 이동·Bastion 분리·SG 참조 변경에 관련된 기존 workload 테스트의 기대값 차이는 아래에 구분했다. 테스트의 존재, 정적 대조와 실제 실행 결과는 각각 구분한다.
+현재 테스트 파일과 확인된 실행 기록을 안내한다. 2026-10-10 서비스 콘솔 SSH 모의 테스트 5개는 통과했다. ALB 비활성화 검사에 맞춰 기존 workload의 Bastion 분리·MySQL 3대·계정 간 SG 참조 기대값도 현재 구현에 맞췄다. 테스트의 존재, 정적 대조와 실제 실행 결과는 각각 구분한다.
 
 ## 파일별 위치
 
@@ -12,20 +12,22 @@
 | [전체 삭제 테스트](destroy-tests.md) | test_destroy_all.py·test_destroy_once.py·destroy_cli.py의 실제 AWS 없는 개별 Plan/Apply·단일 Destroy·보호 복원·실패·잔존 검증 |
 | [test_destroy_console_ssh.ps1](../../../infra/tests/test_destroy_console_ssh.ps1) | 삭제 검사 함수의 서비스 콘솔 SSH 허용 목록 회귀 검사. [검사 범위·실행 방법](destroy-tests.md)에서 역할별 허용과 주소·단계·태그·동작 거부 조건을 찾는다. |
 | [infra/tests/fixtures.json](../../../infra/tests/fixtures.json) | 가짜 foundation 출력 5개와 가짜 Peering ID 10개. 실제 배포 상태가 아님 |
+| [edge.tftest.hcl](../../../infra/terraform/stacks/workload/tests/edge.tftest.hcl) | 진입 EC2의 Public A·EIP·Front 연결·외부 허용·단독 초기 구축 검사 |
+| [application-flows.tftest.hcl](../../../infra/terraform/stacks/workload/tests/application-flows.tftest.hcl) | 5개 계정의 앱 연결 ingress·egress, SG 소유 계정 참조·단일 포트, 불필요한 Kafka 역방향 수신 규칙 없음 |
 | [foundation.tftest.hcl](../../../infra/terraform/stacks/foundation/tests/foundation.tftest.hcl) | account1_proxy, account2_private, nat_per_az |
 | [connectivity.tftest.hcl](../../../infra/terraform/stacks/connectivity/tests/connectivity.tftest.hcl) | all_pairs, wrong_remote_account |
-| [workload.tftest.hcl](../../../infra/terraform/stacks/workload/tests/workload.tftest.hcl) | account1_default_closed, account2_three_nodes, account3_four_nodes, account4_two_nodes, account5_three_nodes, missing_peering |
-| [flatten.tftest.hcl](../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl) | account2 Private A의 Consumer 사양·기존 노드 유지·Kafka 세 계정과 Proxy·SSH 경로. [평탄화 Consumer 검사](#평탄화-consumer-검사) 참고 |
+| [workload.tftest.hcl](../../../infra/terraform/stacks/workload/tests/workload.tftest.hcl) | account1_default_closed, account2_three_nodes, account3_four_nodes, account4_three_nodes, account5_three_nodes, missing_peering, account1_without_alb_sg, account1_alb_opt_in |
+| [flatten.tftest.hcl](../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl) | account2 Private A의 Consumer 사양·기존 노드 유지·Kafka·MongoDB 세 계정과 Proxy·SSH 경로. [평탄화 Consumer 검사](#평탄화-consumer-검사) 참고 |
 | [console-ssh.tftest.hcl](../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) | 5개 계정의 서비스 SG 선택, 접두사 목록 소스·TCP 22, Bastion·ALB 제외와 기존 Bastion 규칙 유지 |
 | [model/port-ranges.tftest.hcl](../../../infra/terraform/modules/model/tests/port-ranges.tftest.hcl) | Spark 범위 확장, 끝 포트 생략 호환성, 없는 끝 포트와 역순 범위 거부 |
 | [security-rules/port-ranges.tftest.hcl](../../../infra/terraform/modules/security-rules/tests/port-ranges.tftest.hcl) | peer 규칙의 TCP from_port·to_port와 기존 단일 포트 유지 |
 | [spark-ports.tftest.hcl](../../../infra/terraform/stacks/workload/tests/spark-ports.tftest.hcl) | account2·3·4의 Spark 입출력 범위·Worker RPC·Master UI, 규칙 키 유지와 같은 시작 포트의 범위 병합 |
 
-foundation 테스트는 NAT 0개·서브넷 수·역할 SG와 같은 AZ NAT 연결을 검사한다. 현재 구성의 account1 SG 목록에는 ad가 포함되고 account2는 mongo·spark·consumer다. Consumer 반영 시 함께 갱신한 기대값과 fixture는 [평탄화 Consumer 검사](#평탄화-consumer-검사)에 정리한다. connectivity는 10쌍 및 account1-account2 양방향 경로, 잘못된 계정 상태 거부를 검사한다. workload는 계정별 노드 구성, 기본 외부 인바운드 차단, ALB→ad:8000 양방향 SG 참조, game→Kafka SG 참조, Peering 누락 거부를 검사한다.
+foundation 테스트는 NAT 0개·서브넷 수·역할 SG와 같은 AZ NAT 연결을 검사한다. 현재 구성의 account1 SG 목록에는 ad가 포함되고 account2는 mongo·spark·consumer다. Consumer 반영 시 함께 갱신한 기대값과 fixture는 [평탄화 Consumer 검사](#평탄화-consumer-검사)에 정리한다. connectivity는 10쌍 및 account1-account2 양방향 경로, 잘못된 계정 상태 거부를 검사한다. workload는 계정별 노드 구성, 기본 외부 인바운드 차단, ALB 비활성화와 선택적 활성화, Front→game/ad:8000 유지, game→Kafka SG 참조, Peering 누락 거부를 검사한다.
 
 Terraform 테스트는 mock_provider를 사용하고, connectivity/workload는 원격 상태를 fixture로 대체한다. workload run들은 state_key를 분리한다. 테스트 파일의 command = apply는 mock 테스트 동작이며 실제 배포 명령의 Apply와 구분한다.
 
-`console-ssh.tftest.hcl`은 서비스 콘솔 SSH 규칙만 검사하는 별도 파일이다. AWS provider와 foundation/connectivity 상태를 모의 처리하며 Windows에서는 `terraform test '-filter=tests\console-ssh.tftest.hcl' -no-color`로 실행한다. 현재 구성에서 account1~account5의 서비스 SG는 각각 3 / 3 / 4 / 3 / 3개, 총 16개다. 아래 과거 5개 통과 기록은 mysql-3 추가 전 입력의 결과다. 같은 역할의 EC2가 SG를 공유하는 경우의 중복 제거와 기존 Bastion 규칙의 범위도 검사한다. 기존 workload.tftest.hcl의 배치·SG 참조 단언 불일치를 수정한 것으로 취급하지 않는다.
+`console-ssh.tftest.hcl`은 서비스 콘솔 SSH 규칙만 검사하는 별도 파일이다. AWS provider와 foundation/connectivity 상태를 모의 처리하며 Windows에서는 `terraform test '-filter=tests\console-ssh.tftest.hcl' -no-color`로 실행한다. 현재 구성에서 account1~account5의 서비스 SG는 각각 4 / 3 / 4 / 3 / 3개, 총 17개다. 아래 과거 5개 통과 기록은 mysql-3 추가 전 입력의 결과다. 같은 역할의 EC2가 SG를 공유하는 경우의 중복 제거와 기존 Bastion 규칙의 범위도 검사한다. 기존 workload.tftest.hcl의 배치·SG 참조 단언 불일치를 수정한 것으로 취급하지 않는다.
 
 2026-10-10 검증에서는 Terraform 1.16.5와 설치된 AWS provider 6.68.0을 사용했다. `terraform validate`와 이번 파일의 계정별 모의 테스트 5개가 통과했다. 기존 전체 테스트를 통과했다는 뜻은 아니며 실제 AWS Plan·Apply·SSH 접속은 실행하지 않았다.
 
@@ -52,19 +54,17 @@ Terraform 테스트는 mock_provider를 사용하고, connectivity/workload는 �
 
 실제 IAM 권한, AWS 자원 상태, AMI·인증서 유효성, 프로그램 설치, DB 데이터 보존·성능은 이 문서의 구조 검사 범위 밖이다.
 
-## 현재 입력과 모의 테스트의 차이
+## 현재 입력과 모의 테스트의 범위
 
-현재 workload 서비스 서버는 계정별 4 / 3 / 4 / 3 / 3대다. Bastion은 별도 단계로 분리됐으나 기존 테스트 기대값에는 일부 이전 구성이 남아 있다. 사용자 승인 후 fixtures.json의 ad SG를 account1로 옮기고 foundation의 계정별 SG 기대값을 맞췄다. workload의 account1_default_closed는 아직 bastion·ad-server 포함 5개 노드 이름을 기대한다. 실제 workload의 Account 1은 Bastion을 제외한 4대이므로 이 단언은 현재 구현과 불일치한다. account2_three_nodes는 mongo-1·spark-2·flatten-1을 기대한다. Consumer 추가 당시 fixture의 역할 목록을 그때의 topology와 정적으로 대조했다. 이후 mysql-3 증설에 해당하는 account4/mysql fixture와 account4_two_nodes·콘솔 SSH의 계정별 수량 기대값은 아직 갱신하지 않았다.
+workload 서비스 서버는 계정별 5 / 3 / 4 / 3 / 3대다. ALB 비활성화 검증에서 기존 account1의 Bastion 포함 기대값, account4의 mysql-3 누락, game→Kafka의 계정 ID/SG ID 참조를 현재 구현에 맞췄다. 가짜 certificate_arn은 제거했다. fixture의 ALB SG는 기존 foundation 상태를 모의하기 위해 유지한다.
 
-workload.tftest.hcl은 현재 config의 traffic을 읽지만 account1_default_closed 실행에서만 admin_public_cidrs·game_client_cidrs를 빈 배열로 덮어쓴다. 따라서 module.rules.public_ingress=0 조건은 로컬 CIDR과 무관하다. bastion_console_ssh와 service_console_ssh는 별도 자원이므로 이 조건은 콘솔 SSH까지 차단된다는 뜻이 아니다. 실제 traffic 설정은 변경하지 않는다. 광고 서버 이동 당시 수정한 .tftest.hcl 두 파일의 fmt -check는 통과했으나 당시 Terraform test 실행 결과는 미확인이었다. 이후 통과한 console-ssh.tftest.hcl의 5개 검사와 이 기존 파일의 전체 실행 결과를 구분한다.
+account1_default_closed는 관리자 CIDR은 비우고 사용자 CIDR은 지정해도 ALB 비활성 상태에서 웹 공개 규칙이 생기지 않는지 검사한다. 콘솔 SSH는 별도 자원으로 유지한다. ALB 모듈·DNS·역할·연결 없음, Front→game/ad 8000 유지도 확인한다. account1_without_alb_sg는 foundation에서 ALB SG를 정리한 뒤의 상태, account1_alb_opt_in은 명시적으로 활성화와 연결 3개를 복원한 프로필을 검사한다. AWS provider와 원격 상태는 모의 처리한다.
 
-같은 테스트 파일의 가짜 certificate_arn 입력은 남아 있지만 현재 HTTP ALB 모듈에는 전달되지 않는다. HTTP 리스너·정적 파일 전달을 직접 단언하는 추가 테스트가 있는 것으로 기록하지 않는다. [배스천 전원 제어 문서](../scripts/bastion.ps1.md)에 있는 과거 모의 실행 기록도 이번 구조 대조에서 재실행한 결과와 구분한다.
-
-game→Kafka 단언은 아직 다른 계정의 SG ID만 기대하지만 현재 peer_sg_ids는 소유 계정 ID/SG ID 형식이다. 이 단언도 현재 구현과 불일치하며 이번에는 테스트 코드를 수정하거나 전체 테스트를 실행하지 않았다. Bastion stack에는 현재 보관된 tests/*.tftest.hcl이 없다.
+Bastion stack에는 현재 보관된 tests/*.tftest.hcl이 없다. 과거 검증 기록은 당시 실행 범위를 뜻하며 이번 변경의 실행 결과는 [검증 기록](../verification.md#2026-10-11-alb-비활성화)에 별도로 남긴다.
 
 ## 평탄화 Consumer 검사
 
-[flatten.tftest.hcl](../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 account2의 기존 두 노드와 Private A의 flatten-1(t3a.medium)을 검사한다. 공인 IP·별도 데이터 EBS가 없고, Consumer SG에서 Kafka 세 계정의 9092·배스천 프록시 3128만 송신하는지, Kafka SG의 역방향 ingress와 SSH 경로를 검사한다. fixture에 account2/consumer SG를 추가하고 foundation·콘솔 SSH·account2 노드 기대값도 함께 맞췄다. 모의 검사이며 실제 AWS·프로그램 설치 결과가 아니다.
+[flatten.tftest.hcl](../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 account2의 기존 두 노드와 Private A의 flatten-1(t3a.medium)을 검사한다. 공인 IP·별도 데이터 EBS가 없고, Consumer SG에서 Kafka 세 계정의 9092·MongoDB 세 계정의 27017·배스천 프록시 3128로 총 7개 송신 규칙이 생성되는지, Kafka SG의 역방향 ingress와 SSH 경로를 검사한다. fixture에 account2/consumer SG를 추가하고 foundation·콘솔 SSH·account2 노드 기대값도 함께 맞췄다. 모의 검사이며 실제 AWS·프로그램 설치 결과가 아니다.
 
 ## 수정 시 함께 볼 파일
 
@@ -75,4 +75,25 @@ game→Kafka 단언은 아직 다른 계정의 SG ID만 기대하지만 현재 p
 
 ## 평탄화 Consumer 변경 연결
 
-flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. Consumer 프로그램 배포와 Kafka의 OS 방화벽 허용은 별도 확인 대상이다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
+flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 아래 2026-10-11 애플리케이션 통신 검사에서 평탄화 모의 테스트 4건을 다시 실행해 통과했다.
+
+## 애플리케이션 통신 검사
+
+[application-flows.tftest.hcl](../../../infra/terraform/stacks/workload/tests/application-flows.tftest.hcl)은 기본 topology·traffic을 읽고 AWS provider와 원격 foundation/connectivity 상태를 모의 처리한다. account1_application_flows부터 account5_application_flows까지 5개 run에서 필요한 연결이 양쪽 SG에 생성되는지, 로컬·다른 계정 SG 참조 형식, 시작·끝 포트가 요구한 단일 포트인지 검사한다. Kafka→Spark·Consumer의 별도 신규 연결은 없어야 한다.
+
+2026-10-11 Terraform validate 통과, application-flows 5건·flatten 4건·workload spark-ports 4건으로 총 13건이 통과했다. account4/mysql 모의 SG 누락을 보완했고 Consumer의 MongoDB 추가에 따라 송신 수를 4개에서 7개로 맞췄다. 기존 전체 Terraform 테스트를 모두 통과했다는 뜻은 아니다.
+
+Windows PowerShell에서 workload 디렉터리를 기준으로 실행한다. 필터 경로에는 Windows 구분자를 사용한다.
+
+```powershell
+# AWS API를 호출하지 않는 모의 테스트 13건을 실행한다.
+terraform test -no-color '-filter=tests\application-flows.tftest.hcl' '-filter=tests\flatten.tftest.hcl' '-filter=tests\spark-ports.tftest.hcl'
+```
+
+SG 관계는 [설정 지도](../config/README.md#애플리케이션-통신-확장), 적용 경계와 검증 결과는 [검증 기록](../verification.md#2026-10-11-애플리케이션-통신-규칙)을 따른다.
+
+## 진입용 edge 검사
+
+edge.tftest.hcl은 모의 AWS·원격 상태로 account1_edge_public_a를 실행한다. edge-1과 기존 서비스 서버 4대, EIP 출력, OS 20GiB·별도 데이터 디스크 없음, 전용 edge SG의 Front TCP 80 양쪽 참조·Bastion SSH·Proxy를 확인한다. ACME 80·허용 사용자 443 및 edge 인터넷 HTTPS 송신을 확인하며 게임·광고·DB 직접 연결은 추가하지 않는다. edge_only_bootstrap은 EC2 한 대·foundation 한 계정·connectivity 조회 없음을 검사한다. 모의 적용은 기존 전체 상태의 삭제 거부를 증명하지 않으며 실행기가 Plan·Apply에서 별도로 차단한다. foundation·workload·콘솔 SSH의 account1 수량과 fixture에 edge를 반영했다. 콘솔 SSH 테스트에서 과거 mysql-3 추가가 누락된 account4 기대값도 보완했다. 실제 서버 설치·TLS·least_conn 분산은 검증 대상에 포함하지 않는다.
+
+test_destroy_all.py의 seed는 테스트 사본에 prevent_destroy를 시나리오의 protected 값대로 명시한다. 운영 compute의 현재 true/false 값과 무관하게 보호 거부·삭제 허용을 각각 검증하며 운영 파일은 변경하지 않는다.

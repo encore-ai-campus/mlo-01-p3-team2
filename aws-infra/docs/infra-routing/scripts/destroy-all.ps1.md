@@ -46,8 +46,16 @@ Restore-DestroyDataProtection은 finally에서 원본 사본과 현재 파일의
 
 작업 경로는 infra/.local/destroy-all/{RunId}/다. run.json은 진행 기록, run.previous.json은 직전 기록이다. Save-DestroyRun 함수는 임시 파일을 기록한 뒤 교체한다. 계정/단계 하위의 saved.tfplan, saved-plan.json, delete-summary.json, remote-state.json과 terraform 캐시는 일반 배포의 .local/{Account}/{Stage}와 분리한다. delete_count는 Terraform 삭제 자원과 EC2에 연결된 OS 디스크 검증 항목 수이며 Terraform Plan의 destroy 개수와 다를 수 있다.
 
-삭제 허용 검사와 원격 상태 조회는 [infra-destroy.ps1](lib/infra-destroy.ps1.md), 기존 계정·Plan 해시 검사는 [infra.ps1](infra.ps1.md)이 담당한다. 현재 [compute의 데이터 EBS 보호](../terraform/README.md#compute)는 prevent_destroy=true다. 이전 구현 검증 당시의 false 값은 [검증 기록](../verification.md)에 당시 상태로 보존한다. DeleteDataVolumes만 지정하면 보호 값은 변경하지 않는다. 자동 해제·복원은 Destroy와 DisableDataVolumeProtection을 함께 지정한 경우에만 수행한다. 별도 Plan·Apply에서 보호 설정을 직접 변경했다면 새 Plan이 필요하다. override나 배포용 코드 사본은 만들지 않으며 복구용 원본은 해당 삭제 실행 폴더에만 보관한다.
+삭제 허용 검사와 원격 상태 조회는 [infra-destroy.ps1](lib/infra-destroy.ps1.md), 기존 계정·Plan 해시 검사는 [infra.ps1](infra.ps1.md)이 담당한다. [compute의 데이터 EBS 보호](../terraform/README.md#compute)는 실제 소스의 prevent_destroy 값에 따른다. true/false 양쪽 동작은 [검증 기록](../verification.md)과 테스트에서 구분한다. DeleteDataVolumes만 지정하면 보호 값은 변경하지 않는다. 자동 해제·복원은 Destroy와 DisableDataVolumeProtection을 함께 지정한 경우에만 수행한다. 별도 Plan·Apply에서 보호 설정을 직접 변경했다면 새 Plan이 필요하다. override나 배포용 코드 사본은 만들지 않으며 복구용 원본은 해당 삭제 실행 폴더에만 보관한다.
 
 Terraform은 각 상태에 S3 잠금을 사용한다. operation.lock은 같은 PC에만 적용되며, 삭제 중 다른 PC에서 배포·Bastion 전원 작업·수동 콘솔 변경을 동시에 수행하는 것을 전체적으로 잠그지는 않는다. 상태 변경은 사전 해시 검사와 Terraform 저장 Plan 검사로 거부한다.
 
 실제 AWS 생성·삭제 성공은 모의 테스트와 별개다. 수동 자원 때문에 AWS 삭제가 막히면 오류를 보고하며 강제 삭제·state rm·자동 import·전체 계정 청소로 우회하지 않는다.
+
+## edge 단독 초기 구축 상태
+
+Get-InfraDestroyState가 account1 workload의 terraform_data.edge_bootstrap_guard 관리 인스턴스를 발견하면 단계에 edge_bootstrap_only=true를 기록한다. Plan·Apply는 이 값을 infra.ps1의 EdgeBootstrapOnly로 전달하여 아직 없는 다른 계정 foundation·connectivity 조회를 생략한다. 표식이 없으면 기존 정규 삭제 방식으로 처리한다. 단계와 저장 manifest의 모드가 다르면 실행을 거부한다.
+
+edge의 EC2·OS 디스크·EIP·SG 규칙은 기존 workload 삭제 범위에 포함된다. EIP도 반납하므로 이후 재생성 시 이전 HTTPS 주소가 보존되지 않는다. 이 연동의 검증은 모의 테스트이며 실제 AWS 전체 삭제는 이번 작업에서 실행하지 않았다.
+
+connectivity_ready는 edge_bootstrap_guard에 의존하며, compute와 SG 규칙은 connectivity_ready 뒤에 생성된다. 삭제 시 역순으로 정리해 EC2·규칙 삭제가 중단돼도 초기 구축 표식이 남도록 한다.

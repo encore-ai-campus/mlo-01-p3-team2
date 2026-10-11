@@ -36,3 +36,7 @@ S3 get-object의 NoSuchKey만 상태 없음으로 인정한다. 403·인증·네
 결과 조회는 EC2·OS/데이터 EBS·EIP·VPC·서브넷·SG·IGW·라우팅 테이블·NAT·Peering 요청 자원·키페어·ALB·대상 그룹 ID를 대상으로 한다. EC2 terminated·NAT deleted·Peering deleted 또는 서비스별 정확한 NotFound 오류를 제거된 상태로 인정한다. SG 규칙·라우트·리스너 같은 하위 항목은 Terraform 상태 비움과 부모 자원 제거를 함께 확인하며 전부를 개별 API로 조회하지 않는다.
 
 계획에 없는 수동 자원·스냅샷·다른 프로젝트 자원은 이 검증의 전수 조사 대상이 아니다. 코드의 실제 AWS 삭제 API 호출은 없고, 삭제는 저장 Plan을 적용하는 Terraform만 수행한다.
+
+## edge 초기 구축 상태의 전체 삭제
+
+Get-InfraDestroyState는 기존 존재 여부·해시·관리 자원 수와 함께 edge_bootstrap_only를 반환한다. Account 1 workload의 terraform_data.edge_bootstrap_guard[0]에 인스턴스가 있으면 true이며, 없는 상태나 기존 일반 상태는 false다. destroy-all.ps1은 이 값을 실행 단계에 저장해 Delete Plan·Apply에 전달한다. Assert-InfraDeletePlan은 해당 guard 자원도 허용하며 나머지 삭제 범위·태그 검사를 유지한다. Assert-InfraDestroyArtifacts는 단계와 manifest의 모드가 같은지 확인한다. 예전 기록에 없는 필드는 false로 읽는다.

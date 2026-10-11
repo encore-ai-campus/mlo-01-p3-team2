@@ -14,7 +14,7 @@ OS 변수·패키지 → 후보 규칙 → 기존 파일·테이블 비교 → �
 
 ## 구현 조건
 
-from과 self는 SSH 22를 제외한 모든 포트를 허용한다. 서비스별 포트만 허용하는 정책이 아니다. 기본 복구 타이머는 120초다. Kafka의 허용 출처에는 consumer 그룹을 포함하므로, 생성 인벤토리의 flatten-1이 Kafka에 접속할 수 있다. Consumer 프로그램 설치 역할을 추가한 것은 아니다.
+from과 self는 SSH 22를 제외한 모든 포트를 허용한다. 서비스별 포트만 허용하는 정책이 아니다. 기본 복구 타이머는 120초다. game·ad 역할은 frontend·상대 앱·mysql·bastion 출처를 허용한다. MySQL에는 ad, MongoDB에는 ad·consumer, Kafka에는 game·ad·mysql·consumer를 포함해 인프라 연결과 맞춘다. 정확한 그룹 목록은 [역할 변수](vars/main.yml.md)를 따른다. Consumer·MySQL 전송 프로그램을 설치하는 기능은 아니다.
 
 프록시를 활성화한 배스천은 이 역할 관계와 별도로 지정 VPC CIDR의 프록시 TCP 포트(기본 3128)를 허용한다. 일반 서버에는 이 추가 규칙을 생성하지 않는다. 적용 후 prepare-proxy.yml의 proxy_verify 태그로 클라이언트에서 새 프록시 요청이 통과하는지 확인한다.
 
@@ -37,3 +37,9 @@ from과 self는 SSH 22를 제외한 모든 포트를 허용한다. 서비스별 
 프록시 포트·허용 CIDR의 선언 위치는 [공통 프록시 변수](../../inventory/group_vars/all/proxy.yml.md)다. 방화벽 검증 작업 자체에 프록시 접속 검사가 추가된 것은 아니며, 클라이언트 HTTPS·다운로드 확인은 [프록시 준비의 proxy_verify](../../prepare-proxy.yml.md)에서 수행한다.
 
 현재 선언과 참조를 정적으로 대조했다. verify 작업 문서는 구현된 검사 내용을 설명하며 이번 작업에서 서버 검사를 실행했다는 뜻은 아니다. 파일 추가·이동·삭제 시 이 목록과 같은 상대경로의 파일별 문서를 함께 갱신한다.
+
+2026-10-11 로컬에서 역할별 템플릿 9종과 통신 출처 67건을 검사했다. 기존 established,related 응답 허용을 유지한다. 원격 방화벽 적용·EC2 통신은 실행하지 않았다. [검증 기록](../../verification.md#2026-10-11-애플리케이션-통신-방화벽)을 참고한다.
+
+## Edge HTTPS 추가
+
+edge 그룹은 HTTP80을 모든 출처에 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.

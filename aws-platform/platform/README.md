@@ -197,3 +197,9 @@ Master RPC 7077·내부 Master UI 8080, Worker RPC 7100, Driver 7078–7094·Blo
 ## 팀 접속과 빈 팀원 목록
 
 [setup-team-access.sh](scripts/setup-team-access.sh)는 준비된 EC2 Instance Connect Endpoint·AWS 인증·서버 공개키·인벤토리를 사용한다. 운영 PC의 WSL/Linux에서 전용 SSH 설정과 접속용 인벤토리를 생성하고 배스천 SSH·프라이빗 서버 ping을 확인한다. Endpoint·IAM·보안그룹과 원격 계정은 먼저 준비해야 한다. 개인키는 배스천으로 복사하지 않는다. common/tasks/main.yml은 users가 비어 있거나 미정의여도 sudo 파일에 관리 주석을 남겨 빈 content 오류를 방지하며 visudo로 문법을 검사한다. 이번 문서 작업에서 원격 접속은 실행하지 않았다.
+
+## 진입 서버의 무료 IP HTTPS
+
+[edge.yml](docs/platform-routing/edge.yml.md)은 Ubuntu 24.04 진입 서버에 common·firewall·Nginx·Certbot 5.8.0을 설치한다. 서버 EIP와 사용자 출발지 CIDR을 구분해 입력한다. HTTP80은 인증서 검증 경로만 제공하고 HTTPS443은 사용자 CIDR을 검사한다. 최초 시험 발급 이후 운영 인증서를 연결하고 자동 갱신을 구성한다. 실제 실행 전에는 서버·인증서가 생성되지 않는다.
+
+[edge 역할의 입력과 실행 예](docs/platform-routing/roles/edge/README.md)를 따른다. 단일 서버 인벤토리는 기존 inventory/group_vars 밖에 두면 DB Vault 없이 실행할 수 있다. Front 목록이 비어 있으면 HTTPS 준비 화면만 제공한다. Front 앱 배포와 데이터 전달은 별도다. 사용자 공인 IP가 바뀌면 AWS SG와 edge_https_allowed_cidrs를 함께 갱신하고 firewall,edge 태그를 재적용한다. 서버 EIP가 같으면 인증서 주소는 유지한다.

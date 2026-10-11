@@ -148,7 +148,7 @@ try {
             delete_data_volumes = $true; steps = @(Get-InfraDestroyTargets | ForEach-Object {
                 [pscustomobject]@{ account = $_.account; stage = $_.stage; status = 'Pending'; delete_count = 0
                     state_key = "$($backend.key_prefix)/$($_.account)/$($_.stage)/terraform.tfstate"
-                    state_sha256 = ''; plan_sha256 = ''; manifest_sha256 = ''; summary_sha256 = '' }
+                    state_sha256 = ''; plan_sha256 = ''; manifest_sha256 = ''; summary_sha256 = ''; edge_bootstrap_only = $false }
             })
         }
         Save-DestroyRun
@@ -165,12 +165,14 @@ try {
             $directory = Join-Path $runPath "$($step.account)/$($step.stage)"
             $state = Get-InfraDestroyState $awsCommand $backend $step.account $step.stage $directory
             $step.state_sha256 = $state.sha256
+            $step.edge_bootstrap_only = [bool]$state.edge_bootstrap_only
             if ($state.managed_count -eq 0) {
                 $step.status = 'Skipped'
             } else {
                 Write-Host "삭제 계획: $($step.account)/$($step.stage)"
                 & (Join-Path $PSScriptRoot 'infra.ps1') -Account $step.account -Stage $step.stage -Action Plan `
-                    -PlanMode Delete -DestroyRunId $RunId -DeleteDataVolumes -PluginDirectory $PluginDirectory
+                    -PlanMode Delete -DestroyRunId $RunId -DeleteDataVolumes -PluginDirectory $PluginDirectory `
+                    -EdgeBootstrapOnly:([bool]($step.PSObject.Properties['edge_bootstrap_only'] -and $step.edge_bootstrap_only))
                 $after = Get-InfraDestroyState $awsCommand $backend $step.account $step.stage $directory
                 if ($after.sha256 -ne $step.state_sha256) { throw 'Plan 중 원격 상태가 변경됐습니다. 새 Plan이 필요합니다.' }
                 $step.plan_sha256 = Get-InfraFileHash (Join-Path $directory 'saved.tfplan')
@@ -214,7 +216,8 @@ try {
             $step.status = 'Applying'
             Save-DestroyRun
             & (Join-Path $PSScriptRoot 'infra.ps1') -Account $step.account -Stage $step.stage -Action Apply `
-                -PlanMode Delete -DestroyRunId $RunId -DeleteDataVolumes -PluginDirectory $PluginDirectory
+                -PlanMode Delete -DestroyRunId $RunId -DeleteDataVolumes -PluginDirectory $PluginDirectory `
+                    -EdgeBootstrapOnly:([bool]($step.PSObject.Properties['edge_bootstrap_only'] -and $step.edge_bootstrap_only))
             $state = Get-InfraDestroyState $awsCommand $backend $step.account $step.stage $directory
             if ($state.managed_count -ne 0) { throw "$($step.account)/$($step.stage) 상태에 관리 자원이 남았습니다." }
             $step.status = 'Deleted'

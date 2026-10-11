@@ -1,0 +1,208 @@
+{
+  "all": {
+    "vars": {
+      "test_project": "aws-infra-test",
+      "proxy_enabled": true,
+      "users": [],
+      "ansible_user": "ubuntu"
+    },
+    "children": {
+      "bastion": {
+        "hosts": {
+          "bastion-01": {
+            "ip": "10.10.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {}
+          }
+        }
+      },
+      "frontend": {
+        "hosts": {
+          "front-a": {
+            "ip": "10.10.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {}
+          }
+        }
+      },
+      "game": {
+        "hosts": {
+          "game-server": {
+            "ip": "10.10.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {}
+          }
+        }
+      },
+      "mongodb": {
+        "hosts": {
+          "mongo-1": {
+            "ip": "10.20.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "mongo-2": {
+            "ip": "10.30.10.21",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "mongo-3": {
+            "ip": "10.50.10.22",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          }
+        }
+      },
+      "consumer": {
+        "hosts": {
+          "flatten-1": {
+            "ip": "10.20.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {}
+          }
+        }
+      },
+      "spark": {
+        "hosts": {
+          "spark-2": {
+            "ip": "10.20.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "spark-1": {
+            "ip": "10.30.10.21",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "spark-3": {
+            "ip": "10.40.10.22",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          }
+        }
+      },
+      "ad": {
+        "hosts": {
+          "ad-server": {
+            "ip": "10.10.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {}
+          }
+        }
+      },
+      "kafka": {
+        "hosts": {
+          "kafka-1": {
+            "ip": "10.30.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "kafka-2": {
+            "ip": "10.40.10.21",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "kafka-3": {
+            "ip": "10.50.10.22",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          }
+        }
+      },
+      "mysql": {
+        "hosts": {
+          "mysql-1": {
+            "ip": "10.30.10.20",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "mysql-3": {
+            "ip": "10.40.10.21",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          },
+          "mysql-2": {
+            "ip": "10.50.10.22",
+            "public_ip": "192.0.2.1",
+            "test_client_cidrs": [
+              "192.0.2.10/32"
+            ],
+            "test_data_volumes": {
+              "data": "vol-0123456789abcdef0"
+            }
+          }
+        }
+      }
+    }
+  }
+}

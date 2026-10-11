@@ -41,13 +41,13 @@ NewProfile은 현재 infra/config의 topology·traffic을 복사하고 플랫폼
 
 현재 Terraform 제약인 account1~5, 서울 리전의 두 AZ, account1의 bastion 한 대는 유지한다. 서비스 EC2의 크기·대수·계정 배치는 nodes에서 바꾼다. 서비스 역할 자체를 없애면 traffic의 연결과 ALB 조건도 함께 맞춰야 한다.
 
-계정/AZ 이동·노드 삭제는 데이터 이전이 아니다. deploy.ps1은 데이터 EBS의 prevent_destroy 값을 변경하거나 우회하지 않는다. 현재 [compute 모듈](../terraform/README.md#compute)의 값은 true이므로 데이터 볼륨 삭제·교체가 포함된 계획은 실패할 수 있다. 실행 중 역할을 다른 계정으로 옮겨 기존 SG가 제거되는 경우에는 기존 EC2·SG 참조 정리와 데이터 이전을 별도 단계로 계획해야 한다. Deploy 한 번으로 모든 기존 클러스터를 무중단 이전하는 기능은 아니다.
+계정/AZ 이동·노드 삭제는 데이터 이전이 아니다. deploy.ps1은 데이터 EBS의 prevent_destroy 값을 변경하거나 우회하지 않는다. [compute 모듈](../terraform/README.md#compute)의 prevent_destroy가 true인 구성에서는 데이터 볼륨 삭제·교체가 포함된 계획이 실패한다. 실제 실행 전 현재 값을 확인한다. 실행 중 역할을 다른 계정으로 옮겨 기존 SG가 제거되는 경우에는 기존 EC2·SG 참조 정리와 데이터 이전을 별도 단계로 계획해야 한다. Deploy 한 번으로 모든 기존 클러스터를 무중단 이전하는 기능은 아니다.
 
 ## 인벤토리와 SSH 연결
 
 workload 출력과 선택한 노드 목록이 일치하는지 검사하고, 실제 AWS 소유 계정·Project/Node/Role 태그·실행 상태·사양을 확인한다. 조건에 맞지 않으면 파일을 쓰지 않는다. 계정에 서비스 노드가 없어도 처리한다.
 
-계정 그룹과 역할 그룹을 함께 생성하고 mongo는 기본적으로 mongodb에 대응시킨다. role_groups는 사용자가 수정할 수 있다. bastion 노드는 Ansible에서 bastion-01이라는 내부 호스트명으로 표현한다. 중복 호스트 이름은 거부한다.
+계정 그룹과 역할 그룹을 함께 생성하고 mongo는 기본적으로 mongodb에 대응시킨다. role_groups는 사용자가 수정할 수 있다. edge-1의 role=edge는 별도 매핑 없이 edge 그룹으로 생성된다. bastion 노드는 Ansible에서 bastion-01이라는 내부 호스트명으로 표현한다. 중복 호스트 이름은 거부한다.
 
 대상 서버는 자신의 계정 키를 사용하고 ProxyCommand는 별도로 배스천 계정 키를 사용한다. 개인키를 배스천으로 복사하거나 모든 계정 키를 배스천에 등록할 필요가 없다. 생성 파일에는 키 경로만 기록한다.
 
@@ -60,3 +60,9 @@ platform.json의 WSL 배포판과 기존 Ansible 가상환경을 사용한다. w
 Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해도 검색 순서의 첫 실행 파일 하나만 선택한다. 경로 배열 전체를 호출 연산자에 넘겨 여러 경로가 하나의 명령 이름으로 합쳐지는 오류를 방지한다.
 
 연결 대상은 [플랫폼 실행 스크립트](../../../../aws-platform/platform/scripts/setup-proxy.sh)와 [배스천 초기화](../../../../aws-platform/platform/bootstrap-proxy.yml)다. 프록시 준비에서는 Kafka·Spark·DB 애플리케이션 설치를 실행하지 않는다.
+
+## edge HTTPS 설치 입력
+
+Inventory는 edge 호스트에 AWS에서 조회한 public_ip와 선택한 traffic.game_client_cidrs를 edge_https_allowed_cidrs로 기록한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
+
+Deploy는 EC2 생성·Inventory·Proxy까지 실행한다. 소프트웨어 전체 설치는 [site.yml](../../../../aws-platform/platform/site.yml)의 edge 역할에서, 진입 서버만 먼저 설치할 때는 [edge.yml](../../../../aws-platform/platform/edge.yml)에서 실행한다. edge 단독 초기 구축에는 Bastion이 없으므로 public_ip, 허용 CIDR, 키 경로, proxy_enabled=false를 가진 별도 인벤토리를 사용한다.

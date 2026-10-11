@@ -12,6 +12,8 @@
 
 ## 하위 폴더별 시작 문서
 
+2026-10-11 기본 및 current 설정의 ALB와 전용 연결 3개를 비활성화했다. [설정 지도](config/README.md#alb-비활성화)와 [기존 자원 정리 순서](../deployment-runbook.md#alb-비활성화-적용-순서)를 함께 본다. Front 외부 웹 접속·Nginx·HTTPS 설치는 후속 작업이다. 아래 ALB 표기는 선택적 모듈의 관리 위치를 뜻한다.
+
 | 원본 폴더 | 라우팅 시작점 | 탐색 범위 |
 | --- | --- | --- |
 | infra/config | [설정 지도](config/README.md) | topology·traffic·backend와 비용별 프로필 입력 |
@@ -76,9 +78,9 @@ flowchart TB
 ## 현재 구현의 범위
 
 - 계정 키는 account1~account5이며 shared는 connectivity 실행 구분이다.
-- workload의 서비스 서버는 4 / 3 / 4 / 3 / 3대, 전체 17대다. Bastion 한 대는 별도 bastion 단계에서 필요할 때 생성·삭제한다. ad-server는 Account 1의 Private A에 배치한다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW·ALB를 구성한다.
+- workload의 서비스 서버는 5 / 3 / 4 / 3 / 3대, 전체 18대다. Bastion 한 대는 별도 bastion 단계에서 필요할 때 생성·삭제한다. ad-server는 Account 1의 Private A에 배치한다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW를 구성하며 ALB는 비활성화돼 있다. edge-1은 Public A의 신규 진입 노드 선언이다.
 - 보안그룹 자체는 foundation, 통신 규칙은 workload가 소유한다. Peering과 상대 VPC 경로는 connectivity가 소유한다.
-- 서비스 콘솔 SSH는 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록에서 TCP 22를 허용한다. 계정별 서비스 SG 3 / 3 / 4 / 3 / 3개, 총 16개가 대상이며 기존 Bastion 규칙과 별도로 선언한다. Private 접속 경로나 SSH 공개키를 준비하는 기능은 아니다.
+- 서비스 콘솔 SSH는 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록에서 TCP 22를 허용한다. 계정별 서비스 SG 4 / 3 / 4 / 3 / 3개, 총 17개가 대상이며 기존 Bastion 규칙과 별도로 선언한다. Private 접속 경로나 SSH 공개키를 준비하는 기능은 아니다.
 - ALB는 HTTP 80에서 요청을 받는다. `/static/*`는 Front 두 대의 HTTP 80으로, `/ads/*`는 ad-server의 HTTP 8000으로, 기본 경로는 game-server의 HTTP 8000으로 보낸다. HTTPS 리스너와 ACM 인증서 검사는 없다.
 - topology의 Bastion 역할은 유지하지만 workload의 EC2 대상에서는 제외한다. foundation의 Bastion SG와 workload의 SSH·Proxy 규칙은 Bastion 삭제 후에도 유지한다. 현재 관리자·사용자 CIDR은 각각 한 항목이며 계정별 AMI·공개키 경로도 채워져 있다. 설정값은 [설정 지도](config/README.md)에서 확인한다.
 - 공통 실행기 Output은 Terraform 상태를 읽은 값이고, bastion.ps1의 Status·Output은 AWS CLI로 현재 EC2를 조회한다. 프로그램 설치·디스크 마운트·클러스터 구성·실제 접속 성공은 별도 확인 대상이다.
@@ -87,4 +89,4 @@ flowchart TB
 
 Python 구조는 지정한 routing-doc-sync 스킬로 확인했다. PowerShell·Terraform·JSON·Bash는 스킬의 Python 분석 범위 밖이므로 실제 파일을 대조했다. 검사 깊이와 기존 문서의 남은 차이는 [검증 기록](verification.md)에 구분했다.
 
-mysql-3는 account4 Private A의 t3a.small, OS 20GiB·데이터 gp3 100GiB이며 공인 IP가 없다. 기본 topology와 profiles/current에 함께 반영했다. [설정 지도](config/README.md#mysql-3-증설) → [workload 증설 경계](terraform/stacks/workload.md#mysql-3-증설과-alb-복원-보류) → [실제 AWS 검증](verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에서 선언·적용·설치 준비 상태를 구분한다. 설정에 ALB가 활성화돼 있어도 현재 실제 ALB는 없고, 이번 증설에서는 복원하지 않았다.
+mysql-3는 account4 Private A의 t3a.small, OS 20GiB·데이터 gp3 100GiB이며 공인 IP가 없다. 기본 topology와 profiles/current에 함께 반영했다. [설정 지도](config/README.md#mysql-3-증설) → [workload 증설 경계](terraform/stacks/workload.md#mysql-3-증설과-alb-복원-보류) → [실제 AWS 검증](verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에서 선언·적용·설치 준비 상태를 구분한다. 당시에는 설정에 ALB가 활성화돼 있어도 실제 ALB는 없어 복원을 보류했다. 현재 기본 및 current 설정은 ALB를 비활성화했으며 이번에 AWS 상태를 재조회하지 않았다.

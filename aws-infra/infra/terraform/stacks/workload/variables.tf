@@ -17,3 +17,9 @@ module "model" {
   topology = var.topology
   traffic  = var.traffic
 }
+
+# 빈 환경에서 Public 진입 서버만 먼저 구축한다. 기존 서버가 있으면 실행기에서 축소 계획을 거부한다.
+variable "edge_bootstrap_only" {
+  type    = bool
+  default = false
+}

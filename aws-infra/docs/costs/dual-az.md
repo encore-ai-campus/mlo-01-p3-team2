@@ -2,7 +2,7 @@
 
 기존 견적 작성일은 2026-10-08이고 문서 구분을 갱신한 날짜는 2026-10-10이다. 아래 1~9절의 수치·단가·전송 모델은 당시 가정의 기록이다. 이번 작업에서 최신 가격·실제 청구·계정 잔액을 조회하거나 재견적하지 않았다.
 
-현재 코드의 배치는 [비용 안내](costs.md#현재-기본-구성)와 [계정별 자원 배분](account-allocation.md)을 따른다. 현재 ad는 Account 1 Private A이며 Account 2에는 Mongo-1·Spark-2·flatten-1 Consumer가 있다. 서비스 17대와 별도 배스천 1대, OS·데이터 EBS 합계 4,260GiB가 기본값이다. Front EIP 2개와 자동 공인 IP의 배스천을 사용한다.
+현재 코드의 배치는 [비용 안내](costs.md#현재-기본-구성)와 [계정별 자원 배분](account-allocation.md)을 따른다. 현재 ad는 Account 1 Private A이며 Account 2에는 Mongo-1·Spark-2·flatten-1 Consumer가 있다. 서비스 18대와 별도 배스천 1대, OS·데이터 EBS 합계 4,280GiB가 기본값이다. Front 및 edge EIP 3개와 자동 공인 IP의 배스천을 사용한다. 2026-10-11 기본 및 current 설정은 ALB를 비활성화했으며 아래 ALB 포함 견적은 당시 가정으로 보존한다.
 
 과거 견적은 ad가 Account 2에 있고 배스천 고정 IP를 153시간 유지한다고 계산했다. 당시 Spark Master 1대·Worker 2대의 소비 배분도 현재 Master 2개·Worker 3개 구성과 다르다. 따라서 아래 계정별 비용과 트래픽 비율은 현재 설정의 비용 예측이 아니다. 기존 50명·100명 디스크 축소 시나리오도 현재 프로필에 자동 적용되지 않는다.
 

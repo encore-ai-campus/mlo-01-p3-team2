@@ -1,0 +1,14 @@
+---
+# 단일 Public edge 인벤토리로도 실행한다. DB Vault나 Bastion은 필수가 아니다.
+- name: 진입 서버 HTTPS 구축
+  hosts: edge
+  become: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: 직접 설치용 Ubuntu HTTPS 저장소 준비
+      ansible.builtin.import_tasks: roles/edge/tasks/prepare-os.yml
+      tags: [always]
+  roles:
+    - { role: common, tags: [common] }
+    - { role: firewall, tags: [firewall] }
+    - { role: edge, tags: [edge] }

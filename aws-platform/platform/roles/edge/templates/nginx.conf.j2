@@ -1,0 +1,71 @@
+# Ansible edge 역할이 관리한다. HTTP는 ACME 검증 경로만 제공한다.
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+events { worker_connections 1024; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /var/log/nginx/access.log;
+    sendfile on;
+    server_tokens off;
+    map $http_upgrade $edge_connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+{% if edge_frontend_upstreams | length > 0 %}
+    upstream edge_frontends {
+        least_conn;
+{% for frontend in edge_frontend_upstreams %}
+        server {{ frontend.host }}:{{ frontend.port | default(80) }} max_fails=2 fail_timeout=10s;
+{% endfor %}
+    }
+{% endif %}
+    server {
+        listen 80 default_server;
+        server_name {{ edge_public_ip }};
+        location ^~ /.well-known/acme-challenge/ {
+            root {{ edge_acme_webroot }};
+            default_type text/plain;
+            try_files $uri =404;
+        }
+        location / { return 404; }
+    }
+{% if edge_tls_ready %}
+    server {
+        listen 443 ssl default_server;
+        server_name {{ edge_public_ip }};
+        ssl_certificate /etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/{{ edge_cert_name }}/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        # HTTPS 사용자 범위는 AWS SG와 동일하게 지정한다. 로컬 검증만 예외다.
+        allow 127.0.0.1;
+{% for cidr in edge_https_allowed_cidrs %}
+        allow {{ cidr }};
+{% endfor %}
+        deny all;
+        location / {
+{% if edge_frontend_upstreams | length > 0 %}
+            proxy_pass http://edge_frontends;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $edge_connection_upgrade;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 3600s;
+            proxy_next_upstream error timeout http_502 http_503 http_504;
+{% else %}
+            # return을 쓰면 접근 제한 전에 응답하므로 정적 파일로 제공한다.
+            root {{ edge_setup_root }};
+            index index.html;
+            try_files $uri $uri/ =404;
+{% endif %}
+        }
+    }
+{% endif %}
+}

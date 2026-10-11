@@ -57,7 +57,7 @@ function Get-InfraDestroyState {
     $result = Invoke-InfraDestroyAws $Command @('s3api','get-object','--bucket',$Backend.bucket,
         '--key',$key,'--profile',$Backend.profile,'--region',$Backend.region,$path) @('NoSuchKey')
     if ($null -eq $result) {
-        return [pscustomobject]@{ exists = $false; sha256 = ''; managed_count = 0; key = $key }
+        return [pscustomobject]@{ exists = $false; sha256 = ''; managed_count = 0; key = $key; edge_bootstrap_only = $false }
     }
     $state = Read-InfraJson $path
     if (-not $state.PSObject.Properties['version'] -or $state.version -ne 4 -or
@@ -68,7 +68,11 @@ function Get-InfraDestroyState {
     foreach ($resource in @($state.resources)) {
         if ($resource.mode -eq 'managed') { $count += @($resource.instances).Count }
     }
-    return [pscustomobject]@{ exists = $true; sha256 = (Get-InfraFileHash $path); managed_count = $count; key = $key }
+    # 초기 구축에서만 존재하는 표식을 읽어 삭제 Plan에서도 같은 원격 상태 범위를 쓴다.
+    $edgeBootstrap = $Account -eq 'account1' -and $Stage -eq 'workload' -and @($state.resources | Where-Object {
+        $_.mode -eq 'managed' -and $_.type -eq 'terraform_data' -and $_.name -eq 'edge_bootstrap_guard' -and @($_.instances).Count -gt 0
+    }).Count -gt 0
+    return [pscustomobject]@{ exists = $true; sha256 = (Get-InfraFileHash $path); managed_count = $count; key = $key; edge_bootstrap_only = [bool]$edgeBootstrap }
 }
 
 function Assert-InfraDeletePlan {
@@ -82,7 +86,7 @@ function Assert-InfraDeletePlan {
         foundation = '^(?:module\.model\.terraform_data\.configuration|module\.groups\.aws_security_group\.this\[.+\]|module\.network\.aws_(?:(?:vpc|subnet|internet_gateway|route_table|route_table_association|nat_gateway)\.this|eip\.nat|route\.(?:public|private_nat))(?:\[.+\])?)$'
         connectivity = '^(?:module\.model\.terraform_data\.configuration|module\.account[1-5]_account[1-5]\[0\]\.aws_(?:vpc_peering_connection(?:_accepter)?\.this|vpc_peering_connection_options\.(?:requester|accepter)|route\.(?:requester|accepter)\[.+\]))$'
         # workload가 소유한 역할별 콘솔 SSH 규칙만 기존 삭제 허용 목록에 추가한다.
-        workload = '^(?:module\.model\.terraform_data\.configuration|terraform_data\.connectivity_ready|aws_vpc_security_group_ingress_rule\.bastion_console_ssh\[0\]|aws_vpc_security_group_ingress_rule\.service_console_ssh\["[^"]+"\]|module\.compute\.aws_(?:(?:key_pair|instance|eip|eip_association)\.this|(?:ebs_volume|volume_attachment)\.data)(?:\[.+\])?|module\.rules\.aws_vpc_security_group_(?:ingress|egress)_rule\.(?:peer|public)\[.+\]|module\.alb\[0\]\.aws_(?:lb\.this|lb_target_group\.this\[.+\]|lb_target_group_attachment\.(?:frontend|game|ad)\[.+\]|lb_listener\.http|lb_listener_rule\.(?:static|ad)))$'
+        workload = '^(?:module\.model\.terraform_data\.configuration|terraform_data\.connectivity_ready|terraform_data\.edge_bootstrap_guard\[0\]|aws_vpc_security_group_ingress_rule\.bastion_console_ssh\[0\]|aws_vpc_security_group_ingress_rule\.service_console_ssh\["[^"]+"\]|module\.compute\.aws_(?:(?:key_pair|instance|eip|eip_association)\.this|(?:ebs_volume|volume_attachment)\.data)(?:\[.+\])?|module\.rules\.aws_vpc_security_group_(?:ingress|egress)_rule\.(?:peer|public)\[.+\]|module\.alb\[0\]\.aws_(?:lb\.this|lb_target_group\.this\[.+\]|lb_target_group_attachment\.(?:frontend|game|ad)\[.+\]|lb_listener\.http|lb_listener_rule\.(?:static|ad)))$'
     }
     if (-not $patterns.ContainsKey($Stage)) { throw '지원하지 않는 삭제 단계입니다.' }
     # 삭제 후 managed 자원이 남는 계획을 전체 삭제로 오인하지 않는다.
@@ -169,6 +173,10 @@ function Assert-InfraDestroyArtifacts {
             $keyPath = $topology.accounts.($step.account).ssh_public_key_path
             if ($keyPath -and -not [IO.Path]::IsPathRooted($keyPath)) { $keyPath = Join-Path $Root $keyPath }
         }
+        # 예전 실행 기록에 없는 필드는 일반 모드(false)로 읽는다.
+        $stepEdgeMode = $step.PSObject.Properties['edge_bootstrap_only'] -and [bool]$step.edge_bootstrap_only
+        $manifestEdgeMode = $manifest.PSObject.Properties['edge_bootstrap_only'] -and [bool]$manifest.edge_bootstrap_only
+        if ([bool]$stepEdgeMode -ne [bool]$manifestEdgeMode) { throw '전체 삭제 단계의 초기 구축 모드가 저장 계획과 다릅니다.' }
         if ($manifest.account -ne $step.account -or $manifest.stage -ne $step.stage -or
             $manifest.state_key -ne $step.state_key -or $manifest.plan_mode -ne 'Delete' -or
             $manifest.destroy_run_id -ne $RunId -or -not $manifest.delete_data_volumes -or

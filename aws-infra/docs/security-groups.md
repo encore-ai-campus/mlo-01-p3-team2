@@ -1,6 +1,6 @@
 # 현재 EC2 보안그룹과 서비스 통신
 
-기준: 2026-10-10의 기본 topology·traffic과 workload 선언. 과거 HTTPS/WSS·NAT 배치 초안을 현재 규칙으로 사용하지 않는다. 전체 표는 설정상의 규칙이며, 이번 mysql-3 관련 신규 규칙 23개는 실제 AWS에서 대조했다. 전체 애플리케이션 통신을 검증한 결과는 아니다.
+기준: 2026-10-11의 기본 topology·traffic과 workload 선언. 전체 표는 설정상의 규칙이다. 2026-10-10 mysql-3 증설 규칙 23개의 AWS 대조 기록과, 2026-10-11 애플리케이션 연결 추가의 로컬 검증 결과를 구분한다. 이번 연결 추가는 AWS에 적용하지 않았다.
 
 [계정 배치](costs/account-allocation.md), [설정](infra-routing/config/README.md), [workload](infra-routing/terraform/stacks/workload.md), [플랫폼 방화벽](../../aws-platform/platform/docs/platform-routing/roles/firewall/README.md)이 각 계층을 설명한다.
 
@@ -8,13 +8,13 @@
 
 | 계정 | 역할 | SG 수 |
 | --- | --- | ---: |
-| account1 | ad, bastion, frontend, game, alb | 5 |
+| account1 | ad, bastion, frontend, game, edge | 5 |
 | account2 | mongo, spark, consumer | 3 |
 | account3 | kafka, mongo, mysql, spark | 4 |
 | account4 | kafka, mysql, spark | 3 |
 | account5 | kafka, mongo, mysql | 3 |
 
-총 18개다. 이름은 aws-infra-계정-역할이며 실제 ID는 foundation 출력으로 읽는다. 서비스 역할 SG 16개와 Bastion·ALB 각 하나다. SG 자체는 foundation, 입출력 규칙은 workload가 소유한다. 같은 역할 서버는 같은 계정의 SG를 공유한다. 광고는 account1 Private A이고 MySQL은 account3·4·5 세 대다.
+총 18개다. 이름은 aws-infra-계정-역할이며 실제 ID는 foundation 출력으로 읽는다. 서비스 역할 SG 17개와 Bastion 하나다. 현재 설정에서는 ALB SG를 생성하지 않는다. SG 자체는 foundation, 입출력 규칙은 workload가 소유한다. 같은 역할 서버는 같은 계정의 SG를 공유한다. 광고는 account1 Private A이고 MySQL은 account3·4·5 세 대다.
 
 ## 역할별 TCP 연결
 
@@ -22,10 +22,7 @@
 
 | 연결 키 | 출발 역할 → 목적 역할 | 포트 |
 | --- | --- | --- |
-| alb_front | alb → frontend | 80 |
-| alb_ad | alb → ad | 8000 |
-| alb_game | alb → game | 8000 |
-| admin_nodes | bastion → frontend, game, mongo, spark, ad, kafka, mysql, consumer | 22 |
+| admin_nodes | bastion → frontend, game, mongo, spark, ad, kafka, mysql, consumer, edge | 22 |
 | game_kafka | game, ad → kafka | 9092 |
 | spark_kafka | spark → kafka | 9092 |
 | consumer_kafka | consumer → kafka | 9092 |
@@ -36,6 +33,17 @@
 | spark_mongo | spark → mongo | 27017 |
 | spark_mysql | spark → mysql | 3306 |
 | game_mysql | game → mysql | 3306 |
+| edge_front | edge → frontend | 80 |
+| front_game | frontend → game | 8000 |
+| front_ad | frontend → ad | 8000 |
+| game_ad | game → ad | 8000 |
+| ad_game | ad → game | 8000 |
+| consumer_mongo | consumer → mongo | 27017 |
+| ad_mongo | ad → mongo | 27017 |
+| ad_mysql | ad → mysql | 3306 |
+| mysql_kafka | mysql → kafka | 9092 |
+| mysql_game | mysql → game | 8000 |
+| mysql_ad | mysql → ad | 8000 |
 | spark_master | spark → spark | 7077 |
 | spark_driver | spark → spark | 7078–7094 |
 | spark_block | spark → spark | 7079–7095 |
@@ -44,18 +52,18 @@
 | zookeeper_client | spark → spark | 2181 |
 | zookeeper_peer | spark → spark | 2888 |
 | zookeeper_election | spark → spark | 3888 |
-| forward_proxy | frontend, game, mongo, spark, ad, kafka, mysql, consumer → bastion | 3128 |
+| forward_proxy | frontend, game, mongo, spark, ad, kafka, mysql, consumer, edge → bastion | 3128 |
 
 port_end는 ports의 끝 키를 선택하는 항목이며 생략하면 단일 포트다. 같은 SG 쌍·시작 포트의 연결은 가장 큰 끝 값으로 합쳐 기존 Terraform 규칙 키를 유지한다. 기본 파일 수정이 이미 생성한 프로필의 복사본을 자동으로 갱신하지 않는다.
 
 ## 외부 접속과 콘솔 SSH
 
-- 관리자 admin_public_cidrs → Bastion TCP 22. 현재 기본 파일에는 한 항목이며 실제 관리 PC 범위와 대조한다.
-- game_client_cidrs → ALB HTTP 80. /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. Front에 직접 HTTPS 443을 공개하는 규칙이 아니다.
-- internet_https_roles의 Bastion만 0.0.0.0/0 TCP 443 egress를 받는다. 일반 Private 서버에 직접 인터넷 HTTPS 송신을 여는 기본 구성은 아니다.
-- 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록 → 서비스 SG의 TCP 22를 별도 허용한다. 대상 SG는 계정별 3/3/4/3/3개이며 기존 Bastion 콘솔 규칙도 유지한다. 접속 경로·Endpoint·키 등록·IAM 권한을 자동 제공하는 기능은 아니다.
+- 관리자 admin_public_cidrs → Bastion·edge TCP 22. 초기 구축 모드에서는 edge만 선택한다.
+- game_client_cidrs → edge TCP 443. ACME 검증용 edge TCP 80은 0.0.0.0/0이며 Nginx가 검증 경로만 제공한다. Front 자체에 외부 웹 인바운드는 추가하지 않는다.
+- internet_https_roles의 Bastion·edge → 인터넷 TCP 443. 초기 구축 모드는 edge만 선택한다. 다른 Private 서버의 직접 인터넷 송신은 추가하지 않는다.
+- 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록 → 서비스 SG의 TCP 22를 별도 허용한다. 대상 SG는 계정별 4/3/4/3/3개이며 기존 Bastion 콘솔 규칙도 유지한다. 접속 경로·Endpoint·키 등록·IAM 권한을 자동 제공하는 기능은 아니다.
 
-현재 ALB 모듈은 HTTP listener만 만들고 인증서·HTTPS 리다이렉트는 없다. Django·정적 파일·광고 앱 설치와 실제 헬스 체크 성공은 별도다. CloudWatch agent·전용 Endpoint나 그 전송 정책은 이 구현에 추가돼 있지 않다.
+선택적으로 활성화할 수 있는 ALB 모듈은 HTTP listener만 지원하며 현재 기본 설정에서는 호출하지 않는다. 인증서·HTTPS 리다이렉트는 없다. Django·정적 파일·광고 앱 설치와 실제 헬스 체크 성공은 별도다. CloudWatch agent·전용 Endpoint나 그 전송 정책은 이 구현에 추가돼 있지 않다.
 
 ## Spark·ZooKeeper
 
@@ -77,12 +85,30 @@ VPC 모든 쌍 10개를 직접 Peering으로 연결하고 양쪽 라우팅 테�
 
 SG, Squid ACL과 EC2 안의 nftables는 모두 맞아야 한다. 플랫폼 방화벽은 인벤토리의 역할 그룹 IP를 사용하며 기본 서비스 그룹 간에는 SSH 22를 제외한 포트를 허용한다. Proxy 활성 Bastion에는 프로젝트 CIDR → TCP 3128을 허용한다. 이 OS 정책이 AWS SG의 모든 포트를 여는 것은 아니다.
 
-game·ad 애플리케이션 전용 설치 역할은 현재 없다. 다만 game·Spark·선택 backend에는 기존 backend 역할로 로컬 MySQL Router를 설치하며, 플랫폼 MySQL 방화벽의 허용 출처에도 game을 포함한다. 앱 런타임과 나머지 애플리케이션 통신·계정 권한은 별도로 맞춘다. 앱의 Kafka 우선 쓰기·Consumer 처리·원본 보관·Spark 집계 요구는 네트워크 규칙이 강제하지 않는다.
+game·ad 애플리케이션 전용 설치 역할은 현재 없다. 다만 game·Spark·선택 backend에는 기존 backend 역할로 로컬 MySQL Router를 설치하며, 플랫폼 MySQL 방화벽의 허용 출처에는 game·ad를 포함한다. 광고 서버의 Router 설치는 이번 변경에 추가하지 않았다. 앱 런타임과 나머지 애플리케이션 통신·계정 권한은 별도로 맞춘다. 앱의 Kafka 우선 쓰기·Consumer 처리·원본 보관·Spark 집계 요구는 네트워크 규칙이 강제하지 않는다.
 
 현재 [MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 3~9대의 단일 Primary InnoDB Cluster와 자동 Primary 선출을 구성한다. MYSQL 통신 스택을 사용하므로 멤버 간 기본 TCP 3306이 필요하다. 기본 인프라에 MySQL 세 대를 선언했고 current 프로필의 mysql-3 EC2·SG 반영을 확인했다. 인벤토리·Proxy·데이터 마운트·OS 방화벽은 설치 전에 다시 준비한다. [로컬 Router](../../aws-platform/platform/docs/platform-routing/roles/backend/README.md)의 6446(RW)·6447(RO)은 127.0.0.1에서 받으므로 원격 SG 포트로 추가하지 않는다. 실제 자동 선출·Router 재접속과 쓰기 성공은 별도 운영 검증 대상이다.
 
-평탄화 Consumer의 AWS SG는 Kafka 9092와 프록시 3128 송신만 추가하고 DB·Kafka Controller 9093는 열지 않는다. Kafka의 OS 방화벽에서도 consumer 출처를 별도로 허용해야 한다. 생성된 인벤토리에서 consumer를 Kafka·Spark 그룹으로 바꾸지 않는다.
+평탄화 Consumer의 AWS SG는 Kafka 9092·MongoDB 27017·프록시 3128 송신을 허용한다. MySQL·Kafka Controller 9093 연결은 열지 않는다. Kafka·MongoDB의 OS 방화벽 허용 출처에 consumer를 포함한다. 생성 인벤토리의 consumer 역할은 유지한다.
 
 ## 적용과 확인
 
 규칙 변경은 해당 구성의 영향받는 계정 workload Plan → 검토 → Apply로 반영한다. 노드·역할·SG가 바뀌면 foundation·connectivity 의존성도 검토한다. 중간 계정의 Peering을 통해 우회하는 경로나 중앙 NAT 경로를 추정하지 않는다. 검증 명령과 설치 순서는 [배포 절차](deployment-runbook.md)를 따른다. 2026-10-10 mysql-3 증설에서는 다섯 계정 workload Plan·Apply 후 추가 규칙 23개의 포트·방향·소스 SG를 AWS에서 확인했다. 기존 서버는 유지했다. [실제 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 참고한다. SSH·MySQL 서비스 통신·Ansible 설치·OS 방화벽 적용은 이번 작업에서 실행하지 않았다.
+
+## 2026-10-11 애플리케이션 연결 추가
+
+Front→게임·광고, 게임↔광고 API, 평탄화·광고→MongoDB, 광고→MySQL, MySQL 서버→Kafka·게임·광고의 10종류를 기본 및 current 프로필에 반영했다. 새 SG 연결 28쌍의 ingress·egress가 생성되며 기존 연결은 제거하지 않는다. 서버 간 출발지·목적지는 역할 SG를 참조하고, 지정한 단일 TCP 포트만 추가한다.
+
+Kafka와 Spark·평탄화의 양방향 데이터 흐름은 Spark·Consumer가 시작하는 9092 연결을 사용한다. SG는 허용된 연결의 응답을 통과시키므로 Kafka가 Spark·Consumer에 새로 접속하는 규칙은 필요하지 않다. MySQL→게임·광고 8000은 해당 MySQL 서버에서 별도 프로그램이 API를 호출하는 경로이며 MySQL 쿼리 응답은 기존 3306 연결을 사용한다.
+
+플랫폼 firewall에는 game·ad 수신 역할을 추가하고 MySQL·MongoDB·Kafka의 from 목록을 맞췄다. from/self는 기존처럼 SSH 22를 제외한 포트를 허용하며, 실제 서비스 포트 범위는 AWS SG가 제한한다. 외부 사용자→Front 443 및 Nginx·인증서 설치는 추가하지 않았다.
+
+[로컬 검증 기록](infra-routing/verification.md#2026-10-11-애플리케이션-통신-규칙)은 Terraform 모의 테스트 13건과 방화벽 템플릿 9종·출처 검사 67건이다. 실제 AWS Plan·Apply, 원격 Ansible, 서비스 데이터 송수신은 실행하지 않았다.
+
+## 2026-10-11 ALB 비활성화
+
+앞선 애플리케이션 연결 추가 후, 기본 및 current 설정에서 ALB와 전용 연결 3개를 제외했다. ALB 비활성화 직후는 30개 연결이었고, 이후 edge_front를 추가해 위 표는 31개 연결 기준이다. ALB의 대상 연결 3쌍과 양쪽 규칙은 제거 대상이고 Front→게임·광고 8000 등 다른 연결은 유지한다. 현재 EC2의 보안그룹 상태를 조회하거나 적용한 결과가 아니다. [기존 자원 정리 순서](deployment-runbook.md#alb-비활성화-적용-순서)를 따른다.
+
+## 진입용 edge 생성 설정
+
+edge-1은 account1 Public A의 전용 edge SG를 사용한다. edge_front·admin_nodes·forward_proxy로 연결 3쌍의 ingress·egress를 선언한다. 앱 연결은 Front 80이며 관리 연결은 Bastion→edge 22, edge→Bastion 3128이다. 외부 ACME 80·허용 사용자 443·관리자 22와 인증기관·패키지 저장소 접근용 인터넷 443을 추가한다. 초기 구축 모드는 이 계정의 edge 관련 규칙만 생성하며 EC2는 edge-1만 선택한다. 프로그램·OS 방화벽·실제 TLS 성공은 별도로 확인한다.

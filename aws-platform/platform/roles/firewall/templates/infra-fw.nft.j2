@@ -30,6 +30,10 @@ table inet infra_fw {
     # 프로젝트 VPC에서 배스천의 프록시 포트로 들어오는 연결만 허용한다.
     ip saddr { {{ proxy_client_cidrs | join(', ') }} } tcp dport {{ proxy_port }} accept
 {% endif %}
+{% if 'edge' in group_names and edge_https_allowed_cidrs | default([]) | length > 0 %}
+    # HTTPS 사용자 범위. 값이 없으면 443은 닫힌 상태로 유지한다.
+    ip saddr { {{ edge_https_allowed_cidrs | join(', ') }} } tcp dport 443 accept
+{% endif %}
 {% for g in group_names if g in firewall_rules %}
 {% set rule = firewall_rules[g] %}
 {% set ips = [] %}

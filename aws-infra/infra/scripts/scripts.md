@@ -45,7 +45,7 @@ Set-Location C:\third_project\aws-infra
 
 | `-Account` 값 | AWS 계정 ID | CLI 프로필 | VPC CIDR | workload의 서버 대상 |
 | --- | --- | --- | --- | --- |
-| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server — 4대 |
+| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server, edge-1 — 5대 |
 | `account2` | `529088287882` | `account2` | `10.20.0.0/16` | mongo-1, spark-2, flatten-1 — 3대 |
 | `account3` | `667879771148` | `account3` | `10.30.0.0/16` | kafka-1, mysql-1, spark-1, mongo-2 — 4대 |
 | `account4` | `688567306400` | `account4` | `10.40.0.0/16` | kafka-2, mysql-3, spark-3 — 3대 |
@@ -57,11 +57,12 @@ Set-Location C:\third_project\aws-infra
 `-Account`를 생략하면 코드의 기본값은 `account1`이다. 이 문서의 명령은 대상을 분명히 하도록 항상 명시한다. 다른 CLI 프로필을 사용하려면 설정의 `accounts.<계정>.profile`을 바꾼다. 실행기에 별도의 `-Profile` 옵션은 없다.
 
 <details>
-<summary>계정별 서버·AZ·사양·데이터 디스크 18대 상세</summary>
+<summary>계정별 서버·AZ·사양·데이터 디스크 19대 상세</summary>
 
 | 계정 | 서버 키 | 영역 | 논리 AZ | 사양 | 별도 데이터 gp3 |
 | --- | --- | --- | --- | --- | --- |
 | account1 | bastion | Public | A | t3a.small | 없음 |
+| account1 | edge-1 | Public | A | t3a.small | 없음 |
 | account1 | front-a | Public | A | t3a.small | 없음 |
 | account1 | front-b | Public | C | t3a.small | 없음 |
 | account1 | game-server | Private | A | t3a.large | 없음 |
@@ -82,7 +83,7 @@ Set-Location C:\third_project\aws-infra
 
 모든 서버의 OS 디스크는 별도 20GiB다. 데이터 용량은 현재 설정값이며 성능을 보장하는 권장값이라는 의미는 아니다.
 논리 A는 `apne2-az1`, C는 `apne2-az3`에 대응한다. 계정 콘솔의 AZ 이름 끝 글자가 아니라 설정한 물리 AZ ID 기준이다.
-Account 1에는 Public A·C에 걸친 HTTP ALB도 생성하도록 설정돼 있다. 위 상세 표의 Bastion은 workload 대상이 아닌 전용 bastion 단계이며 선택 생성한다. 서비스 EC2는 17대다. flatten-1은 Kafka 평탄화 Consumer 전용이며 role=consumer다. 생성 후 인벤토리의 consumer 그룹으로 등록되고, 평탄화 프로그램 설치는 별도로 수행한다.
+기본 및 current 설정의 ALB는 비활성화돼 있으며 전용 연결 3개도 제거했다. 위 상세 표의 Bastion은 workload 대상이 아닌 전용 bastion 단계이며 선택 생성한다. 서비스 EC2는 18대다. flatten-1은 Kafka 평탄화 Consumer 전용이며 role=consumer다. 생성 후 인벤토리의 consumer 그룹으로 등록되고, 평탄화 프로그램 설치는 별도로 수행한다.
 
 </details>
 
@@ -140,8 +141,8 @@ foundation의 보안그룹 생성과 workload의 보안규칙 적용은 다른 �
 | 같은 파일 | `topology.accounts.<계정>.ami_id` | 해당 계정 workload Plan·Apply |
 | 같은 파일 | `topology.accounts.<계정>.ssh_public_key_path` | 해당 계정 workload Plan·Apply. `.pem` 개인키가 아닌 OpenSSH `.pub` 공개키 |
 | 같은 파일 | topology.alb.certificate_arn | 공통 타입에 남은 키. 현재 HTTP ALB에 전달하지 않으며 인증서 필수 검사 없음 |
-| [traffic.tfvars.json](../config/traffic.tfvars.json) | **traffic.admin_public_cidrs** | Bastion SSH에 허용할 팀원 공인 IP 범위. 빈 배열이면 외부 SSH 허용 규칙 없음 |
-| 같은 파일 | **traffic.game_client_cidrs** | ALB에 접속할 사용자 IP 범위. 빈 배열이면 외부 접속 허용 규칙 없음 |
+| [traffic.tfvars.json](../config/traffic.tfvars.json) | **traffic.admin_public_cidrs** | Bastion·edge SSH에 허용할 관리자 공인 IP 범위. 빈 배열이면 해당 CIDR 허용 없음 |
+| 같은 파일 | **traffic.game_client_cidrs** | edge HTTPS 443의 사용자 IP 범위. ALB 활성 시 HTTP 80에도 사용 |
 
 공개키 상대 경로는 `infra/`를 기준으로 해석한다. 예를 들어 `config/keys/account1.pub`는 `infra/config/keys/account1.pub`를 뜻한다.
 AWS 자격 증명은 로컬 CLI 프로필에 등록한 것을 사용하며 이 설정 파일에 액세스 키·시크릿 키를 넣지 않는다.
@@ -154,7 +155,7 @@ AWS 자격 증명은 로컬 CLI 프로필에 등록한 것을 사용하며 이 �
 | --- | --- | --- | --- |
 | 1 | account1, account2, account3, account4, account5 각각 | foundation | 5개 계정의 네트워크·보안그룹 |
 | 2 | shared | connectivity | 5개 계정 사이의 연결 |
-| 3 | account1, account2, account3, account4, account5 각각 | workload | 전체 17대 서버·보안규칙, Account 1 ALB |
+| 3 | account1, account2, account3, account4, account5 각각 | workload | 전체 18대 서버·보안규칙, 활성 프로필에서만 ALB |
 
 ### 6-1. 정적 검증
 
@@ -211,7 +212,7 @@ Account 1의 변경 계획을 만든다.
 .\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Apply
 ```
 
-`-Account`를 바꿔 5개 계정 모두 같은 절차를 수행한다. 현재 설정에서 Account 1 workload에는 ALB도 포함된다. 서버별 AZ·사양·디스크 용량은 명령어가 아닌 배치 설정에서 읽는다.
+`-Account`를 바꿔 5개 계정 모두 같은 절차를 수행한다. 현재 기본 및 current 설정에서는 Account 1 ALB를 생성하지 않는다. 서버별 AZ·사양·디스크 용량은 명령어가 아닌 배치 설정에서 읽는다.
 
 workload는 다른 계정의 foundation 상태도 읽지만, 서버는 선택한 계정에 속한 항목만 생성한다. 다른 계정과의 통신 규칙을 바꾼 경우에는 규칙 양쪽에 해당하는 계정의 workload 계획·적용이 필요하다.
 
@@ -309,4 +310,6 @@ Proxy는 선택한 클라이언트 외에 공용 배스천의 Squid·APT·방화
 
 구성을 선택한 뒤 후속 Plan·Apply에도 같은 ProfileDirectory를 지정한다. 기존 infra.ps1을 구성 옵션 없이 실행하면 원래 infra/config를 읽으므로 선택한 구성과 다른 변경 계획이 나올 수 있다.
 
-mysql-3 추가 후 current 프로필의 실제 적용 결과와 ALB 복원 보류는 [AWS 검증 기록](../../docs/infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 따른다. 설정의 alb.enabled=true는 유지돼 일반 account1 workload Plan에는 재생성이 포함될 수 있다. 이번 적용은 MySQL 관련 범위만 검토해 수행했으며, Cluster 설치 전 Inventory·Proxy·새 데이터 디스크 마운트·OS 방화벽 준비가 필요하다.
+mysql-3 추가 후 current 프로필의 실제 적용 결과와 ALB 복원 보류는 [AWS 검증 기록](../../docs/infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 따른다. 당시에는 alb.enabled=true를 유지했으나 2026-10-11 기본 및 current 설정을 false로 바꾸고 전용 연결을 제거했다. 기존 자원 정리는 [배포 순서](../../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. 이번 적용은 MySQL 관련 범위만 검토해 수행했으며, Cluster 설치 전 Inventory·Proxy·새 데이터 디스크 마운트·OS 방화벽 준비가 필요하다.
+
+edge-1은 Public A의 t3a.small 진입 서버이며 EIP·전용 SG·Front 80·Bastion 관리 연결을 선언한다. ACME 검증 80·사용자 CIDR 443·관리자 CIDR 22·인터넷 HTTPS 송신을 허용한다. 빈 환경에서 이 서버만 먼저 만들 때는 [edge 단독 초기 구축](../../docs/deployment-runbook.md#edge-단독-초기-구축)의 -EdgeBootstrapOnly 옵션을 Plan·Apply에 동일하게 전달한다. 일반 전체 배포 명령은 모든 기존 노드와 edge를 함께 처리한다. deploy.ps1의 Proxy는 다운로드 준비이며 Nginx·인증서 등 프로그램 설치는 플랫폼 Ansible 실행 단계다.

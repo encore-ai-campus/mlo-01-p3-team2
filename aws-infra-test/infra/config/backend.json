@@ -1,0 +1,6 @@
+{
+  "bucket": "aws-infra-tfstate-541308265856",
+  "region": "ap-northeast-2",
+  "profile": "account1",
+  "key_prefix": "aws-infra-test"
+}

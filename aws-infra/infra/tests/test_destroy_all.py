@@ -23,10 +23,15 @@ def seed(root, infra, protected=False):
         (root / "bin" / f"{name}.cmd").write_text(
             f'@echo off\n"{sys.executable}" "{infra / "tests/destroy_cli.py"}" {name} %*\n', encoding="utf-8"
         )
-    # 보호 해제는 테스트 사본에서만 수행한다. 실제 compute/main.tf는 읽기만 한다.
+    # 실제 설정값과 무관하게 테스트 사본에 해당 시나리오의 보호 상태를 지정한다.
     compute = root / "infra/terraform/modules/compute/main.tf"
-    if not protected:
-        compute.write_text(compute.read_text(encoding="utf-8-sig").replace("prevent_destroy = true", "prevent_destroy = false"), encoding="utf-8")
+    expected_setting = f"prevent_destroy = {str(protected).lower()}"
+    compute_text = compute.read_text(encoding="utf-8-sig")
+    compute.write_text(
+        compute_text.replace("prevent_destroy = true", expected_setting)
+        .replace("prevent_destroy = false", expected_setting),
+        encoding="utf-8",
+    )
     topology = read(root / "infra/config/topology.tfvars.json")["topology"]
     targets = [("account1", "bastion")] + [(f"account{n}", "workload") for n in range(1, 6)] + [("shared", "connectivity")] + [(f"account{n}", "foundation") for n in range(1, 6)]
     states, live = {}, {}

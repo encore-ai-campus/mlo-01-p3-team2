@@ -255,3 +255,23 @@ configure-instance.js.j2의 사전 구성 접속을 root 로컬 소켓에서 기
 기준 HEAD는 3274dee0ac642345c3e8b4094a2a372b1a45b4d4다. 기존 변경과 Git 인덱스를 보존했다. 이번 수정 대상은 작업 시작 때부터 미추적 파일이어서 기존 내용과 이번 수정만 독립적으로 스테이징할 수 없으므로 추가 스테이징·커밋을 하지 않았다.
 
 검증은 WSL의 기존 가상환경에서 python tests/validate_mysql_cluster.py로 수행했다. 예시 인벤토리에 없는 mongodb·spark·backend 그룹 경고가 있었으며 해당 서버를 원격 실행한 것은 아니다. EC2 설정 적용·실제 AdminAPI 재실행·Cluster 생성·복제·자동 장애 전환은 이번 수정 작업에서 실행하지 않았다. 사용자 설치 로그의 실패 원인 수정과 실제 재배포 성공 여부를 구분한다.
+
+## 2026-10-11 애플리케이션 통신 방화벽
+
+roles/firewall/vars/main.yml에 game·ad 수신 역할을 추가하고 MySQL·MongoDB·Kafka의 from 출처를 인프라 SG 관계와 맞췄다. from/self의 기존 SSH 22 제외 방식과 established,related 응답 허용은 유지한다. 포트 범위는 AWS SG의 8000·9092·27017·3306 규칙이 제한한다.
+
+기존 WSL Ansible Python 환경에서 YAML을 읽고 Jinja StrictUndefined로 역할 템플릿 9종을 렌더링했다. 기본/current traffic 일치, 필요한 출처 IP의 수신 허용 67건, 응답 상태 허용과 Spark에 불필요한 kafka 출처가 없는 것을 확인했다. ALB의 동적 IP와 proxy·SSH 경로는 이 67건의 대상이 아니다. nft 명령의 커널 적용 검사나 원격 방화벽 적용을 수행한 결과는 아니다.
+
+인프라의 관련 Terraform 모의 테스트 13건도 통과했다. [인프라 검증 기록](../../../../aws-infra/docs/infra-routing/verification.md#2026-10-11-애플리케이션-통신-규칙)에서 범위를 확인한다. AWS 적용·원격 Ansible·실제 API 및 DB 데이터 송수신은 실행하지 않았다. YAML·Jinja는 routing-doc-sync Python AST 자동 대조 범위 밖이므로 변수 표와 렌더링 결과를 직접 대조했다.
+
+## 2026-10-11 edge HTTPS 실제 구축
+
+[인프라 실제 구축 기록](../../../../aws-infra/docs/infra-routing/verification.md#2026-10-11-edge-https-실제-구축)의 edge-1에서 edge.yml을 실행해 ok=85, changed=29, unreachable=0, failed=0을 확인했다. Ubuntu 24.04 패키지 미러를 HTTPS로 준비한 뒤 common·firewall·edge 순으로 설치했다.
+
+Nginx·Certbot 5.8.0·IP 인증서·갱신 타이머와 reload 훅을 구성했다. 외부 HTTPS 신뢰 검증·IP SAN·HTTP 404·비허용 출처 403과 renew --dry-run이 통과했다. 현재 허용 사용자 CIDR은 211.117.107.63/32이며 서버 주소는 https://54.116.158.93 이다. 인증서 만료는 2026-10-18 04:26:06 UTC다. 미래의 실제 자동 갱신 결과까지 확인한 것은 아니다.
+
+edge_frontend_upstreams는 비어 있으므로 설치 확인 페이지만 제공한다. Front A/B 애플리케이션 배포와 least_conn 실제 분산은 남아 있다. 부트캠프 접속 IP 변경 시 인프라 game_client_cidrs와 인벤토리 edge_https_allowed_cidrs를 함께 갱신한 뒤 firewall·edge 역할을 재실행한다.
+
+로컬 YAML/Jinja, Ubuntu 미러 6종, Nginx HTTP/HTTPS/least_conn 3상태, NFT CIDR 제한, Certbot 발급·갱신 인수와 edge.yml/site.yml 문법 검사를 통과했다. routing-doc-sync의 Python AST 범위 밖인 YAML·Jinja의 의미는 이 검사와 실제 실행으로 확인한 부분만 기록한다.
+
+최종 전체 삭제 회귀 검사 17개가 통과했다. 실제 AWS 삭제는 실행하지 않았다. 관련 변경 문서 31개의 로컬 파일 링크 423개에서 누락 경로가 없었다. 전체 문서를 대상으로 한 routing-doc-sync는 README의 셸 명령과 YAML 이름 등을 Python 경로·심볼로 해석해 9개 mismatch를 출력했다. 실제 Python 실행 파일 경로와 해당 비-Python 문맥을 따로 확인했으며 이 결과를 자동 검증 통과로 표시하지 않는다. Terraform·YAML 의미는 별도 검사 범위다.

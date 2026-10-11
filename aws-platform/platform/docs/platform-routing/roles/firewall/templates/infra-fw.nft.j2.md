@@ -30,3 +30,7 @@
 ## 검증 범위
 
 이 문서는 현재 작업 파일의 선언·작업 이름·조건·참조를 대조했다. Ansible 실행, 템플릿 렌더링, 원격 서버 동작은 이번 문서 작업에서 검증하지 않았다. Python AST 스킬의 자동 심볼 검사는 이 파일 형식에 적용되지 않는다.
+
+## Edge HTTPS 추가
+
+edge 그룹은 HTTP80을 모든 출처에 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.

@@ -18,9 +18,15 @@ param(
     [string]$DestroyRunId,
     [switch]$DeleteDataVolumes,
     # 비용별 구성의 topology/traffic만 선택한다. backend와 공개키 상대 경로 기준은 기존 infra다.
-    [string]$ConfigurationDirectory
+    [string]$ConfigurationDirectory,
+    [switch]$EdgeBootstrapOnly
 )
 $ErrorActionPreference = 'Stop'
+# 초기 구축 삭제는 전체 삭제 실행 ID와 기존 승인 흐름을 통해서만 허용한다.
+if ($EdgeBootstrapOnly -and ($Stage -ne 'workload' -or $Account -ne 'account1' -or $Action -notin @('Plan','Apply') -or
+    ($PlanMode -eq 'Delete' -and (-not $DestroyRunId -or -not $DeleteDataVolumes)))) {
+    throw 'EdgeBootstrapOnly는 account1 workload 생성 또는 전체 삭제 실행기의 Plan/Apply에만 사용합니다.'
+}
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'lib/infra-common.ps1')
 . (Join-Path $PSScriptRoot 'lib/infra-destroy.ps1')
@@ -100,6 +106,8 @@ if ($Action -eq 'Apply') {
         throw '이 계정·단계의 저장 계획이 없습니다. 먼저 Plan을 실행하세요.'
     }
     $manifest = Read-InfraJson $manifestPath
+    $savedEdgeMode = $manifest.PSObject.Properties['edge_bootstrap_only'] -and [bool]$manifest.edge_bootstrap_only
+    if ([bool]$savedEdgeMode -ne [bool]$EdgeBootstrapOnly) { throw '저장 계획의 EdgeBootstrapOnly 모드가 다릅니다. Plan부터 다시 실행하세요.' }
     if (-not $manifest.PSObject.Properties['plan_mode'] -or $manifest.plan_mode -ne $PlanMode) {
         throw '생성·삭제 계획 종류가 다릅니다. 해당 Plan부터 다시 실행하세요.'
     }
@@ -201,17 +209,31 @@ try {
             }
         }
     }
+    # 모드가 기존 노드를 제거하는 용도로 사용되지 않도록 Plan과 Apply에서 모두 검사한다.
+    function Assert-SavedEdgePlan {
+        $edgeText = & $terraformCommand "-chdir=$stackPath" show -json $planPath
+        if ($LASTEXITCODE -ne 0) { throw '진입 서버 저장 계획을 읽지 못했습니다.' }
+        $edgePlan = ($edgeText -join "`n") | ConvertFrom-Json
+        foreach ($change in @($edgePlan.resource_changes)) {
+            if ('delete' -in @($change.change.actions)) { throw '진입 서버 초기 구축에서는 기존 자원 삭제·교체를 허용하지 않습니다.' }
+            if ($change.type -eq 'aws_instance' -and ($change.address -ne 'module.compute.aws_instance.this["edge-1"]' -or $change.change.after.instance_type -ne 't3a.small')) {
+                throw '진입 서버 초기 구축 계획에 edge-1(t3a.small) 외 EC2가 있습니다.'
+            }
+        }
+    }
     if ($Action -eq 'Validate') {
         Invoke-InfraTerraform $terraformCommand $stackPath @('validate','-no-color')
     } elseif ($Action -eq 'Test') {
         Invoke-InfraTerraform $terraformCommand $stackPath @('test','-no-color')
     } elseif ($Action -eq 'Plan') {
         $inputsPath = Join-Path $workPath 'runtime.tfvars.json'
-        Write-InfraJson $inputsPath @{
+        $runtimeInputs = @{
             account_key = $(if ($Account -eq 'shared') { 'account1' } else { $Account })
             state_backend = $backend
             ssh_public_key = $publicKey
         }
+        if ($Stage -eq 'workload') { $runtimeInputs['edge_bootstrap_only'] = [bool]$EdgeBootstrapOnly }
+        Write-InfraJson $inputsPath $runtimeInputs
         $planArgs = @(
             'plan','-input=false','-no-color','-lock-timeout=60s',
             "-var-file=$topologyPath", "-var-file=$trafficPath", "-var-file=$inputsPath", "-out=$planPath"
@@ -219,6 +241,7 @@ try {
         if ($PlanMode -eq 'Delete') { $planArgs += '-destroy' }
         Invoke-InfraTerraform $terraformCommand $stackPath $planArgs
         if ($Stage -eq 'bastion') { Assert-SavedBastionPlan }
+        if ($EdgeBootstrapOnly -and $PlanMode -eq 'Create') { Assert-SavedEdgePlan }
         if ($PlanMode -eq 'Delete') {
             $deleteSummary = @(Get-SavedDeleteSummary)
             Write-InfraJson (Join-Path $workPath 'delete-summary.json') @{ resources = $deleteSummary }
@@ -227,15 +250,18 @@ try {
             account = $Account; stage = $Stage; state_key = $stateKey
             fingerprint = (Get-InfraFingerprint $infraRoot $publicKeyPath $ConfigurationDirectory)
             plan_sha256 = (Get-InfraFileHash $planPath)
+            edge_bootstrap_only = [bool]$EdgeBootstrapOnly
             plan_mode = $PlanMode
             destroy_run_id = $DestroyRunId
             delete_data_volumes = [bool]$DeleteDataVolumes
             created_at = [DateTime]::UtcNow.ToString('o')
         }
         Write-Host "저장 계획: $planPath"
-        Write-Host "검토 후 같은 대상에 -Action Apply -PlanMode $PlanMode 를 실행하세요."
+        $edgeApplyHint = if ($EdgeBootstrapOnly) { " -EdgeBootstrapOnly" } else { "" }
+        Write-Host "검토 후 같은 대상에 -Action Apply -PlanMode $PlanMode$edgeApplyHint 를 실행하세요."
     } elseif ($Action -eq 'Apply') {
         if ($Stage -eq 'bastion') { Assert-SavedBastionPlan }
+        if ($EdgeBootstrapOnly -and $PlanMode -eq 'Create') { Assert-SavedEdgePlan }
         if ($PlanMode -eq 'Delete') { $null = @(Get-SavedDeleteSummary) }
         # Terraform 저장 계획을 적용한다. 별도 자동 계획을 만들지 않는다.
         Invoke-InfraTerraform $terraformCommand $stackPath @('apply','-input=false','-no-color','-lock-timeout=60s',$planPath)

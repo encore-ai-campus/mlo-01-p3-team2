@@ -87,6 +87,8 @@ $topologyConfig.topology.accounts.account1.ami_id
 
 ## 3. 테스트용 공인 IP 조회와 게임 접속 허용 설정
 
+이 절의 game_client_cidrs는 ALB 활성 프로필에서만 웹 접속 규칙을 만든다. 현재 기본 및 current 설정은 ALB가 비활성화돼 있으므로 아래 목록을 바꿔도 Front의 80·443이 열리지 않는다. Front 직접 HTTPS는 별도 후속 설정이다.
+
 현재 PC가 연결된 네트워크의 공인 IPv4를 조회하고, 그 IP 하나를 허용하는 `/32` 형식으로 저장한다. `game_client_cidrs` 목록은 현재 IP 하나로 교체하며 다른 설정은 유지한다. 학교·사무실에서 조회하면 해당 네트워크의 공인 IP가 나오고, 집에서 조회하면 집 네트워크의 공인 IP가 나온다.
 
 ```powershell
@@ -118,7 +120,7 @@ $savedTrafficConfig.traffic.game_client_cidrs
 
 위 명령은 로컬 설정 파일을 저장한다. 실제 AWS 반영은 Account 1 workload의 새 Plan을 검토한 뒤 Apply할 때 이루어진다. 나중에 학교의 공인 IP 대역을 확보하면 `game_client_cidrs`의 테스트 IP를 해당 대역으로 교체하고 같은 절차로 적용한다. 설정을 바꾼 뒤에는 이전 저장 Plan을 사용할 수 없다.
 
-현재 ALB는 HTTP 80 listener만 사용한다. certificate_arn은 공통 타입에 남아 있지만 인증서가 없다는 이유로 workload Plan·Apply를 중단하지 않는다. /static/*는 Front:80, /ads/*는 광고:8000, 기본 경로는 game:8000으로 보낸다. HTTPS/WSS 공개는 현재 구현과 별도로 설계해야 한다.
+선택적으로 활성화하는 ALB 모듈은 HTTP 80 listener만 지원한다. certificate_arn은 공통 타입에 남아 있지만 인증서가 없다는 이유로 workload Plan·Apply를 중단하지 않는다. /static/*는 Front:80, /ads/*는 광고:8000, 기본 경로는 game:8000으로 보낸다. HTTPS/WSS 공개는 현재 구현과 별도로 설계해야 한다.
 
 이 절은 게임 접속용 game_client_cidrs만 바꾼다. 배스천 SSH 허용 범위인 admin_public_cidrs는 별도이며 [SSH 연결 장애](#72-ssh-인증-또는-접속-시간-초과)에서 구분한다. 변경한 구성으로 [workload Plan·Apply](deployment-runbook.md#53-서비스-ec2ebs통신-규칙alb-workload)를 진행한다.
 
@@ -324,7 +326,7 @@ Windows PowerShell과 배스천·프라이빗 EC2의 터미널을 먼저 구분�
 
 EC2 재생성이나 배스천 재시작 뒤에는 [4절 상태 확인](#4-배스천-상태-조회와-중지시작)과 [4.1절 주소 갱신](#41-배스천-주소가-바뀐-뒤-다시-연결)을 먼저 한다. 현재 PC가 다른 네트워크에 있다면 관리자 공인 IP 허용 범위를 대조한다.
 
-게임 접속용 game_client_cidrs는 ALB HTTP 접속 범위이고 배스천 SSH용 admin_public_cidrs와 다르다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과를 바탕으로 선택한 traffic의 해당 목록을 구분해서 수정하고, 영향을 받는 계정 workload의 새 Plan을 검토한다. 전체 인터넷 대역을 열어 우회하지 않는다.
+게임 접속용 game_client_cidrs는 ALB 활성 시 HTTP 접속 범위이고 배스천 SSH용 admin_public_cidrs와 다르다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과를 바탕으로 선택한 traffic의 해당 목록을 구분해서 수정하고, 영향을 받는 계정 workload의 새 Plan을 검토한다. 전체 인터넷 대역을 열어 우회하지 않는다.
 
 파일·권한·네트워크를 확인했는데 실제 등록 키 전환이 필요한 경우에만 [5절 키 전환](#5-계정별-새-ssh-키-준비와-기존-서버-등록)을 따른다. 복구 뒤 [WSL 접속 검사](deployment-runbook.md#73-wsl-실행-환경과-인벤토리-확인)에서 ping을 다시 확인한다.
 

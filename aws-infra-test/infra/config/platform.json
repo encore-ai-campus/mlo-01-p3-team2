@@ -1,0 +1,16 @@
+{
+  "inventory_name": "hosts.test.yml",
+  "ssh_user": "ubuntu",
+  "ssh_keys": {
+    "account1": "{{ lookup('env', 'HOME') }}/.ssh/project-key/project-bastion.pem",
+    "account2": "{{ lookup('env', 'HOME') }}/.ssh/project-key/account2.pem",
+    "account3": "{{ lookup('env', 'HOME') }}/.ssh/project-key/account3.pem",
+    "account4": "{{ lookup('env', 'HOME') }}/.ssh/project-key/account4.pem",
+    "account5": "{{ lookup('env', 'HOME') }}/.ssh/project-key/account5.pem"
+  },
+  "role_groups": {
+    "mongo": "mongodb"
+  },
+  "wsl_distribution": "Ubuntu",
+  "ansible_venv": "~/.venvs/platform"
+}

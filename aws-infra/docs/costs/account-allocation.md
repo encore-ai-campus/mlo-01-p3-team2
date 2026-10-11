@@ -1,17 +1,17 @@
 # 현재 5개 계정의 서버·AZ·비용 배치
 
-갱신일: 2026-10-10. 기준은 [기본 topology](../../infra/config/topology.tfvars.json)와 [구성 지도](../infra-routing/config/README.md)다. 과거 t3·NAT 5개·MySQL 3대 균등 배치 제안은 현재 구현과 다르며 이 문서의 현 구성으로 사용하지 않는다. 비용 프로필을 선택했다면 그 topology가 기본값보다 우선한다.
+갱신일: 2026-10-11. 기준은 [기본 topology](../../infra/config/topology.tfvars.json)와 [구성 지도](../infra-routing/config/README.md)다. 과거 t3·NAT 5개·MySQL 3대 균등 배치 제안은 현재 구현과 다르며 이 문서의 현 구성으로 사용하지 않는다. 비용 프로필을 선택했다면 그 topology가 기본값보다 우선한다.
 
 ## 계정별 현재 자원
 
 | 계정 / VPC | A | C | 서비스 대수 | Bastion 포함 small / medium / large | 전체 EBS GiB |
 | --- | --- | --- | ---: | ---: | ---: |
-| account1 / 10.10.0.0/16 | Public Bastion·front-a, Private game-server·ad-server | Public front-b | 4 | 3 / 0 / 2 | 100 |
+| account1 / 10.10.0.0/16 | Public Bastion·front-a·edge-1, Private game-server·ad-server | Public front-b | 5 | 4 / 0 / 2 | 120 |
 | account2 / 10.20.0.0/16 | Private mongo-1·spark-2·flatten-1 | 서비스 없음 | 3 | 1 / 1 / 1 | 1,060 |
 | account3 / 10.30.0.0/16 | Private kafka-1·mysql-1·spark-1 | Private mongo-2 | 4 | 2 / 0 / 2 | 1,380 |
 | account4 / 10.40.0.0/16 | Private kafka-2·mysql-3 | Private spark-3 | 3 | 1 / 0 / 2 | 460 |
 | account5 / 10.50.0.0/16 | Private mongo-3 | Private mysql-2·kafka-3 | 3 | 2 / 0 / 1 | 1,260 |
-| 합계 | A 13대 | C 5대 | 17 | 9 / 1 / 8 | 4,260 |
+| 합계 | A 14대 | C 5대 | 18 | 10 / 1 / 8 | 4,280 |
 
 EBS 합계는 OS 20GiB/대와 데이터 디스크를 합친 값이다. Bastion을 생성하지 않으면 account1에서 EC2 한 대·OS 20GiB가 빠진다. 역할별 사양·데이터 디스크는 [프로젝트 구성](../../README.md#서버-수와-사양)에 있다. 광고는 account1 Private A이며 account2에 있지 않다.
 
@@ -19,11 +19,11 @@ EBS 합계는 OS 20GiB/대와 데이터 디스크를 합친 값이다. Bastion�
 
 논리 A=apne2-az1, C=apne2-az3다. 모든 VPC에 Private A/C(/24, 세 번째 옥텟 10/11), account1에만 Public A/C(/24, 0/1)와 IGW가 있다. 기본 egress는 proxy, NAT Gateway는 0개다. 다섯 VPC의 모든 쌍을 직접 Peering으로 연결한다.
 
-Front 두 대에 EIP, Bastion 실행 중에는 자동 공인 IP를 사용한다. ALB는 account1 Public A/C에 한 개다. 중앙 Squid는 사설 주소의 TCP 3128로 클라이언트 요청을 받아 인터넷 HTTPS에 연결한다. Private 기본 인터넷 라우트를 다른 VPC의 IGW·NAT로 공유하지 않는다.
+Front 두 대와 edge-1에 EIP, Bastion 실행 중에는 자동 공인 IP를 사용한다. 기본 및 current 설정은 ALB를 생성하지 않는다. 중앙 Squid는 사설 주소의 TCP 3128로 클라이언트 요청을 받아 인터넷 HTTPS에 연결한다. Private 기본 인터넷 라우트를 다른 VPC의 IGW·NAT로 공유하지 않는다.
 
 ## 현재 배치와 과거 견적의 차이
 
-계정별 비용을 균등하게 하려던 요구와 현재 자원 배치는 구분한다. EC2 수량·사양·EBS가 계정마다 다르고 ALB·외부 송신·Proxy도 account1에 집중된다. 계정별 금액을 단순히 총액의 1/5로 나누지 않는다.
+계정별 비용을 균등하게 하려던 요구와 현재 자원 배치는 구분한다. EC2 수량·사양·EBS가 계정마다 다르고 외부 송신·Proxy도 account1에 집중된다. ALB를 추가로 활성화한 프로필에서는 해당 비용도 account1에 반영한다. 계정별 금액을 단순히 총액의 1/5로 나누지 않는다.
 
 [상세 견적](dual-az.md)은 2026-10-08 단가·트래픽 가정을 보존한 계산 기록이다. 그 기록의 account2 광고 서버와 Bastion EIP·153시간 공인 IP 가정은 현재 구성과 다르다. 과거 $24.06~$25.90의 NAT 균등 배치 금액이나 기존 계정별 합계를 현 설정의 비용으로 사용하지 않는다. 이번 문서 동기화는 새 가격 조회·실제 잔액 확인·청구 예측을 수행하지 않았다.
 
@@ -39,4 +39,6 @@ MySQL EC2는 mysql-1(account3 A)·mysql-2(account5 C)·mysql-3(account4 A) 세 �
 
 [보안규칙](../security-groups.md)과 [배포 절차](../deployment-runbook.md)를 함께 확인한다. SG·Peering 선언만으로 서비스 성능·복제·장애 복구가 보장되는 것은 아니다.
 
-ALB 한 개는 설정상의 배치다. 2026-10-10 실제 AWS에는 account1 ALB가 없고 이번 MySQL 증설에서 재생성하지 않았다. 비용표에서 ALB 포함·미포함 시나리오를 구분한다.
+2026-10-10 확인에서는 ALB가 없어 재생성을 보류했고, 2026-10-11 기본 및 current 설정도 비활성화했다. 이번에는 AWS 상태를 재조회하지 않았다. 비용표는 ALB 없는 설정과 과거 ALB 포함 시나리오를 구분한다.
+
+edge-1은 account1 Public A의 t3a.small·OS 20GiB·EIP 한 개를 추가하는 선언이다. 이전 ALB 없는 비용표도 edge-1 추가 전 기준이며 이번 작업에서 요금을 재계산하지 않았다.

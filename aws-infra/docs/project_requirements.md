@@ -14,17 +14,17 @@
 
 ## 3. 현재 기본 서버 구성
 
-[현재 계정별 배치](costs/account-allocation.md)는 서비스 17대와 선택적 배스천 1대다. Account 1은 Front 2대·game·ad와 별도 배스천을, Account 2는 Mongo-1·Spark-2와 평탄화 Consumer flatten-1을 가진다. flatten-1은 t3a.medium, Private A(apne2-az1), role=consumer이며 Kafka 세 브로커의 9092에 접속한다. 프로그램 배포는 별도다. MySQL 3대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
+[현재 계정별 배치](costs/account-allocation.md)는 서비스 18대와 선택적 배스천 1대다. Account 1은 Front 2대·game·ad·진입용 edge-1과 별도 배스천을, Account 2는 Mongo-1·Spark-2와 평탄화 Consumer flatten-1을 가진다. flatten-1은 t3a.medium, Private A(apne2-az1), role=consumer이며 Kafka 세 브로커의 9092에 접속한다. 프로그램 배포는 별도다. MySQL 3대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
 
 인프라에는 MySQL EC2 세 대가 선언돼 있다. mysql-3는 Account 4 Private A의 t3a.small이며 2026-10-10 current 프로필의 EC2·디스크·SG를 실제 반영했다. [플랫폼 MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 3~9대의 InnoDB Cluster를 요구한다. 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽·Cluster 설치와 장애 전환 검증은 별도다. 기존 ReplicaSet은 이전 구현이며 자동 데이터 이전은 제공하지 않는다. Spark는 Master 2개·Worker 3개, ZooKeeper ensemble 3개다. Kafka는 Broker/Controller 3개, MongoDB는 Replica Set 3개다. AZ A에 다수 노드가 있는 배치는 A 전체 장애에서도 클러스터 가용성을 보장하지 않는다.
 
-기본 t3a.small / t3a.medium / t3a.large, OS 20GiB/대, 전체 EBS 4,260GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
+기본 t3a.small / t3a.medium / t3a.large, OS 20GiB/대, 전체 EBS 4,280GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
 
 ## 4. 네트워크와 다운로드
 
-VPC CIDR은 10.10·20·30·40·50.0.0/16이다. Account 1의 Public A·C ALB는 HTTP 80, /static/*는 Front, /ads/*는 ad, 기본 경로는 game으로 전달한다. HTTPS 리스너와 인증서를 자동 구성하는 단계가 아니다.
+VPC CIDR은 10.10·20·30·40·50.0.0/16이다. 기본 및 current 설정의 ALB는 비활성화돼 있다. Front→game/ad TCP 8000은 유지하며, Front 직접 웹 인바운드와 Nginx·HTTPS 인증서 배포는 아직 구현하지 않았다.
 
-기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대에는 EIP를 할당하고 배스천은 자동 공인 IP를 사용한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
+기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대와 edge-1에는 EIP를 할당하고 배스천은 자동 공인 IP를 사용한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
 
 ## 5. 자동화가 하는 일
 
@@ -61,4 +61,6 @@ Terraform은 foundation·connectivity·workload·bastion 상태를 분리해 서
 | 2026-10-08 | 초기 사양 선택 | Frontend·Bastion t3.small, MongoDB·MySQL t3.medium, Kafka 3대·Spark Worker 2대 t3.large. 선택표 밖의 Master·Backend·광고는 기존 medium 계산값 유지 | 사용자가 추천표를 선택해 README 수정·비용 재계산 요청 |
 | 2026-10-08 | 5개 계정 균등 배치 설계 | 5개 계정의 지출을 비슷하게 하려는 요구. 사양·총량을 유지하고 계정별 기본 비용 약 $24.06~$25.90, MongoDB·Kafka·MySQL 각각 3개 계정에 분산하는 새 배치 제안 | 사용자 계정별 금액을 비슷하게 나누는 설계·문서화 요청 |
 
-이번 MySQL 증설의 [AWS 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 현재 상태 근거로 추가했다. ALB는 코드에 활성화돼 있지만 실제 AWS에서는 없고 사용자 요청에 따라 재생성을 보류했다. 이후 account1 전체 Plan의 ALB 생성은 별도 검토 대상이다.
+이번 MySQL 증설의 [AWS 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 현재 상태 근거로 추가했다. 당시에는 ALB 설정을 활성화한 채 재생성을 보류했다. 이후 2026-10-11 사용자 요청으로 기본 및 current 설정의 ALB와 전용 연결을 제거했다. AWS 적용은 하지 않았으며 다른 프로필은 별도 확인한다.
+
+2026-10-11 edge-1의 EC2·EIP·전용 SG·Front 연결을 기본 및 current 설정에 추가했다. Nginx·least_conn·인증서 설치와 실제 AWS 생성은 후속 작업이다.

@@ -1,0 +1,76 @@
+---
+# 기존 platform 역할은 읽어서 재사용하고 대상·메모리·비밀번호는 테스트 입력으로 제한한다.
+- name: 테스트 설치 사전 검사와 데이터 디스크 마운트
+  hosts: all
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  vars:
+    test_mounts:
+      mysql: /var/lib/mysql
+      mongodb: /var/lib/mongodb
+      kafka: /var/lib/kafka/data
+      spark: /var/lib/spark
+  tasks:
+    - name: 대상 및 비밀번호 입력 검사
+      ansible.builtin.assert:
+        that:
+          - test_project == 'aws-infra-test'
+          - groups['mysql'] | length == 3
+          - groups['mongodb'] | length == 3
+          - groups['kafka'] | length == 3
+          - groups['spark'] | length == 3
+          - vault_mysql_passwords is defined
+          - vault_mongodb_passwords is defined
+          - vault_mongodb_keyfile is defined
+    - name: 역할의 데이터 디스크 마운트
+      ansible.builtin.script:
+        cmd: 'mount-data.sh {{ (test_data_volumes | dict2items | first).value }} {{ test_mounts[item] }}'
+      loop: "{{ group_names | intersect(test_mounts.keys() | list) }}"
+      when: test_data_volumes | length == 1
+    - name: 데이터 역할의 EBS 누락 방지
+      ansible.builtin.assert:
+        that: test_data_volumes | length == 1
+      when: group_names | intersect(test_mounts.keys() | list) | length > 0
+
+- name: 테스트 공통 설정
+  hosts: all
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [common, firewall]
+
+- name: 테스트 MySQL 클러스터
+  hosts: mysql
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [mysql]
+
+- name: 테스트 MongoDB Replica Set
+  hosts: mongodb
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [mongodb]
+
+- name: 테스트 Kafka KRaft
+  hosts: kafka
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [kafka]
+
+- name: 테스트 ZooKeeper와 Spark
+  hosts: spark
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [zookeeper, spark]
+
+- name: 테스트 로컬 MySQL Router
+  hosts: game:spark
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles: [backend]

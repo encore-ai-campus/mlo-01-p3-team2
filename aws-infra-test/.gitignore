@@ -1,0 +1,14 @@
+# 실행 상태·개인키·설치 비밀번호는 저장소에 넣지 않는다.
+**/.terraform/
+infra/.local/
+*.tfstate*
+*.tfplan
+*.pem
+*.key
+.env*
+infra/config/keys/*.pub
+infra/bootstrap/inventory/hosts.*.yml
+infra/bootstrap/vars/vault.yml
+.vault*
+crash*.log
+__pycache__/

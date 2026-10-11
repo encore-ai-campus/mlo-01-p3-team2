@@ -8,19 +8,27 @@
 firewall_ssh_sources: [bastion, monitoring]
 
 firewall_rules:
+  # HTTP는 인증서 검증용이며, HTTPS는 아래 CIDR 전용 규칙에서 허용한다.
+  edge:
+    tcp_ports_from_anywhere: [80]
   frontend:
     tcp_ports_from_anywhere: [80, 443]
   backend:
     from: [frontend, spark, bastion]
+  # API 수신 출처를 허용한다. 목적지 포트는 AWS SG에서 TCP 8000으로 제한한다.
+  game:
+    from: [frontend, ad, mysql, bastion]
+  ad:
+    from: [frontend, game, mysql, bastion]
   mysql:
-    from: [game, backend, spark, bastion]
+    from: [game, ad, backend, spark, bastion]
     self: true
   mongodb:
-    from: [backend, spark, bastion]
+    from: [ad, consumer, backend, spark, bastion]
     self: true
   kafka:
-    # 평탄화 Consumer의 Kafka 연결을 허용한다. AWS SG에서는 TCP 9092로 제한한다.
-    from: [backend, spark, bastion, consumer]
+    # 앱·평탄화·MySQL 서버의 Kafka 연결을 허용한다. AWS SG에서는 TCP 9092로 제한한다.
+    from: [game, ad, mysql, backend, spark, bastion, consumer]
     self: true
   spark:
     from: [backend, bastion]

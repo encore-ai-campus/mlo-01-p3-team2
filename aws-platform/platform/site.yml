@@ -75,6 +75,13 @@
   roles:
     - { role: backend, tags: [backend, mysql_router] }
 
+- name: 진입 서버 HTTPS
+  hosts: edge
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: edge, tags: [edge] }
+
 # Monitoring: 모든 서버에 읽기 전용 수집 설정을 하고, Monitoring 서버에 수집 루프를 올린다. 서비스가 모두 올라간 뒤에 적용한다.
 - name: Monitoring
   hosts: all

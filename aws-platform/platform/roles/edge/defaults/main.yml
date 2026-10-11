@@ -1,0 +1,14 @@
+---
+# 실제 EIP를 필수로 받는다. 임의 IP로 인증서를 요청하지 않는다.
+edge_public_ip: "{{ public_ip | default('') }}"
+edge_https_allowed_cidrs: []
+# Front 설치 전에는 빈 목록으로 두고 HTTPS 준비 화면만 제공한다.
+edge_frontend_upstreams: []
+edge_certbot_version: "5.8.0"
+edge_certbot_venv: /opt/edge-certbot
+edge_acme_preflight: true
+edge_acme_email: ""
+edge_acme_server: https://acme-v02.api.letsencrypt.org/directory
+edge_cert_name: "edge-ip-{{ edge_public_ip }}"
+edge_acme_webroot: /var/www/edge-acme
+edge_setup_root: /var/www/edge-setup

@@ -15,9 +15,9 @@ Terraform은 EC2·디스크·네트워크·역할 메타데이터(/etc/aws-infra
 
 | 역할·경로 | TCP 포트 |
 | --- | --- |
-| 외부 → ALB | 허용한 game_client_cidrs의 HTTP 80 |
-| ALB → Front | 80, /static/* |
-| ALB → game / ad | 8000, 기본 / /ads/* |
+| 외부 → 웹 서비스 | 현재 규칙 없음. ALB 비활성화, Front 직접 80·443은 후속 작업 |
+| edge → Front 두 대 | 80, 사설 IP로 전달할 경로만 준비 |
+| Front → game / ad | 8000, 서버 간 연결만 허용 |
 | Kafka 클라이언트·복제 / controller | 9092 / 9093 |
 | MongoDB / MySQL | 27017 / 3306 |
 | Spark Master RPC / 내부 Master UI | 7077 / 8080 |
@@ -26,7 +26,7 @@ Terraform은 EC2·디스크·네트워크·역할 메타데이터(/etc/aws-infra
 | ZooKeeper 클라이언트 / 동기화 / 선출 | 2181 / 2888 / 3888 |
 | 사설 서버 → Bastion Proxy / Bastion → 인터넷 | 3128 / HTTPS 443 |
 
-Spark 작업은 포트 재시도 16회, Master·Worker 데몬은 0회를 사용한다. Worker UI 8081은 데몬 설정에 있지만 원격 공개 SG 규칙은 없다. 포트 변경 시 [traffic](../config/traffic.tfvars.json), 선택한 비용 프로필의 복사본과 [Spark 기본 변수](../../../aws-platform/platform/roles/spark/defaults/main.yml)를 함께 맞춘다. HTTP ALB가 TLS·실제 앱 경로·헬스 체크 성공을 대신하지 않는다.
+Spark 작업은 포트 재시도 16회, Master·Worker 데몬은 0회를 사용한다. Worker UI 8081은 데몬 설정에 있지만 원격 공개 SG 규칙은 없다. 포트 변경 시 [traffic](../config/traffic.tfvars.json), 선택한 비용 프로필의 복사본과 [Spark 기본 변수](../../../aws-platform/platform/roles/spark/defaults/main.yml)를 함께 맞춘다. 기본 및 current 설정의 ALB는 비활성화돼 있으며 Nginx·TLS·실제 앱 경로 설정은 아직 구현하지 않았다.
 
 ## Proxy와 SSH
 
@@ -38,4 +38,4 @@ SSH는 운영 PC의 키로 Bastion을 경유한다. 개인키를 Bastion에 복�
 
 데이터 EBS는 생성·연결만 하며 포맷·마운트·파일시스템 확장은 자동화하지 않았다. MySQL /var/lib/mysql, Ubuntu MongoDB /var/lib/mongodb, Kafka /var/lib/kafka/data, Spark /var/lib/spark, ZooKeeper /var/lib/zookeeper가 실제 사용할 디스크를 설치 전에 확인한다. 마운트가 없으면 OS 디스크에 데이터가 기록된다. 현재 라우팅 문서 기준 compute의 prevent_destroy=true는 데이터 EBS 삭제·교체 보호이며 백업이나 데이터 이전 기능은 아니다.
 
-Front·game·ad 애플리케이션, Kafka 업무 Consumer, Spark 업무 잡과 원본 장기 보관·백업·복구·데이터 이전은 별도다. 전체 인프라 삭제 기능은 이 폴더가 아닌 [destroy-all.ps1](../scripts/destroy-all.ps1)에 있으며 데이터 EBS도 삭제할 수 있다.
+edge의 Nginx·Certbot·외부 80·443, Front·game·ad 애플리케이션, Kafka 업무 Consumer, Spark 업무 잡과 원본 장기 보관·백업·복구·데이터 이전은 별도다. 전체 인프라 삭제 기능은 이 폴더가 아닌 [destroy-all.ps1](../scripts/destroy-all.ps1)에 있으며 데이터 EBS도 삭제할 수 있다.

@@ -2,8 +2,19 @@ locals {
   account = module.model.topology.accounts[var.account_key]
   name    = "${var.topology.project}-${var.account_key}"
   # Bastion의 역할·보안규칙은 유지하고 EC2 생성만 전용 상태로 분리한다.
-  nodes      = { for name, node in module.model.topology.nodes : name => node if node.account == var.account_key && node.role != "bastion" }
+  nodes      = { for name, node in module.model.topology.nodes : name => node if node.account == var.account_key && node.role != "bastion" && (!var.edge_bootstrap_only || node.role == "edge") }
   foundation = local.foundations[var.account_key]
+  # 초기 진입 서버는 같은 계정의 연결만 준비한다. 나머지 계정은 정규 배포에서 연결한다.
+  active_flows = { for name, flow in module.model.flows : name => flow if !var.edge_bootstrap_only || (
+    flow.source_account == var.account_key && flow.target_account == var.account_key &&
+    (endswith(flow.source, "/edge") || endswith(flow.target, "/edge"))
+  ) }
+  edge_sg_id = try(local.foundation.sg_ids["edge"], null)
+  edge_ingress = local.edge_sg_id != null ? merge(
+    { "edge/acme/80" = { group_id = local.edge_sg_id, cidr = "0.0.0.0/0", port = 80 } },
+    { for cidr in toset(var.traffic.game_client_cidrs) : "edge/https/${cidr}" => { group_id = local.edge_sg_id, cidr = cidr, port = 443 } },
+    { for cidr in toset(var.traffic.admin_public_cidrs) : "edge/ssh/${cidr}" => { group_id = local.edge_sg_id, cidr = cidr, port = 22 } }
+  ) : {}
   # 서비스 EC2가 사용하는 역할만 선택해 Bastion·ALB를 제외하고 같은 SG는 한 번만 연다.
   service_console_ssh_sg_ids = {
     for role in toset([for node in values(local.nodes) : node.role]) : role => local.foundation.sg_ids[role]
@@ -16,18 +27,18 @@ locals {
     for role, id in foundation.sg_ids : "${account}/${role}" => account == var.account_key ? id : "${var.topology.accounts[account].id}/${id}"
   }]...)
   # 같은 SG 쌍·포트가 여러 역할 관계에 등장해도 AWS 규칙은 한 번만 만든다.
-  ingress_grouped = { for flow in values(module.model.flows) :
+  ingress_grouped = { for flow in values(local.active_flows) :
     "${flow.source}/${flow.target}/${flow.port}" => {
       group_id = local.sg_ids[flow.target], peer_id = local.peer_sg_ids[flow.source], port = flow.port, port_end = flow.port_end
     }... if flow.target_account == var.account_key
   }
-  egress_grouped = { for flow in values(module.model.flows) :
+  egress_grouped = { for flow in values(local.active_flows) :
     "${flow.source}/${flow.target}/${flow.port}" => {
       group_id = local.sg_ids[flow.source], peer_id = local.peer_sg_ids[flow.target], port = flow.port, port_end = flow.port_end
     }... if flow.source_account == var.account_key
   }
   alb_enabled = var.topology.alb.enabled && var.topology.alb.account == var.account_key
-  admin_ingress = contains(keys(local.foundation.sg_ids), "bastion") ? {
+  admin_ingress = !var.edge_bootstrap_only && contains(keys(local.foundation.sg_ids), "bastion") ? {
     for cidr in toset(var.traffic.admin_public_cidrs) : "admin/${cidr}" => {
       group_id = local.foundation.sg_ids["bastion"], cidr = cidr, port = var.traffic.ports.ssh
     }
@@ -47,7 +58,7 @@ data "aws_ec2_managed_prefix_list" "ec2_instance_connect" {
 
 # Bastion 보안그룹에만 AWS 관리형 IPv4 접두사 목록의 SSH 22를 허용한다.
 resource "aws_vpc_security_group_ingress_rule" "bastion_console_ssh" {
-  count             = contains(keys(local.foundation.sg_ids), "bastion") ? 1 : 0
+  count             = !var.edge_bootstrap_only && contains(keys(local.foundation.sg_ids), "bastion") ? 1 : 0
   security_group_id = local.foundation.sg_ids["bastion"]
   prefix_list_id    = data.aws_ec2_managed_prefix_list.ec2_instance_connect[0].id
   ip_protocol       = "tcp"
@@ -78,11 +89,11 @@ module "rules" {
   egress = { for k, rules in local.egress_grouped : k => merge(rules[0], {
     port_end = max([for rule in rules : rule.port_end]...)
   }) }
-  public_ingress = merge(local.admin_ingress, local.alb_ingress)
+  public_ingress = merge(local.admin_ingress, local.alb_ingress, local.edge_ingress)
   public_egress = {
     for role, id in local.foundation.sg_ids : "https/${role}" => {
       group_id = id, cidr = "0.0.0.0/0", port = 443
-    } if contains(var.traffic.internet_https_roles, role)
+    } if contains(var.traffic.internet_https_roles, role) && (!var.edge_bootstrap_only || role == "edge")
   }
   depends_on = [terraform_data.connectivity_ready]
 }
@@ -123,5 +134,17 @@ output "inventory" {
     region       = var.topology.region
     instances    = module.compute.instances
     alb_dns_name = try(module.alb[0].dns_name, null)
+  }
+}
+
+resource "terraform_data" "edge_bootstrap_guard" {
+  count = var.edge_bootstrap_only ? 1 : 0
+  lifecycle {
+    precondition {
+      condition = var.account_key == "account1" && !var.topology.alb.enabled && try(
+        toset(keys(local.nodes)) == toset(["edge-1"]) && local.nodes["edge-1"].subnet_tier == "public" &&
+      local.nodes["edge-1"].public_ip && local.nodes["edge-1"].instance_type == "t3a.small", false)
+      error_message = "초기 구축은 ALB가 없는 Account 1의 Public edge-1(t3a.small) 한 대만 허용합니다."
+    }
   }
 }
