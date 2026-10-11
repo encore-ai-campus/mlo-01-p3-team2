@@ -1,7 +1,7 @@
 /* 디자인 토큰: 색·간격은 변수로만 쓴다. 다크 모드는 운영체제 설정을 따른다. */
 :root {
   --bg: #f6f7f9; --surface: #fff; --border: #e3e6ec; --input-border: #c9ced8;
-  --text: #1d2330; --muted: #6b7280; --accent: #2f6fed; --accent-text: #fff;
+  --text: #1d2330; --muted: #5f6673; --accent: #2f6fed; --accent-text: #fff;
   --danger: #c0392b; --ok-bg: #eaf7ee; --ok-border: #bfe3c9; --warn-bg: #fff6e5; --warn-border: #f2d49b; --error-bg: #fdecea; --error-border: #f5c2bd;
   --radius: 10px; --gap: 16px;
 }
