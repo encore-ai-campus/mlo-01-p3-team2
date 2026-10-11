@@ -140,12 +140,12 @@ class AdminAuditTests(TestCase):
         self.assertNotIn("Another-Str0ng-pass", str(entry.detail))
 
         r = self.client.post(f"/test-admin/foundation/user/{created.pk}/change/", {
-            "username": "made_by_admin", "nickname": "만든", "class_label": "2반", "role": "advertiser", "_save": "저장",
-        })  # is_active 를 보내지 않으면 꺼진다
+            "username": "made_by_admin", "nickname": "바꾼", "class_label": "2반", "role": "advertiser", "_save": "저장",
+        })
         self.assertEqual(r.status_code, 302)
         updated = AuditLog.objects.get(action="account.admin_updated")
-        self.assertIn("is_active", updated.detail["changed"])
-        self.assertFalse(User.objects.get(pk=created.pk).is_active)
+        self.assertEqual(updated.detail["changed"], ["nickname"])  # 광고주의 활성 여부는 여기서 바뀌지 않는다(운영 화면에서만 — test_operator_advertisers)
+        self.assertTrue(User.objects.get(pk=created.pk).is_active)
 
         r = self.client.post(f"/test-admin/foundation/user/{created.pk}/password/", {
             "password1": "Reset-Str0ng-pass-1", "password2": "Reset-Str0ng-pass-1", "usable_password": "true",

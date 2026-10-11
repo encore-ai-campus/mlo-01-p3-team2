@@ -12,7 +12,7 @@ from campaigns.models import CreativeImage
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
-from tests.factories import NOW, PW, SUBJECT, World, make_advertiser, png_file
+from tests.factories import NOW, PW, SUBJECT, World, make_admin, make_advertiser, png_file
 
 
 @tag("security")
@@ -208,3 +208,31 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         older = re.search(r'href="([^"]+)" rel="next"', html).group(1).replace("&amp;", "&")  # 같은 화면의 쿼리(`?before=…`)
         self.assertContains(self.client.get(self.detail + older), "가입 지급")
         self.assertEqual(self.client.get(self.detail + "?before=abc").status_code, 200)  # 틀린 커서는 첫 쪽
+
+
+@tag("security")
+class UserAdminActiveFlagTests(TestCase):
+    """광고주의 활성 여부를 바꾸는 길은 운영 화면 하나(사유 필수·감사, 송출도 함께 멈춤). 사용자 관리 화면에서는 읽기 전용이고, 관리자 계정은 그대로 바꾼다."""
+
+    def setUp(self):
+        self.root = make_admin()
+        self.client.force_login(self.root)
+
+    def save(self, user, **over):
+        """사용자 관리 화면의 저장(체크박스를 보내지 않으면 끄기)."""
+        data = {"username": user.username, "nickname": user.nickname, "class_label": user.class_label, "role": user.role, "_save": "저장", **over}
+        return self.client.post(reverse("admin:foundation_user_change", args=[user.pk]), data)
+
+    def test_user_admin_cannot_change_an_advertisers_active_flag(self):
+        adv = make_advertiser()
+        self.assertContains(self.client.get(reverse("admin:foundation_user_change", args=[adv.pk])), "광고주 · 포인트 조정")  # 바꾸는 곳 안내
+        self.assertEqual(self.save(adv).status_code, 302)  # is_active 를 보내지 않음 = 끄기
+        self.assertTrue(User.objects.get(pk=adv.pk).is_active)
+        self.assertNotIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
+        self.assertFalse(AuditLog.objects.filter(action="account.deactivated").exists())
+
+    def test_user_admin_still_changes_an_admins_active_flag(self):
+        other = make_admin()
+        self.assertEqual(self.save(other, is_superuser="on").status_code, 302)
+        self.assertFalse(User.objects.get(pk=other.pk).is_active)
+        self.assertIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])

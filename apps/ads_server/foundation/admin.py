@@ -8,7 +8,7 @@ from django.contrib.admin.utils import unquote
 
 from .admin_site import ReadOnlyAdmin
 from .audit import record_audit
-from .models import AuditLog, User
+from .models import AuditLog, Role, User
 from .templatetags.kst import kst
 
 
@@ -40,6 +40,21 @@ class UserAdmin(BaseUserAdmin):
     @admin.display(description="가입(KST)", ordering="created_at")
     def created_kst(self, obj):
         return kst(obj.created_at)
+
+    def _advertiser(self, obj):
+        return obj is not None and obj.role == Role.ADVERTISER
+
+    def get_readonly_fields(self, request, obj=None):
+        """광고주의 활성 여부는 운영 화면(`set_advertiser_active`: 사유 필수, 감사 `account.deactivated`·`account.reactivated`)으로만 바꾼다
+        — 비활성화는 송출도 멈추므로 바꾸는 길을 하나로 둔다(설계 §10, 위협 모델 T2). 관리자 계정은 여기서 바꾼다."""
+        fields = super().get_readonly_fields(request, obj)
+        return (*fields, "is_active") if self._advertiser(obj) else fields
+
+    def get_fieldsets(self, request, obj=None):
+        if not self._advertiser(obj):
+            return super().get_fieldsets(request, obj)
+        note = "광고주의 활성 여부는 여기서 바꾸지 않습니다. 관리자 첫 화면의 ‘광고주 · 포인트 조정’에서 사유와 함께 바꿉니다(비활성화하면 광고도 나가지 않습니다)."
+        return [(name, {**options, "description": note}) if name == "권한" else (name, options) for name, options in self.fieldsets]
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
