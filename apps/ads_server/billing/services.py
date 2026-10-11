@@ -287,9 +287,18 @@ def charge_entry_ids():
 
 def charge_entries(entry_ids):
     """원장 `CHARGE` 항목을 ID 로 읽는다(없는 ID 는 결과에 없다). 이벤트 백필이 원본 행에서 과금 이벤트를 다시 만들 때 쓴다."""
+    return _charge_entries("entry_id__in", entry_ids)
+
+
+def charge_entries_for(reaction_refs):
+    """원장 `CHARGE` 항목을 반응 멱등 키(`reaction_ref`)로 읽는다(과금되지 않은 키는 결과에 없다). 구간 manifest 가 창 하나의 반응으로 과금 줄을 찾을 때 쓴다."""
+    return _charge_entries("reaction_ref__in", reaction_refs)
+
+
+def _charge_entries(lookup, keys):
     found = []
-    for chunk in batched(entry_ids, 500):
-        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, entry_id__in=chunk):
+    for chunk in batched(keys, 500):  # 한 번에 많은 키를 IN 에 넣지 않는다
+        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, **{lookup: chunk}):
             found.append(ChargeEntryView(
                 entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, reaction_ref=e.reaction_ref, charged=-e.amount,
                 shortfall=e.shortfall, created_at=e.created_at,

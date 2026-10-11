@@ -1,3 +1,5 @@
+import resource
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,7 +10,7 @@ from pymongo.errors import PyMongoError
 from billing.api import consistent_read
 from events import api as events
 from foundation.api import record_audit
-from records.api import source_documents
+from records.api import source_streams
 
 SCOPE = "mysql-repeatable-read-snapshot"
 HOPS = ("hop_source", "hop_outbox", "hop_mongo")
@@ -41,20 +43,20 @@ class Command(BaseCommand):
             raise CommandError("--as-of 는 ISO 8601 시각이어야 합니다.")
         grace = settings.EVENTS_HOP_GRACE_SECONDS
         try:
+            # 구간마다 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 열린 창과 --since 앞은 읽지 않는다(외부 검토 7936ac7 P3-3)
             with consistent_read():  # 원본(①)과 outbox(②)는 같은 스냅샷을 본다
-                source = list(source_documents())
-                outbox_pairs = list(events.outbox_documents())
-            mongo = list(events.mongo_documents())  # ③ 은 스냅샷 밖이다 — 중계가 진행 중이면 그 창이 잠시 어긋날 수 있다(verify_hops 가 구분한다)
+                results = {"hop_source": events.summarize_windows(source_streams(), now, grace, since, size),
+                           "hop_outbox": events.summarize_windows(events.outbox_streams(), now, grace, since, size)}
+                unsent = events.unsent_counts(size)
+            results["hop_mongo"] = events.summarize_windows(events.mongo_streams(), now, grace, since, size)  # ③ 은 스냅샷 밖이다 — 중계가 진행 중이면 그 창이 잠시 어긋날 수 있다(verify_hops 가 구분한다)
         except (PyMongoError, events.NotConfigured) as error:
             raise CommandError(f"MongoDB 를 읽지 못했습니다: {events.mongo_error_text(error)}")
         # 보존 정리는 보낸 지 EVENTS_OUTBOX_RETENTION_DAYS 가 지난 행을 지운다. 시작이 이 기준 시각 이후인 창의 행은 (생성 ≤ 전송 이므로) 한 줄도 지워지지 않았다.
         # 기준 시각이 창의 한가운데에 걸리면 그 창의 앞부분은 지워졌을 수 있으므로 창 전체를 뺀다. 판정은 행이 남아 있는지가 아니라 **보존 범위와 창 경계**로 한다
         # (오래된 창의 행이 모두 지워져도 '대조 제외' 정보가 사라지지 않게).
         cutoff = now - timedelta(days=settings.EVENTS_OUTBOX_RETENTION_DAYS)
-        outbox = [doc for doc, _ in outbox_pairs]
-        unsent = events.unsent_counts(outbox_pairs, size)
-        summaries = {hop: events.summarize(docs, now, grace, since, size) for hop, docs in (("hop_source", source), ("hop_outbox", outbox), ("hop_mongo", mongo))}
-        scanned = {"hop_source": len(source), "hop_outbox": len(outbox), "hop_mongo": len(mongo)}
+        summaries = {hop: (lines, open_windows) for hop, (lines, open_windows, _read, _largest) in results.items()}
+        scanned = {hop: read for hop, (_lines, _open, read, _largest) in results.items()}  # 읽은 이벤트 수(범위 안의 닫힌 창)
         starts = {line["window_start"] for lines, _ in summaries.values() for line in lines}  # 어느 구간에든 있는 닫힌 창
         not_comparable = sorted(start for start in starts if events.parse_time(start) < cutoff)
         out = Path(options["out"])
@@ -73,5 +75,11 @@ class Command(BaseCommand):
                 }
                 manifest = events.write_ndjson(out, hop, lines, hop, events.HOP_SCHEMA_VERSION, checkpoint=checkpoint, now=now, chain=True)
                 anchors[hop] = events.manifest_digest(manifest)  # 이 실행이 게시한 manifest 의 해시(포인터를 다시 읽지 않는다)
-                self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} file={manifest['file']}")
+                self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} largest_window={results[hop][3]} file={manifest['file']}")
             record_audit(None, "events.hop_manifests_exported", detail={"anchors": anchors, "since": options["since"], "grace_seconds": grace})  # 폴더 밖의 고정점(H12)
+        self.stdout.write(f"peak_rss={peak_rss_mib():.1f}MiB")  # 이 프로세스의 최대 상주 메모리 — 이력이 쌓여도 늘지 않아야 한다(창 하나·종류 하나만 든다)
+
+
+def peak_rss_mib():
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (2**20 if sys.platform == "darwin" else 2**10)  # macOS 는 바이트, Linux 는 KiB

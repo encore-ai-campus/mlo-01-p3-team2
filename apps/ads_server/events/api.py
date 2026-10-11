@@ -41,12 +41,13 @@ SCHEMA_VERSION = schemas.SCHEMA_VERSION
 decision_payload, reaction_received_payload, reaction_payload, charge_payload = (
     schemas.decision_payload, schemas.reaction_received_payload, schemas.reaction_payload, schemas.charge_payload)
 normal_document, summarize, window_start, canonical_json = hops.normal_document, hops.summarize, hops.window_start, hops.canonical_json
-outbox_documents, mongo_documents, unsent_counts, WINDOWS = hops.outbox_documents, hops.mongo_documents, hops.unsent_counts, hops.WINDOWS
+summarize_windows, table_stream, outbox_streams, mongo_streams, unsent_counts, WINDOWS = (
+    hops.summarize_windows, hops.table_stream, hops.outbox_streams, hops.mongo_streams, hops.unsent_counts, hops.WINDOWS)
 HOP_SCHEMA_VERSION, window_label, format_time, parse_time = hops.HOP_SCHEMA_VERSION, hops.window_label, hops.format_time, hops.parse_time
 
 __all__ = [
     "SCHEMA_VERSION", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
-    "normal_document", "summarize", "window_start", "canonical_json", "outbox_documents", "mongo_documents", "unsent_counts", "WINDOWS", "HOP_SCHEMA_VERSION", "window_label", "format_time", "parse_time",
+    "normal_document", "summarize", "window_start", "canonical_json", "summarize_windows", "table_stream", "outbox_streams", "mongo_streams", "unsent_counts", "WINDOWS", "HOP_SCHEMA_VERSION", "window_label", "format_time", "parse_time",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
     "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_sha256", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured", "mongo_error_text",
 ]

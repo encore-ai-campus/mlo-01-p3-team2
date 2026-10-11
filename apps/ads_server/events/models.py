@@ -18,4 +18,7 @@ class EventOutbox(models.Model):
 
     class Meta:
         db_table = "events_outbox"
-        indexes = [models.Index(fields=["sent_at", "created_at"], name="events_outbox_pending_idx")]
+        indexes = [
+            models.Index(fields=["sent_at", "created_at"], name="events_outbox_pending_idx"),
+            models.Index(fields=["event_name", "created_at"], name="events_outbox_name_created_idx"),  # 구간 manifest 가 종류·창마다 그 범위만 읽는다(외부 검토 7936ac7 P3-3)
+        ]
