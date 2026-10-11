@@ -4,7 +4,7 @@ from .hops import expected_events, source_documents
 from .integrity import event_gaps
 from .processing import process_after_receipt, process_pending, process_reaction, reset_stuck, stuck_count
 from .services import decide, get_decision, get_reaction, observe_click, receive_reaction
-from .report import daily_report
+from .report import campaign_totals, daily_report
 from .types import ChosenView, DailyReportView, DecisionView, ReactionView, ReportRow, ReportTotals
 
-__all__ = ["decide", "get_decision", "receive_reaction", "observe_click", "get_reaction", "daily_report", "event_gaps", "expected_events", "source_documents", "backfill_events", "BackfillInvalidInput", "process_reaction", "process_after_receipt", "process_pending", "stuck_count", "reset_stuck", "ChosenView", "DecisionView", "ReactionView", "DailyReportView", "ReportRow", "ReportTotals"]
+__all__ = ["decide", "get_decision", "receive_reaction", "observe_click", "get_reaction", "daily_report", "campaign_totals", "event_gaps", "expected_events", "source_documents", "backfill_events", "BackfillInvalidInput", "process_reaction", "process_after_receipt", "process_pending", "stuck_count", "reset_stuck", "ChosenView", "DecisionView", "ReactionView", "DailyReportView", "ReportRow", "ReportTotals"]

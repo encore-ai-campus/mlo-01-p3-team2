@@ -259,6 +259,15 @@ def spend_by_day(campaign_ids, start_day, end_day):
     return dict(rows)
 
 
+def spend_by_campaign(campaign_ids, start_day, end_day):
+    """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함) — **질의 한 번**. 소진이 없는 캠페인은 결과에 없다."""
+    rows = (
+        CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
+        .values("campaign_id").annotate(total=Sum("spent")).values_list("campaign_id", "total")
+    )
+    return dict(rows)
+
+
 def charged_amounts(reaction_refs):
     """반응 멱등 키(`reaction_ref`)별로 **실제로 받은** 포인트 `{키: 포인트}`. 과금되지 않은 키(과금 단위가 아닌 유형 등)는 결과에 없다.
 

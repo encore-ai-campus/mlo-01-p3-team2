@@ -21,6 +21,23 @@
   {% endfor %}
 </section>
 
+<section class="card" aria-label="상위 캠페인">
+  <h1>상위 캠페인</h1>
+  <p class="muted">이 기간에 소진 포인트가 많은 순으로 {{ top_limit }}개까지.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th>{% for name, label in metrics %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for campaign, totals in top %}
+        <tr><td>{{ campaign.name }}</td><td>{{ campaign.status|status_label }}</td>{% for name, label in metrics %}<td class="num">{{ totals|metric:name|number }}</td>{% endfor %}</tr>
+      {% empty %}
+        <tr><td colspan="6">이 기간에 성과가 있는 캠페인이 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <section class="card" aria-label="포인트">
   <h1>포인트</h1>
   {% if wallet %}

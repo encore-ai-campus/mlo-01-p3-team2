@@ -8,20 +8,24 @@ from datetime import date, timedelta
 from random import Random
 from unittest import mock
 
+from django.db import connection
 from django.test import TestCase, tag
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
+from campaigns import api as campaigns
 from campaigns.models import Campaign
 from records import api as records
 from records.models import Reaction
-from tests.factories import DAY, NOW, SUBJECT, World
+from tests.factories import DAY, NOW, SUBJECT, World, make_slot, png_file
 
 SEC = timedelta(seconds=1)
 
 
-def impression(world, when):
-    """`when` 에 결정, 1초 뒤 노출 수신·인정(입찰 30 이 과금된다)."""
-    decision = records.decide(world.slot.media_id, world.slot.slot_id, subject_id=SUBJECT, now=when, rng=Random(1))
+def impression(world, when, slot=None):
+    """`when` 에 결정, 1초 뒤 노출 수신·인정(입찰이 과금된다)."""
+    slot = slot or world.slot
+    decision = records.decide(slot.media_id, slot.slot_id, subject_id=SUBJECT, now=when, rng=Random(1))
     view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", when + SEC, {}, now=when + SEC)
     assert records.process_reaction(Reaction.objects.get(pk=view.inbox_id).inbox_id, now=when + SEC) == "ACCEPTED"
 
@@ -107,3 +111,51 @@ class DashboardTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)  # 로그인으로
         self.client.force_login(self.w.admin)
         self.assertNotEqual(self.client.get(self.url).status_code, 200)
+
+
+@tag("security")
+class TopCampaignTests(TestCase):
+    """상위 캠페인 표: 캠페인별 합계(`records.campaign_totals`)는 일별 성과와 같은 규칙이고, 화면은 소진 포인트 순으로 보인다."""
+
+    def setUp(self):
+        self.w = World(ends_in=None)
+        Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(starts_at=NOW - 30 * DAY)
+        self.slot2 = make_slot(self.w.admin)
+        self.second = campaigns.create_campaign(self.w.adv, "<b>둘째</b>", NOW - 30 * DAY, None, 5000, now=NOW)
+        group = campaigns.create_ad_group(self.w.adv, self.second.campaign_id, "그룹", "IMPRESSION", [self.slot2.slot_id], bid_amount=40, now=NOW)
+        campaigns.create_creative(self.w.adv, group.ad_group_id, "제목", "https://example.com/2", png_file((9, 9, 9)), now=NOW)
+        self.window = (NOW.replace(hour=0) - 6 * DAY, NOW.replace(hour=0) + DAY)
+
+    def test_campaign_totals_follow_the_daily_report_rules(self):
+        impression(self.w, NOW - DAY)
+        impression(self.w, NOW, slot=self.slot2)
+        impression(self.w, NOW - DAY, slot=self.slot2)
+        impression(self.w, NOW - 10 * DAY)  # 기간 밖
+        other = World(ends_in=None)
+        impression(other, NOW)  # 다른 광고주
+        totals = records.campaign_totals(self.w.adv, *self.window)
+        self.assertEqual({cid: (t.impressions, t.spent) for cid, t in totals.items()},
+                         {self.w.campaign.campaign_id: (1, 30), self.second.campaign_id: (2, 80)})
+        report = records.daily_report(self.w.adv, *self.window)
+        self.assertEqual((sum(t.impressions for t in totals.values()), sum(t.spent for t in totals.values())), (report.totals.impressions, report.totals.spent))
+
+    def test_the_number_of_queries_does_not_grow_with_the_data(self):
+        impression(self.w, NOW)
+        with CaptureQueriesContext(connection) as few:
+            records.campaign_totals(self.w.adv, *self.window)
+        for _ in range(3):
+            impression(self.w, NOW, slot=self.slot2)
+        with CaptureQueriesContext(connection) as many:
+            records.campaign_totals(self.w.adv, *self.window)
+        self.assertEqual(len(few), len(many))
+
+    def test_the_table_ranks_by_spent_and_escapes_names(self):
+        self.client.force_login(self.w.adv)
+        with mock.patch("console.views.dashboard._now", return_value=NOW):
+            self.assertContains(self.client.get(reverse("advertiser_home")), "이 기간에 성과가 있는 캠페인이 없습니다")
+            impression(self.w, NOW)
+            impression(self.w, NOW, slot=self.slot2)
+            html = self.client.get(reverse("advertiser_home")).content.decode()
+        table = re.search(r'aria-label="상위 캠페인".*?</section>', html, re.S).group(0)
+        self.assertEqual(re.findall(r"<tr><td>([^<]+)</td>", table), ["&lt;b&gt;둘째&lt;/b&gt;", "캠페인"])  # 소진 40 > 30
+        self.assertNotIn("<b>둘째</b>", html)
