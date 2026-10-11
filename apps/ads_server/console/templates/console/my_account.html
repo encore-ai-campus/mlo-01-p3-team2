@@ -1,0 +1,32 @@
+{% extends "console/base.html" %}
+{% block title %}내 정보{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>내 정보</h1>
+  <p class="muted">아이디 {{ user.username }} (바꿀 수 없습니다)</p>
+  <form method="post" action="{% url 'my_account' %}" id="profile-form">
+    {% csrf_token %}
+    {{ profile_form.non_field_errors }}
+    {% for field in profile_form %}
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {{ field.errors }}
+    {% endfor %}
+    <button type="submit">저장</button>
+  </form>
+</div>
+<div class="card">
+  <h1>비밀번호 변경</h1>
+  <p class="muted">바꾸면 다른 기기의 로그인은 끝납니다. 현재 비밀번호를 여러 번 틀리면 로그인과 함께 잠시 잠깁니다.</p>
+  <form method="post" action="{% url 'my_password' %}" id="password-form">
+    {% csrf_token %}
+    {{ password_form.non_field_errors }}
+    {% for field in password_form %}
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {{ field.errors }}
+    {% endfor %}
+    <button type="submit">비밀번호 변경</button>
+  </form>
+</div>
+{% endblock %}

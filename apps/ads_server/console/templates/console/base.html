@@ -15,7 +15,8 @@
     <nav class="mainnav" aria-label="주 메뉴">
       {% url 'advertiser_home' as home_url %}
       <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>대시보드</a>
-      {% block nav_extra %}{% endblock %}
+      {% url 'my_account' as me_url %}
+      <a href="{{ me_url }}"{% if request.path == me_url %} aria-current="page"{% endif %}>내 정보</a>
     </nav>
     {% endif %}
     <form method="post" action="{% url 'logout' %}" class="account">

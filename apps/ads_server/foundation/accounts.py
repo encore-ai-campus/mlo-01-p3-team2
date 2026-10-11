@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import authenticate, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -104,10 +104,19 @@ def change_password(user, current_password, new_password, request=None):
 
     바꾸면 세션 인증 해시가 바뀌어 **다른 세션은 모두 끝난다**. `request` 를 주면 그 세션만 새 해시·새 세션 키로 유지한다(`update_session_auth_hash`).
     현재 비밀번호가 틀린 시도는 감사 로그에 남는다(변경과 달리 되돌려지지 않게 트랜잭션 밖에서). ValidationError(필드별 메시지)를 던진다.
+
+    **현재 비밀번호 확인은 로그인 잠금(axes)과 같은 계수**다(설계 §10 "비밀번호 변경의 시도 제한", 위협 모델 T43): `request` 가 있으면 `authenticate` 를 거쳐
+    로그인과 이 확인의 실패를 (아이디, IP)마다 함께 세고, 5회면 5분 잠금이다. 잠금 중에는 맞는 비밀번호도 거절되고 응답은 axes 미들웨어가 429 로 바꾼다.
+    확인 성공은 계수를 초기화하지 않는다(초기화는 로그인 성공에서만 — `AXES_RESET_ON_SUCCESS`). `request` 가 없는 호출(서버 명령·시험)은 잠금 계수 없이 확인한다.
     """
     require_advertiser(user)
     row = User.objects.get(pk=user.pk)
-    if not row.check_password(current_password or ""):
+    if request is not None:
+        confirmed = authenticate(request, username=row.username, password=current_password or "")
+        current_ok = confirmed is not None and confirmed.pk == row.pk
+    else:
+        current_ok = row.check_password(current_password or "")
+    if not current_ok:
         record_audit(request, "account.password_change_rejected", target=row, actor=row)
         raise ValidationError({"current_password": ["현재 비밀번호가 맞지 않습니다."]})
     try:
