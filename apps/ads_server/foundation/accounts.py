@@ -177,7 +177,7 @@ def get_advertiser(actor, user_id):
 def set_advertiser_active(actor, user_id, active, reason=""):
     """광고주 비활성화·다시 활성화(감사 로그 `account.deactivated`·`account.reactivated`). 비활성화는 사유가 필수다.
 
-    비활성 광고주는 로그인할 수 없고 이미 열린 세션도 끝난다(인증 백엔드가 비활성 사용자를 세션에서 읽지 않는다).
+    비활성 광고주는 로그인할 수 없고 이미 열린 세션도 끝난다(`session_epoch` 를 올려 세션 검증 값이 바뀐다 — 다시 활성화해도 옛 세션은 돌아오지 않는다).
     **광고도 나가지 않는다**: 후보 조회와 공개 이미지가 소유자의 활성 여부를 본다(campaigns). 캠페인 상태는 바꾸지 않으므로 다시 활성화하면 그대로 다시 나간다.
     """
     require_admin(actor)
@@ -188,6 +188,8 @@ def set_advertiser_active(actor, user_id, active, reason=""):
         if row.is_active == active:
             raise Conflict("이미 활성 계정입니다." if active else "이미 비활성화된 계정입니다.")
         row.is_active = active
-        row.save(update_fields=["is_active"])
+        if not active:
+            row.session_epoch += 1  # 열린 세션을 끝낸다 — 다시 활성화해도 옛 쿠키로는 들어오지 못한다
+        row.save(update_fields=["is_active", "session_epoch"])
         record_audit(None, "account.reactivated" if active else "account.deactivated", target=row, actor=actor, detail={"reason": reason})
     return _account(row)

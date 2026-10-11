@@ -67,7 +67,9 @@ class KeyRotateForm(KeyIssueForm):
 
 
 class AdjustForm(forms.Form):
-    """포인트 조정. 정정은 원장 항목을 고치지 않고 **반대 부호의 새 항목**으로 한다(설계 §4.4-8). 0 밑으로 내리지 못하는 것은 서비스가 판단한다."""
+    """포인트 조정. 정정은 원장 항목을 고치지 않고 **반대 부호의 새 항목**으로 한다(설계 §4.4-8). 0 밑으로 내리지 못하는 것은 서비스가 판단한다.
+    `request_key` 는 화면을 그릴 때마다 새로 만든 값이고, 서비스가 원장 줄에 함께 저장해 같은 폼의 다시 보냄을 한 번만 반영한다."""
 
     amount = forms.IntegerField(label="조정 포인트", help_text="더하면 양수, 빼면 음수. 앞선 항목을 바로잡을 때도 반대 부호의 새 항목으로 넣습니다.")
     note = forms.CharField(label="사유", max_length=200, strip=False)
+    request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)

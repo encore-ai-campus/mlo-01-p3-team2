@@ -3,7 +3,6 @@ from axes import admin as axes_admin
 from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.admin.utils import unquote
 
 from .admin_site import ReadOnlyAdmin
@@ -12,20 +11,16 @@ from .models import AuditLog, Role, User
 from .templatetags.kst import kst
 
 
-class AdminUserCreationForm(UserCreationForm):
-    class Meta(UserCreationForm.Meta):
-        model = User
-        fields = ("username", "nickname", "class_label", "role")
-
-
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    add_form = AdminUserCreationForm
+    """계정을 **추가하지 않고 역할을 바꾸지 않는다**(설계 §10 "광고주 비활성화는 송출도 멈춘다" — 역할을 거친 우회). 관리자는 서버 명령(`createsuperuser`)으로만,
+    광고주는 가입(`billing.register_advertiser`: 계정·지갑·가입 지급이 한 트랜잭션)으로만 생긴다."""
+
     list_display = ("username", "nickname", "class_label", "role", "is_active", "created_kst")
     list_filter = ("role", "is_active")
     search_fields = ("username", "nickname")
     ordering = ("-created_at",)
-    readonly_fields = ("created_at", "last_login")
+    readonly_fields = ("role", "created_at", "last_login")
     filter_horizontal = ()
     fieldsets = (
         (None, {"fields": ("username", "password")}),
@@ -33,9 +28,9 @@ class UserAdmin(BaseUserAdmin):
         ("권한", {"fields": ("role", "is_active", "is_superuser")}),
         ("기록", {"fields": ("created_at", "last_login")}),
     )
-    add_fieldsets = (
-        (None, {"classes": ("wide",), "fields": ("username", "nickname", "class_label", "role", "password1", "password2")}),
-    )
+
+    def has_add_permission(self, request):
+        return False
 
     @admin.display(description="가입(KST)", ordering="created_at")
     def created_kst(self, obj):
@@ -57,12 +52,11 @@ class UserAdmin(BaseUserAdmin):
         return [(name, {**options, "description": note}) if name == "권한" else (name, options) for name, options in self.fieldsets]
 
     def save_model(self, request, obj, form, change):
+        if "is_active" in form.changed_data and not obj.is_active:
+            obj.session_epoch += 1  # 관리자 계정을 끄면 열린 세션도 끝낸다(광고주는 운영 화면이 같은 일을 한다)
         super().save_model(request, obj, form, change)
         changed = [name for name in form.changed_data if "password" not in name]
-        record_audit(
-            request, "account.admin_updated" if change else "account.admin_created", target=obj,
-            detail={"changed": changed, "role": obj.role, "is_active": obj.is_active},
-        )
+        record_audit(request, "account.admin_updated", target=obj, detail={"changed": changed, "role": obj.role, "is_active": obj.is_active})
 
     def user_change_password(self, request, id, form_url=""):
         response = super().user_change_password(request, id, form_url)

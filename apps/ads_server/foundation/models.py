@@ -3,6 +3,7 @@ import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 
 class Role(models.TextChoices):
@@ -42,6 +43,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     nickname = models.CharField(max_length=20)
     class_label = models.CharField("반", max_length=30)
     is_active = models.BooleanField(default=True)
+    session_epoch = models.PositiveIntegerField(default=0, db_default=0)  # 올리면 그 전의 로그인 세션이 모두 끝난다(비활성화 — 다시 활성화해도 돌아오지 않는다). DB 기본값은 이 열을 모르는 옛 마이그레이션 상태의 INSERT 용
     created_at = models.DateTimeField(default=timezone.now)
 
     USERNAME_FIELD = "username"
@@ -56,6 +58,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     def is_staff(self):
         """Django admin 접근 자격. 활성 상태의 관리자 역할만."""
         return self.is_active and self.role == Role.ADMIN
+
+    def _get_session_auth_hash(self, secret=None):
+        """세션 검증 값(Django 의 `get_session_auth_hash`·대체 비밀 키 검증이 모두 이것을 부른다)에 `session_epoch` 를 더한다.
+        기본은 비밀번호 해시만 써서, 비활성화했다가 다시 활성화하면 옛 세션 쿠키가 그대로 통했다(외부 검토 3-1d)."""
+        key_salt = "django.contrib.auth.models.AbstractBaseUser.get_session_auth_hash"
+        return salted_hmac(key_salt, f"{self.password}:{self.session_epoch}", secret=secret, algorithm="sha256").hexdigest()
 
     def __str__(self):
         return self.username

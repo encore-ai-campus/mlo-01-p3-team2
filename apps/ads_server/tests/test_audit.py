@@ -128,19 +128,11 @@ class AdminAuditTests(TestCase):
         self.admin = User.objects.create_superuser("root_aud", PW, nickname="관리", class_label="-")
         self.client.force_login(self.admin, backend=MODEL_BACKEND)
 
-    def test_admin_create_update_and_password_reset_are_audited(self):
-        r = self.client.post("/test-admin/foundation/user/add/", {
-            "username": "made_by_admin", "nickname": "만든", "class_label": "2반", "role": "advertiser",
-            "password1": "Another-Str0ng-pass", "password2": "Another-Str0ng-pass", "usable_password": "true",
-        })
-        self.assertEqual(r.status_code, 302, getattr(r, "context", None) and r.context["adminform"].form.errors)
-        created = User.objects.get(username="made_by_admin")
-        entry = AuditLog.objects.get(action="account.admin_created")
-        self.assertEqual((entry.actor_id, entry.target_id), (self.admin.pk, str(created.pk)))
-        self.assertNotIn("Another-Str0ng-pass", str(entry.detail))
-
+    def test_admin_update_and_password_reset_are_audited(self):
+        """사용자 관리 화면은 계정을 추가하지 않는다(설계 §10) — 수정과 비밀번호 초기화만 감사 로그에 남는지 본다."""
+        created = User.objects.create_user("made_by_signup", PW, nickname="만든", class_label="2반")
         r = self.client.post(f"/test-admin/foundation/user/{created.pk}/change/", {
-            "username": "made_by_admin", "nickname": "바꾼", "class_label": "2반", "role": "advertiser", "_save": "저장",
+            "username": "made_by_signup", "nickname": "바꾼", "class_label": "2반", "role": "advertiser", "_save": "저장",
         })
         self.assertEqual(r.status_code, 302)
         updated = AuditLog.objects.get(action="account.admin_updated")

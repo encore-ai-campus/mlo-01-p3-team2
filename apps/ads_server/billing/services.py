@@ -85,21 +85,43 @@ def grant_signup(user, now=None):
     return _entry_view(existing) if existing else None
 
 
-def adjust(actor, user_id, amount, note, now=None):
-    """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수."""
+def adjust(actor, user_id, amount, note, now=None, request_key=None):
+    """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수.
+
+    `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키는 한 번만 반영**한다: 키는 원장 줄에 금액 변경과 같은 트랜잭션으로 저장되고(유일 제약),
+    같은 키·같은 내용의 다시 보냄(두 번 누름·동시 제출·응답이 실패한 뒤 재시도)은 처음 줄을 그대로 돌려준다. 같은 키에 다른 내용이면 409.
+    지갑을 잠근 뒤 키를 보므로 동시에 들어온 같은 키는 뒤쪽이 앞쪽의 커밋을 기다렸다가 처음 줄을 받는다.
+    """
     now = _now(now)
     require_admin(actor)
     note = clean_text(note, "사유", "/note", 200)
     if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0 or abs(amount) > MAX_AMOUNT:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"0이 아닌 정수(절댓값 {MAX_AMOUNT} 이하)여야 합니다."}])
-    with transaction.atomic():
-        wallet = _lock_wallet(parse_uuid(user_id, "지갑"))
-        if wallet.balance + amount < 0:
-            raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])
-        if wallet.balance + amount > MAX_AMOUNT:  # 개별 금액이 범위 안이어도 합산 결과가 잔액 상한을 넘을 수 있다
-            raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"조정 후 잔액이 {MAX_AMOUNT} 을 넘을 수 없습니다."}])
-        entry = _append(wallet, EntryType.ADMIN_ADJUST, amount, now, note=note)
-        _audit(actor, "billing.adjusted", ("billing.wallet", wallet.pk), {"amount": amount, "note": note, "balance_after": entry.balance_after})
+    if request_key is not None and not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
+        raise errors.InvalidRequest(errors=[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}])
+    try:
+        with transaction.atomic():
+            return _adjust(actor, parse_uuid(user_id, "지갑"), amount, note, now, request_key)
+    except IntegrityError:  # 다른 지갑에 같은 키(위조한 폼)만 여기에 온다 — 같은 지갑은 지갑 잠금이 줄 세운다
+        if request_key is not None and LedgerEntry.objects.filter(adjust_key=request_key).exists():
+            raise errors.Conflict("이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요.")
+        raise
+
+
+def _adjust(actor, owner_id, amount, note, now, request_key):
+    wallet = _lock_wallet(owner_id)
+    if request_key is not None:
+        done = LedgerEntry.objects.filter(adjust_key=request_key).first()
+        if done is not None:
+            if (done.wallet_id, done.amount, done.note) != (wallet.pk, amount, note):
+                raise errors.Conflict("이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요.")
+            return _entry_view(done)
+    if wallet.balance + amount < 0:
+        raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])
+    if wallet.balance + amount > MAX_AMOUNT:  # 개별 금액이 범위 안이어도 합산 결과가 잔액 상한을 넘을 수 있다
+        raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"조정 후 잔액이 {MAX_AMOUNT} 을 넘을 수 없습니다."}])
+    entry = _append(wallet, EntryType.ADMIN_ADJUST, amount, now, note=note, adjust_key=request_key)
+    _audit(actor, "billing.adjusted", ("billing.wallet", wallet.pk), {"amount": amount, "note": note, "balance_after": entry.balance_after})
     return _entry_view(entry)
 
 
@@ -172,11 +194,21 @@ def _wallet_view(owner_id, now):
     return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
 
 
+def _cursor(before):
+    """목록 커서(지갑 안의 순번 `seq`). 주소에서 온 값은 ASCII 숫자 10자리까지만 읽고, 형식이 틀린 값은 첫 쪽으로 본다(`²`·`①`도 `isdigit()` 은 참이다)."""
+    if isinstance(before, int) and not isinstance(before, bool):
+        return before
+    if isinstance(before, str) and before.isascii() and before.isdigit() and len(before) <= 10:
+        return int(before)
+    return None
+
+
 def _ledger(owner_id, before, limit):
     limit = max(1, min(int(limit), 200))
     qs = LedgerEntry.objects.filter(wallet__owner_id=owner_id).order_by("-seq")
+    before = _cursor(before)
     if before is not None:
-        qs = qs.filter(seq__lt=int(before))
+        qs = qs.filter(seq__lt=before)
     rows = list(qs[: limit + 1])
     next_cursor = rows[limit - 1].seq if len(rows) > limit else None
     return [_entry_view(e) for e in rows[:limit]], next_cursor
@@ -192,9 +224,13 @@ def list_ledger(user, before=None, limit=50):
 
 
 def wallet_of(actor, owner_id, now=None):
-    """관리자가 보는 광고주의 지갑(Step 3-1d). 광고주 화면의 `get_wallet` 과 같은 값."""
+    """관리자가 보는 광고주의 지갑(Step 3-1d). 광고주 화면의 `get_wallet` 과 같은 값. **지갑이 없으면 `None`**(가입 묶음을 거치지 않은 옛 계정 —
+    화면은 "지갑 없음"으로 보이고 비활성화는 그대로 할 수 있다. 조회가 지급을 몰래 만들지 않는다)."""
     require_admin(actor)
-    return _wallet_view(parse_uuid(owner_id, "지갑"), _now(now))
+    try:
+        return _wallet_view(parse_uuid(owner_id, "지갑"), _now(now))
+    except errors.NotFound:
+        return None
 
 
 def ledger_of(actor, owner_id, before=None, limit=50):

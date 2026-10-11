@@ -15,7 +15,7 @@
         <td>{{ u.campaigns }} / {{ u.campaign_limit }}</td>
         <td>{{ u.creatives }} / {{ u.creative_limit }}</td>
         <td>{{ u.image_bytes|filesizeformat }} / {{ u.image_bytes_limit|filesizeformat }}</td>
-        <td>{{ balances|get_item:a.user_id|default:0|points }}</td>
+        <td>{% with balance=balances|get_item:a.user_id %}{% if balance is None %}지갑 없음{% else %}{{ balance|points }}{% endif %}{% endwith %}</td>
         <td>{{ a.created_at|kst }}</td>
         <td>{{ a.last_login|kst|default:"없음" }}</td>
       </tr>

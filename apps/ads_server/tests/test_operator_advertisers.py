@@ -1,18 +1,25 @@
 """Step 3-1d 관리자: 광고주 목록(사용량 대 상한·잔액), 비활성화(사유 필수 — 로그인·세션·송출이 모두 멈춤)·다시 활성화, 지갑·원장 열람,
 포인트 조정(사유 필수·0 밑으로 불가·반대 부호의 새 항목, 원장 + 감사 로그, 다시 제출해도 한 번만)."""
 import re
+import threading
 import uuid
+from unittest import mock
 
-from django.test import Client, TestCase, override_settings, tag
+from django.contrib.sessions.backends.db import SessionStore
+from django.db import IntegrityError, transaction
+from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 from django.urls import reverse
 
 from billing import api as billing
+from billing.models import LedgerEntry, Wallet
 from campaigns import api as campaigns
 from campaigns.models import CreativeImage
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
 from tests.factories import NOW, PW, SUBJECT, World, make_admin, make_advertiser, png_file
+from tests.test_campaign_expire_race import pausing_before
+from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 
 @tag("security")
@@ -74,12 +81,20 @@ class AdvertiserServiceTests(TestCase):
         self.assertTrue(campaigns.is_asset_servable(name, now=NOW))
 
     def test_deactivation_ends_sessions_and_blocks_login(self):
-        signed_in = Client()
-        self.assertEqual(signed_in.post(reverse("login"), {"username": self.w.adv.username, "password": PW}).status_code, 302)
-        self.assertEqual(signed_in.get(reverse("advertiser_home")).status_code, 200)
+        """외부 검토(3-1d) P2: 세션이 정말 끝나야 한다 — 비활성 중에 다녀간 세션도, 다녀가지 않고 쿠키만 둔 세션도 다시 활성화한 뒤 거절된다."""
+        visited, kept = Client(), Client()
+        for client in (visited, kept):
+            self.assertEqual(client.post(reverse("login"), {"username": self.w.adv.username, "password": PW}).status_code, 302)
+            self.assertEqual(client.get(reverse("advertiser_home")).status_code, 200)
         set_advertiser_active(self.w.admin, self.w.adv.pk, False, "스팸 소재")
-        self.assertEqual(signed_in.get(reverse("advertiser_home")).status_code, 302)  # 열린 세션도 끝난다
+        self.assertEqual(visited.get(reverse("advertiser_home")).status_code, 302)  # 열린 세션도 끝난다
         self.assertEqual(Client().post(reverse("login"), {"username": self.w.adv.username, "password": PW}).status_code, 200)  # 로그인 실패(폼 다시)
+        set_advertiser_active(self.w.admin, self.w.adv.pk, True)
+        for client in (visited, kept):
+            self.assertEqual(client.get(reverse("advertiser_home")).status_code, 302)  # 다시 활성화해도 옛 쿠키로는 못 들어온다
+        fresh = Client()
+        self.assertEqual(fresh.post(reverse("login"), {"username": self.w.adv.username, "password": PW}).status_code, 302)
+        self.assertEqual(fresh.get(reverse("advertiser_home")).status_code, 200)  # 새로 로그인하면 된다
 
 
 class OperatorAdvertiserBase(TestCase):
@@ -92,10 +107,10 @@ class OperatorAdvertiserBase(TestCase):
         self.adjust_url = reverse("operator:advertiser_adjust", args=[self.uid])
 
     def adjust_fields(self, **over):
-        """상세 화면의 조정 폼에서 한 번 쓰는 토큰을 꺼내 함께 보낸다(화면이 싣는 대로)."""
+        """상세 화면의 조정 폼이 싣는 요청 키를 꺼내 함께 보낸다(화면이 싣는 대로)."""
         html = self.client.get(self.detail).content.decode()
-        once = re.search(r'name="once" value="([^"]+)"', html).group(1)
-        return {"once": once, "amount": -1000, "note": "잘못 받은 과금 환원 정정", **over}
+        key = re.search(r'name="request_key" value="([^"]+)"', html).group(1)
+        return {"request_key": key, "amount": -1000, "note": "잘못 받은 과금 환원 정정", **over}
 
     def balance(self):
         return billing.get_wallet(self.w.adv, now=NOW).balance
@@ -194,10 +209,22 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
     def test_the_same_form_submitted_twice_adjusts_once(self):
         fields = self.adjust_fields()
         self.assertRedirects(self.client.post(self.adjust_url, fields), self.detail)
-        self.assertRedirects(self.client.post(self.adjust_url, fields), self.detail, fetch_redirect_response=False)  # 새로 고침·뒤로 가기·두 번 누름
-        self.assertContains(self.client.get(self.detail), "이미 처리했거나 오래된 요청입니다")
+        self.assertRedirects(self.client.post(self.adjust_url, fields), self.detail)  # 새로 고침·뒤로 가기·두 번 누름: 처음 결과 그대로
         self.assertEqual(self.balance(), 49_000)
-        self.assertEqual(self.client.post(self.adjust_url, {"amount": -1000, "note": "토큰 없음"}).status_code, 302)
+        self.assertEqual(LedgerEntry.objects.filter(entry_type="ADMIN_ADJUST").count(), 1)
+        self.assertEqual(AuditLog.objects.filter(action="billing.adjusted").count(), 1)
+        r = self.client.post(self.adjust_url, {**fields, "amount": -2000})  # 같은 폼에 다른 내용
+        self.assertContains(r, "이 조정 폼은 이미 다른 내용으로 처리됐습니다", status_code=409)
+        self.assertRedirects(self.client.post(self.adjust_url, {"amount": -1000, "note": "키 없음"}), self.detail, fetch_redirect_response=False)
+        self.assertContains(self.client.get(self.detail), "새로 불러와 다시 조정하세요")
+        self.assertEqual(self.balance(), 49_000)
+
+    def test_an_input_error_keeps_the_key_and_the_corrected_form_applies_once(self):
+        fields = self.adjust_fields(amount=-50_001)
+        r = self.client.post(self.adjust_url, fields)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn(f'value="{fields["request_key"]}"', r.content.decode())  # 아직 아무것도 반영하지 않은 키
+        self.assertRedirects(self.client.post(self.adjust_url, {**fields, "amount": -1000}), self.detail)
         self.assertEqual(self.balance(), 49_000)
 
     def test_ledger_pages_by_cursor(self):
@@ -207,7 +234,9 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         self.assertNotIn("가입 지급", html)  # 한 쪽은 50 줄(최신순)
         older = re.search(r'href="([^"]+)" rel="next"', html).group(1).replace("&amp;", "&")  # 같은 화면의 쿼리(`?before=…`)
         self.assertContains(self.client.get(self.detail + older), "가입 지급")
-        self.assertEqual(self.client.get(self.detail + "?before=abc").status_code, 200)  # 틀린 커서는 첫 쪽
+        for odd in ("abc", "²", "①", "9" * 5000, "-1"):  # 틀린 커서는 첫 쪽(외부 검토 P3: `isdigit()` 이 참인 비 ASCII 숫자·아주 긴 숫자가 500 이었다)
+            self.assertContains(self.client.get(self.detail, {"before": odd}), "관리자 조정", msg_prefix=odd)
+        self.assertEqual(len(billing.list_ledger(self.w.adv, before="²")[0]), 50)
 
 
 @tag("security")
@@ -233,6 +262,124 @@ class UserAdminActiveFlagTests(TestCase):
 
     def test_user_admin_still_changes_an_admins_active_flag(self):
         other = make_admin()
+        signed_in = Client()
+        signed_in.force_login(other)
         self.assertEqual(self.save(other, is_superuser="on").status_code, 302)
         self.assertFalse(User.objects.get(pk=other.pk).is_active)
         self.assertIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
+        self.assertEqual(self.save(User.objects.get(pk=other.pk), is_active="on", is_superuser="on").status_code, 302)
+        self.assertEqual(signed_in.get(reverse("admin:index")).status_code, 404)  # 껐던 관리자의 옛 세션도 다시 켠 뒤 돌아오지 않는다
+
+    def test_user_admin_cannot_add_accounts_or_change_roles(self):
+        """외부 검토(3-1d) P2: 역할을 admin 으로 → 활성 끄기 → advertiser 로, 세 번 저장하면 사유 없이 광고주를 끌 수 있었다. 추가 폼으로 만든 광고주는 지갑이 없었다."""
+        add = reverse("admin:foundation_user_add")
+        self.assertEqual(self.client.get(add).status_code, 403)
+        before = User.objects.count()
+        r = self.client.post(add, {"username": "made_by_admin", "nickname": "만든", "class_label": "2반", "role": "advertiser",
+                                   "password1": "Another-Str0ng-pass", "password2": "Another-Str0ng-pass", "usable_password": "true"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(User.objects.count(), before)
+        adv, other = make_advertiser(), make_admin()
+        self.assertEqual(self.save(adv, role="admin", is_active="on").status_code, 302)
+        self.assertEqual(self.save(User.objects.get(pk=adv.pk), role="advertiser").status_code, 302)  # 활성 체크 해제와 함께
+        self.assertEqual((User.objects.get(pk=adv.pk).role, User.objects.get(pk=adv.pk).is_active), ("advertiser", True))
+        self.assertEqual(self.save(other, role="advertiser", is_active="on", is_superuser="on").status_code, 302)
+        self.assertEqual(User.objects.get(pk=other.pk).role, "admin")
+        self.assertFalse(any("role" in a.detail["changed"] for a in AuditLog.objects.filter(action="account.admin_updated")))
+
+
+@tag("security")
+class WalletlessAdvertiserTests(OperatorAdvertiserBase):
+    """외부 검토(3-1d) P2: 가입 묶음을 거치지 않은 옛 계정(지갑 없음)도 목록·상세가 열리고 비활성화할 수 있다. 조회가 지급을 몰래 만들지 않는다."""
+
+    def test_an_account_without_a_wallet_can_still_be_seen_and_deactivated(self):
+        legacy = User.objects.create_user("legacy_adv", PW, nickname="옛계정", class_label="1반")  # 지갑·가입 지급 없음
+        detail = reverse("operator:advertiser_detail", args=[legacy.pk])
+        self.assertContains(self.client.get(self.list), "지갑 없음")
+        html = self.client.get(detail).content.decode()
+        self.assertIn("지갑 없음", html)
+        self.assertNotIn('name="request_key"', html)  # 조정 폼이 없다
+        self.assertRedirects(self.client.post(reverse("operator:advertiser_active", args=[legacy.pk]), {"active": "0", "reason": "옛 계정 정리"}), detail)
+        self.assertFalse(User.objects.get(pk=legacy.pk).is_active)
+        self.assertEqual(self.client.post(reverse("operator:advertiser_adjust", args=[legacy.pk]),
+                                          {"request_key": "k", "amount": 1000, "note": "지급"}).status_code, 404)
+        self.assertFalse(Wallet.objects.filter(owner=legacy).exists())
+
+
+@tag("security")
+class AdjustKeyTests(TestCase):
+    def setUp(self):
+        self.w = World()
+
+    def test_same_key_applies_once_and_a_different_content_is_refused(self):
+        first = billing.adjust(self.w.admin, self.w.adv.pk, -1000, "정정", request_key="k1")
+        self.assertEqual(billing.adjust(self.w.admin, self.w.adv.pk, -1000, "정정", request_key="k1"), first)
+        for over in ({"amount": -2000}, {"note": "다른 사유"}, {"user_id": make_advertiser_with_wallet().pk}):
+            args = {"user_id": self.w.adv.pk, "amount": -1000, "note": "정정", **over}
+            with self.assertRaises(errors.Conflict):
+                billing.adjust(self.w.admin, args["user_id"], args["amount"], args["note"], request_key="k1")
+        self.assertEqual(billing.get_wallet(self.w.adv).balance, 49_000)
+        self.assertEqual(LedgerEntry.objects.filter(adjust_key="k1").count(), 1)
+
+    def test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments(self):
+        billing.adjust(self.w.admin, self.w.adv.pk, 5, "보너스", request_key="k2")
+        entry = LedgerEntry.objects.get(adjust_key="k2")
+        for changes in ({"adjust_key": "k2", "seq": entry.seq + 1}, {"adjust_key": "k3", "seq": entry.seq + 1, "entry_type": "TOPUP"}):
+            row = {f.attname: getattr(entry, f.attname) for f in LedgerEntry._meta.concrete_fields if not f.generated and not f.primary_key}
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                LedgerEntry.objects.bulk_create([LedgerEntry(**{**row, **changes})])
+
+
+def make_advertiser_with_wallet():
+    adv = make_advertiser()
+    billing.grant_signup(adv, now=NOW)
+    return adv
+
+
+@tag("security")
+class AdjustRaceTests(TransactionTestCase):
+    """외부 검토(3-1d) P1: 같은 폼을 동시에 두 번 보내거나, 처리가 커밋된 뒤 응답이 실패해 다시 보내도 조정은 한 번이다."""
+
+    def setUp(self):
+        self.w = World()
+        self.uid = self.w.adv.pk
+        self.url = reverse("operator:advertiser_adjust", args=[self.uid])
+        self.client = Client()
+        self.client.force_login(self.w.admin)
+        html = self.client.get(reverse("operator:advertiser_detail", args=[self.uid])).content.decode()
+        self.fields = {"request_key": re.search(r'name="request_key" value="([^"]+)"', html).group(1), "amount": -1000, "note": "정정"}
+
+    def assert_applied_once(self):
+        self.assertEqual(billing.get_wallet(self.w.adv).balance, 49_000)
+        self.assertEqual(LedgerEntry.objects.filter(entry_type="ADMIN_ADJUST").count(), 1)
+        self.assertEqual(AuditLog.objects.filter(action="billing.adjusted").count(), 1)
+
+    def twin(self):
+        """같은 로그인 쿠키를 쓰는 두 번째 브라우저 탭."""
+        other = Client()
+        other.cookies = self.client.cookies
+        return other
+
+    def test_the_same_form_sent_twice_at_once_adjusts_once(self):
+        paused, release = threading.Event(), threading.Event()
+        first = Worker(pausing_before("INSERT", "billing_ledger_entry", lambda: self.client.post(self.url, self.fields), paused, release))
+        first.start()
+        self.assertTrue(paused.wait(WAIT), "첫 요청이 원장 INSERT 에 이르지 않았다")
+        second = Worker(lambda: self.twin().post(self.url, self.fields))
+        second.start()
+        second.join(BLOCKED)  # 지갑 잠금을 기다린다
+        release.set()
+        first.join(WAIT)
+        second.join(WAIT)
+        self.assertEqual((first.errors, second.errors), ([], []))
+        self.assertEqual((first.result.status_code, second.result.status_code), (302, 302))
+        self.assert_applied_once()
+
+    def test_a_retry_after_the_response_failed_post_commit_adjusts_once(self):
+        failing = Client(raise_request_exception=False)
+        failing.cookies = self.client.cookies
+        with mock.patch.object(SessionStore, "save", side_effect=RuntimeError("세션 저장 실패")):
+            self.assertEqual(failing.post(self.url, self.fields).status_code, 500)  # 조정은 커밋됐고 응답만 실패
+        self.assertEqual(billing.get_wallet(self.w.adv).balance, 49_000)
+        self.assertEqual(self.client.post(self.url, self.fields).status_code, 302)  # 같은 폼으로 재시도
+        self.assert_applied_once()

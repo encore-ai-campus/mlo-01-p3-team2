@@ -3,6 +3,8 @@
 화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
 예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 한 번 쓰는 폼 토큰으로 다시 제출을 막는다.
 """
+import secrets
+
 from django.contrib import admin, messages
 from django.http import FileResponse, Http404
 from django.shortcuts import redirect, render
@@ -244,11 +246,10 @@ def advertiser_list(request):
 
 def _advertiser_page(request, user_id, status=200, adjust_form=None):
     account = fetch(get_advertiser, request.user, user_id)
-    before = request.GET.get("before", "")
-    entries, next_cursor = billing.ledger_of(request.user, account.user_id, before=int(before) if before.isdigit() else None)
+    entries, next_cursor = billing.ledger_of(request.user, account.user_id, before=request.GET.get("before"))
     return _render(request, "operator/advertiser_detail.html", f"광고주: {account.username}", status=status, account=account,
-                   wallet=fetch(billing.wallet_of, request.user, account.user_id), entries=entries, next_cursor=next_cursor,
-                   adjust_form=adjust_form or AdjustForm(), adjust_once=once.issue(request, f"adjust:{account.user_id}"))
+                   wallet=billing.wallet_of(request.user, account.user_id), entries=entries, next_cursor=next_cursor,
+                   adjust_form=adjust_form or AdjustForm(initial={"request_key": secrets.token_urlsafe(16)}))
 
 
 def advertiser_detail(request, user_id):
@@ -269,21 +270,24 @@ def advertiser_active(request, user_id):
 
 @require_POST
 def advertiser_adjust(request, user_id):
-    """포인트 조정(사유 필수, 0 밑으로 불가 — 서비스 `billing.adjust`). 같은 폼이 다시 제출돼도 한 번만 처리한다(한 번 쓰는 폼 토큰)."""
+    """포인트 조정(사유 필수, 0 밑으로 불가 — 서비스 `billing.adjust`). 폼마다 새 `request_key` 를 실어, 같은 폼을 다시 보내거나(두 번 누름·동시 제출)
+    처리 뒤 응답이 실패해 재시도해도 **한 번만** 반영한다 — 키가 원장 줄과 같은 트랜잭션에 저장된다(세션에 기대지 않는다).
+    입력 오류로 다시 그린 폼은 같은 키를 그대로 싣는다(그 키로는 아직 아무것도 반영되지 않았다)."""
     account = fetch(get_advertiser, request.user, user_id)
-    if not once.consume(request, f"adjust:{account.user_id}", request.POST.get("once")):
-        messages.warning(request, "이미 처리했거나 오래된 요청입니다. 잔액과 내역을 확인한 뒤 다시 조정하세요.")
+    if not request.POST.get("request_key"):
+        messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 조정하세요.")
         return redirect("operator:advertiser_detail", user_id=account.user_id)
     form = AdjustForm(request.POST)
     status = 400
     if form.is_valid():
+        data = form.cleaned_data
         try:
-            entry = billing.adjust(request.user, account.user_id, form.cleaned_data["amount"], form.cleaned_data["note"])
+            entry = billing.adjust(request.user, account.user_id, data["amount"], data["note"], request_key=data["request_key"])
         except HANDLED as e:
             form_errors(form, e)
             status = status_of(e)
         else:
-            messages.success(request, f"{entry.amount:+,} 포인트를 조정했습니다. 잔액 {entry.balance_after:,} 포인트.")
+            messages.success(request, f"{entry.amount:+,} 포인트 조정이 원장에 반영됐습니다(같은 화면을 다시 보내도 한 번만 반영됩니다).")
             return redirect("operator:advertiser_detail", user_id=account.user_id)
     return _advertiser_page(request, account.user_id, status=status, adjust_form=form)
 

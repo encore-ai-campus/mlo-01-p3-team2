@@ -23,14 +23,17 @@
 {% endif %}
 
 <h2>포인트</h2>
+{% if wallet %}
 <p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }} (예산 일 {{ wallet.budget_day|date:"Y-m-d" }}, {{ wallet.resets_at|kst }}에 바뀜)</p>
 <h3 id="adjust">포인트 조정</h3>
 <p class="help">원장은 고치지 않고 새 항목을 더합니다. 잔액을 0 밑으로 내릴 수 없고, 사유와 함께 감사 로그에 남습니다.</p>
 <form method="post" action="{% url 'operator:advertiser_adjust' account.user_id %}">{% csrf_token %}
-  <input type="hidden" name="once" value="{{ adjust_once }}">
   {{ adjust_form.as_div }}
   <button type="submit">조정</button>
 </form>
+{% else %}
+<p><strong>지갑 없음</strong> — 가입 절차(계정·지갑·가입 지급)를 거치지 않고 만들어진 계정입니다. 포인트를 조정할 수 없고, 비활성화는 위에서 할 수 있습니다.</p>
+{% endif %}
 
 <h3>원장 (최신순)</h3>
 <div class="module">
