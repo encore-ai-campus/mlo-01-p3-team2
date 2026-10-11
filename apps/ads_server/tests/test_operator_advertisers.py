@@ -7,6 +7,7 @@ import threading
 import uuid
 from unittest import mock
 
+from django.contrib.admin.utils import quote
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
@@ -295,6 +296,19 @@ class UserAdminActiveFlagTests(TestCase):
         for entry in AuditLog.objects.filter(action="account.admin_updated"):
             self.assertFalse({"role", "is_superuser"} & set(entry.detail["changed"]))
 
+    def test_the_reset_form_writes_only_the_password(self):
+        """심층 방어: 초기화는 대상을 잠근 뒤 읽지만, 폼이 오래된 사용자 객체를 받더라도 비밀번호 열만 써서 그 사이의 비활성화를 되돌리지 않는다
+        (외부 검토 3-1d c029e35 — 잠금이 대상을 놓쳤을 때 이 보호가 없어 비활성화가 되돌려졌다)."""
+        adv = make_advertiser()
+        stale = User.objects.get(pk=adv.pk)
+        set_advertiser_active(self.root, adv.pk, False, "스팸 소재")
+        form = UserAdmin.change_password_form(stale, {"password1": "Reset-Str0ng-pass-1", "password2": "Reset-Str0ng-pass-1", "usable_password": "true"})
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        row = User.objects.get(pk=adv.pk)
+        self.assertEqual((row.is_active, row.session_epoch), (False, 1))
+        self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
+
     def test_user_admin_cannot_delete_accounts(self):
         """외부 검토(3-1d) P2: 추가는 막았지만 삭제는 Django 기본 그대로 열려 있었다(DRD 수명주기: 사용자 삭제 없음). 개별 삭제와 묶음 삭제 모두."""
         other, adv = make_admin(), make_advertiser()
@@ -470,9 +484,17 @@ class UserAdminSaveRaceTests(TransactionTestCase):
     def test_a_password_reset_does_not_undo_a_deactivation_made_in_between(self):
         """같은 결함의 다른 길: 사용자 관리의 비밀번호 초기화가 대상을 통째로 저장했다. 지금은 초기화가 대상 행을 먼저 잠그므로, 겹친 비활성화는
         그 잠금을 기다렸다가 초기화 뒤에 적용된다 — 어느 쪽도 다른 쪽을 지우지 않는다."""
+        self.reset_racing_a_deactivation(lambda pk: pk)
+
+    def test_the_same_holds_for_another_spelling_of_the_target_id(self):
+        """외부 검토(3-1d c029e35) P2: Django 화면은 경로를 `unquote` 한 뒤 대상을 찾아 `urn:uuid:…` 표기도 같은 사용자다. 잠금이 원문을 따로 해석해
+        대상을 빼먹으면 비활성화가 되돌려졌다. 잠금도 화면과 같은 해석을 쓴다."""
+        self.reset_racing_a_deactivation(lambda pk: quote(f"urn:uuid:{pk}"))
+
+    def reset_racing_a_deactivation(self, spell):
         adv = make_advertiser()
         paused, release = threading.Event(), threading.Event()
-        url = reverse("admin:auth_user_password_change", args=[adv.pk])
+        url = reverse("admin:auth_user_password_change", args=[spell(adv.pk)])
         data = {"password1": "Reset-Str0ng-pass-1", "password2": "Reset-Str0ng-pass-1", "usable_password": "true"}
         worker = Worker(pausing_before("UPDATE", "foundation_user", lambda: self.client.post(url, data), paused, release))
         worker.start()
@@ -581,13 +603,26 @@ class MutualResetTests(TransactionTestCase):
     교착(MySQL 1213)으로 한 요청이 500. 요청자와 대상을 ID 순서로 함께 잠그면 줄을 서고, 뒤의 요청은 앞의 초기화로 바뀐 자기 인증 근거 때문에 403 이다."""
 
     def test_two_admins_resetting_each_other_queue_up_without_a_deadlock(self):
+        self.mutual_reset(lambda pk: pk)
+
+    def test_the_same_holds_for_another_spelling_of_the_target_id(self):
+        self.mutual_reset(lambda pk: quote(f"urn:uuid:{pk}"))  # 외부 검토(3-1d c029e35): 다른 표기로 대상이 잠금에서 빠지면 교착이 다시 났다
+
+    def test_an_unreadable_target_is_404_before_anything_is_locked_or_run(self):
+        client = Client()
+        client.force_login(make_admin())
+        r = client.post(reverse("admin:auth_user_password_change", args=["not-a-user"]),
+                        {"password1": "Set-By-A-1-pass", "password2": "Set-By-A-1-pass", "usable_password": "true"})
+        self.assertEqual(r.status_code, 404)
+
+    def mutual_reset(self, spell):
         a, b = make_admin(), make_admin()
         client_a, client_b = Client(), Client()
         client_a.force_login(a)
         client_b.force_login(b)
 
         def reset(client, target, password):
-            return client.post(reverse("admin:auth_user_password_change", args=[target.pk]),
+            return client.post(reverse("admin:auth_user_password_change", args=[spell(target.pk)]),
                                {"password1": password, "password2": password, "usable_password": "true"})
         paused, release = threading.Event(), threading.Event()
         first = Worker(pausing_before("UPDATE", "foundation_user", lambda: reset(client_a, b, "Set-By-A-1-pass"), paused, release))
