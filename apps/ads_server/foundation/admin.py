@@ -3,12 +3,23 @@ from axes import admin as axes_admin
 from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.admin.utils import unquote
+from django.db import transaction
 
 from .admin_site import ReadOnlyAdmin
 from .audit import record_audit
 from .models import AuditLog, Role, User
 from .templatetags.kst import kst
+
+
+class PasswordResetForm(AdminPasswordChangeForm):
+    def save(self, commit=True):
+        """비밀번호 열만 쓴다. 기본은 요청 처음에 읽은 사용자 객체를 통째로 저장해, 그 사이 운영 화면이 한 비활성화(`is_active`·`session_epoch`)를 되돌린다."""
+        user = super().save(commit=False)
+        if commit:
+            user.save(update_fields=["password"])
+        return user
 
 
 @admin.register(User)
@@ -19,6 +30,7 @@ class UserAdmin(BaseUserAdmin):
     `is_superuser` 도 읽기 전용이다: admin 사이트 입장은 역할(`is_staff`)이 정하지만 모델 화면(사용자 관리·감사 로그 등)은 권한 검사라 그룹·권한을 주지 않는
     이 프로젝트에서는 `is_superuser` 만 통과시킨다. 역할과 따로 바뀌면 "들어가지만 아무것도 못 보는 관리자"처럼 뜻이 엇갈린다 — 관리자 ⇔ 슈퍼유저를 계정을 만든 곳(매니저)이 정한다."""
 
+    change_password_form = PasswordResetForm
     list_display = ("username", "nickname", "class_label", "role", "is_active", "created_kst")
     list_filter = ("role", "is_active")
     search_fields = ("username", "nickname")
@@ -55,11 +67,20 @@ class UserAdmin(BaseUserAdmin):
         return [(name, {**options, "description": note}) if name == "권한" else (name, options) for name, options in self.fieldsets]
 
     def save_model(self, request, obj, form, change):
-        if "is_active" in form.changed_data and not obj.is_active:
-            obj.session_epoch += 1  # 관리자 계정을 끄면 열린 세션도 끝낸다(광고주는 운영 화면이 같은 일을 한다)
-        super().save_model(request, obj, form, change)
-        changed = [name for name in form.changed_data if "password" not in name]
-        record_audit(request, "account.admin_updated", target=obj, detail={"changed": changed, "role": obj.role, "is_active": obj.is_active})
+        """**편집한 칸만** 잠근 최신 행에 쓴다. 기본 `obj.save()` 는 요청 처음에 읽은 객체의 모든 열을 다시 써서, 그 사이 운영 화면이 한 광고주 비활성화
+        (`is_active`·`session_epoch`)를 프로필 편집이 되돌렸다(외부 검토 3-1d). 읽기 전용 칸은 폼에 없으므로 `changed_data` 에도 없다."""
+        changed = [name for name in form.changed_data if name in form.cleaned_data and "password" not in name]
+        with transaction.atomic():
+            row = User.objects.select_for_update().get(pk=obj.pk)
+            for name in changed:
+                setattr(row, name, form.cleaned_data[name])
+            fields = list(changed)
+            if "is_active" in changed and not row.is_active:
+                row.session_epoch += 1  # 관리자 계정을 끄면 열린 세션도 끝낸다 — 최신 값에서 올린다(광고주는 운영 화면이 같은 일을 한다)
+                fields.append("session_epoch")
+            if fields:
+                row.save(update_fields=fields)
+            record_audit(request, "account.admin_updated", target=row, detail={"changed": changed, "role": row.role, "is_active": row.is_active})
 
     def user_change_password(self, request, id, form_url=""):
         response = super().user_change_password(request, id, form_url)

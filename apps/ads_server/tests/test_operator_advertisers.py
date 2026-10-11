@@ -17,6 +17,7 @@ from billing import api as billing
 from billing.models import LedgerEntry, Wallet
 from campaigns import api as campaigns
 from campaigns.models import CreativeImage
+from foundation.admin import UserAdmin
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
@@ -402,3 +403,83 @@ class AdjustRaceTests(TransactionTestCase):
         self.assertEqual(billing.get_wallet(self.w.adv).balance, 49_000)
         self.assertEqual(self.client.post(self.url, self.fields).status_code, 302)  # 같은 폼으로 재시도
         self.assert_applied_once()
+
+
+@tag("security")
+class UserAdminSaveRaceTests(TransactionTestCase):
+    """외부 검토(3-1d) P2: 사용자 관리 화면의 저장이 요청 처음에 읽은 객체를 통째로 써서(`obj.save()`), 그 사이 다른 관리자가 한 비활성화
+    (`is_active`·`session_epoch`)를 되돌렸다 — 읽기 전용 칸도 저장에서는 다시 쓰였다. 편집한 칸만 잠근 최신 행에 쓴다."""
+
+    def setUp(self):
+        self.root = make_admin()
+        self.client = Client()
+        self.client.force_login(self.root)
+
+    def change_url(self, user):
+        return reverse("admin:foundation_user_change", args=[user.pk])
+
+    def save_paused(self, user, data):
+        """폼 검증을 마친 뒤 저장 직전에 멈춘 저장(첫 저장만 멈춘다). (작업자, 멈춤, 풀기, 패치)를 돌려준다."""
+        paused, release = threading.Event(), threading.Event()
+        real = UserAdmin.save_model
+
+        def waiting(admin_self, *args, **kwargs):
+            if not paused.is_set():
+                paused.set()
+                assert release.wait(WAIT)
+            return real(admin_self, *args, **kwargs)
+        patch = mock.patch.object(UserAdmin, "save_model", waiting)
+        patch.start()
+        self.addCleanup(patch.stop)
+        worker = Worker(lambda: self.client.post(self.change_url(user), data))
+        worker.start()
+        self.assertTrue(paused.wait(WAIT), "저장 직전에 이르지 않았다")
+        return worker, release
+
+    def finish(self, worker, release):
+        release.set()
+        worker.join(WAIT)
+        self.assertEqual(worker.errors, [])
+        self.assertEqual(worker.result.status_code, 302)
+
+    def test_a_profile_edit_does_not_undo_a_deactivation_made_in_between(self):
+        adv = make_advertiser()
+        signed_in = Client()
+        signed_in.force_login(adv)
+        worker, release = self.save_paused(adv, {"username": adv.username, "nickname": "바꾼닉", "class_label": adv.class_label, "_save": "저장"})
+        set_advertiser_active(make_admin(), adv.pk, False, "스팸 소재")  # 다른 관리자가 운영 화면에서 먼저 커밋
+        self.finish(worker, release)
+        self.assertEqual(User.objects.filter(pk=adv.pk).values_list("nickname", "is_active", "session_epoch").get(), ("바꾼닉", False, 1))
+        self.assertEqual(signed_in.get(reverse("advertiser_home")).status_code, 302)  # 옛 세션은 계속 끝난 채
+        self.assertEqual(AuditLog.objects.get(action="account.admin_updated").detail["changed"], ["nickname"])
+
+    def test_a_password_reset_does_not_undo_a_deactivation_made_in_between(self):
+        """같은 결함의 다른 길: Django 의 관리자 비밀번호 초기화 폼도 사용자 객체를 통째로 저장했다."""
+        adv = make_advertiser()
+        paused, release = threading.Event(), threading.Event()
+        url = reverse("admin:auth_user_password_change", args=[adv.pk])
+        data = {"password1": "Reset-Str0ng-pass-1", "password2": "Reset-Str0ng-pass-1", "usable_password": "true"}
+        worker = Worker(pausing_before("UPDATE", "foundation_user", lambda: self.client.post(url, data), paused, release))
+        worker.start()
+        self.assertTrue(paused.wait(WAIT), "비밀번호 저장에 이르지 않았다")
+        set_advertiser_active(make_admin(), adv.pk, False, "스팸 소재")
+        self.finish(worker, release)
+        row = User.objects.get(pk=adv.pk)
+        self.assertEqual((row.is_active, row.session_epoch), (False, 1))
+        self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
+
+    def test_an_admin_deactivation_counts_from_the_latest_epoch(self):
+        """관리자 계정을 끄는 저장도 최신 폐기 버전에서 올린다: 그 사이 껐다 켠 뒤 새로 로그인한 세션도 이 저장으로 끝난다."""
+        x = make_admin()
+        worker, release = self.save_paused(x, {"username": x.username, "nickname": x.nickname, "class_label": x.class_label, "_save": "저장"})  # 끄기
+        other = Client()
+        other.force_login(make_admin())
+        base = {"username": x.username, "nickname": x.nickname, "class_label": x.class_label, "_save": "저장"}
+        self.assertEqual(other.post(self.change_url(x), base).status_code, 302)  # 다른 관리자가 끄고(폐기 버전 1)
+        self.assertEqual(other.post(self.change_url(x), {**base, "is_active": "on"}).status_code, 302)  # 다시 켰다
+        relogged = Client()
+        relogged.force_login(User.objects.get(pk=x.pk))  # 폐기 버전 1 에서 새로 로그인
+        self.finish(worker, release)
+        self.assertEqual(User.objects.filter(pk=x.pk).values_list("is_active", "session_epoch").get(), (False, 2))
+        self.assertEqual(other.post(self.change_url(x), {**base, "is_active": "on"}).status_code, 302)
+        self.assertEqual(relogged.get(reverse("admin:index")).status_code, 404)  # 끄기 전의 세션이므로 다시 켠 뒤에도 끝난 채

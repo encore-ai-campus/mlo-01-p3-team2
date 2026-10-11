@@ -7,7 +7,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
@@ -250,8 +250,9 @@ def _issue(actor, media, label, now, action, extra=None, request_key=None):
 
 
 def _media_for_key_admin(media_id):
+    """키를 바꾸는 동작(발급·교체)은 **매체 행을 잠근다** — 같은 매체의 교체가 줄을 서서, 뒤의 교체가 앞의 교체가 만든 키까지 보고 만료시킨다(외부 검토 3-1d)."""
     try:
-        return Media.objects.get(pk=parse_uuid(media_id, "매체"))
+        return Media.objects.select_for_update().get(pk=parse_uuid(media_id, "매체"))
     except Media.DoesNotExist:
         raise errors.NotFound("매체를 찾을 수 없습니다.")
 
@@ -303,11 +304,11 @@ def rotate_media_key(actor, media_id, grace_seconds, label="", now=None, request
     def work():
         media = _media_for_key_admin(media_id)
         deadline = now + timedelta(seconds=grace_seconds)
-        older = list(MediaKey.objects.filter(media=media, revoked_at__isnull=True).exclude(expires_at__lte=now))
-        for k in older:
-            if k.expires_at is None or k.expires_at > deadline:
-                MediaKey.objects.filter(pk=k.pk).update(expires_at=deadline)
-        return _issue(actor, media, label, now, "masters.media_key_rotated", {"grace_seconds": grace_seconds, "previous": [str(k.key_id) for k in older]},
+        older = MediaKey.objects.filter(media=media, revoked_at__isnull=True).exclude(expires_at__lte=now)
+        previous = [str(k) for k in older.values_list("key_id", flat=True)]
+        # 더 일찍 만료될 키는 그대로 둔다 — 조건을 UPDATE 에 둬서 DB 의 지금 값으로 판단한다(파이썬에서 읽은 값으로 판단하면 그 사이 앞당겨진 만료를 되돌린다)
+        older.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=deadline)).update(expires_at=deadline)
+        return _issue(actor, media, label, now, "masters.media_key_rotated", {"grace_seconds": grace_seconds, "previous": previous},
                       request_key=request_key)
     return _issue_once(request_key, work)
 

@@ -215,7 +215,7 @@ class KeyIssueOnceTests(TransactionTestCase):
         second = Worker(lambda: self.twin().post(self.url, self.fields))
         second.start()
         second.join(BLOCKED)
-        self.assertTrue(second.is_alive(), "둘째 요청이 첫 요청의 커밋을 기다리지 않았다")  # 같은 요청 키의 INSERT 가 유일 색인에서 기다린다
+        self.assertTrue(second.is_alive(), "둘째 요청이 첫 요청의 커밋을 기다리지 않았다")  # 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
         release.set()
         first.join(WAIT)
         second.join(WAIT)

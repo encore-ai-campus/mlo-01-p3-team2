@@ -1,17 +1,20 @@
 import hmac
 import re
+import threading
 import uuid
 from datetime import timedelta
 from unittest import mock
 
 from django.db import connection
-from django.test import TestCase, tag
+from django.test import TestCase, TransactionTestCase, tag
 
 from foundation.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from foundation.models import AuditLog
 from masters import api
 from masters.models import MediaKey
 from tests.factories import DAY, NOW, make_admin, make_advertiser
+from tests.test_campaign_expire_race import pausing_before
+from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 KEY_SHAPE = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 
@@ -183,3 +186,29 @@ class MediaKeyRequestKeyTests(TestCase):
         self.assertEqual(MediaKey.objects.count(), 2)
         with self.assertRaises(InvalidRequest):
             api.issue_media_key(self.admin, self.media.media_id, request_key="x" * 65)
+
+
+@tag("security")
+class RotationRaceTests(TransactionTestCase):
+    """외부 검토(3-1d) P2: 서로 다른 교체가 겹치면, 늦게 끝난 긴 유예 교체가 그 사이 유예 0 교체로 이미 만료된 키를 다시 살렸다
+    (만료를 파이썬에서 읽은 값으로 판단하고 PK 로만 갱신). 같은 매체의 교체는 매체 행 잠금으로 줄을 서고, 만료 조건은 UPDATE 가 DB 의 지금 값으로 본다."""
+
+    def test_a_slower_long_grace_rotation_does_not_revive_an_expired_key(self):
+        admin = make_admin()
+        m = media(admin)
+        old = api.issue_media_key(admin, m.media_id)
+        paused, release = threading.Event(), threading.Event()
+        slow = Worker(pausing_before("UPDATE", "masters_media_key", lambda: api.rotate_media_key(admin, m.media_id, 3600, request_key="slow"), paused, release))
+        slow.start()
+        self.assertTrue(paused.wait(WAIT), "긴 유예 교체가 만료 UPDATE 에 이르지 않았다")  # 옛 키(만료 없음)를 읽은 뒤
+        fast = Worker(lambda: api.rotate_media_key(admin, m.media_id, 0, request_key="fast"))
+        fast.start()
+        fast.join(BLOCKED)
+        self.assertTrue(fast.is_alive(), "유예 0 교체가 매체 행 잠금을 기다리지 않았다")
+        release.set()
+        slow.join(WAIT)
+        fast.join(WAIT)
+        self.assertEqual((slow.errors, fast.errors), ([], []))
+        self.assertIsNone(api.authenticate_media_key(old.key))  # 즉시 만료가 되살아나지 않는다
+        self.assertIsNone(api.authenticate_media_key(slow.result.key))  # 뒤의 교체(유예 0)는 앞의 교체가 만든 키도 본다
+        self.assertIsNotNone(api.authenticate_media_key(fast.result.key))
