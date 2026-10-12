@@ -20,7 +20,7 @@ PowerShell 5.1 공통 함수 모음이다. 아래 선언은 원본 PowerShell을
 
 Assert-InfraConfiguration은 정확히 account1~account5가 있는지, ID·profile·VPC CIDR이 중복되지 않는지 확인한다. ID는 12자리, VPC는 IPv4 /16 형식이며 송신 방식은 proxy/nat/none 중 하나다. nat에는 public_subnets가 필요하다.
 
-관리자·서비스 CIDR의 옥텟과 prefix, 네트워크 주소 정규화를 검사한다. 관리자 SSH의 0.0.0.0/0은 거부하며 포트는 1~65535 정수여야 한다. 전체 서버 스키마·역할 참조·Peering 관계 검사는 [model 모듈](../../terraform/README.md#model)이 추가로 담당한다.
+관리자·서비스 CIDR과 선택적 public_http_cidrs의 옥텟과 prefix, 네트워크 주소 정규화를 검사한다. 관리자 SSH의 0.0.0.0/0은 거부하며 포트는 1~65535 정수여야 한다. 전체 서버 스키마·역할 참조·Peering 관계 검사는 [model 모듈](../../terraform/README.md#model)이 추가로 담당한다.
 
 Assert-InfraBackend는 로컬 값의 형식을 검사한다. 실제 AWS 계정·버킷 접근과 버전 관리는 호출자인 infra.ps1에서 AWS CLI로 검사한다.
 
@@ -39,3 +39,13 @@ Markdown, 로컬 상태·계획·캐시, .tftest.hcl, prepare-key.sh, 설치 스
 Assert-InfraBastionPlan은 planned_values·prior_state와 resource_changes를 대조한다. 허용하는 managed 주소는 module.model.terraform_data.configuration, module.bastion.aws_instance.this, module.bastion.aws_key_pair.this뿐이다. Create는 no-op/create/update, Delete는 no-op/delete만 허용하고 교체·import·deferred 변경은 거부한다. 기존 EC2·키페어의 Project·Account·Stage=bastion 태그도 검사한다.
 
 실제 AWS에서 전용 상태 밖의 기존 Bastion을 찾는 검사는 호출자인 [infra.ps1](../infra.ps1.md)의 Assert-SavedBastionPlan이 담당한다. 기존 workload 자원의 자동 이관 기능은 아니다.
+
+## 2026-10-12 학원 접속 범위
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.

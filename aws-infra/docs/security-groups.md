@@ -59,9 +59,9 @@ port_end는 ports의 끝 키를 선택하는 항목이며 생략하면 단일 �
 ## 외부 접속과 콘솔 SSH
 
 - 관리자 admin_public_cidrs → Bastion·edge TCP 22. 초기 구축 모드에서는 edge만 선택한다.
-- game_client_cidrs → edge TCP 443. ACME 검증용 edge TCP 80은 0.0.0.0/0이며 Nginx가 검증 경로만 제공한다. Front 자체에 외부 웹 인바운드는 추가하지 않는다.
+- game_client_cidrs → edge TCP 443. ACME 검증용 edge TCP 80은 0.0.0.0/0이며 Nginx가 검증 경로만 제공한다. public_http_cidrs의 Front HTTP 80은 별도로 전체 공개한다.
 - internet_https_roles의 Bastion·edge → 인터넷 TCP 443. 초기 구축 모드는 edge만 선택한다. 다른 Private 서버의 직접 인터넷 송신은 추가하지 않는다.
-- 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록 → 서비스 SG의 TCP 22를 별도 허용한다. 대상 SG는 계정별 4/3/4/3/3개이며 기존 Bastion 콘솔 규칙도 유지한다. 접속 경로·Endpoint·키 등록·IAM 권한을 자동 제공하는 기능은 아니다.
+- 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록 → 서비스 SG의 TCP 22를 별도 허용한다. 대상 SG는 계정별 4/3/4/3/3개이며 Bastion 콘솔 규칙은 제거해 관리자 IP만 허용한다. 접속 경로·Endpoint·키 등록·IAM 권한을 자동 제공하는 기능은 아니다.
 
 선택적으로 활성화할 수 있는 ALB 모듈은 HTTP listener만 지원하며 현재 기본 설정에서는 호출하지 않는다. 인증서·HTTPS 리다이렉트는 없다. Django·정적 파일·광고 앱 설치와 실제 헬스 체크 성공은 별도다. CloudWatch agent·전용 Endpoint나 그 전송 정책은 이 구현에 추가돼 있지 않다.
 
@@ -112,3 +112,13 @@ Kafka와 Spark·평탄화의 양방향 데이터 흐름은 Spark·Consumer가 �
 ## 진입용 edge 생성 설정
 
 edge-1은 account1 Public A의 전용 edge SG를 사용한다. edge_front·admin_nodes·forward_proxy로 연결 3쌍의 ingress·egress를 선언한다. 앱 연결은 Front 80이며 관리 연결은 Bastion→edge 22, edge→Bastion 3128이다. 외부 ACME 80·허용 사용자 443·관리자 22와 인증기관·패키지 저장소 접근용 인터넷 443을 추가한다. 초기 구축 모드는 이 계정의 edge 관련 규칙만 생성하며 EC2는 edge-1만 선택한다. 프로그램·OS 방화벽·실제 TLS 성공은 별도로 확인한다.
+
+## 2026-10-12 학원 접속 범위
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.

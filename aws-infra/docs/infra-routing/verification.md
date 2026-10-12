@@ -455,3 +455,13 @@ routing-doc-sync는 Python 파일·심볼 구조를 분석하며 Terraform·Ansi
 최종 전체 삭제 회귀 검사 17개가 통과했다. 실제 AWS 삭제는 실행하지 않았다. 관련 변경 문서 31개의 로컬 파일 링크 423개에서 누락 경로가 없었다. 전체 문서를 대상으로 한 routing-doc-sync는 README의 셸 명령과 YAML 이름 등을 Python 경로·심볼로 해석해 9개 mismatch를 출력했다. 실제 Python 실행 파일 경로와 해당 비-Python 문맥을 따로 확인했으며 이 결과를 자동 검증 통과로 표시하지 않는다. Terraform·YAML 의미는 별도 검사 범위다.
 
 삭제 순서 보완 후 실제 edge workload의 새 Plan은 No changes였고 Apply는 0 added·0 changed·0 destroyed였다. 원격 상태에서 connectivity_ready의 edge_bootstrap_guard 의존성을 확인했다. 이 작업은 EC2·EIP를 교체하지 않았다.
+
+## 2026-10-12 학원 IP 및 HTTP/SSH 정책 변경 검증
+
+- 최종 학원 IP: 222.112.208.69/32. 기본/current/테스트 traffic에 반영했다.
+- workload Terraform 모의 테스트: 기존 33개 + 테스트 구성 10개, 총 43개 통과.
+- 각 계정의 Private 역할별 학원 SSH 22, Front HTTP 80 전체 공개, Bastion 콘솔 SSH 미생성, 전체 공개 SSH 미생성을 검사했다.
+- 기존 웹 비공개 테스트는 public_http_cidrs=[]를 명시해 비공개 설정도 계속 검증한다. 초기 edge만 생성하는 모드와 서비스 간 통신 회귀도 통과했다.
+- PowerShell 구문·CIDR 검사 및 잘못된 public_http_cidrs 거부 검사 통과.
+- routing-doc-sync 실행: mismatch 0, structural_status=needs_review, role_status=not_verified. 이번 Terraform·PowerShell 변경은 Python AST 검사 범위 밖이므로 해당 문서와 소스를 직접 대조했다. 보고서의 Python 구조 변경은 없으며 기존 Python 파일의 바이트 차이는 이 작업에서 수정하지 않았다.
+- AWS Apply·원격 Nginx 설정은 실행하지 않았다. 새 Plan과 검토가 필요하며 테스트 Front는 Inventory 갱신 후 Front 설정을 다시 적용해야 HTTP 허용 CIDR이 반영된다.

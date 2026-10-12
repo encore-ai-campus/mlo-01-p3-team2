@@ -130,3 +130,13 @@ Install은 테스트 EBS ID로 NVMe 장치를 확인하고 빈 장치만 ext4로
 `-Terraform`은 backend 없이 Validate와 mock provider Test를 실행한다. 처음에는 provider 다운로드가 필요할 수 있으며 로컬 provider 폴더는 `-PluginDirectory`로 지정할 수 있다. [구조 안내](docs/ROUTING.md)와 [검증 기록](docs/verification.md)을 참고한다.
 
 WSL의 로컬 설치 문법·Front 렌더링 검사는 `bash infra/tests/check-bootstrap.sh`로 실행한다. 이 검사는 원격 서버에 연결하지 않는다.
+
+## 2026-10-12 학원 접속 범위
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.

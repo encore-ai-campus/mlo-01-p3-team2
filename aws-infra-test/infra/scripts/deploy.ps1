@@ -140,7 +140,7 @@ function Write-DeploymentInventory {
             proxy_client_cidrs = @($accountNames | ForEach-Object { $topology.accounts.$_.vpc_cidr })
         }
         $hostVars.test_data_volumes = if ($volumeMaps.ContainsKey($record.Name)) { $volumeMaps[$record.Name] } else { @{} }
-        $hostVars.test_client_cidrs = @($traffic.game_client_cidrs)
+        $hostVars.test_client_cidrs = if ($traffic.PSObject.Properties['public_http_cidrs']) { @($traffic.public_http_cidrs) } else { @($traffic.game_client_cidrs) }
         if ($record.Role -eq 'frontend') {
             $hostVars.public_ip = $instance.PublicIpAddress
             Write-Host "테스트 접속 주소: http://$($instance.PublicIpAddress) (앱 배포 후 사용)"

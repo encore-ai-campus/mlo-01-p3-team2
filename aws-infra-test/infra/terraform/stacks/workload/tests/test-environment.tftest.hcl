@@ -45,7 +45,7 @@ run "account1_test_workload" {
     error_message = "원격 상태는 테스트 prefix만 사용해야 합니다."
   }
   assert {
-    condition     = length(local.front_ingress) == length(toset(var.traffic.game_client_cidrs)) && module.rules.ingress["account1/frontend/account1/game/8000"].port == 8000 && module.rules.ingress["account1/frontend/account1/ad/8000"].port == 8000 && !contains(keys(output.inventory.instances), "bastion") && !contains(keys(output.inventory.instances), "front-b")
+    condition     = length(local.front_ingress) == length(toset(var.traffic.public_http_cidrs)) && module.rules.ingress["account1/frontend/account1/game/8000"].port == 8000 && module.rules.ingress["account1/frontend/account1/ad/8000"].port == 8000 && !contains(keys(output.inventory.instances), "bastion") && !contains(keys(output.inventory.instances), "front-b")
     error_message = "Front 직접 HTTP·게임/광고 전달·Bastion 분리가 필요합니다."
   }
 }

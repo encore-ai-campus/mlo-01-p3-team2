@@ -7,7 +7,7 @@
 | 파일 | 주요 키 | 읽는 곳 |
 | --- | --- | --- |
 | [infra/config/topology.tfvars.json](../../../infra/config/topology.tfvars.json) | topology.project / region / az_ids / accounts / nodes / peerings / alb | 실행기 및 네 stack의 model |
-| [infra/config/traffic.tfvars.json](../../../infra/config/traffic.tfvars.json) | traffic.admin_public_cidrs / game_client_cidrs / ports / connections / internet_https_roles | 실행기·model·workload |
+| [infra/config/traffic.tfvars.json](../../../infra/config/traffic.tfvars.json) | traffic.admin_public_cidrs / game_client_cidrs / public_http_cidrs / ports / connections / internet_https_roles | 실행기·model·workload |
 | [infra/config/backend.json](../../../infra/config/backend.json) | bucket / region / profile / key_prefix | 실행기의 init, connectivity/workload/bastion의 원격 상태 조회 |
 | [account1.pub](../../../infra/config/keys/account1.pub), [account2.pub](../../../infra/config/keys/account2.pub), [account3.pub](../../../infra/config/keys/account3.pub), [account4.pub](../../../infra/config/keys/account4.pub), [account5.pub](../../../infra/config/keys/account5.pub) | 계정별 OpenSSH 공개키 | 각 계정 workload의 aws_key_pair, Account 1 bastion의 전용 aws_key_pair |
 
@@ -46,6 +46,14 @@ nodes.bastion은 Account 1의 Public A, t3a.small, root_gib=20, public_ip=true�
 flatten-1은 account2의 Private A(apne2-az1), t3a.medium, root_gib=20, public_ip=false, data_disks={}다. role=consumer로 전용 SG와 인벤토리 그룹을 만들고 Kafka·Spark 서비스 설치 대상과 분리한다. 기본 설정과 profiles/current 복사본을 함께 갱신했다.
 
 ## traffic
+
+| 외부 접속 설정 | 현재 값과 소비 위치 |
+| --- | --- |
+| admin_public_cidrs | 222.112.208.69/32. Bastion·Private 역할별 SSH 22 및 edge SSH |
+| public_http_cidrs | 0.0.0.0/0. Public Front와 선택적 ALB의 HTTP 80 |
+| game_client_cidrs | 222.112.208.69/32. 기존 edge HTTPS 443 및 public_http_cidrs 누락 시 HTTP 대체값 |
+
+public_http_cidrs는 model의 선택 입력이다. workload에서 누락·null이면 game_client_cidrs를 사용하고 빈 목록이면 해당 HTTP CIDR 규칙을 만들지 않는다. CIDR 형식은 model과 infra-common.ps1에서 검사한다. Private SSH 규칙은 인터넷 경로나 OS 방화벽 설정을 만들지 않는다.
 
 consumer_kafka는 consumer → kafka TCP 9092, consumer_mongo는 consumer → mongo TCP 27017이다. admin_nodes의 대상과 forward_proxy의 출발 역할에도 consumer를 포함한다. Consumer의 MySQL·Kafka Controller·직접 인터넷 HTTPS 송신은 허용하지 않는다.
 
@@ -132,10 +140,20 @@ Front→게임·광고 8000 연결을 허용했지만 외부 사용자→Front 4
 
 기본 및 profiles/current의 topology.alb.enabled=false이며 traffic.connections에서 alb_front·alb_game·alb_ad를 제거했다. ALB 비활성화 직후 connections는 30개였으며 Front→게임·광고 8000을 포함한 나머지 연결과 CIDR·포트·인터넷 송신 설정은 그대로다. model은 활성 역할만 허용하므로 ALB를 다시 사용할 프로필에서는 enabled=true와 연결 3개를 함께 복원한다. certificate_arn 등 공통 객체 필드는 유지한다.
 
-이 변경은 ALB 없는 설정만 준비한다. 외부→Front 80·443과 Nginx·인증서 설치는 아직 구현하지 않았다. 기존 ALB·연결 규칙과 foundation의 SG를 정리할 때는 [적용 순서](../../../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. AWS 적용은 실행하지 않았다.
+당시 ALB 비활성화 변경은 ALB 없는 설정만 준비했다. 2026-10-12에는 외부→Front HTTP 80 SG 규칙을 추가했다. Front 443·인증서 설치는 이 변경에 포함하지 않았으며 원격 Nginx 적용은 별도로 확인해야 한다. 기존 ALB·연결 규칙과 foundation의 SG를 정리할 때는 [적용 순서](../../../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. AWS 적용은 실행하지 않았다.
 
 ## 진입용 edge-1
 
 기본 및 profiles/current에 nodes.edge-1(account1, role=edge, Public A, t3a.small, root_gib=20, public_ip=true, data_disks={})을 추가했다. 기존 compute가 EIP를 생성·연결하며 기존 Front EIP 두 개는 유지한다. edge_front는 edge→frontend TCP 80이고 admin_nodes.targets·forward_proxy.sources에도 edge를 추가해 SSH 22와 Proxy 3128을 준비한다. 전체 connections는 31개, 역할 SG는 18개다. 새 EC2가 사용할 AMI·공개키는 기존 account1 설정을 따른다.
 
 edge의 외부 80은 ACME 검증, 443은 game_client_cidrs, 22는 admin_public_cidrs에 연결한다. 전용 edge SG는 게임·광고·DB에 직접 연결하지 않는다. Inventory는 edge 그룹에 public_ip와 edge_https_allowed_cidrs를 포함한다. Nginx·인증서·OS 방화벽은 플랫폼 설정과 맞춘다. 기존 ALB가 남아 있으면 [전환 순서](../../../docs/deployment-runbook.md#진입용-edge-1-추가)를 먼저 확인한다.
+
+## 2026-10-12 학원 접속 범위
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.

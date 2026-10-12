@@ -56,7 +56,7 @@ run "account1_default_closed" {
   command   = apply
   # ALB가 꺼져 있으면 사용자 CIDR이 있어도 웹 공개 규칙을 만들지 않는다.
   variables {
-    traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = ["203.0.113.10/32"] })
+    traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = ["203.0.113.10/32"], public_http_cidrs = [] })
   }
   assert {
     condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server", "edge-1"]) &&

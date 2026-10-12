@@ -12,7 +12,7 @@
 | [variables.tf](../../../../infra/terraform/stacks/workload/variables.tf) | 공통 입력·SSH 공개키·model 호출 |
 | [versions.tf](../../../../infra/terraform/stacks/workload/versions.tf) | Terraform/provider 범위, S3 backend |
 | [workload.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/workload.tftest.hcl) | 계정별 서버 배치·기본 외부 차단·Peering 누락 모의 검사 |
-| [console-ssh.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) | 계정별 서비스 SG·접두사 목록·TCP 22 및 기존 Bastion 규칙 유지 모의 검사 |
+| [console-ssh.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) | 계정별 서비스 SG·접두사 목록·TCP 22 유지 및 Bastion 콘솔 규칙 미생성 모의 검사 |
 | [spark-ports.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/spark-ports.tftest.hcl) | Spark 세 계정의 포트 범위·7100·8080, 기존 규칙 키 및 같은 시작 포트의 끝 값 병합 검사 |
 
 평탄화 노드 flatten-1은 account2의 consumer 역할이다. 기존 local.nodes와 compute의 동적 입력으로 생성하고 service_console_ssh에도 consumer SG를 포함한다. 기본 설정의 [flatten.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 Private A·medium 사양·기존 서버 유지·브로커 세 계정의 규칙을 모의 검사한다.
@@ -30,9 +30,12 @@
 | local.ingress_grouped | model.flows 중 대상 계정이 현재 계정인 규칙. port·port_end 전달 |
 | local.egress_grouped | model.flows 중 소스 계정이 현재 계정인 규칙. port·port_end 전달 |
 | local.admin_ingress | Bastion SG가 있을 때 관리자 CIDR → SSH 포트 |
-| local.alb_ingress | 현재 계정 ALB가 활성화됐을 때 game_client_cidrs → TCP 80 |
+| local.public_http_cidrs | 선택 입력 public_http_cidrs, 누락·null이면 game_client_cidrs |
+| local.front_ingress | 선택된 노드에 Public frontend가 있을 때 HTTP CIDR → TCP 80. edge 단독 모드에서는 생성하지 않음 |
+| local.private_role_sg_ids / local.private_admin_ingress | Private 노드의 역할별 SG를 중복 제거하고 관리자 CIDR → TCP 22 생성 |
+| local.alb_ingress | 현재 계정 ALB가 활성화됐을 때 public_http_cidrs → TCP 80 |
 | data.aws_ec2_managed_prefix_list.ec2_instance_connect | Bastion 또는 서비스 EC2 SG가 있는 계정에서 해당 리전의 IPv4 EC2 Instance Connect 접두사 목록을 이름으로 조회 |
-| aws_vpc_security_group_ingress_rule.bastion_console_ssh | 기존 Bastion 전용 TCP 22 규칙. 서비스 규칙 추가 시 대상·자원 주소 유지 |
+| aws_vpc_security_group_ingress_rule.bastion_console_ssh | count=0으로 미생성. 기존 상태의 규칙은 다음 Plan에서 삭제 대상으로 표시 |
 | aws_vpc_security_group_ingress_rule.service_console_ssh | 서비스 EC2 역할별 SG에 접두사 목록을 소스로 TCP 22 허용. Bastion·ALB 제외 |
 | module.rules | SG쌍/포트 중복을 제거하고 규칙 생성. internet_https_roles에는 외부 TCP 443 egress |
 | module.compute | 선택 계정의 서버·키페어·EBS·EIP 생성. rules 이후 실행 |
@@ -46,11 +49,11 @@ SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 �
 
 ## 선택적으로 ALB를 활성화했을 때의 HTTP 접속 경로
 
-현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. 외부→Front 웹 접속 규칙은 아직 없으며, 기존 Front→game/ad 8000만 유지한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
+현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. Public Front HTTP 80은 public_http_cidrs로 허용하며 기존 Front→game/ad 8000도 유지한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
 
 | 경로 | 허용·전달 조건 |
 | --- | --- |
-| 외부 사용자 → ALB | game_client_cidrs에 지정한 IPv4 CIDR에서 TCP 80 |
+| 외부 사용자 → ALB | public_http_cidrs(누락 시 game_client_cidrs)에 지정한 IPv4 CIDR에서 TCP 80 |
 | ALB → Front | /static/* 규칙, frontend 대상 그룹 HTTP 80. ALB SG를 참조하는 양쪽 규칙 |
 | ALB → game-server | 기본 전달, game 대상 그룹 HTTP 8000. ALB SG를 참조하는 양쪽 규칙 |
 | ALB → ad-server | /ads/* 규칙, ad 대상 그룹 HTTP 8000. alb_ad 연결로 ALB SG를 참조하는 양쪽 규칙 |
@@ -74,13 +77,15 @@ inventory에는 account, account_id, region, instances, alb_dns_name이 들어�
 
 SG 규칙·compute·ALB는 하나의 workload 상태로 묶여 있다. 실행기에 보안규칙만 적용하는 별도 Stage는 없다. 현재 compute의 데이터 볼륨은 prevent_destroy=true이고 OS 루트 디스크는 EC2 종료 시 삭제 설정이다. 데이터 볼륨 삭제·교체가 포함된 배치 이동·이름 변경 계획은 보호 설정 때문에 실패할 수 있다. 이 보호는 데이터 이전·백업 기능이 아니다.
 
-## 콘솔 SSH 규칙의 범위
+## 콘솔 SSH 및 학원 SSH 규칙의 범위
 
-prefix list 이름은 `com.amazonaws.${var.topology.region}.ec2-instance-connect`이며 현재 서울 리전에서는 `com.amazonaws.ap-northeast-2.ec2-instance-connect`를 조회한다. 접두사 목록 ID를 하드코딩하지 않는다. Bastion 또는 서비스 EC2 SG가 있는 계정에서 한 번 조회하고 기존 Bastion 규칙과 서비스 규칙이 같은 결과를 사용한다.
+`service_console_ssh`는 서비스 역할 SG에 EC2 Instance Connect의 TCP 22를 유지한다. Bastion의 `bastion_console_ssh`는 count=0으로 제거하며 admin_public_cidrs의 SSH만 허용한다.
 
-`service_console_ssh`는 현재 계정의 서비스 EC2 역할마다 TCP 22 인바운드를 추가한다. 같은 역할의 EC2가 여러 대여도 SG별 규칙은 하나이며 Bastion·ALB는 대상에서 제외한다. 현재 구성의 대상 SG 수는 account1부터 account5까지 4 / 3 / 4 / 3 / 3개, 합계 17개다. 기존 `bastion_console_ssh`는 Account 1의 기존 대상과 자원 주소를 유지하며 이번 서비스 규칙 추가로 변경하지 않는다. 관리자 CIDR·통신 관계·CloudShell IP는 이 기능의 입력으로 추가하지 않는다.
+`private_role_sg_ids`는 실제 생성 대상 노드 중 private 역할만 중복 없이 선택한다. `private_admin_ingress`는 해당 SG마다 관리자 CIDR의 TCP 22 규칙을 만들고 module.rules.public_ingress에 합친다. 초기 edge_bootstrap_only 모드에는 private 노드가 없으므로 추가되지 않는다.
 
-두 콘솔 SSH 규칙은 module.rules.public_ingress와 별도 자원이다. Private 서비스 EC2에 공인 접속 경로나 EC2 Instance Connect Endpoint를 만들지 않으며 SSH 키 등록도 변경하지 않는다. IAM 권한·EC2 Instance Connect 설치·SSH 서비스·네트워크 경로의 실제 성공은 별도 검증 대상이다. AWS 콘솔에서 같은 서비스 규칙을 이미 수동으로 추가했다면 적용 전에 Terraform 관리로 가져오거나 중복을 정리해야 한다. [서비스 콘솔 SSH 모의 테스트](../../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl)는 계정별 SG 선택·접두사 목록·TCP 22 및 Bastion·ALB 제외를 검사한다.
+`front_ingress`는 Public Front의 TCP 80만 public_http_cidrs에 허용한다. edge HTTPS는 game_client_cidrs를 계속 사용한다. optional ALB의 HTTP에도 public_http_cidrs를 사용한다.
+
+이 규칙은 Private 서버에 인터넷 경로나 EC2 Instance Connect Endpoint를 만들지 않는다. 기존 Bastion→서버 SG 참조와 서비스 콘솔 SSH는 유지하며 IAM·키·OS 방화벽은 별도 검증 대상이다.
 
 ## mysql-3 증설과 ALB 복원 보류
 
@@ -121,3 +126,5 @@ edge_bootstrap_only는 기본 false다. [infra.ps1](../../scripts/infra.ps1.md)�
 전체 삭제 실행기는 상태의 edge_bootstrap_guard[0] 표식을 읽어 같은 초기 구축 모드를 Delete Plan·Apply에도 전달한다. 일반 상태는 기존대로 다섯 foundation·connectivity를 읽는다. 이 선택은 생성 시의 삭제 차단을 없애는 옵션이 아니며, 삭제는 기존 전체 삭제 실행 ID·범위·태그·상태 해시 검사를 모두 통과해야 한다.
 
 connectivity_ready는 edge_bootstrap_guard에 의존하며, compute와 SG 규칙은 connectivity_ready 뒤에 생성된다. 삭제 시 역순으로 정리해 EC2·규칙 삭제가 중단돼도 초기 구축 표식이 남도록 한다.
+
+학원 접근 정책은 [school-access.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/school-access.tftest.hcl)의 계정별 5개 모의 검사와 [테스트 지도](../../tests/README.md#학원-접속-검사)를 참고한다.

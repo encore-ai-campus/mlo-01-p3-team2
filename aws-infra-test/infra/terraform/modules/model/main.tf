@@ -87,6 +87,7 @@ variable "traffic" {
   type = object({
     admin_public_cidrs = list(string)
     game_client_cidrs  = list(string)
+    public_http_cidrs  = optional(list(string))
     ports              = map(number)
     connections = map(object({
       sources = list(string)
@@ -102,7 +103,7 @@ variable "traffic" {
     error_message = "TCP 포트는 1~65535의 정수여야 합니다."
   }
   validation {
-    condition = alltrue([for c in concat(var.traffic.admin_public_cidrs, var.traffic.game_client_cidrs) :
+    condition = alltrue([for c in concat(var.traffic.admin_public_cidrs, var.traffic.game_client_cidrs, coalesce(var.traffic.public_http_cidrs, [])) :
       can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$", c)) &&
       try(format("%s/%s", cidrhost(c, 0), split("/", c)[1]), "") == c
     ]) && !contains(var.traffic.admin_public_cidrs, "0.0.0.0/0")

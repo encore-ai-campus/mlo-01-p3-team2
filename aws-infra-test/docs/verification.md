@@ -20,3 +20,12 @@
 로컬 provider를 사용할 경우 check.ps1에 -PluginDirectory를 지정한다. 검증 중 provider는 기존 설치본을 사용했고 AWS credentials나 실제 S3 상태를 사용하지 않았다.
 
 남은 실제 검증: AWS 계정별 Plan 검토·Apply, Proxy 다운로드, EBS 장치·자동 마운트, 클러스터 설치와 복제·송수신, 게임/광고/Consumer 앱 배포, 사용자 부하, Bastion 재생성, 전체 삭제 후 잔여 자원 확인.
+## 2026-10-12 학원 IP 및 HTTP/SSH 정책 변경 검증
+
+- 최종 학원 IP: 222.112.208.69/32. 기본/current/테스트 traffic에 반영했다.
+- workload Terraform 모의 테스트: 기존 33개 + 테스트 구성 10개, 총 43개 통과.
+- 각 계정의 Private 역할별 학원 SSH 22, Front HTTP 80 전체 공개, Bastion 콘솔 SSH 미생성, 전체 공개 SSH 미생성을 검사했다.
+- 기존 웹 비공개 테스트는 public_http_cidrs=[]를 명시해 비공개 설정도 계속 검증한다. 초기 edge만 생성하는 모드와 서비스 간 통신 회귀도 통과했다.
+- PowerShell 구문·CIDR 검사 및 잘못된 public_http_cidrs 거부 검사 통과.
+- routing-doc-sync 실행: mismatch 0, structural_status=needs_review, role_status=not_verified. 이번 Terraform·PowerShell 변경은 Python AST 검사 범위 밖이므로 해당 문서와 소스를 직접 대조했다. 보고서의 Python 구조 변경은 없으며 기존 Python 파일의 바이트 차이는 이 작업에서 수정하지 않았다.
+- AWS Apply·원격 Nginx 설정은 실행하지 않았다. 새 Plan과 검토가 필요하며 테스트 Front는 Inventory 갱신 후 Front 설정을 다시 적용해야 HTTP 허용 CIDR이 반영된다.

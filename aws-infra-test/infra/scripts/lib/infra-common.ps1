@@ -38,7 +38,9 @@ function Assert-InfraConfiguration {
         if ($account.Value.egress -notin @('proxy','nat','none') -or
             ($account.Value.egress -eq 'nat' -and -not $account.Value.public_subnets)) { throw 'NAT에는 퍼블릭 서브넷이 필요합니다.' }
     }
-    foreach ($cidr in @($Traffic.admin_public_cidrs) + @($Traffic.game_client_cidrs)) {
+    # HTTP 공개 범위도 동일한 IPv4 CIDR 검사를 적용한다.
+    $httpCidrs = if ($Traffic.PSObject.Properties['public_http_cidrs']) { @($Traffic.public_http_cidrs) } else { @() }
+    foreach ($cidr in @($Traffic.admin_public_cidrs) + @($Traffic.game_client_cidrs) + $httpCidrs) {
         if ($cidr -notmatch '^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})$') { throw "잘못된 IPv4 CIDR: $cidr" }
         $octets = @([int]$Matches[1],[int]$Matches[2],[int]$Matches[3],[int]$Matches[4])
         $prefix = [int]$Matches[5]

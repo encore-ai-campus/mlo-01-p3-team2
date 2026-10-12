@@ -1,6 +1,6 @@
 # 인프라 코드 탐색 안내
 
-어떤 설정과 코드를 찾아 수정해야 하는지 안내하는 문서다. 기준은 **2026-10-10의 실제 작업 파일**이며, AWS에 배포된 자원이나 서비스 연결을 확인한 보고서는 아니다.
+어떤 설정과 코드를 찾아 수정해야 하는지 안내하는 문서다. 기준은 **2026-10-12의 실제 작업 파일**이며, AWS에 배포된 자원이나 서비스 연결을 확인한 보고서는 아니다.
 
 ## 시작점과 경로 기준
 
@@ -12,7 +12,7 @@
 
 ## 하위 폴더별 시작 문서
 
-2026-10-11 기본 및 current 설정의 ALB와 전용 연결 3개를 비활성화했다. [설정 지도](config/README.md#alb-비활성화)와 [기존 자원 정리 순서](../deployment-runbook.md#alb-비활성화-적용-순서)를 함께 본다. Front 외부 웹 접속·Nginx·HTTPS 설치는 후속 작업이다. 아래 ALB 표기는 선택적 모듈의 관리 위치를 뜻한다.
+2026-10-11 기본 및 current 설정의 ALB와 전용 연결 3개를 비활성화했다. [설정 지도](config/README.md#alb-비활성화)와 [기존 자원 정리 순서](../deployment-runbook.md#alb-비활성화-적용-순서)를 함께 본다. 2026-10-12에는 Public Front HTTP 80의 전체 공개 SG 규칙을 반영했다. 원격 Nginx 적용과 실제 접속 검증은 별도다. 아래 ALB 표기는 선택적 모듈의 관리 위치를 뜻한다.
 
 | 원본 폴더 | 라우팅 시작점 | 탐색 범위 |
 | --- | --- | --- |
@@ -90,3 +90,5 @@ flowchart TB
 Python 구조는 지정한 routing-doc-sync 스킬로 확인했다. PowerShell·Terraform·JSON·Bash는 스킬의 Python 분석 범위 밖이므로 실제 파일을 대조했다. 검사 깊이와 기존 문서의 남은 차이는 [검증 기록](verification.md)에 구분했다.
 
 mysql-3는 account4 Private A의 t3a.small, OS 20GiB·데이터 gp3 100GiB이며 공인 IP가 없다. 기본 topology와 profiles/current에 함께 반영했다. [설정 지도](config/README.md#mysql-3-증설) → [workload 증설 경계](terraform/stacks/workload.md#mysql-3-증설과-alb-복원-보류) → [실제 AWS 검증](verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에서 선언·적용·설치 준비 상태를 구분한다. 당시에는 설정에 ALB가 활성화돼 있어도 실제 ALB는 없어 복원을 보류했다. 현재 기본 및 current 설정은 ALB를 비활성화했으며 이번에 AWS 상태를 재조회하지 않았다.
+
+학원 IP·HTTP 공개·Private SSH 변경은 [설정 지도](config/README.md#traffic) → [workload 계산](terraform/stacks/workload.md#주요-계산-위치) → [학원 접속 검사](tests/README.md#학원-접속-검사) 순서로 확인한다.

@@ -8,6 +8,16 @@ locals {
   service_console_ssh_sg_ids = {
     for role in toset([for node in values(local.nodes) : node.role]) : role => local.foundation.sg_ids[role]
   }
+  # Private 서비스 SG에는 관리자 공인 IP의 SSH만 추가한다. 접속 경로는 별도로 필요하다.
+  private_role_sg_ids = {
+    for role in toset([for node in values(local.nodes) : node.role if node.subnet_tier == "private"]) : role => local.foundation.sg_ids[role]
+  }
+  private_admin_ingress = merge({}, [for role, sg_id in local.private_role_sg_ids : {
+    for cidr in toset(var.traffic.admin_public_cidrs) : "private-admin/${role}/${cidr}" => {
+      group_id = sg_id, cidr = cidr, port = 22
+    }
+  }]...)
+  public_http_cidrs = coalesce(try(var.traffic.public_http_cidrs, null), var.traffic.game_client_cidrs)
   sg_ids = merge({}, [for account, foundation in local.foundations : {
     for role, id in foundation.sg_ids : "${account}/${role}" => id
   }]...)
@@ -34,7 +44,7 @@ locals {
   } : {}
   # ALB 없이 Front가 HTTP 요청을 받는다. 허용 CIDR 목록은 그대로 적용한다.
   front_ingress = contains(keys(local.foundation.sg_ids), "frontend") ? {
-    for cidr in toset(var.traffic.game_client_cidrs) : "front/80/${cidr}" => {
+    for cidr in toset(local.public_http_cidrs) : "front/80/${cidr}" => {
       group_id = local.foundation.sg_ids["frontend"], cidr = cidr, port = 80
     }
   } : {}
@@ -48,7 +58,8 @@ data "aws_ec2_managed_prefix_list" "ec2_instance_connect" {
 
 # Bastion 보안그룹에만 AWS 관리형 IPv4 접두사 목록의 SSH 22를 허용한다.
 resource "aws_vpc_security_group_ingress_rule" "bastion_console_ssh" {
-  count             = contains(keys(local.foundation.sg_ids), "bastion") ? 1 : 0
+  # Bastion SSH는 관리자 CIDR만 허용하므로 콘솔 서비스 출처 규칙은 생성하지 않는다.
+  count             = 0
   security_group_id = local.foundation.sg_ids["bastion"]
   prefix_list_id    = data.aws_ec2_managed_prefix_list.ec2_instance_connect[0].id
   ip_protocol       = "tcp"
@@ -79,7 +90,7 @@ module "rules" {
   egress = { for k, rules in local.egress_grouped : k => merge(rules[0], {
     port_end = max([for rule in rules : rule.port_end]...)
   }) }
-  public_ingress = merge(local.admin_ingress, local.front_ingress)
+  public_ingress = merge(local.admin_ingress, local.front_ingress, local.private_admin_ingress)
   public_egress = {
     for role, id in local.foundation.sg_ids : "https/${role}" => {
       group_id = id, cidr = "0.0.0.0/0", port = 443

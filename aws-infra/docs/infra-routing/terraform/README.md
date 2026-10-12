@@ -22,7 +22,7 @@
 | 선언 | 역할 |
 | --- | --- |
 | variable topology | 정확히 5계정, 서울 리전 A·C AZ ID, VPC /16, 노드·서브넷·디스크 설정 검사 |
-| variable traffic | CIDR, 포트 값, connections의 시작·끝 포트 키와 순서 검사. port_end는 선택 항목 |
+| variable traffic | 관리자·서비스·선택적 public_http_cidrs의 CIDR, 포트 값, connections의 시작·끝 포트 키와 순서 검사. port_end는 선택 항목 |
 | local.roles / local.groups | 서버 역할과 활성 ALB 역할을 계정별 SG 목록으로 구성 |
 | local.flow_list / local.flows | connections의 역할 관계를 실제 계정/역할 쌍으로 확장하고 port·port_end를 전달 |
 | terraform_data.configuration | 존재하지 않는 역할, 중복·잘못된 Peering 이름, ALB 계정의 Public 서브넷과 같은 계정의 frontend·game·ad 대상 존재를 precondition으로 검사 |

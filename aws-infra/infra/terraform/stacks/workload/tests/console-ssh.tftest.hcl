@@ -74,14 +74,12 @@ run "account1_service_console_ssh" {
     )
     error_message = "account1 규칙은 해당 서비스 SG에 EC2 Instance Connect 접두사 목록의 TCP 22만 허용해야 합니다."
   }
-  # 기존 배스천 규칙의 계정·대상 범위를 이번 추가로 바꾸지 않는다.
+  # Bastion은 학원 IP의 직접 SSH 규칙만 사용한다.
   assert {
     condition = (
-      length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 1 &&
-      aws_vpc_security_group_ingress_rule.bastion_console_ssh[0].security_group_id ==
-      jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.bastion
+      length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 0
     )
-    error_message = "account1의 기존 Bastion 규칙 범위를 유지해야 합니다."
+    error_message = "account1 Bastion의 콘솔 SSH는 생성하지 않아야 합니다."
   }
 }
 
@@ -105,7 +103,7 @@ run "account2_service_console_ssh" {
     )
     error_message = "account2 규칙은 해당 서비스 SG에 EC2 Instance Connect 접두사 목록의 TCP 22만 허용해야 합니다."
   }
-  # 기존 배스천 규칙의 계정·대상 범위를 이번 추가로 바꾸지 않는다.
+  # Bastion은 학원 IP의 직접 SSH 규칙만 사용한다.
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 0
     error_message = "account2의 기존 Bastion 규칙 범위를 유지해야 합니다."
@@ -132,7 +130,7 @@ run "account3_service_console_ssh" {
     )
     error_message = "account3 규칙은 해당 서비스 SG에 EC2 Instance Connect 접두사 목록의 TCP 22만 허용해야 합니다."
   }
-  # 기존 배스천 규칙의 계정·대상 범위를 이번 추가로 바꾸지 않는다.
+  # Bastion은 학원 IP의 직접 SSH 규칙만 사용한다.
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 0
     error_message = "account3의 기존 Bastion 규칙 범위를 유지해야 합니다."
@@ -159,7 +157,7 @@ run "account4_service_console_ssh" {
     )
     error_message = "account4 규칙은 해당 서비스 SG에 EC2 Instance Connect 접두사 목록의 TCP 22만 허용해야 합니다."
   }
-  # 기존 배스천 규칙의 계정·대상 범위를 이번 추가로 바꾸지 않는다.
+  # Bastion은 학원 IP의 직접 SSH 규칙만 사용한다.
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 0
     error_message = "account4의 기존 Bastion 규칙 범위를 유지해야 합니다."
@@ -186,7 +184,7 @@ run "account5_service_console_ssh" {
     )
     error_message = "account5 규칙은 해당 서비스 SG에 EC2 Instance Connect 접두사 목록의 TCP 22만 허용해야 합니다."
   }
-  # 기존 배스천 규칙의 계정·대상 범위를 이번 추가로 바꾸지 않는다.
+  # Bastion은 학원 IP의 직접 SSH 규칙만 사용한다.
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.bastion_console_ssh) == 0
     error_message = "account5의 기존 Bastion 규칙 범위를 유지해야 합니다."

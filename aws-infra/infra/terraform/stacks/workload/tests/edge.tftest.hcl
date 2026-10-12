@@ -92,7 +92,7 @@ run "account1_edge_public_a" {
   assert {
     condition = (
       aws_vpc_security_group_ingress_rule.service_console_ssh["edge"].security_group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge &&
-      module.rules.public_ingress["edge/acme/80"].cidr == "0.0.0.0/0" && module.rules.public_ingress["edge/https/211.117.107.63/32"].port == 443 &&
+      module.rules.public_ingress["edge/acme/80"].cidr == "0.0.0.0/0" && module.rules.public_ingress["edge/https/222.112.208.69/32"].port == 443 &&
       alltrue([for name in ["front-a", "front-b"] : output.inventory.instances[name].role == "frontend"]) &&
       length([for n in values(local.nodes) : n if n.public_ip]) == 3
     )
@@ -105,11 +105,11 @@ run "edge_only_bootstrap" {
   command = apply
   variables { edge_bootstrap_only = true }
   assert {
-    condition = toset(keys(output.inventory.instances)) == toset(["edge-1"]) && length(data.terraform_remote_state.foundation) == 1 && length(data.terraform_remote_state.connectivity) == 0
+    condition     = toset(keys(output.inventory.instances)) == toset(["edge-1"]) && length(data.terraform_remote_state.foundation) == 1 && length(data.terraform_remote_state.connectivity) == 0
     error_message = "초기 구축은 Account 1의 edge-1 한 대만 생성해야 합니다."
   }
   assert {
-    condition = length(module.rules.public_ingress) == 3 && contains(var.traffic.internet_https_roles, "edge")
+    condition     = length(module.rules.public_ingress) == 3 && contains(var.traffic.internet_https_roles, "edge")
     error_message = "초기 구축은 ACME·허용 HTTPS·관리 SSH와 HTTPS 송신만 공개해야 합니다."
   }
 }

@@ -117,3 +117,13 @@ flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 �
 ## 진입용 EC2 생성 설정
 
 edge-1은 account1 Public A(apne2-az1), role=edge, t3a.small, OS gp3 20GiB, EIP 1개로 선언한다. 전용 SG는 edge→frontend 80, Bastion→edge SSH 22, edge→Bastion Proxy 3128과 콘솔 SSH 정책을 사용한다. 외부 ACME 검증 80, game_client_cidrs의 443, admin_public_cidrs의 22 및 edge 인터넷 HTTPS 송신을 허용한다. 다른 EC2가 없는 환경에서는 [edge 단독 초기 구축](docs/deployment-runbook.md#edge-단독-초기-구축)으로 이 서버만 먼저 생성한다. 프로그램 설치와 인증서·Front 연결 검증은 플랫폼 단계다.
+
+## 2026-10-12 학원 접속 범위
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.
