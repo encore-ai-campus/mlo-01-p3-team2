@@ -261,7 +261,7 @@ LOGGING = {
         "redact": {"()": "foundation.logging.RedactingFilter"},
     },
     "formatters": {
-        "plain": {"format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},
+        "plain": {"class": "foundation.logging.UtcFormatter", "format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},  # 시각은 UTC ISO 8601 Z
     },
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "plain", "filters": ["request_id", "redact"]},

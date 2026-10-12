@@ -4,8 +4,15 @@ import time
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import InterfaceError, OperationalError, close_old_connections, connection
+from django.utils import timezone
 
 from records.api import process_pending, reset_stuck, stuck_count
+
+
+def stamped(text):
+    """상시 실행의 상태·장애 줄 앞에 UTC 시각(로그와 같은 ISO 8601 Z 형식 — `foundation.logging.UtcFormatter`, 6-3b). 일회성 조회(`--status`)에는 붙이지 않는다."""
+    now = timezone.now()
+    return f"{now:%Y-%m-%dT%H:%M:%S}.{now.microsecond // 1000:03d}Z {text}"
 
 
 class Command(BaseCommand):
@@ -38,24 +45,24 @@ class Command(BaseCommand):
             raise CommandError("--interval 은 유한한 양수(초)여야 합니다.")
         # 옵션 검증이 모두 끝난 뒤에야 상태를 바꾼다
         if options["retry_stuck"]:
-            self.stdout.write(f"retried-stuck: {reset_stuck()}")
+            self.stdout.write(stamped(f"retried-stuck: {reset_stuck()}"))
         stop = []
         previous = signal.signal(signal.SIGTERM, lambda *_: stop.append(1))  # 배포·재시작 때 처리 중인 한 건은 끝내고 멈춘다
         mode = "once" if options["once"] else f"interval={interval}"
-        self.stdout.write(f"started {mode} batch={batch}")  # 신호 처리기가 설치된 뒤의 시작 표시(운영 로그·부하 시험의 준비 확인)
+        self.stdout.write(stamped(f"started {mode} batch={batch}"))  # 신호 처리기가 설치된 뒤의 시작 표시(운영 로그·부하 시험의 준비 확인)
         self.stdout.flush()
         try:
             while True:
                 try:
                     total = self.drain(batch, lambda: bool(stop))
                     if any(total.values()) or options["once"]:
-                        self.stdout.write(f"{total} stuck={stuck_count()}")
+                        self.stdout.write(stamped(f"{total} stuck={stuck_count()}"))
                 except (OperationalError, InterfaceError) as error:
                     if options["once"]:
                         raise  # 한 번 실행은 실패를 그대로 알린다
                     # 상시 처리는 DB 가 잠시 끊겨도(재시작·전환·장애) 죽지 않는다: 연결을 버리고 주기마다 다시 시도한다. 죽으면 복구된 뒤에도 아무도 처리하지 않는다.
                     # 처리하던 반응은 트랜잭션이 되돌려져 RECEIVED 로 남아 있다(유실·이중 과금 없음).
-                    self.stderr.write(f"DB 연결 문제로 이번 주기를 건너뛴다(다음 주기에 다시): {error}")
+                    self.stderr.write(stamped(f"DB 연결 문제로 이번 주기를 건너뛴다(다음 주기에 다시): {error}"))
                     if not connection.in_atomic_block:  # 상시 처리는 트랜잭션 밖에서 돈다(단위 시험의 열린 트랜잭션을 닫지 않는다)
                         close_old_connections()  # 끊긴 연결을 버린다 — 다음 질의가 새로 연다
                 if options["once"] or stop:
