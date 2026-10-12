@@ -18,7 +18,7 @@ from campaigns import api as campaigns
 from foundation.api import get_advertiser, list_advertisers, profiles, set_advertiser_active
 from masters import api as masters
 
-from ..errors import HANDLED, fetch, form_errors, message_of, status_of
+from ..errors import HANDLED, fetch, form_errors, message_of, run_action, status_of
 from ..paging import page_of
 from .forms import AdjustForm, BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, ReleaseForm, SlotForm
 
@@ -57,10 +57,7 @@ def media_detail(request, media_id):
 
 @require_POST
 def media_active(request, media_id):
-    try:
-        masters.set_media_active(request.user, media_id, request.POST.get("active") == "1")
-    except HANDLED as e:
-        messages.error(request, message_of(e))
+    run_action(request, masters.set_media_active, request.user, media_id, request.POST.get("active") == "1")
     return redirect("operator:media_list")
 
 
@@ -81,10 +78,7 @@ def slot_create(request, media_id):
 @require_POST
 def slot_active(request, slot_id):
     slot = fetch(masters.get_slot, slot_id)
-    try:
-        masters.set_slot_active(request.user, slot.slot_id, request.POST.get("active") == "1")
-    except HANDLED as e:
-        messages.error(request, message_of(e))
+    run_action(request, masters.set_slot_active, request.user, slot.slot_id, request.POST.get("active") == "1")
     return redirect("operator:media_detail", media_id=slot.media_id)
 
 
@@ -164,12 +158,7 @@ def key_rotate(request, media_id):
 @require_POST
 def key_revoke(request, key_id):
     media = fetch(masters.get_media, request.user, request.POST.get("media_id"))
-    try:
-        masters.revoke_media_key(request.user, key_id)
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "키를 폐기했습니다.")
+    run_action(request, masters.revoke_media_key, request.user, key_id, success="키를 폐기했습니다.")
     return redirect("operator:media_detail", media_id=media.media_id)
 
 
@@ -191,12 +180,8 @@ def campaign_monitor(request):
 
 @require_POST
 def campaign_suspend(request, campaign_id):
-    try:
-        campaigns.suspend_campaign(request.user, campaign_id, request.POST.get("reason", ""))
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "캠페인을 중단했습니다. 광고주 화면에 사유가 보입니다.")
+    run_action(request, campaigns.suspend_campaign, request.user, campaign_id, request.POST.get("reason", ""),
+               success="캠페인을 중단했습니다. 광고주 화면에 사유가 보입니다.")
     return _back(request)
 
 
@@ -207,13 +192,8 @@ def campaign_release(request, campaign_id):
     if not form.is_valid():
         messages.error(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 시도하세요.")
         return _back(request)
-    try:
-        campaigns.release_campaign(request.user, campaign_id, expected_suspended_at=form.cleaned_data["suspended_at"],
-                                   review_request_id=form.cleaned_data["review_request_id"] or None)
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "중단을 해제했습니다. 열린 재검토 요청은 해제로 닫혔습니다.")
+    run_action(request, campaigns.release_campaign, request.user, campaign_id, expected_suspended_at=form.cleaned_data["suspended_at"],
+               review_request_id=form.cleaned_data["review_request_id"] or None, success="중단을 해제했습니다. 열린 재검토 요청은 해제로 닫혔습니다.")
     return _back(request)
 
 
@@ -225,12 +205,8 @@ def review_queue(request):
 
 @require_POST
 def review_reject(request, review_request_id):
-    try:
-        campaigns.reject_review_request(request.user, review_request_id, request.POST.get("note", ""))
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "재검토 요청을 반려했습니다. 중단은 그대로입니다.")
+    run_action(request, campaigns.reject_review_request, request.user, review_request_id, request.POST.get("note", ""),
+               success="재검토 요청을 반려했습니다. 중단은 그대로입니다.")
     return redirect("operator:review_queue")
 
 
@@ -260,12 +236,8 @@ def advertiser_detail(request, user_id):
 @require_POST
 def advertiser_active(request, user_id):
     active = request.POST.get("active") == "1"
-    try:
-        set_advertiser_active(request.user, user_id, active, request.POST.get("reason", ""))
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "계정을 다시 활성화했습니다. 광고가 다시 나갑니다." if active else "계정을 비활성화했습니다. 로그인할 수 없고 광고도 나가지 않습니다.")
+    run_action(request, set_advertiser_active, request.user, user_id, active, request.POST.get("reason", ""),
+               success="계정을 다시 활성화했습니다. 광고가 다시 나갑니다." if active else "계정을 비활성화했습니다. 로그인할 수 없고 광고도 나가지 않습니다.")
     return redirect("operator:advertiser_detail", user_id=user_id)
 
 

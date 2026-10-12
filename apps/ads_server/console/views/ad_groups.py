@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST, require_safe
 from assets.api import asset_exists, content_type, open_asset
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, message_of, status_of
+from ..errors import HANDLED, fetch, form_errors, run_action, status_of
 from ..forms import BidForm, CreativeEditForm, GroupNameForm, GroupSlotsForm, ImageForm
 from ..queries.ad_groups import ad_group_page
 
@@ -100,12 +100,8 @@ def ad_group_slots(request, ad_group_id):
 @require_POST
 def ad_group_enabled(request, ad_group_id):
     enabled = request.POST.get("enabled") == "1"
-    try:
-        campaigns.update_ad_group(request.user, ad_group_id, {"enabled": enabled})
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-        return redirect("ad_group_detail", ad_group_id=ad_group_id)
-    return _done(request, ad_group_id, "광고그룹을 켰습니다." if enabled else "광고그룹을 껐습니다.")
+    run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"enabled": enabled}, success="광고그룹을 켰습니다." if enabled else "광고그룹을 껐습니다.")
+    return redirect("ad_group_detail", ad_group_id=ad_group_id)
 
 
 def _creative_group(request, creative_id):
@@ -135,12 +131,8 @@ def creative_edit(request, creative_id):
 def creative_enabled(request, creative_id):
     group_id = _creative_group(request, creative_id)
     enabled = request.POST.get("enabled") == "1"
-    try:
-        campaigns.update_creative(request.user, creative_id, {"enabled": enabled})
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-        return redirect("ad_group_detail", ad_group_id=group_id)
-    return _done(request, group_id, "소재를 켰습니다." if enabled else "소재를 껐습니다.")
+    run_action(request, campaigns.update_creative, request.user, creative_id, {"enabled": enabled}, success="소재를 켰습니다." if enabled else "소재를 껐습니다.")
+    return redirect("ad_group_detail", ad_group_id=group_id)
 
 
 @require_POST

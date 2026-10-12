@@ -3,6 +3,7 @@
 - 입력 오류(`ValidationError`, 위치가 있는 `InvalidRequest`, 이미지 거절)와 상태 충돌(409)은 **폼 오류**나 메시지가 된다.
 - 없음(404)·권한 없음(403)은 화면에 적지 않고 그 HTTP 응답으로, 서버 쪽 문제(5xx)와 모르는 예외는 그대로 다시 던진다.
 """
+from django.contrib import messages
 from django.core.exceptions import NON_FIELD_ERRORS, PermissionDenied, ValidationError
 from django.http import Http404
 
@@ -30,7 +31,7 @@ def _not_shown(error):
         raise PermissionDenied(str(error)) from error
     if isinstance(error, errors.ApiError) and error.status >= 500:
         raise error
-    if not isinstance(error, (ValidationError, ImageRejected, errors.ApiError)):
+    if not isinstance(error, HANDLED):
         raise error
 
 
@@ -63,6 +64,17 @@ def form_errors(form, error, pointers=None, image_field=None):
 def status_of(error):
     """폼을 다시 그릴 때의 응답 코드: 상태 충돌(낙관적 잠금 등)은 409, 그 밖의 입력 오류는 400."""
     return error.status if isinstance(error, errors.ApiError) else 400
+
+
+def run_action(request, call, *args, success=None, **kwargs):
+    """폼이 없는 동작(목록·상세의 버튼): 서비스를 부르고 결과를 메시지 한 줄로 남긴다. 실패는 `message_of`(없음·권한 없음은 404·403), 성공은 `success`."""
+    try:
+        call(*args, **kwargs)
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        if success:
+            messages.success(request, success)
 
 
 def message_of(error):

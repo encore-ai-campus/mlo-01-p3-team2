@@ -7,7 +7,7 @@ from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, message_of, status_of
+from ..errors import HANDLED, fetch, form_errors, run_action, status_of
 from ..forms import CampaignEditForm, ReviewRequestForm
 from ..queries.campaigns import campaign_page, campaign_rows, placement_summary
 
@@ -63,23 +63,14 @@ def _back(request, campaign_id):
 def campaign_status(request, campaign_id):
     """켜기·끄기(ACTIVE↔PAUSED). 바꿀 값이 분명한 동작이라 화면이 본 버전과 대조하지 않는다. 중단·끝난 캠페인은 서비스가 거절한다."""
     target = request.POST.get("status", "")
-    try:
-        campaigns.update_campaign(request.user, campaign_id, {"status": target})
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "캠페인을 켰습니다." if target == "ACTIVE" else "캠페인을 껐습니다.")
+    run_action(request, campaigns.update_campaign, request.user, campaign_id, {"status": target},
+               success="캠페인을 켰습니다." if target == "ACTIVE" else "캠페인을 껐습니다.")
     return _back(request, campaign_id)
 
 
 @require_POST
 def campaign_end(request, campaign_id):
-    try:
-        campaigns.end_campaign(request.user, campaign_id)
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "캠페인을 끝냈습니다. 되돌릴 수 없습니다.")
+    run_action(request, campaigns.end_campaign, request.user, campaign_id, success="캠페인을 끝냈습니다. 되돌릴 수 없습니다.")
     return redirect("campaign_detail", campaign_id=campaign_id)
 
 
@@ -89,10 +80,6 @@ def campaign_review(request, campaign_id):
     if not form.is_valid():
         messages.error(request, "메모가 너무 깁니다(500자까지).")
         return redirect("campaign_detail", campaign_id=campaign_id)
-    try:
-        campaigns.create_review_request(request.user, campaign_id, form.cleaned_data["message"])
-    except HANDLED as e:
-        messages.error(request, message_of(e))
-    else:
-        messages.success(request, "재검토를 요청했습니다. 관리자가 확인하면 결과가 여기와 대시보드에 보입니다.")
+    run_action(request, campaigns.create_review_request, request.user, campaign_id, form.cleaned_data["message"],
+               success="재검토를 요청했습니다. 관리자가 확인하면 결과가 여기와 대시보드에 보입니다.")
     return redirect("campaign_detail", campaign_id=campaign_id)
