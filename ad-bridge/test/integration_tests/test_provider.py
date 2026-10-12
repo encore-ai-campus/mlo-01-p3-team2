@@ -25,7 +25,7 @@ class ProviderDecisionTests(LiveServerTestCase):
         self.media = masters.create_media(self.admin, "브리지 통합 시험")
         self.slot = masters.create_slot(self.admin, self.media.media_id, "개인 배너", "IMPRESSION", 10, 20, 50, "시험")
         self.key = masters.issue_media_key(self.admin, self.media.media_id, "시험 전용").key
-        self.bridge = AdsClient(AdsConfig(f"{self.live_server_url}/api/media/v1", self.key, 5))
+        self.bridge = AdsClient(AdsConfig(f"{self.live_server_url}/api/media/v1", self.key, 5, subject_secret="unit-test-subject-secret"))
         self.subject = str(uuid4())
 
     def add_ad(self, slot):
@@ -53,7 +53,7 @@ class ProviderDecisionTests(LiveServerTestCase):
         self.assertTrue(Decision.objects.filter(pk=result.decision_id).exists())
 
     def test_real_authentication_and_subject_errors(self):
-        bad = AdsClient(AdsConfig(f"{self.live_server_url}/api/media/v1", "invalid-key", 5))
+        bad = AdsClient(AdsConfig(f"{self.live_server_url}/api/media/v1", "invalid-key", 5, subject_secret="unit-test-subject-secret"))
         with self.assertRaises(AdsHTTPError) as caught:
             bad.create_decision(self.slot.slot_id, self.subject)
         self.assertEqual((caught.exception.status, caught.exception.code), (401, "unauthorized"))

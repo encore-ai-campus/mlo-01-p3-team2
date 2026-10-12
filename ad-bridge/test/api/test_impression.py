@@ -39,7 +39,7 @@ def _response(body=None, *, status=201, raw=None, content_type="application/json
 
 class ImpressionClientTests(unittest.TestCase):
     def setUp(self):
-        self.config = AdsConfig("http://localhost:8001/api/media/v1", "unit-test-secret", 5)
+        self.config = AdsConfig("http://localhost:8001/api/media/v1", "unit-test-secret", 5, subject_secret="unit-test-subject-secret")
         self.opener = Mock()
         with patch("ad_bridge.api.client.build_opener", return_value=self.opener) as factory:
             self.client = AdsClient(self.config)

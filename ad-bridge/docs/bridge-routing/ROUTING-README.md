@@ -27,14 +27,14 @@
 |---|---|
 | 가상환경·캐시의 Git 제외 규칙 | [Git 제외 설정](.gitignore.md) |
 | 외부에서 사용하는 클래스·예외 | [공개 import](scripts/ad_bridge/__init__.py.md) |
-| 광고 서버 주소·인증 키·타임아웃 | [API 설정](scripts/ad_bridge/api/config.py.md) |
+| 광고 서버 주소·인증 키·타임아웃·가명 생성 비밀 | [API 설정](scripts/ad_bridge/api/config.py.md) |
 | 광고 결정 POST·노출 PUT·판정 GET 형식 | [HTTP 클라이언트](scripts/ad_bridge/api/client.py.md) |
 | 광고 요청 후 발급 소유권 저장 | [결정 서비스](scripts/ad_bridge/decisions/service.py.md) |
 | 첫 노출·중복 알림 처리 | [노출 서비스](scripts/ad_bridge/impressions/service.py.md) |
 | 시도 횟수·재전송 일정·전송 임대 | [노출 저장소](scripts/ad_bridge/impressions/store.py.md) |
 | 최초 전송과 재전송의 공통 처리 | [전송 함수](scripts/ad_bridge/delivery/sender.py.md) |
 | 재시도 대기 규칙과 처리 대상 선택 | [대기 정책](scripts/ad_bridge/delivery/policy.py.md), [작업자](scripts/ad_bridge/delivery/worker.py.md) |
-| 로그인·CSRF·게임 HTTP 응답 | [게임 연결](scripts/ad_bridge/game/views.py.md) |
+| 로그인·CSRF·광고 전용 가명 생성·게임 HTTP 응답 | [게임 연결](scripts/ad_bridge/game/views.py.md) |
 | 재전송 명령 실행 | [관리 명령](scripts/ad_bridge/management/commands/dispatch_ad_reactions.py.md) |
 | DB 모델과 버전 변경 | [모델](scripts/ad_bridge/models.py.md), [최초 마이그레이션](scripts/ad_bridge/migrations/0001_initial.py.md), [재전송 마이그레이션](scripts/ad_bridge/migrations/0002_impression_retry.py.md) |
 | 판정 조회·저장 | [결과 서비스](scripts/ad_bridge/results/service.py.md) |
@@ -99,3 +99,5 @@ JavaScript 두 파일은 광고 표시와 최초 노출 관측 클래스를 구�
 설치·실행·계약 요약은 [기존 구현 안내](../../README.md)에서 확인한다. 이 라우팅 문서는 테스트 코드를 다루지 않는다.
 
 2026-10-12: game/views.py·game/urls.py와 두 공용 JS 문서를 실제 구현에 맞춰 갱신했다. 테스트 게임에서 이미지 표시·노출 보고·ACCEPTED 판정·포인트 원장을 확인했다. GitHub 게임 배포는 수행하지 않았다.
+
+2026-10-12 이슈 #34 부분 반영: API 설정의 ADS_SUBJECT_SECRET 필수 검증과 게임 연결의 HMAC-SHA256 광고 가명 생성만 구현했다. 관련 config.py·views.py 문서를 AST 결과에 맞춰 갱신했다. 두 파일의 원본 참조는 현재 Git 저장소 기준 ad-bridge/scripts 경로로 표기한다. 401 수동 복구와 판정 응답 비공개 처리는 이번 변경에 포함하지 않는다.

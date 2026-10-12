@@ -1,5 +1,7 @@
 """feat;#17 게임의 로그인 프로필과 기존 광고 요청 모듈을 연결한다."""
 
+import hashlib
+import hmac
 from datetime import timezone as utc_timezone
 from uuid import UUID
 
@@ -38,15 +40,15 @@ def request_decision(request):
             "error": "ads_storage_not_configured", "message": "ad_bridge 앱 등록과 마이그레이션이 필요합니다.",
         }, status=503)
 
-    # 최신 게임의 고정 UUID를 사용한다. 브라우저의 slot_id·subject_id는 신뢰하지 않는다.
-    subject_id = _subject_id(request.user)
-    if subject_id is None:
-        return JsonResponse({
-            "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
-        }, status=409)
-
     try:
-        client = AdsClient(AdsConfig.from_env())
+        config = AdsConfig.from_env()
+        # 브라우저 입력 대신 로그인 프로필과 서버 전용 비밀로 광고 가명을 만든다.
+        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
+        if subject_id is None:
+            return JsonResponse({
+                "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
+            }, status=409)
+        client = AdsClient(config)
         decision = create_decision(
             client=client, store=decision_store, slot_id=slot_id, subject_id=subject_id,
         )
@@ -57,7 +59,7 @@ def request_decision(request):
     except ValueError:
         return JsonResponse({
             "error": "ads_invalid_config",
-            "message": "광고 API 주소·매체 키·타임아웃·슬롯 및 사용자 UUID 설정을 확인해 주세요.",
+            "message": "광고 API 주소·매체 키·타임아웃·가명 비밀·슬롯 및 사용자 UUID 설정을 확인해 주세요.",
         }, status=503)
     except AdsHTTPError as error:
         return JsonResponse({
@@ -98,14 +100,14 @@ def report_impression(request, decision_id):
         return JsonResponse({
             "error": "ads_storage_not_configured", "message": "ad_bridge 앱 등록과 마이그레이션이 필요합니다.",
         }, status=503)
-    subject_id = _subject_id(request.user)
-    if subject_id is None:
-        return JsonResponse({
-            "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
-        }, status=409)
     try:
-        subject_id = UUID(str(subject_id))
-        client = AdsClient(AdsConfig.from_env())
+        config = AdsConfig.from_env()
+        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
+        if subject_id is None:
+            return JsonResponse({
+                "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
+            }, status=409)
+        client = AdsClient(config)
         # 브라우저의 사용자·반응 ID·과거 시각을 쓰지 않고 서버가 알림을 확인한 시각을 고정한다.
         occurred_at = timezone.now().astimezone(utc_timezone.utc).isoformat().replace("+00:00", "Z")
         outcome = report_impression_once(
@@ -156,14 +158,26 @@ def report_impression(request, decision_id):
 
 
 
-def _subject_id(user):
-    """기존 게임은 campus_profile.user_uuid, 테스트 게임은 player.subject_id를 사용한다."""
+def _subject_id(user, *, subject_secret: str):
+    """로그인 프로필의 UUID에서 광고 전용 가명을 생성한다."""
     value = user
     for attribute in getattr(settings, "ADS_SUBJECT_ID_ATTRIBUTE", "campus_profile.user_uuid").split("."):
         value = getattr(value, attribute, None)
         if value is None:
             break
-    return value
+    if value is None:
+        return None
+    try:
+        user_uuid = UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("게임 프로필의 사용자 UUID가 올바르지 않습니다.") from None
+    # UUID 표기를 정규화하고 계약의 앞 16바이트를 그대로 사용한다. 버전 비트는 바꾸지 않는다.
+    digest = hmac.new(
+        subject_secret.encode("utf-8"),
+        f"ads-subject/v1:{user_uuid}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return UUID(bytes=digest[:16])
 
 
 def _result_payload(record):
@@ -183,15 +197,16 @@ def reaction_result(request, decision_id):
     """서버 저장 상태를 확인하고 접수된 반응만 광고 서버에서 한 번 조회한다."""
     if not apps.is_installed("ad_bridge"):
         return JsonResponse({"error": "ads_storage_not_configured", "message": "ad_bridge 앱 등록과 마이그레이션이 필요합니다."}, status=503)
-    subject_id = _subject_id(request.user)
-    if subject_id is None:
-        return JsonResponse({"error": "profile_uuid_missing", "message": "게임 사용자 UUID가 없습니다."}, status=409)
     try:
+        config = AdsConfig.from_env()
+        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
+        if subject_id is None:
+            return JsonResponse({"error": "profile_uuid_missing", "message": "게임 사용자 UUID가 없습니다."}, status=409)
         record = impression_store.get_impression(decision_id=decision_id, subject_id=subject_id)
         # 재전송 대기 중에는 로컬 상태만 반환한다. 이미 확정된 판정도 재조회하지 않는다.
         if record.delivery_state != "ACKNOWLEDGED" or record.status in ("ACCEPTED", "REJECTED"):
             return JsonResponse(_result_payload(record), status=202 if record.delivery_state != "ACKNOWLEDGED" else 200)
-        record = refresh_result(client=AdsClient(AdsConfig.from_env()), store=impression_store,
+        record = refresh_result(client=AdsClient(config), store=impression_store,
                                 decision_id=decision_id, subject_id=subject_id)
         return JsonResponse(_result_payload(record))
     except impression_store.DecisionNotFound:

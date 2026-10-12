@@ -21,14 +21,18 @@ from test.support.impression_fakes import (
 )
 
 
+SUBJECT_SECRET = "unit-test-subject-secret"
+AD_SUBJECT_ID = "d8d3d672-5458-ddcc-c90c-a7844b3aa51a"
+
+
 class GameImpressionTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.path = reverse("ad_bridge:impression", kwargs={"decision_id": DECISION_ID})
-        self.store = MemoryImpressionStore()
+        self.store = MemoryImpressionStore(owner=AD_SUBJECT_ID)
         self.client = Mock()
         self.client.report_impression.side_effect = received_reaction
-        self.config = SimpleNamespace(media_key=PRIVATE_KEY)
+        self.config = SimpleNamespace(media_key=PRIVATE_KEY, subject_secret=SUBJECT_SECRET)
         self.now = datetime(2026, 10, 11, 21, 0, 0, 123456, tzinfo=timezone(timedelta(hours=9)))
         patches = (
             patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config),
@@ -65,7 +69,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 201)
         payload = json.loads(response.content)
         self.client.report_impression.assert_called_once_with(
-            decision_id=DECISION_ID, reaction_id=REACTION_ID, subject_id=SUBJECT_ID,
+            decision_id=DECISION_ID, reaction_id=REACTION_ID, subject_id=AD_SUBJECT_ID,
             occurred_at="2026-10-11T12:00:00.123456Z",
         )
         self.assertEqual(payload["reaction_id"], REACTION_ID)
@@ -74,6 +78,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertFalse(payload["duplicate"])
         self.assertNotIn("subject_id", payload)
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
+        self.assertNotIn(SUBJECT_SECRET, response.content.decode())
         self.assertNotIn(SUBJECT_ID, response.content.decode())
         self.assertIn("no-store", response["Cache-Control"])
 
@@ -195,6 +200,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(json.loads(response.content)["delivery_state"], "UNCONFIRMED")
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
+        self.assertNotIn(SUBJECT_SECRET, response.content.decode())
 
     def test_acknowledged_invalid_body_returns_202_without_claiming_acceptance(self):
         self.client.report_impression.side_effect = AdsResponseError(PRIVATE_KEY, acknowledged=True)
@@ -205,6 +211,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertIsNone(payload["status"])
         self.assertEqual(payload["error"], "ads_invalid_response")
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
+        self.assertNotIn(SUBJECT_SECRET, response.content.decode())
 
     def test_reservation_database_failure_is_503_before_http(self):
         self.store.reserve_error = DatabaseError(PRIVATE_KEY)
@@ -212,6 +219,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(json.loads(response.content)["error"], "ads_storage_unavailable")
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
+        self.assertNotIn(SUBJECT_SECRET, response.content.decode())
         self.client.report_impression.assert_not_called()
 
     def test_database_failure_after_receipt_preserves_uncertainty_and_reservation(self):
@@ -221,6 +229,7 @@ class GameImpressionTests(SimpleTestCase):
         self.assertEqual(json.loads(response.content)["error"], "ads_storage_unavailable")
         self.assertIn("접수 여부는 확정할 수 없습니다", json.loads(response.content)["message"])
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
+        self.assertNotIn(SUBJECT_SECRET, response.content.decode())
         self.assertEqual(self.store.record.delivery_state, "SENDING")
         self.store.finish_error = None
         duplicate = self.report()
