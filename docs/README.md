@@ -85,7 +85,11 @@
 - `scripts/ad_bridge/api/config.py::AdsConfig.from_env(cls, environ: Mapping[str, str] | None = None) -> 'AdsConfig'`: 환경변수에서 설정을 읽는다.
 - 필수 환경변수: `ADS_API_BASE_URL`, `ADS_MEDIA_KEY`, `ADS_API_TIMEOUT`. 기본 주소는 `/api/media/v1`까지 포함한다. `.env` 파일은 자동으로 읽지 않는다.
 
-파일별 코드 탐색은 [통합 라우팅 목차](bridge-routing/ROUTING-README.md)에서 시작한다. 구현·설정 파일 33개를 저장소 상대경로 그대로 문서 33개에 대응시켰으며 테스트 코드는 제외했다. 아래 절은 설치·사용법과 주요 진입점의 요약이다. 삭제 상태인 저장소 루트 README는 복원하지 않았다.
+파일별 코드 탐색은 [통합 라우팅 목차](bridge-routing/ROUTING-README.md)에서 시작한다. 구현·설정 파일 33개와 Git 제외 설정 .gitignore를 저장소 상대경로 그대로 문서 34개에 대응시켰으며 테스트 코드는 제외했다. 아래 절은 설치·사용법과 주요 진입점의 요약이다. 삭제 상태인 저장소 루트 README는 복원하지 않았다.
+
+### Git 제외 규칙
+
+루트 [.gitignore](../.gitignore)는 로컬 가상환경 `.venv/`, Python 캐시 `__pycache__/`와 컴파일 결과 `*.py[cod]`를 제외한다. 이미 Git에 등록된 가상환경과 캐시는 이 규칙만으로 추적이 해제되지 않는다. 현재 변경은 제외 설정 추가이며 기존 추적 파일과 로컬 실행 환경은 유지한다. 상세 안내는 [Git 제외 설정 문서](bridge-routing/.gitignore.md)를 참고한다.
 
 ### 광고 요청 사용법
 
@@ -477,7 +481,8 @@ campus_profile.user_uuid이며 테스트 게임은 ADS_SUBJECT_ID_ATTRIBUTE="pla
 429 조회 응답의 Retry-After는 게임 응답에도 전달한다.
 
 테스트 게임은 공용 static/ad_bridge/display.js와 impression.js를 로드한다. 이미지가 그려진 상태에서
-캐릭터 발 위치가 빨간 구역 안에 있고 활성 탭·포커스·Canvas 전체 가시성을 충족하면 노출을 한 번 알린다.
+캐릭터 발 위치가 빨간 구역 안에 있고 활성 탭·포커스·전광판 광고 영역의 전체 가시성을 충족하면 노출을 한 번 알린다.
+작은 창에서 Canvas 하단이 잘려도 광고 영역이 온전히 보이면 감지한다.
 광고 계약에 근접 거리·대기 시간은 없으며 이 조건은 테스트 매체의 정의다.
 브라우저는 같은 결정으로 알림 응답 유실을 복구하고 게임 DB에 저장된 뒤에는 재전송 작업자에게 맡긴다.
 판정은 5초 간격 또는 새로고침 버튼으로 확인한다. 전광판 클릭은 click_url의 새 창 이동뿐이다.

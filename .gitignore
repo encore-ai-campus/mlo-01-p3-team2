@@ -1,0 +1,8 @@
+# 로컬 Python 가상환경
+.venv/
+
+# Python 실행 캐시와 컴파일 결과
+__pycache__/
+*.py[cod]
+requirements-test.txt
+requirements.txt

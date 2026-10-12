@@ -4,8 +4,8 @@
 
 ## 범위와 대응 규칙
 
-- 대상: scripts/ad_bridge 아래 Python 30개·JavaScript 2개와 실행 환경 설명 파일 requirements.txt, 총 **33개 원본 파일**.
-- 파일별 문서도 **33개**다. 이 목차 1개를 더해 라우팅 문서는 총 **34개**다.
+- 대상: scripts/ad_bridge 아래 Python 30개·JavaScript 2개, 실행 환경 설명 파일 requirements.txt와 Git 제외 설정 .gitignore, 총 **34개 원본 파일**.
+- 파일별 문서도 **34개**다. 이 목차 1개를 더해 라우팅 문서는 총 **35개**다.
 - 패키지 초기화 파일과 마이그레이션, 아직 구현하지 않은 자리도 실제 원본이 있으므로 각각 문서화한다.
 - 제외: scripts/test, integration_tests, requirements-test.txt, 가상환경, 캐시, Git 내부 파일, 작업 지침, 기존 설명 문서. 광고 서버와 게임 클라이언트 프로젝트는 조사·문서화 대상이 아니다.
 - 파일별 문서에 원본 경로, 역할, 직접 선언한 클래스·함수·시그니처, 관련 의존 관계를 기록한다. 가져온 이름·상속받은 메서드는 직접 선언한 것으로 세지 않는다.
@@ -25,6 +25,7 @@
 
 | 확인할 내용 | 먼저 읽을 파일별 문서 |
 |---|---|
+| 가상환경·캐시의 Git 제외 규칙 | [Git 제외 설정](.gitignore.md) |
 | 외부에서 사용하는 클래스·예외 | [공개 import](scripts/ad_bridge/__init__.py.md) |
 | 광고 서버 주소·인증 키·타임아웃 | [API 설정](scripts/ad_bridge/api/config.py.md) |
 | 광고 결정 POST·노출 PUT·판정 GET 형식 | [HTTP 클라이언트](scripts/ad_bridge/api/client.py.md) |
@@ -45,6 +46,7 @@
 
 | 원본 파일 | 대응 문서 | 역할 |
 |---|---|---|
+| [.gitignore](../../.gitignore) | [파일 문서](.gitignore.md) | 로컬 가상환경·Python 캐시의 Git 제외 규칙 |
 | [requirements.txt](../../requirements.txt) | [파일 문서](requirements.txt.md) | 실행 환경·의존성 관리 방침 |
 | [scripts/ad_bridge/__init__.py](../../scripts/ad_bridge/__init__.py) | [파일 문서](scripts/ad_bridge/__init__.py.md) | 게임 서버에서 사용하는 광고 서버 통신 모듈. |
 | [scripts/ad_bridge/api/__init__.py](../../scripts/ad_bridge/api/__init__.py) | [파일 문서](scripts/ad_bridge/api/__init__.py.md) | 광고 서버의 HTTP 계약과 연결 설정. |
@@ -92,7 +94,7 @@ JavaScript 두 파일은 광고 표시와 최초 노출 관측 클래스를 구�
 1. 구현 파일을 추가·이동·삭제하면 같은 상대경로의 파일별 문서와 위 목록을 함께 갱신한다.
 2. Python 선언·시그니처는 routing-doc-sync 분석기로 다시 추출한다. 소스 파일의 이름만 맞춰 놓고 함수까지 검증했다고 판단하지 않는다.
 3. 문서 편집이 끝난 뒤 라우팅 목차와 모든 파일별 문서를 분석기에 전달해 재검사한다. mismatch·ambiguous·unverifiable·diagnostics를 따로 확인한다.
-4. 원본 33개와 문서 33개의 대응, 문서 내부 상대 링크, 테스트 문서의 유입 여부를 별도로 확인한다. 원본 파일이 늘거나 줄면 이 숫자도 갱신한다.
+4. 원본 34개와 문서 34개의 대응, 문서 내부 상대 링크, 테스트 문서의 유입 여부를 별도로 확인한다. 원본 파일이 늘거나 줄면 이 숫자도 갱신한다.
 5. 분석기의 needs_review·not_verified는 역할·지원 밖 표기에 대한 검토 상태다. 참조 일치만으로 전체 실행 동작을 검증했다고 해석하지 않는다.
 
 설치·실행·계약 요약은 [기존 구현 안내](../README.md)에서 확인한다. 이 라우팅 문서는 테스트 코드를 다루지 않는다.
