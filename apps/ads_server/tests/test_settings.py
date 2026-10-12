@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 
-from config.env import load_env
+from config.env import load_env, load_env_for_web
 from tests.helpers import DB_ENV, PROD_ENV, run_python
 
 SHOW_SECRET = "from django.conf import settings; print(settings.SECRET_KEY)"
@@ -134,3 +134,44 @@ class DotenvTests(SimpleTestCase):
     def test_missing_dotenv_is_not_an_error(self):
         with tempfile.TemporaryDirectory() as d:
             load_env(Path(d) / "does-not-exist.env")  # 예외가 없어야 한다
+
+
+
+class WebEntrySettingsTests(SimpleTestCase):
+    """6-3a(설계 §10 "웹 진입점의 설정 모듈"): 웹 진입점은 `.env` 의 설정 모듈을 따르지 않는다 — 실제 환경변수에 있으면 그 값, 없으면 prod.
+    예시 `.env`(전에는 dev 줄이 있었다)를 복사한 운영 웹 서버가 공개된 개발 키·Secure 쿠키 없이 dev 로 조용히 뜨던 문제(리팩터링 세션 검토 O1)."""
+
+    DEV_DOTENV = "DJANGO_SETTINGS_MODULE=config.settings.dev\nADS_TEST_WEB=from_file\n"
+
+    def dotenv_dir(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        (Path(directory.name) / ".env").write_text(self.DEV_DOTENV)
+        return directory.name
+
+    def keep_env(self, *names):
+        saved = {name: os.environ.get(name) for name in names}
+        for name in names:
+            os.environ.pop(name, None)
+        self.addCleanup(lambda: [os.environ.pop(n, None) if v is None else os.environ.__setitem__(n, v) for n, v in saved.items()])
+
+    def test_the_dotenv_settings_module_is_ignored_but_other_values_are_loaded(self):
+        self.keep_env("DJANGO_SETTINGS_MODULE", "ADS_TEST_WEB")
+        load_env_for_web(Path(self.dotenv_dir()) / ".env")
+        self.assertEqual((os.environ["DJANGO_SETTINGS_MODULE"], os.environ["ADS_TEST_WEB"]), ("config.settings.prod", "from_file"))
+
+    def test_a_real_environment_variable_still_chooses_the_module(self):
+        self.keep_env("DJANGO_SETTINGS_MODULE", "ADS_TEST_WEB")
+        os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings.dev"  # 부하·장애 시험처럼 실제 환경변수로 지정
+        load_env_for_web(Path(self.dotenv_dir()) / ".env")
+        self.assertEqual(os.environ["DJANGO_SETTINGS_MODULE"], "config.settings.dev")
+
+    def test_wsgi_and_asgi_start_with_prod_even_if_the_dotenv_says_dev(self):
+        """실제 진입점 모듈을 새 프로세스에서 불러온다. `.env` 위치만 임시 폴더로 바꾼다(개발자의 `.env` 와 무관하게)."""
+        directory = self.dotenv_dir()
+        for module in ("config.wsgi", "config.asgi"):
+            code = f"import config.env as e, pathlib; e.BASE_DIR = pathlib.Path({directory!r}); import {module}; from django.conf import settings; print(settings.SETTINGS_MODULE)"
+            r = run_python(code, None, PROD_ENV)
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, "config.settings.prod"), (module, r.stderr[-400:]))
+            r = run_python(code, "config.settings.dev", DB_ENV)  # 실제 환경변수로 지정하면 그 값
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, "config.settings.dev"), (module, r.stderr[-400:]))
