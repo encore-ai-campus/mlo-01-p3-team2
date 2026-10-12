@@ -1,13 +1,15 @@
 """Step 3-3 화면 전수 점검: 실제 데이터로 모든 화면을 그려 보안 헤더·CSP 위반·접근성 기본을 본다.
 
-- 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·로그인 화면의 캐시 금지.
+- 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·캐시 금지. GET 으로 그리는 화면과, POST 응답으로만 그려지는 화면(키 발급·로그인 잠금·가입 시도 제한).
 - CSP 위반이 될 마크업: 인라인 스크립트(데이터 블록 제외)·`style` 속성·`on…` 이벤트 속성. 브라우저가 막아 화면이 깨지거나 기능이 죽는다.
 - 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`), 비밀번호 칸의 `autocomplete`(현재·새 비밀번호), 겹치지 않는 id.
 - 색 대비: 디자인 토큰(`console/static/console/app.css`)의 글자·배경 쌍이 라이트·다크 모두 WCAG AA(4.5:1) 이상.
 """
 import re
+import uuid
 from html.parser import HTMLParser
 from pathlib import Path
+from unittest import mock
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
@@ -15,7 +17,8 @@ from django.test import Client, TestCase, override_settings, tag
 from django.urls import reverse
 
 from campaigns import api as campaigns
-from tests.factories import World, png_file
+from foundation.api import SignupRateLimited
+from tests.factories import PW, World, png_file
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
 
@@ -120,19 +123,47 @@ class ScreenQualityTests(TestCase):
             for url in urls:
                 r = client.get(url)
                 self.assertEqual(r.status_code, 200, url)
-                csp = r.get("Content-Security-Policy", "")
-                self.assertIn("script-src 'self'", csp, url)
-                self.assertIn("frame-ancestors 'none'", csp, url)
-                self.assertEqual(r.get("X-Frame-Options"), "DENY", url)
-                self.assertEqual(r.get("X-Content-Type-Options"), "nosniff", url)
-                self.assertTrue(r.get("Referrer-Policy"), url)
-                self.assertIn("no-store", r.get("Cache-Control", ""), url)
-                audit = PageAudit()
-                audit.feed(r.content.decode())
+                audit = self.assert_headers(r, url)
                 markup = [p for p in audit.problems if not p.startswith("대체 글")]
                 self.assertEqual(markup, [], url)
                 checked += 1
         self.assertGreaterEqual(checked, 20)
+
+    def assert_headers(self, r, label):
+        csp = r.get("Content-Security-Policy", "")
+        self.assertIn("script-src 'self'", csp, label)
+        self.assertIn("frame-ancestors 'none'", csp, label)
+        self.assertEqual(r.get("X-Frame-Options"), "DENY", label)
+        self.assertEqual(r.get("X-Content-Type-Options"), "nosniff", label)
+        self.assertTrue(r.get("Referrer-Policy"), label)
+        self.assertIn("no-store", r.get("Cache-Control", ""), label)
+        audit = PageAudit()
+        audit.feed(r.content.decode())
+        return audit
+
+    def test_post_only_and_error_screens_are_checked_too(self):
+        """정상 GET 으로는 나오지 않는 화면: 매체 키 발급(평문은 이 응답 한 번), 로그인 잠금(429), 가입 시도 제한(429), 오류 화면(`foundation/error.html`).
+        헤더·마크업·접근성 모두 같은 기준."""
+        admin = Client()
+        admin.force_login(self.w.admin)
+        detail = admin.get(reverse("operator:media_detail", args=[self.w.slot.media_id])).content.decode()
+        token = re.search(r'name="request_key" value="([^"]+)"', detail[detail.index('id="key-issue"'):]).group(1)
+        anonymous = Client()
+        for _ in range(settings.AXES_FAILURE_LIMIT):
+            anonymous.post(reverse("login"), {"username": self.w.adv.username, "password": "wrong-password-xyz"})
+        with mock.patch("console.views.auth.register_attempt", side_effect=SignupRateLimited(60)):
+            limited = Client().post(reverse("signup"), {})
+        advertiser = Client()
+        advertiser.force_login(self.w.adv)
+        screens = {
+            "키 발급": (admin.post(reverse("operator:key_issue", args=[self.w.slot.media_id]), {"label": "점검", "request_key": token}), 200),
+            "로그인 잠금": (anonymous.post(reverse("login"), {"username": self.w.adv.username, "password": PW}), 429),
+            "가입 시도 제한": (limited, 429),
+            "오류 화면": (advertiser.get(reverse("campaign_detail", args=[uuid.uuid4()])), 404),
+        }
+        for label, (r, status) in screens.items():
+            self.assertEqual(r.status_code, status, label)
+            self.assertEqual(self.assert_headers(r, label).report(), [], label)
 
     def test_console_screens_meet_the_accessibility_basics(self):
         """콘솔(광고주·로그인·가입) 화면. 관리자 화면의 틀은 Django admin 의 것이라 그 위에 얹은 운영 화면만 같은 기준으로 본다."""
