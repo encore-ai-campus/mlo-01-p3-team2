@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: 광고 서버 Media API (C1) 및 Asset URL (C3)
-  version: 1.2.0
+  version: 1.3.0
   summary: 매체 서버가 광고를 요청하고 반응을 보고하는 서버 간 API
   description: |
-    **Status: Approved (승격 2026-10-07, v1.1 확정·구현 2026-10-08, v1.2 확정 2026-10-12 — 아래 "v1.2 변경", 같은 날 문구 정정).** 설계 문서 `ads-server-design.md` §3의 C1·C3 계약이다.
+    **Status: Approved (승격 2026-10-07, v1.1 확정·구현 2026-10-08, v1.2 확정 2026-10-12 — 아래 "v1.2 변경", 같은 날 문구 정정, v1.3 확정·구현 2026-10-12 — 아래 "v1.3 변경").** 설계 문서 `ads-server-design.md` §3의 C1·C3 계약이다.
     이 파일이 계약의 원본이고, 광고 서버는 이 파일에 대한 provider 계약 테스트를 갖는다.
 
     ## 규약
@@ -30,7 +30,9 @@ info:
       매체는 화면에 쓸 때 **이스케이프**한다. 광고를 누르면 **`ad.click_url`로** 새 창(`noopener`)을 연다(`redirect_url`로 직접 이동하면 클릭이 기록되지 않는다).
     - **요청 ID**: 모든 응답에 `X-Request-ID`가 붙는다. 문의 시 이 값을 알려준다.
     - **크기 제한**: 요청 본문은 최대 16 KiB. `context`는 직렬화 4 KiB, 중첩 깊이 4 이하.
-    - **필드 추가**: 응답 객체에는 필드가 추가될 수 있다. 클라이언트는 **모르는 필드를 무시**한다.
+      요청 본문의 **모든 숫자**(정수·실수, 중첩 객체·배열 안 포함)는 **−(2^53−1) ~ 2^53−1**이고 밖이면 400이다(v1.3). 정수는 정확히 보존하고 실수는 근삿값(double)이다. 더 큰 정수·정확한 소수는 문자열로 보낸다.
+    - **필드 추가**: 응답 객체에는 필드가 추가될 수 있다. 클라이언트는 **모르는 필드를 무시**한다(응답 스키마도 추가 필드를 허용한다, v1.3).
+      서버는 계약에 적힌 필드만 내보낸다(시험으로 검사). 응답 필드의 호환 변경은 **새 선택 필드 추가뿐**이다 — 필드 삭제·타입 변경·새 필수 필드는 `/v2`다.
 
     ## 반응 전달 규칙 (유실 방지)
 
@@ -99,6 +101,18 @@ info:
     503의 뜻(`Unavailable`·`createDecision` — 저장됐을 수도 있다), 인증 예외에 `/c/{token}`과 인증보다 먼저인 전역 전송 상한(규약 "인증"·`PayloadTooLarge`),
     전환 판정 요약(아래 "확정된 항목"), 반응 `PUT` 설명의 클릭(매체는 보고하지 않는다).
 
+    ## v1.3 변경 (확정·구현 2026-10-12, 호환)
+
+    외부 검토 후속(설계 문서 §10 "결정 API 세부" ⑪·"공개 응답 스키마의 추가 필드")을 반영했다. 새 응답 코드는 없다(400 `invalid_request`는 이미 있다).
+    매체에 새로 생긴 요구는 1번이다 — 범위 밖 숫자를 보내던 매체는 문자열로 바꿔야 한다.
+
+    1. **요청 숫자 범위**: 요청 본문의 모든 JSON 숫자(정수·실수, `context` 안의 중첩 객체·배열 포함)는 **−(2^53−1) ~ 2^53−1**(9007199254740991)이다.
+       밖이면 저장 전에 400 `invalid_request`이고 결정은 없다(JSON 형식 오류처럼 본문 전체의 오류라 `errors[]`가 없다). 정수는 정확히 보존하고 실수는 근삿값(double)이다.
+       더 큰 정수·정확한 소수는 문자열로 보낸다. 범위는 JavaScript가 정수를 정확히 다루는 한계다(전에는 아주 큰 정수가 저장소에서 값이 조용히 바뀌거나 저장되지 못해 503이 반복됐다). 지금 C1 요청에서 숫자가 들어갈 수 있는 곳은 `context`뿐이다.
+    2. **응답 스키마는 추가 필드를 허용한다**: `Ad`·`Decision`·`Reaction`·`/health` 응답 스키마에서 `additionalProperties: false`를 뺐다.
+       응답을 이 계약 스키마로 검증하는 매체가 새 선택 필드 때문에 깨지지 않게 하려는 것이다(규약 "필드 추가"). 서버 출력은 시험이 스키마를 닫아 검사한다.
+       요청 스키마(`DecisionRequest`·`ReactionRequest`)는 그대로 닫혀 있다(모르는 필드는 400).
+
     ## 확정된 항목 (설계 문서 §10)
 
     - **전환(`CONVERSION`)**: 매체가 **사전에 정의한 목표 완료**를 보고한다. 광고 서버는 의미를 해석하지 않고 다른 반응과 같은 판정 규칙으로 판정한다(위 "v1.1 추가" 3번, "v1.2 변경" 4번):
@@ -147,7 +161,6 @@ paths:
               schema:
                 type: object
                 required: [status]
-                additionalProperties: false
                 properties:
                   status:
                     type: string
@@ -607,6 +620,8 @@ components:
         (`context` 객체 자신이 깊이 1이다).
         직접 식별자 키(`login_id`, `username`, `password`, `password_hash`, `nickname`, `email`)는 어느 깊이에서도
         허용하지 않는다(400 `forbidden_context_key`).
+        안의 숫자는 요청 본문의 다른 곳과 같이 **−(2^53−1) ~ 2^53−1**(정수·실수, 어느 깊이든, v1.3)이고 밖이면 400 `invalid_request`다.
+        큰 ID·정밀한 값은 문자열로 보낸다.
       additionalProperties: true
       maxProperties: 50
 
@@ -637,7 +652,6 @@ components:
     Ad:
       type: object
       required: [creative_id, title, image_url, redirect_url, click_url]
-      additionalProperties: false
       description: 보여줄 광고. 모든 문자열은 신뢰할 수 없는 값이다(이스케이프).
       properties:
         creative_id:
@@ -668,7 +682,6 @@ components:
     Decision:
       type: object
       required: [decision_id, slot_id, slot_name, audience, decided_at, ad]
-      additionalProperties: false
       properties:
         decision_id:
           $ref: "#/components/schemas/Uuid"
@@ -728,7 +741,6 @@ components:
     Reaction:
       type: object
       required: [reaction_id, decision_id, subject_id, type, occurred_at, received_at, status, reason_code]
-      additionalProperties: false
       properties:
         reaction_id:
           $ref: "#/components/schemas/Uuid"

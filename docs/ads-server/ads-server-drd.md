@@ -166,7 +166,7 @@ flowchart LR
 | R-9 | **소유권**: 광고주 데이터는 소유자 기준으로만 조회한다. 남의 것·없는 것·형식이 틀린 ID는 모두 404 | `owned_or_404`. 위협 모델 T4 |
 | R-10 | **판정 규칙은 한 곳**: 적용 금액·하한·종료 판정은 `engine` 순수 함수(`effect_of`, `is_expired`)에만 있다. 다른 곳은 값을 공급만 한다 | 소스 검사 테스트가 강제(`test_pricing_and_expiry_rules_are_defined_only_in_engine`) |
 | R-11 | **감사는 변경과 같은 트랜잭션**에 남긴다. 비밀 키 이름(`password`, `token`, `key` 등)은 기록 전에 제거 | `record_audit`. "감사 없는 변경"이 남지 않게 |
-| R-12 | **외부 JSON 입력 제한**: 본문 16 KiB(C1), 매체 `context` 직렬화 4 KiB·깊이 4, 직접 식별자 키 금지 | 계약 C1, `foundation.parse_json` |
+| R-12 | **외부 JSON 입력 제한**: 본문 16 KiB(C1), 매체 `context` 직렬화 4 KiB·깊이 4, 직접 식별자 키 금지, 모든 숫자 ±(2^53−1)(정수·실수, 중첩 포함 — 밖이면 400, C1 1.3.0, 6-2c) | 계약 C1, `foundation.parse_json` |
 
 ---
 
@@ -640,7 +640,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `slot_id` | UUID | N | | |
 | `subject_id` | 문자 200 | Y | `CHECK`: `audience`가 `individual`이면 NOT NULL, `shared`이면 NULL | 노출 대상 **가명 UUID**. 수집만 하고 해석하지 않는다. 일괄 슬롯의 결정에는 없다. **매체가 자기 비밀로 만든 광고 전용 가명**이어야 한다(다른 시스템의 식별자 금지, C1 v1.2, §10 D-5) |
 | `audience` | 코드 | N | `individual`·`shared`(슬롯이 같은 값을 갖는다) | 슬롯 성격 **스냅샷** [구현 2-7]. 이벤트·집계가 슬롯을 다시 조회하지 않아도 되게 결정이 자기 사실을 들고 있다 |
-| `context` | JSON | N | 기본 `{}` | 매체 부가 정보. **저장만 하고 해석하지 않는다**(선택에 쓰지 않음). 경계에서 속성 50개·4 KiB·깊이 4·직접 식별자 키 금지를 검사한다 |
+| `context` | JSON | N | 기본 `{}` | 매체 부가 정보. **저장만 하고 해석하지 않는다**(선택에 쓰지 않음). 경계에서 속성 50개·4 KiB·깊이 4·직접 식별자 키 금지를 검사한다. 숫자는 공통 JSON 파서가 ±(2^53−1)로 제한한다(R-12) — MySQL JSON에 정수가 정확히 남는 범위 안이다 |
 | `decided_at` | 시각 | N | 인덱스 | |
 | `owner_id` | UUID | Y | 아래 묶음 | 과금할 지갑 주인 |
 | `campaign_id`, `ad_group_id`, `creative_id` | UUID | Y | 〃 | 선택된 광고 |
@@ -820,7 +820,7 @@ stateDiagram-v2
 |---|:---:|---|
 | `slot_id` | O | UUID. 그 매체의 슬롯이어야 한다 |
 | `subject_id` | 슬롯에 따라 | **가명 UUID**. 직접 식별자 금지. **매체가 자기만 아는 비밀로 만든 광고 전용 가명**이어야 한다(다른 시스템의 식별자 — 회원 ID 등 — 를 그대로 쓰지 않는다, 같은 사람은 늘 같은 값, C1 v1.2 MUST. 예: `HMAC-SHA256(매체 비밀, "ads-subject/v1:" + 회원 ID)` 앞 16바이트 → UUID. 서버는 가명인지 구별할 수 없어 계약과 연동 검토로 지킨다). 수집만 하고 선택에 쓰지 않는다. **개인(`individual`) 슬롯은 필수, 일괄(`shared`) 슬롯은 보내지 않는다**(어기면 400 — 슬롯을 확인한 뒤에 검사하므로 404·403이 먼저) [구현 2-7] |
-| `context` | | 불투명 JSON, 4 KiB·깊이 4·속성 50개 이하, 직접 식별자 키 금지 |
+| `context` | | 불투명 JSON, 4 KiB·깊이 4·속성 50개 이하, 직접 식별자 키 금지, 숫자 ±(2^53−1)(C1 1.3.0) |
 
 **응답** (`201 Created`, `Location: /api/media/v1/decisions/{decision_id}`)
 
@@ -1208,7 +1208,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | # | 내용 | 영향 | 제안 |
 |---|---|---|---|
 | ~~D-1~~ | **비활성 슬롯 처리가 계약과 구현이 달랐다** — **해결(2-3, 2026-10-08)** | 계약 C1과 `records.decide`가 같아졌다 | 활성 매체의 비활성 슬롯은 후보 없이 **광고 없음(201, `ad: null`)으로 기록**(trace에 `slot_inactive`), 없는·다른 매체의 슬롯은 404, 비활성 매체는 403(결정 없음). 테스트 `test_inactive_slot_of_an_active_media_is_201_null_ad_and_recorded`, `test_missing_and_other_media_slots_are_404_and_look_identical`, `test_inactive_media_is_403_and_nothing_is_recorded` |
-| ~~D-2~~ | **매체 `context`를 저장하지 않았다** — **해결(2-3, 2026-10-08)** | 받은 값을 버리지 않는다 | `records_decision.context`(JSON, 기본 `{}`) 추가. 경계(`serving_api/requests.py`)가 계약대로 검증한다: 속성 50개·직렬화 4 KiB(UTF-8 바이트)·깊이 4(`context` 자신이 1)·직접 식별자 키 금지(대소문자 무시, 어느 깊이든, 400 `forbidden_context_key`). 선택에는 쓰지 않는다. 테스트 `DecisionContextTests` |
+| ~~D-2~~ | **매체 `context`를 저장하지 않았다** — **해결(2-3, 2026-10-08)** | 받은 값을 버리지 않는다 | `records_decision.context`(JSON, 기본 `{}`) 추가. 경계(`serving_api/requests.py`)가 계약대로 검증한다: 속성 50개·직렬화 4 KiB(UTF-8 바이트)·깊이 4(`context` 자신이 1)·직접 식별자 키 금지(대소문자 무시, 어느 깊이든, 400 `forbidden_context_key`). 선택에는 쓰지 않는다. 테스트 `DecisionContextTests`. 숫자 범위 ±(2^53−1)은 6-2c `5461af2`에서 더했다(공통 `parse_json`, R-12) |
 | ~~D-3~~ | **결정 응답의 `slot_name`이 없었다** — **해결(2-3, 2026-10-08)** | 계약 필수 필드를 채운다 | 서빙 계층이 응답을 만들 때 `masters.slot_names`로 붙인다(결정에 저장하지 않는다. 슬롯 이름이 바뀌면 조회 응답에 새 이름이 나간다). 테스트 `test_slot_name_is_looked_up_at_response_time_and_not_stored` |
 | ~~D-4~~ | **입찰·정책 행의 식별 방식** — **해결(2026-10-07)**: ② 서버 두 테이블에 UUID 열을 추가하는 안으로 결정 | C2 이벤트와 분석 조인 | `campaigns_bid.bid_id`, `masters_bid_policy.bid_policy_id`(UNIQUE) 추가, 결정이 `bid_id`·`bid_policy_id`를 함께 기록. 2026-10-08의 PK 규칙 적용으로 이 UUID가 PK가 되었다(D-8) |
 | ~~D-5~~ | **반응을 사용자·세션·강의실과 잇는 방법** — **해결(2026-10-12, 사용자 — 매체 연동 검토)**: 팀 DRD의 반응 로그는 `user_id`·`session_id`·`classroom_id`가 필수인데 광고 서버는 `subject_id`(가명)만 안다(팀 DRD A-19) | 분석 계층 조인. Kafka 메시지 키 | **필요하면 비밀을 가진 매체가 자기 쪽에서 가명 ↔ 사용자 대응을 내보내고, 파이프라인이 매체의 접근 통제 아래에서 잇는다. 광고 서버는 사용자 모델을 모른다.** 이를 위해 `subject_id`는 매체가 자기 비밀로 만든 광고 전용 가명이어야 한다(C1 v1.2 MUST, 설계 §10) — 회원 ID를 그대로 받으면 광고 로그만으로 매체의 다른 데이터와 이어져 한 사람의 이력이 식별된다 |
@@ -1235,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.35 | 2026-10-12 | Step 6-2f(6-2c `5461af2`, 스키마 변화 없음): 요청 JSON 숫자 범위 ±(2^53−1)을 R-12·결정 `context` 열·C1 입력 `context`·D-2 해결 행에 |
 | 0.34 | 2026-10-12 | Step 6-2 문구 정정(외부 검토, 동작·스키마 변화 없음): "부분 UNIQUE"를 실제 MySQL 구현으로 — §4.3 표기에 논리 규칙과 물리 구현의 구분(MySQL은 조건부 유일 제약을 만들지 않음, W036), O6 `open_campaign`·B2 `signup_grant_wallet`(DB 계산 열 + `UNIQUE`) 행 추가, B2 `reaction_ref`는 NULL 허용 일반 `UNIQUE`, §4.4 무결성 표 세 행, D-7 계획도 같은 방식 |
 | 0.33 | 2026-10-12 | Step 6-1 서버 규칙(6-1a `42de743`·6-1b `a70d769`): M5 `masters_media_deactivation`(ERD·엔터티 목록·컬럼·수명주기), M1 `is_active` 설명, P2 `basis` v3 `media_deactivated_at`, §5.3 규칙 체인에 `media-period` |
 | 0.32 | 2026-10-12 | 매체 연동 검토(Step 6-1 결정 반영, C1 v1.2): `subject_id`는 매체가 만든 광고 전용 가명(결정 표·C1 입력·반응 입력·L2), D-5 해결(가명 ↔ 사용자 대응은 매체가 접근 통제 아래에서 내보냄) |
