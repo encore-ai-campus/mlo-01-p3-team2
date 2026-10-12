@@ -1,9 +1,10 @@
-"""반응 처리 현황(Step 6-3c, 설계 §10 "반응 처리 현황 노출", §7-9 "처리 대기 건수를 로그로 노출").
+"""반응 처리 현황(Step 6-3c·관리자 첫 화면 카드 6-3i, 설계 §10 "반응 처리 현황 노출", §7-9 "처리 대기 건수를 로그로 노출").
 
 리팩터링 세션 검토 O2: 처리하지 못한 반응(stuck — 과금이 안 된다)이 보이지 않았다. 처리기는 처리한 것이 있을 때만 찍어서 멈춘 상태와 한가한 상태가 똑같이 조용했고,
 stuck 으로 넘어가는 순간도 남지 않았다.
 """
 import io
+import re
 import uuid
 from datetime import timedelta
 from random import Random
@@ -13,10 +14,11 @@ from unittest import mock
 from django.conf import settings
 from django.core.management import call_command
 from django.test import TestCase, override_settings, tag
+from django.urls import reverse
 
 from records import api as records
 from records.models import Reaction
-from tests.factories import NOW, SUBJECT, World
+from tests.factories import NOW, SUBJECT, World, make_admin
 
 OTHER = "0197a5c0-0000-7000-8000-000000000002"
 
@@ -101,3 +103,28 @@ class ProcessReactionsStatusOutputTests(InboxBase):
         idle = [line for line in out.getvalue().splitlines() if " idle " in line]
         self.assertEqual(len(idle), 3, out.getvalue())
         self.assertEqual([("'stuck': 1" in line) for line in idle], [False, False, True])
+
+
+@tag("security")
+class AdminIndexInboxCardTests(InboxBase):
+    """6-3i: 로그를 보지 않는 운영자도 관리자 첫 화면에서 stuck(과금되지 않은 반응)과 처리기 멈춤을 본다."""
+
+    def card(self):
+        self.client.force_login(make_admin())
+        html = self.client.get(reverse("admin:index")).content.decode()
+        return {th.split("(")[0]: td for th, td in re.findall(r'<th scope="row">([^<]*)</th><td>(.*?)</td>', html)}, html
+
+    def test_the_card_shows_each_count_and_flags_stuck_reactions(self):
+        for seconds in (0, 1):
+            self.set(self.receive(seconds), attempts=settings.REACTION_MAX_ATTEMPTS)
+        self.set(self.receive(2), checked_at=NOW)
+        self.receive(3)
+        rows, _ = self.card()
+        self.assertEqual((rows["대기"], rows["보류"]), ("4", "1"))
+        self.assertEqual(rows["stuck"], "<strong>2 — 과금되지 않은 반응이 있습니다</strong>")
+        self.assertRegex(rows["가장 오래된 대기"], r"^\d+초$")
+
+    def test_an_empty_inbox_shows_no_alarm(self):
+        rows, html = self.card()
+        self.assertEqual((rows["대기"], rows["보류"], rows["stuck"], rows["가장 오래된 대기"]), ("0", "0", "0", "없음"))
+        self.assertNotIn("과금되지 않은 반응이 있습니다", html)
