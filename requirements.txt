@@ -1,7 +1,0 @@
-# 실행 환경: Python 3.12. Python 자체는 pip 설치 대상이 아니다.
-# 현재 통신 모듈은 Python 표준 라이브러리로 구현하므로 외부 의존성이 없다.
-# HTTP 요청·오류 처리: urllib.request, urllib.error
-# JSON·환경 설정·UUID·UTC 시각: json, os, uuid, datetime
-# 단위 테스트·응답 대체: unittest, unittest.mock
-# Django는 이 모듈을 호출하는 게임 서버의 의존성으로 관리한다.
-# 실제 구현에 외부 패키지가 필요해지면 이 파일에 추가한다.

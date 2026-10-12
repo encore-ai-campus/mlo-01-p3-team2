@@ -2,7 +2,7 @@
 
 원본: `scripts/ad_bridge/delivery/worker.py` · [소스 파일](../../../../../scripts/ad_bridge/delivery/worker.py)
 
-[라우팅 목차](../../../ROUTING-README.md) · [구현 안내](../../../../README.md)
+[라우팅 목차](../../../ROUTING-README.md) · [구현 안내](../../../../../README.md)
 
 ## 역할
 
