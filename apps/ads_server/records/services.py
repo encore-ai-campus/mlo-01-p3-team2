@@ -113,6 +113,10 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},
         )
     with _atomic_if_needed():  # 결정과 이벤트(outbox)는 한 트랜잭션이다. 응답까지 묶는 트랜잭션은 C1 뷰가 열고(그 안이면 그대로 쓴다), 직접 부르면 여기서 연다
+        # 매체 생명주기 잠금(설계 §10 "매체 비활성화와 판정·결정의 순서", 6-2): 위의 활성 확인은 커밋 전 비활성화를 못 본다. 공유 잠금으로 다시 읽어
+        # 진행 중인 비활성화는 커밋까지 기다려 403 으로 막고, 잠금을 커밋까지 쥐어 뒤에 시작하는 비활성화가 이 결정보다 늦은 시각을 갖게 한다(결정끼리는 막지 않는다)
+        if not masters.media_active_for_share(media_id):
+            raise errors.Forbidden("이 매체는 비활성입니다.")
         decision = Decision.objects.create(
             media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
             selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
