@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "accounts.apps.AccountsConfig",
     "campus.apps.CampusConfig",
+    "learning.apps.LearningConfig",
     "eventing.apps.EventingConfig",
     "community.apps.CommunityConfig",
     "raffle.apps.RaffleConfig",
