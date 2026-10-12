@@ -1120,16 +1120,72 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 
 | 항목 | 위치 | 보류 이유 | 다시 볼 때 |
 |---|---|---|---|
-| 광고그룹 목록 N+1 | `campaigns/services.py` `list_ad_groups` | 부르는 화면이 아직 없다 | Step 3-2 광고주 콘솔에서 목록 화면을 만들 때 |
+| ~~광고그룹 목록 N+1~~ | `campaigns/services.py` `list_ad_groups` | 부르는 화면이 아직 없다 — Step 3 화면은 `ad_group_effects`(질의 3번)를 써서 지금도 부르는 화면이 없다(시험에서만) | **Step 3-4g에서 고친다**(§8.3, 결정 2026-10-12 사용자) |
 | 지갑별 원장 질의 N+1 | `billing/services.py` `_check_wallets` | 한 번에 읽으면 원장 전체가 메모리에 올라간다(교환 관계) | 지갑 수가 늘어 정합성 점검 시간이 문제가 될 때 |
 | 처리 직후 같은 반응 재조회 | `records/processing.py` `_wake_dependents` | 동시성 핵심 경로이고 반응당 질의 1회다 | 반응 처리량이 병목으로 측정될 때 |
-| 키별 UPDATE | `masters/services.py` `rotate_media_key` | 매체당 키가 1~2개라 이득이 없다 | 하지 않는다 |
+| ~~키별 UPDATE~~ | `masters/services.py` `rotate_media_key` | 매체당 키가 1~2개라 이득이 없다 | **해소** — `93db4e0`(외부 검토 3-1d 보완)이 정확성 문제 때문에 매체 행을 잠그고 조건부 UPDATE 한 번으로 바꿨다(교체의 만료 조건은 UPDATE 안에서) |
 
 ### 8.2.6 후속 변경 후보 (4-4 구현 중 발견, 구현 세션 보고)
 
 | 항목 | 위치 | 지금 | 다시 볼 때 |
 |---|---|---|---|
 | 준비 대기의 시간 제한 | `scripts/failure_test.py` `wait_ready` | 전체 대기 시간(기본 180초)은 있지만 한 번의 확인 호출(`docker exec … mysqladmin ping`)에는 시간 제한이 없어, 그 호출이 멈추면 전체 대기 시간을 넘길 수 있다. 4-4k(`docker()` 하나로)는 호출마다 지금 값을 넘기는 것까지만 했다(R5) | 장애 시험이 준비 대기에서 멈추는 일이 보이거나 시험 하네스를 다시 고칠 때. 개별 호출 시간 제한과 전체 대기 시간을 같이 정한다(시험 하네스만, 앱 없음) |
+
+---
+
+## 8.3 Step 3-4 코드 정리 계획 (리팩터링 3차, 2026-10-12 작성)
+
+**입력**: Step 4-4 정리 뒤(`e98669d`)부터 Step 3 승인(`dd22775`)까지의 코드 — 커밋 59개, 140개 파일(+7,971/−328). 리팩터링 세션 보고이고, 행 번호는 `dd22775` 기준이다. **구조를 고칠 문제는 없다.** 반복되는 코드 5묶음, 쓰이지 않는 코드 3곳, 표기 2곳을 정리하고, 동작이 바뀌는 성능 정리 둘(화면의 중복 읽기 B1, 광고그룹 목록 N+1)은 3-4g 한 단계로 따로 둔다.
+
+### 8.3.1 진행 기준 (모든 단계 공통)
+
+1. 하위 층 → 상위 층 순서로, **한 단계 = 한 커밋**. 단계마다 `scripts/check.sh`를 통과시킨다(`claude` 환경 파이썬, 다른 세션과 시험 DB가 겹치지 않게 `DB_NAME`을 따로).
+2. **동작 불변**(3-4g 제외): 응답 코드·문구·리다이렉트·감사 로그·잠금 순서·질의 수가 그대로다. 결정 서빙 경로(`candidate_facts_for_slot`·`records` 판정)는 건드리지 않는다 — 질의 수 결정 10 · 반응 38 · 클릭 26, 화면 시험의 "데이터가 늘어도 질의 수가 같다"도 그대로.
+3. **시험이 패치하는 이름은 바꾸지 않는다**: 화면 모듈의 `_now`(`console.views.dashboard`·`campaigns`·`points`), `records.services._now`·`records.processing._now`, `campaigns.services._creative_view`(`test_operator_campaigns`가 `wraps`로 호출 수를 센다).
+4. **경계 규칙**: `api.py`는 값 객체만 돌려주고, 콘솔은 `django.db`·`engine`·모델 매니저를 쓰지 않는다.
+5. 새 시험은 모두 변형 검사로 실제로 잡는지 확인한다. 마지막에 **150 동시 부하 시험**을 한 번 돌린다.
+6. 예상 규모: 3-4g를 빼고 순감 약 50줄.
+
+### 8.3.2 단계 (8단계)
+
+진행 순서: **3-4a → 3-4b → 3-4c → 3-4d → 3-4e → 3-4f → 3-4g → 3-4h**.
+
+| 단계 | 대상(위치) | 할 일 | 바뀌는 동작 | 완료 증거 |
+|---|---|---|---|---|
+| **3-4a 시험 먼저** | 새 파일 `tests/test_service_input_contracts.py`(2차의 `test_chunk_boundaries.py`와 같은 방식) | 기준선으로 `check.sh` 시험 수를 잰다. ① **요청 키**: `masters.issue_media_key`·`masters.rotate_media_key`·`billing.adjust`·`campaigns.create_ad`에 `""`·`"x"*65`·`123`이면 `InvalidRequest`이고 `errors`가 `[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}]`, `"x"*64`와 `None`은 통과. `campaigns.ad_created_by_key`는 위 세 값과 `None`에 `None`. 검증 순서도 고정 — 앞선 검증(교체의 유예 시간, 조정의 사유·금액)이 먼저 실패한다 ② **`enabled` 타입**: `update_ad_group`·`update_creative`에 `"1"`이면 `/enabled` "true 또는 false 여야 합니다." ③ **화면이 본 시각 대조**(`StaleVersion`, 409): `update_campaign`·`update_ad_group`·`update_creative`는 "다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.", `replace_creative_image`는 "… 다시 바꾸세요." ④ **관리자 중단·해제**: 없는 ID와 형식이 틀린 ID 모두 `NotFound`(지금 문구 그대로). 3-4d②(소재 묶기)와 3-4f(12곳)의 대상이 기존 시험에 잡히는지 변형 검사로 확인하고, 안 잡히는 곳은 이 단계에서 시험을 더한다 | 없음(시험만) | 새 시험이 변형 검사로 잡힘 |
+| **3-4b L0 foundation** | `foundation/validators.py`, `foundation/api.py`, `foundation/http.py:150-152` | `is_request_key(value)`(1~64자 문자열인지)와 `clean_request_key(value)`(`None`은 그대로, 그 밖의 틀린 값은 위와 같은 `InvalidRequest`)를 두고 `foundation.api`로 공개한다. `http.py`의 빈 줄 3개를 2개로 | 없음 — 요청 키 검증 4벌의 위치(`/request_key`)와 문구가 모두 같다 | `check.sh` 통과 |
+| **3-4c L1 masters** | `masters/services.py:260-263` `_request_key`, `:285`·`:302` | `_request_key`를 지우고 `clean_request_key`로 | 없음 | `check.sh` 통과 |
+| **3-4d L2 billing·campaigns** | `billing/services.py:100-101`·`:107`·`:117`, `campaigns/services.py` | **billing**: 요청 키는 `clean_request_key`로(검증 위치는 그대로), 같은 `Conflict` 문구 2벌을 모듈 상수 하나로. **campaigns**: ① 요청 키 `:644-645`는 `clean_request_key`, `:672-673`은 `is_request_key` ② 캠페인별 소재 묶기 2벌(`_MonitoringRows.__getitem__` `:387-389`, `open_review_queue` `:418-420`) → `_creatives_by_campaign(campaign_ids)` ③ 관리자의 캠페인 잠금 조회 2벌(`suspend_campaign` `:270-272`, `release_campaign` `:287-289`) → 도우미 하나 ④ 화면이 본 시각 대조 4벌(`:198-199`·`:493-494`·`:727-728`·`:753-754`) → 도우미 하나(문구는 동사만 다름) ⑤ `enabled` 타입 검사 2벌(`:498-499`·`:734-735`) → 하나 | 없음 — 질의(`select_related("ad_group")`, `created_at` 순)·질의 수(모니터링 쪽마다 4번, 대기열 2번)·잠금 순서·문구가 같다. 시험이 패치하는 `_creative_view`도 그대로 거친다 | `check.sh` 통과 |
+| **3-4e L3 records** | `records/management/commands/export_hop_manifests.py:16`·`:81`·`:83`, `records/hops.py:72` | 쓰는 곳이 없는 `HOPS`를 지운다(2차 때 놓친 것). `:83` 줄 끝의 최대 상주 메모리 주석을 `peak_rss`를 출력하는 `:81`로 옮긴다. `sample += [x][:examples - len(sample)]`를 `if len(sample) < examples: sample.append(x)`로 | 없음 — `examples`가 0이거나 음수여도 결과가 같다 | `check.sh` 통과 |
+| **3-4f L4 console** | `console/errors.py`, 운영 화면 `console/operator/views.py`, 광고주 화면 `console/views/ad_groups.py`·`campaigns.py` | `errors._not_shown` 마지막 조건의 튜플을 `HANDLED`로. `errors.run_action(request, call, *args, success=None, **kwargs)`를 둔다 — 실패하면 `messages.error(message_of(e))`, 성공하고 `success`가 있으면 `messages.success`, 성공 여부를 돌려준다. 이 패턴 **12곳**을 바꾼다: 운영 화면 7곳(`media_active:59`·`slot_active:82`·`key_revoke:165`·`campaign_suspend:193`·`campaign_release:204`·`review_reject:227`·`advertiser_active:261`), 광고주 화면 5곳(`ad_groups.py`의 `ad_group_enabled:101`·`creative_enabled:135`, `campaigns.py`의 `campaign_status:63`·`campaign_end:76`·`campaign_review:87`). 제외: `_issue_key:131`(성공하면 평문 키 화면을 그림), `ads.py:52`(돌려받은 값으로 분기). `ad_groups._done`은 다른 호출자가 남아 유지 | 없음 — 메시지 문구·순서와 리다이렉트가 같다. 콘솔 경계 규칙도 지킨다 | 12곳이 화면 시험에 잡힘(변형 검사, 3-4a), `check.sh` 통과 |
+| **3-4g 화면의 중복 읽기(B1)와 광고그룹 목록 N+1** (의도한 동작 변화, perf) | `console/views/dashboard.py:33`, `console/queries/alerts.py:32`·`:93-96`, `console/queries/dashboard.py:11`, `console/queries/ad_groups.py:28`·`:31`, `campaigns/services.py:696` `bid_effects`, `campaigns/services.py` `list_ad_groups` | **B1** ① 대시보드 지갑: 화면이 읽은 지갑을 `alerts_for`에 넘기고 `alerts.py`의 다시 읽기를 지운다(지갑이 없으면 잔액 알림이 없는 것은 같다) ② 대시보드 캠페인 목록: 화면이 `campaigns.list_campaigns(user, now=now)`를 한 번 읽어 `top_campaigns`와 `alerts_for`에 넘긴다 ③ 광고그룹 상세: `ad_group_page`가 이미 읽은 `get_slots_with_policy` 결과를 `campaigns.bid_effects(amount, slot_ids, slots=…)`에 넘겨 다시 읽지 않는다(광고 만들기 미리보기는 지금처럼 인자 없이, 적용 금액은 그대로 `_effect` → `engine`의 `effect_of`). **N+1**(§8.2.5에서 옮김, 결정 2026-10-12 사용자) ④ `list_ad_groups`가 광고그룹마다 현재 입찰(`_current_bid`)과 게재 위치(`slot_links`)를 따로 읽는다(질의 1 + 2N) → 현재 입찰은 하위 질의(`ad_group_effects`와 같은 방식), 게재 위치는 한 번에 읽어 **광고그룹 수와 무관한 고정 횟수**로 | **질의 수**: 대시보드 −3, 광고그룹 상세 −1, `list_ad_groups`는 그룹 수와 무관. **읽는 시점**: 위젯의 잔액과 잔액 알림이, 위치 정보와 위치별 결과가 같은 읽기를 본다(지금은 `READ COMMITTED`에서 따로 읽어 경쟁이 생기면 이론상 서로 다를 수 있다). 상위 캠페인 표의 상태도 화면의 `now`로 계산된다(지금은 `top_campaigns`가 시계를 따로 읽는다). 화면 값을 정하는 규칙은 그대로이고 C6·설계에는 영향이 없다 | 대시보드 한 번에 지갑 SELECT 1번, 광고그룹 상세의 슬롯 정책 조회 1번, `list_ad_groups`의 질의 수가 그룹 수와 무관함을 고정(중복 읽기·N+1을 되살리면 실패). `test_alerts.py`의 `alerts()` 도우미가 지갑과 캠페인 목록을 넘기게 고침. 기존 "질의 수는 데이터와 무관" 시험 그대로 통과 |
+| **3-4h 시험 정리** | `tests/test_dashboard.py:7`, `tests/test_operator_campaigns.py:14` | 쓰지 않는 import(`date`, `make_admin`)를 지운다 | 없음(시험만) | `check.sh` 통과 |
+
+### 8.3.3 정한 것 [확정 2026-10-12, 사용자]
+
+- **B1(화면의 중복 읽기)을 포함**한다. 의도한 동작 변화이므로 3-4g 한 단계로 따로 둔다.
+- **광고그룹 목록 N+1(§8.2.5)도 이번에 고친다** — Step 3 화면은 `ad_group_effects`(질의 3번)를 써서 `list_ad_groups`를 부르는 화면이 없지만(시험에서만 부름), 다시 볼 조건을 미루지 않고 3-4g에 넣는다.
+- **커밋은 2차와 같게**: 단계마다 하나씩, 파일을 지정해서(`-A` 금지), Claude/AI 관련 정보 없이. 형식은 `test|refactor|perf(ads-server): Step 3-4x …`.
+
+### 8.3.4 정리하지 않는 것 (일부러 남기는 중복)
+
+| 항목 | 이유 |
+|---|---|
+| 이미지 응답 3줄 2곳(`ad_groups.creative_image_file`, `operator.asset`) | `api.py`는 값 객체만 돌려주므로 `assets.api`에 응답 도우미를 둘 수 없다. 콘솔에 새 파일을 만들 만큼 크지도 않다 |
+| `ProfileView`·`AdvertiserAccount` | 하나는 C6 계약 타입이다. 합치면 계약 타입에 `last_login`이 들어간다 |
+| 비밀번호 확인 칸 비교 2곳, `token_urlsafe(16)` 4곳, 지갑이 없으면 `None` 2곳 | 2~4줄이라 도우미를 만들면 원래 코드보다 길어진다 |
+| 라벨 필터 7개(`console_format.py`) | 반복이지만 지금처럼 단순하게 둔 것이 가장 읽기 쉽다 |
+| 화면 모듈마다 있는 `_now()` | 시험이 모듈마다 패치한다 |
+| `campaign_page`가 광고주의 광고그룹 결과를 모두 읽은 뒤 거름 | 질의는 3번으로 고정이고, 행 수는 광고그룹 상한(100)까지다 |
+| `ponytail:` 표시가 있는 두 곳(`_MonitoringRows`, `summarize_windows`) | 한계가 적혀 있는 의도한 단순화다 |
+| 시험의 `request_key` 도우미 2개 | 하나는 폼 `id`로 범위를 잘라서 동작이 다르다 |
+
+### 8.3.5 이 계획과 함께 고친 문서
+
+- §8.2.5 "키별 UPDATE(`rotate_media_key`) — 하지 않는다" 행: `93db4e0`이 정확성 문제(겹친 교체가 만료된 키를 되살림) 때문에 조건부 UPDATE 한 번으로 바꿔 **이미 해소됨**으로 표시했다.
+- §8.2.5 "광고그룹 목록 N+1(`list_ad_groups`)" 행: 이번 3-4g에서 고치는 것으로 옮겼다.
+- §10 진행 표에 "Step 3-4 코드 정리 계획" 행(계획).
+- 끝나면 리팩터링 3차 기록을 남긴다(§10).
 
 # 9. 위험과 대응
 
@@ -1171,6 +1227,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | **Step 2 전체** | **승인 (2026-10-08, 외부 검토 `1fe79e9` — V1 범위: SQLite·로컬 파일 독립 서버)** | §7.1 종료 점검표(사람의 일: 매체 담당자와 계약 공유). 구현: `serving_api`·`records`(수신함·처리)·`masters`(매체 키) |
 | 2-11 마무리 | 완료 (2026-10-08) | 계약 `info.version` **`1.1.0`**(draft 해제, `[v1.1]` 표시 정리, 순서·`occurred_at` 허용 오차 문구를 구현과 맞춤, 400 검사는 404·403 뒤), 매체용 요약 [contracts/README.md](contracts/README.md)를 v1.1로(슬롯 두 종류, `click_url` 이동, 반응 순서·기간·보류와 사유 표), DRD §5.2·5.3 v1.1 반영(0.12), 위협 모델 **T38(클릭 관측)·T39(반응 판정)·T40(성과 집계)** 추가(Step 3의 T41·T42로 번호 이동), 부하 시험 단계 **H(클릭 경유 전체 퍼널)·J(일괄 슬롯 사람별 + 노출 없는 임의 `s` 클릭)·I(보류 해소 지연: 처리 프로세스가 없으면 보류로 남고 뜨면 약 5초에 풀림)** 추가, 규칙을 끄면 실패함을 확인. 150 동시 재측정은 Step DB의 DB-1d로 이관(MySQL로 잼). `load-test.md` §6. **Step 2 전체(v1.1 포함) 구현 완료.** 테스트 671개(시험 코드 변경 없음, 부하 시험만 확장) |
 | 2-10 퍼널 집계 | 완료 (2026-10-08) | `records.api.daily_report`(`records/report.py`): 광고주의 일별 노출·클릭·전환(인정된 `ACCEPTED`만, 일괄 슬롯은 사람마다)·소진 포인트와 직전 같은 길이 구간 합계, 구간의 모든 날을 0 으로 채움, CTR·전환율은 합계의 파생 속성(분모 0 이면 `None`). 범위는 결정의 `owner_id`·`campaign_id`·`ad_group_id`(남의 캠페인·광고그룹은 404, 광고주만), 구간은 예산 일 경계·최대 92일(아니면 400), 날짜는 수신 시각의 예산 일(`BUDGET_DAY_OFFSET_HOURS` 반영). 소진은 실제 받은 포인트(잔액 부족분 제외): 캠페인·광고주는 `CampaignSpend`, 광고그룹은 원장 과금에서 읽어 합이 캠페인과 일치. `billing.api`에 `spend_by_day`·`charged_amounts`·`day_start`, `campaigns.api`에 `campaign_ids_of`, 결정 인덱스 `(owner_id, campaign_id, ad_group_id)`(마이그레이션 `records/0008`). 질의 수는 데이터 양과 무관(시험으로 고정). 새 시험 `tests/test_funnel_report.py` 16개, 변형 13종(살아남은 2개는 질의 하한 최적화라 결과에 영향 없는 동등 변형). 테스트 655 → 671 |
+| Step 3-4 코드 정리 계획 | 계획 (2026-10-12) — 8단계(3-4a~3-4h) | 리팩터링 3차(리팩터링 세션 보고, 위치는 `dd22775` 기준)를 §8.3에: 3-4a 시험 먼저 → 3-4b L0 요청 키 검증 공용 → 3-4c L1 masters → 3-4d L2 billing·campaigns(반복 5묶음) → 3-4e L3 records(쓰지 않는 코드·표기) → 3-4f L4 console(`run_action`으로 12곳) → 3-4g 화면의 중복 읽기 B1과 광고그룹 목록 N+1(의도한 동작 변화, perf — 사용자 결정 2026-10-12) → 3-4h 시험 정리. 3-4g 밖은 동작 불변, 순감 약 50줄 |
 | **Step 3 전체** (3-0 · 3-1 · 3-2 · 3-3) | **승인 (2026-10-12, 외부 검토 `77dfc64` 통과)** | 외부 검토 이력(범위 `75670c6..77dfc64`): `4bd3ce8` 검토에서 P2 1건·P3 2건 → `f6a2a1b`·`71c645d`, `f6a2a1b` 재검토에서 P2·P3 → `77dfc64`, 재검토 통과. `f6a2a1b` 재검토의 열린 항목 두 건 — P2(다른 UUID 표기의 과금 키가 원본 구간 조회와 미해결 검사 양쪽에서 빠짐)와 P3(미해결 검사의 반응 조회가 매체 × 반응 ID 교차 조합을 읽음) — 는 `77dfc64`로 고쳤고, 재검토에서 해소를 확인해 **닫음**(P2 반례는 미해결 3건으로 내보내기·대조 모두 실패, P3는 청크 4에서 16행 → 4행). §8.1.7 종료 점검표. **검증 범위 — 이번 검토에서 다시 재지 않은 것**: 실제 브라우저, 150 동시 전체 부하, 장애·failover, 다중 웹 워커, 장시간 메모리 증가, 실제 플랫폼 연동, 질의 수 10·38·26, 기본 청크 2,000에서의 대규모 RSS. 이 가운데 150 동시 부하와 클러스터는 구현 세션이 `1930fd7` 시점에 `cluster_check.sh`로 통과시켰다. 남은 사람의 일: HTTP/HTTPS 배포(설계 §7-14). 진행 기록: | 3-0a `507e13d` 내 정보·비밀번호 서비스(S2) · 3-0b `d078b6d` 광고 만들기 서비스(S3) · 3-0c `30b566e` 콘솔 경계 규칙, 가입 묶음 `billing.register_advertiser` · 3-0d `03e74f4` 콘솔 공통 틀·역할별 루트 주소 · 3-1a `ee6134d` 운영 화면(매체·위치·키) · 3-1b `280b973` 입찰 정책 · 3-1c `7ed9c5c` 모니터링·중단·재검토(외부 검토 보완 `f977b59`) · 3-1d `f9a7a2e` 광고주·포인트(비활성 표시 `dabbd76`, 사용자 관리 화면의 광고주 활성 여부 읽기 전용 `675f39a`) · 3-2f `75247b9` 내 정보·비밀번호 변경 시도 제한 · axes 기록 읽기 전용 `ce259ae`. 외부 검토 3-1d 보완 `b4faf8a`(포인트 조정의 원장 멱등 키, 세션 폐기 버전, 역할 읽기 전용·계정 추가 없음, 지갑 없는 옛 계정)·`002f90b`(`is_superuser` 읽기 전용)·`4450a59`(매체 키 발급·교체도 요청 키, `console/once.py` 삭제)·`93db4e0`(사용자 관리는 편집한 칸만 쓰기, 키 발급·교체는 매체 행 잠금)·`38aafb9`(비밀번호를 바꾸는 요청은 세션 근거를 최신 행과 대조, 계정 삭제 없음)·`c029e35`(초기화는 요청자·대상을 ID 순서로 잠금)·`7936ac7`(잠금 대상은 화면과 같은 ID 해석, 해석 불가 404). 외부 검토 `7936ac7` P2·P3 `6ab829b`: 비밀번호 변경·초기화의 성공 감사 기록을 변경과 같은 트랜잭션에, 화면의 교착·잠금 대기 초과는 503 + `Retry-After`(§8.1.1), 재검토 대기는 대기 캠페인의 소재만 읽음(P3-4 1단계, 질의 2번), 경쟁 시험 도우미를 `tests/concurrency.py`로 모음(잠금 SQL 도착 신호 `arriving_before`, 잘못된 대상은 잠금 SQL·화면 미실행까지 확인), 시험 1172개. 3-2a 광고주 대시보드 `5413e1b`(기간·지표·그래프·포인트)·`ae80921`(상위 캠페인 표)·`ae5ee56`(알림 패널), 시험 1194개. 3-2b 광고주 캠페인 `f32ffe3`(목록·상세·수정의 버전 대조·끝내기·정지 사유와 재검토 요청), 시험 1208개. 3-2c 광고 만들기 `f10f1c4`(한 페이지 폼, 미리보기 `bid_effects`, `Campaign.request_key`, 화면 경로의 413은 HTML, 작은 JS 셋), 시험 1223개. 3-2d 광고그룹 상세 — 서비스 결함 수정 `57a69f6`(입찰 추가·광고그룹 수정·소재 수정·이미지 교체를 캠페인 행 → 그 행 순서로 잠금, 소재 수정의 버전 대조), 화면 `6ac2736`(동작마다 작은 폼, 본인 전용 이미지 경로 S4), 시험 1241개. 3-2e 광고주 포인트 `56c66cf`(원장 내역 커서, 과금 줄의 캠페인 이름·못 받은 포인트, 원장 표를 관리자 화면과 공용 — 관리자 원장에도 캠페인 이름, `campaigns.campaign_names`), 시험 1247개. 외부 검토(56c66cf) P2 3건·P3 `f6d4cdf`: 광고주 상한은 광고주 잠금 행(`AdvertiserQuota`)을 가장 먼저 잡고 그 안에서 셈(서로 다른 캠페인의 동시 만들기·이미지 교체가 상한을 넘었다), 성공한 요청 키는 폼 검증보다 먼저·잠금 안에서 다시 확인, KST로 표현할 수 없는 범위 끝 시각은 칸 오류(500이었다), 광고그룹 이름·게재 위치·이미지 교체도 화면이 본 변경 시각과 대조(`AdGroup.updated_at`). 3-3a·3-3b `75670c6`(접근 제어 전수·화면 전수 점검 시험, 라이트 `--muted` 대비), 3-3c `8b58f31`(Chrome 화면 점검에서 찾은 8건 — 광고 만들기의 Enter는 집행, 미리보기 `[hidden]`, 운영 표 가로 스크롤, 소재마다 이미지 교체 폼, 키 교체 확인 창, 폼 `id` 겹침, 비밀번호 `autocomplete`, 입찰 충돌 문구). 3-3d `716e506`(모니터링 DB 정렬·쪽 나누기, P3-4 2단계). 3-3e `449bb68`(구간 manifest 내보내기를 창 단위로, P3-3 — 색인 셋, `scanned_events`는 범위 안, `largest_window=`·`peak_rss=`). 종료 점검 `1930fd7`(JS 없는 주요 흐름의 HTML 폼 기반 서버 통합 시험, C6 규칙 ↔ 서비스 대조, 비밀번호 최대 길이 검증기). 화면 전수 점검 보완 `4bd3ce8`(정상 GET으로는 나오지 않는 화면 — 매체 키 발급·로그인 잠금·가입 시도 제한·오류 화면도 같은 기준으로). 외부 검토 범위 `75670c6..4bd3ce8`. 외부 검토(`4bd3ce8`) 보완 `f6a2a1b`(P2: 창에 놓을 수 없는 과금 원장 줄을 세어 내보내기·`verify_hops` 실패)·`71c645d`(P3: 화면 점검 빠뜨림 방지, JS 없는 흐름은 HTML 폼 기반 서버 통합 시험이라고 정확히). 재검토(`f6a2a1b`) P2·P3 `77dfc64`(판정한 반응의 키를 다른 UUID 표기로 바꾼 과금이 "일치"로 끝났다 → 과금 키는 표준 표기일 때만 그 반응의 키, 백필도 다른 표기로 추측하지 않음, 미해결 검사의 반응 조회는 정확한 쌍만). 위협 모델 T40·T43·T44 행 |
 | 외부 검토(`7936ac7`) 남은 P3 | **완료 (2026-10-12)** — ② P3-4 2단계 3-3d `716e506`, ① P3-3 3-3e `449bb68` (3-3에서 처리, 결정 2026-10-11 사용자) | 범위가 커 `6ab829b`에서 손대지 않았다. 둘 다 지금 규모에서는 급하지 않다. ① **P3-3 구간 정합 manifest 내보내기의 메모리**(Step 4 코드): `records/hops.py` `expected_events()`가 기대 이벤트 전체를 메모리에 만든다 → `produced_at`으로 조회 범위를 먼저 좁히고 창·이벤트 종류·ID 순으로 읽으며 해시를 점진적으로 계산한다. 기존 요약값, 원본에서 독립적으로 기대 이벤트를 만드는 규칙, 같은 읽기 스냅샷은 그대로 지키고, 읽은 행 수와 최대 메모리 측정을 더한다. 검토자도 메모리 부족을 재현하지는 않았고 소스에서 본 확장 위험이다 — **완료 `449bb68`**(3-3e): 세 구간 모두 닫힌 창 하나·이벤트 종류 하나씩 읽어 요약한다. **계획과 다른 점**: ⓐ 조회 범위는 `produced_at` 열 하나가 아니라 구간마다 그 생성 시각에 해당하는 열로 좁힌다 — 원본에는 `produced_at` 열이 없어 결정 시각·수신 시각·처리 시각(과금은 그 반응의 처리 시각), outbox는 `created_at`(이벤트 종류별), MongoDB는 `produced_at`. 이를 위해 색인 셋을 더했다(반응 `received_at`·`processed_at`, outbox `(event_name, created_at)`) ⓑ 해시를 점진적으로 계산하지 않고, **닫힌 창 하나·흐름 하나를 통째로 읽어 기존 `summarize`로 요약**한다(전부 읽어 한 번에 요약한 것과 같음을 시험). 메모리 상한은 "창 하나·흐름 하나"이고(ID 순 정렬에 필요), 그것도 크면 `--window hour`, 그래도 크면 외부 정렬 ⓒ 측정은 "읽은 행 수" 대신 `checkpoint.scanned_events`(범위 안에서 읽은 이벤트 수)와 실행 결과 줄의 `largest_window=`(한 번에 든 최대 이벤트 수)·`peak_rss=`(최대 상주 메모리) ⓓ 계획에 없던 것: `--since` 앞과 열린 창은 읽지 않고 빈 창은 건너뛴다, 과금은 판정 흐름 안에서 창의 반응으로 원장 과금 줄을 멱등 키로 찾는다(`billing.charge_entries_for`, 반응이 없는 과금 줄은 처음(`449bb68`)엔 원본 구간에서 조용히 빠져 세 구간이 "일치"로 끝났다 → 외부 검토 `4bd3ce8` P2로 생성 시각을 추정하지 않고 **따로 세어 내보내기·대조를 실패로 끝낸다**(`f6a2a1b`, `checkpoint.unresolved_charges`)), 미전송 건수는 미전송 행만 읽는다. 같은 읽기 스냅샷(①·②)과 원본에서 독립적으로 기대 이벤트를 만드는 규칙(매핑은 `expected_events`와 공용)은 그대로다 ② **P3-4 2단계 모니터링 DB 정렬·쪽 나누기**: `campaigns.monitoring_list`는 전부 읽어 파이썬에서 정렬한다(광고주 150명 × 캠페인 상한 20 전제, 코드에 한계 표시) → 마지막 변경 시각(캠페인·소재 중 늦은 쪽)을 DB에서 계산·정렬하고 그 쪽의 소재·요청만 읽는다 — **완료 `716e506`**(같은 시각은 캠페인 ID 역순, 쪽마다 질의 4번, §8.1.2 S5) |
 | **Step 3 착수 전 결정** | **결정 확정 (2026-10-11)** — 진행은 위 "Step 3 진행" | §8.1 갱신(2026-10-08 작성분을 DB 전환·Step 4 이후 상태로). D3-1 **조정**(JS 없이 동작이 기본, 작은 JS를 덧붙이는 규칙 셋과 MVP에서 붙이는 곳), D3-2·D3-3·D3-6 제안대로, D3-5 제안대로(오늘 포함은 우선 진행, 통합 시험에서 다시 판단), 재검토 조건(설계 §6.6의 분리 길). 위협 모델 Step 3 번호 T43(콘솔 뷰)·T44(관리자 동작)로 바꿈(T41·T42는 Step 4). 3-0에 루트 주소 역할별 이동·`foundation.api` 공용 도우미 전제, 3-2c에 "미리보기" 제출, Step 3 쓰기는 새 이벤트 종류 없음. 열린 항목: HTTP/HTTPS 배포(설계 §7-14). 설계 §10 "Step 3 화면 결정" |
