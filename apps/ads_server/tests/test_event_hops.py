@@ -12,6 +12,7 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api as billing
@@ -20,6 +21,8 @@ from events.models import EventOutbox
 from events.relay import relay_batch
 from foundation.models import AuditLog
 from records import api as records
+from records.models import Decision, Reaction
+from records.processing import reaction_ref
 from tests.factories import DAY, NOW, SUBJECT, World
 from tests.mongo_support import MongoDatabaseMixin
 
@@ -167,6 +170,29 @@ class WindowedSummaryTests(TestCase):
         self.assertEqual(records.unresolved_charges(batch=1), (count, examples))
         self.assertEqual(records.unresolved_charges(examples=2)[1], examples[:2])
 
+    def test_the_reaction_lookup_reads_only_the_charged_pairs(self):
+        """재검토(f6a2a1b) P3: 반응 조회가 매체 집합 × 반응 ID 집합의 교차 조합을 읽었다(키 B개에 최대 B²행). 정확한 (매체, 반응) 쌍만 읽는다.
+        매체 넷이 같은 반응 ID 넷을 모두 판정했고 과금은 대각선 넷뿐 — 한 묶음(4)의 조회가 4행을 넘지 않는다."""
+        ids, worlds = [uuid.uuid4() for _ in range(4)], [World(ends_in=None) for _ in range(4)]
+        for i, w in enumerate(worlds):
+            d = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(i))
+            for reaction_id in [ids[i]] + [x for x in ids if x != ids[i]]:  # 대각선이 먼저 인정·과금되고 나머지는 같은 사람의 중복이라 판정만 된다
+                view, _ = records.receive_reaction(w.slot.media_id, d.decision_id, reaction_id, "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)
+                records.process_reaction(view.inbox_id, now=NOW)
+        self.assertEqual(Reaction.objects.filter(media_id__in=[w.slot.media_id for w in worlds], processed_at__isnull=False).count(), 16)
+        self.assertEqual(len(billing.charge_entries_for([reaction_ref(w.slot.media_id, ids[i]) for i, w in enumerate(worlds)])), 4)
+        fetched = []
+
+        def count_rows(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "FROM `records_reaction`" in sql:
+                fetched.append(context["cursor"].rowcount)
+            return result
+        with connection.execute_wrapper(count_rows):
+            self.assertEqual(records.unresolved_charges(batch=4)[0], 0)
+        self.assertTrue(fetched)
+        self.assertLessEqual(max(fetched), 4, fetched)
+
     def test_unsent_counts_read_only_the_unsent_rows(self):
         EventOutbox.objects.filter(event_name=events.NAMES["charge"]).update(sent_at=NOW)
         expected = Counter((events.format_time(hops.window_start(r.created_at, hops.HOUR)), r.event_name) for r in EventOutbox.objects.filter(sent_at__isnull=True))
@@ -247,6 +273,22 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.verify()
         self.assertFalse(ok, text)
         self.assertIn(f"FAIL hop_source: 창에 놓을 수 없는 과금 원장 줄 1건(반응이 없거나 판정 전, 예: {orphan.entry_id})", text)
+        self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
+
+    def test_a_charge_key_that_only_looks_like_a_judged_reactions_key_is_unresolved(self):
+        """재검토(f6a2a1b) P2 재현: 판정한 반응의 키를 다른 UUID 표기(대문자·하이픈 없음·중괄호)로 바꾼 과금 세 건이 원본 구간의 문자열 조회에도,
+        UUID 로 해석하는 미해결 검사에도 걸리지 않아 '일치'로 끝났다. 키는 반응에서 만든 표준 문자열과 정확히 같아야 그 반응의 과금이다."""
+        relay_batch()
+        r = Reaction.objects.get()
+        decision = Decision.objects.get(pk=r.decision_id)
+        for ref in (f"{str(r.media_id).upper()}:{r.reaction_id}", f"{r.media_id.hex}:{r.reaction_id}", f"{{{r.media_id}}}:{r.reaction_id}"):
+            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        self.assertEqual(billing.check_ledger(), [])
+        ok, text = self.export()
+        self.assertFalse(ok, text)
+        self.assertIn("창에 놓을 수 없는 과금 원장 줄 3건", text)
+        ok, text = self.verify()
+        self.assertFalse(ok, text)
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
     def test_before_the_relay_mongodb_is_empty_and_outbox_shows_unsent(self):
