@@ -23,7 +23,8 @@ class BasisContentTests(FunnelBase):
     def test_an_accepted_impression_records_what_the_verdict_used(self):
         row = self.accept_impression(when=1)
         basis = row.basis
-        self.assertEqual(basis["v"], 2)
+        self.assertEqual(basis["v"], 3)
+        self.assertIsNone(basis["media_deactivated_at"])  # 결정 뒤에 매체를 끈 적이 없다(6-1b)
         self.assertEqual(basis["verdict"], {"rule": None, "reason": None})
         self.assertEqual((basis["person"], basis["audience"], basis["decided_at"]), (SUBJECT, "individual", NOW.isoformat()))
         self.assertEqual(basis["reaction"], {"type": "IMPRESSION", "source": "media", "reported_subject_id": None, "occurred_at": at(1).isoformat(), "received_at": at(1).isoformat()})

@@ -88,13 +88,13 @@ def get_media(actor, media_id):
         raise errors.NotFound("매체를 찾을 수 없습니다.")
 
 
-def set_media_active(actor, media_id, active):
+def set_media_active(actor, media_id, active, now=None):
     require_admin(actor)
     media_id = parse_uuid(media_id, "매체")
     with transaction.atomic():
         # 실제로 켜져 있던 매체를 끌 때만 비활성화 기록을 더한다(조건부 UPDATE 라 동시에 꺼도 한 줄)
         if not active and Media.objects.filter(pk=media_id, is_active=True).update(is_active=False):
-            MediaDeactivation.objects.create(media_id=media_id, deactivated_at=timezone.now())
+            MediaDeactivation.objects.create(media_id=media_id, deactivated_at=_now(now))
         elif not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
             raise errors.NotFound("매체를 찾을 수 없습니다.")
         _audit(actor, "masters.media_active_changed", ("masters.media", media_id), {"active": bool(active)})

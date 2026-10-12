@@ -158,7 +158,7 @@ BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
 REACTION_RULES = (  # 순서가 곧 판정 순서. 되돌릴 수 없는 거부(기간·형식)를 보류(전제 대기)보다 먼저 둔다
-    "known-decision", "same-media", "ad-shown", "click-source", "subject", "occurred-at", "campaign-open", "once-per-type",
+    "known-decision", "same-media", "media-period", "ad-shown", "click-source", "subject", "occurred-at", "campaign-open", "once-per-type",
     "funnel-window", "funnel-order",
 )
 REACTION_CLICK_WINDOW_SECONDS = 300  # 클릭은 결정 후 이 안에 있어야 한다(설계 §10 "반응 퍼널 규칙")

@@ -484,3 +484,56 @@ class InlineProcessingTests(TransactionTestCase):
         with override_settings(REACTION_PROCESS_ON_RECEIPT=False):
             self.put(decision, rid)
         self.assertEqual(Reaction.objects.get(reaction_id=rid).status, "RECEIVED")
+
+
+class MediaDeactivationTests(ProcessingBase):
+    """6-1b: 매체 비활성화는 그 전에 만든 결정을 끝낸다(설계 §10). 결정 뒤에 매체가 꺼진 적이 있고 반응이 그 뒤에 **접수**됐으면 `media_deactivated`.
+    다시 켠 뒤에 보낸 반응도 같다(403 을 받은 매체가 나중에 다시 보내 과금되는 구멍). 꺼지기 전에 접수된 반응은 판정이 늦어도 그대로 판정한다."""
+
+    def off_and_on(self, at, media=None):
+        masters.set_media_active(self.w.admin, media or self.media, False, now=at)
+        masters.set_media_active(self.w.admin, media or self.media, True, now=at)
+
+    def test_a_reaction_received_after_a_deactivation_is_rejected_even_after_reactivation(self):
+        self.off_and_on(NOW + timedelta(seconds=10))
+        view = self.receive(at=NOW + timedelta(seconds=20))
+        self.assertEqual(self.process(view, now=NOW + timedelta(seconds=20)), "REJECTED")
+        row = self.row(view)
+        self.assertEqual((row.reason_code, row.applied_rule), ("media_deactivated", "media-period"))
+        self.assertEqual(row.basis["media_deactivated_at"], (NOW + timedelta(seconds=10)).isoformat())
+        self.assertEqual((self.charges(), self.balance()), (0, 50_000))
+
+    def test_a_reaction_received_before_the_deactivation_is_judged_as_usual_even_if_late(self):
+        view = self.receive(at=NOW + timedelta(seconds=5))
+        self.off_and_on(NOW + timedelta(seconds=6))
+        self.assertEqual(self.process(view, now=NOW + timedelta(seconds=30)), "ACCEPTED")
+        self.assertIsNone(self.row(view).basis["media_deactivated_at"])
+        self.assertEqual(self.charges(), 1)
+
+    def test_a_deactivation_before_the_decision_does_not_matter(self):
+        self.off_and_on(NOW)  # 결정과 같은 시각까지는 결정보다 앞이다(결정 시각 제외)
+        self.assertEqual(self.process(self.receive(at=NOW + timedelta(seconds=5)), now=NOW + timedelta(seconds=5)), "ACCEPTED")
+
+    def test_a_server_observed_click_after_the_deactivation_is_rejected_too(self):
+        self.assertEqual(self.process(self.receive(at=NOW + timedelta(seconds=1))), "ACCEPTED")
+        self.off_and_on(NOW + timedelta(seconds=10))
+        click = self.click(at=NOW + timedelta(seconds=20))
+        self.assertEqual(self.process(click, now=NOW + timedelta(seconds=20)), "REJECTED")
+        self.assertEqual((self.row(click).reason_code, self.row(click).applied_rule), ("media_deactivated", "media-period"))
+
+    def test_another_media_deactivation_or_report_is_judged_by_its_own_rule(self):
+        other = World()
+        self.off_and_on(NOW + timedelta(seconds=10), media=other.slot.media_id)  # 다른 매체를 끈 것은 이 결정과 무관하다
+        self.assertEqual(self.process(self.receive(at=NOW + timedelta(seconds=20)), now=NOW + timedelta(seconds=20)), "ACCEPTED")
+        self.off_and_on(NOW + timedelta(seconds=30))
+        view = self.receive(media_id=other.slot.media_id, at=NOW + timedelta(seconds=40))  # 다른 매체의 보고는 매체 불일치가 먼저다
+        self.assertEqual(self.process(view, now=NOW + timedelta(seconds=40)), "REJECTED")
+        self.assertEqual(self.row(view).reason_code, "media_mismatch")
+        self.assertEqual(self.row(view).basis["media_deactivated_at"], (NOW + timedelta(seconds=30)).isoformat())  # 근거는 결정을 만든 매체의 비활성화다
+
+    def test_the_rule_holds_whatever_the_rule_configuration(self):
+        self.off_and_on(NOW + timedelta(seconds=10))
+        view = self.receive(at=NOW + timedelta(seconds=20))
+        with override_settings(REACTION_RULES=()):  # 판정 규칙을 설정에서 빼도 필수 조건이다
+            self.assertEqual(self.process(view, now=NOW + timedelta(seconds=20)), "REJECTED")
+        self.assertEqual((self.row(view).reason_code, self.row(view).applied_rule), ("media_deactivated", "guard"))
