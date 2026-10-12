@@ -15,7 +15,7 @@
 3. **안쪽부터 만든다.** 순수 로직(`engine`)과 도메인을 먼저 테스트로 닫고, 바깥(`serving_api`, `console`)은 마지막에 얹는다.
 4. **경계 규칙(R1~R8)은 첫날부터 테스트로 강제한다**(0-6의 경계 검사). 위반을 나중에 한꺼번에 고치지 않는다.
 5. **설계와 어긋나는 사실을 발견하면 코드를 고치기 전에 설계 문서를 먼저 고친다.** 확정된 열린 결정은 설계 §10으로 옮긴다.
-6. **작업 환경**: `mamba activate claude`(Python 3.14.7). **코드에서 import하는 모든 라이브러리는 `requirements.txt`에 적는다**(§3 표).
+6. **작업 환경**: 프로젝트 가상환경 `apps/ads_server/.venv`(Python 3.14 — `python3.14 -m venv .venv` → `source .venv/bin/activate` → `pip install -r requirements.txt`, README "실행"). 2026-10-10까지는 개인 conda 환경(`mamba activate claude`, Python 3.14.7)을 썼고, 다른 사람이 같은 환경을 만들 수 있도록 바꿨다. **코드에서 import하는 모든 라이브러리는 `requirements.txt`에 적는다**(§3 표).
 7. **테스트는 Django 기본 러너**(`python manage.py test`)를 쓴다. 별도 테스트 프레임워크를 들이지 않는다. 보안 회귀 테스트는 `@tag("security")`로 표시해 `--tag security`로 따로 돌릴 수 있게 한다.
 8. **커밋 단위**: 하위 단계(예: 0-2) 하나 이상. 완료 증거가 통과한 상태로만 커밋한다.
 
@@ -37,7 +37,7 @@ Step 2  Serving API (1-5 이후)   2-1 ─▶ 2-2 ─▶ 2-3 ─▶ 2-4 ─▶ 2
         C1 v1.1 (2-6 이후, Step 3 전)   2-7 ─▶ 2-8 ─▶ 2-9 ─▶ 2-10 ─▶ 2-11 ─▶ 2-12 ─▶ 2-13
 Step DB DB 전환 (Step 2 마무리 직후, Step 3 전)   DB-1 MySQL ─▶ DB-2 MongoDB 연결
 Step 3  화면 (Step DB 이후. 3-1 관리자와 3-2 광고주는 서로 독립)
-Step 4  이벤트 내보내기 (Step DB 이후)   4-1 outbox → 중계 → MongoDB ─▶ 4-2 NDJSON manifest·검증
+Step 4  이벤트 내보내기 (Step DB 이후)   4-1 outbox → 중계 → MongoDB ─▶ 4-2 NDJSON manifest·검증 ─▶ 4-3 백필·구간별 정합 manifest ─▶ 4-4 코드 정리
 Step 5  확장 (조건부: 조회 시간·부하 지표가 한계일 때. 지금은 기록만)
 ```
 
@@ -129,7 +129,7 @@ apps/ads_server/
   requirements.txt
   .env.example                 # 이름만. 값은 넣지 않는다
   .gitignore                   # .env, db.sqlite3, media/, __pycache__
-  README.md                    # 실행 방법(mamba activate claude, 환경변수, 명령)
+  README.md                    # 실행 방법(.venv, 환경변수, 명령)
   config/
     settings/{__init__,base,dev,prod,test}.py
     env.py                     # load_env(): .env 로드(python-dotenv). 설정보다 먼저 호출
@@ -849,7 +849,7 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | **DB-1a 준비 [완료 2026-10-08]** | `mysqlclient` 추가, `DATABASES`를 환경변수 기반으로, 8.4 시험용 컨테이너 정의와 사용법(README), 개발·시험 설정, `check.sh`의 시험·부하 단계가 MySQL을 쓰도록(없으면 **명확히 실패**, 건너뛰지 않는다), 전체 시험을 MySQL에서 한 번 돌려 **실패 목록**을 만든다 | 컨테이너 한 줄로 시험 환경이 뜬다. 실패 목록이 문서에 있다 |
 | **DB-1b 제약·SQL 재설계 [완료 2026-10-09]** | 조건부 유일 제약 3곳 교체(데이터 이전 포함), SQLite 문법의 시험(원시 SQL `DROP INDEX` 등) 재작성, `W036` 경고 0. **기존 데이터 사전 검사**(보완 `0b23b86`): 새 유일 제약을 어기는 기존 데이터(같은 반응 키의 중복 과금, 한 지갑의 가입 지급 중복, 캠페인당 열린 재검토 요청 중복)를 **모든 DDL보다 먼저** 검사해 알리고 멈춘다 — 자동 삭제 없음 | `makemigrations --check`·`check --deploy` 경고 0, 제약을 빼면 실패하는 시험(MySQL에서), 위반 데이터가 있으면 스키마를 바꾸기 전에 멈추고 정리 뒤 같은 DB에서 재실행되는 시험 |
 | **DB-1c 동시성 [완료 2026-10-09 `7aac929`]** | S5·S6: 격리 수준 결정, 교착·잠금 초과를 일시 오류로, 스레드 동시성 시험(과금·입찰·정책·반응 처리)을 MySQL에서 반복 실행, 원장 `seq`·지갑 잠금(`SELECT … FOR UPDATE`) 검증. **[필수, 검토 DB-1a P2] `recompute_spend`와 과금의 경쟁**: MySQL의 `atomic()`은 다른 연결의 과금을 막지 않아, 재계산이 원장 10을 읽은 뒤 다른 연결이 20을 과금·커밋하면 소진액이 10으로 교체된다(원장 30, `CampaignSpend` 10 — `check_ledger()`는 잡지 못한다). 과금과 재계산이 **공유하는 잠금 또는 배타 실행 규약**을 정하고(예: 재계산이 모든 지갑 행을 `FOR UPDATE` 순서대로 잠그거나, 소진액 갱신 자체를 원장 증가분 적용으로 바꿔 재계산을 점검 도구로 한정), **실제 두 연결의 순서를 제어하는 회귀 시험**(첫 과금 10 커밋 → 재계산이 읽은 직후 멈춤 → 다른 연결이 새 반응 키로 20 과금·커밋 → 재개 → 소진액 = 원장 합계)을 넣는다. **새 캠페인·새 날짜**의 소진액 행도 대상이다. 과금을 멈추고 재계산하는 운영으로 제한한다면 그 제약을 설계와 실행 절차에 명시한다 | 반복 실행(수십 회) 무실패, 교착 주입 시험(처리는 횟수 불변·재시도, API는 503). **접수·판정 경쟁**(설계 §10 "반응 판정 세부" ⑪): 같은 결정에 접수 여럿과 판정이 동시에 도는 시험을 MySQL에서 반복해, 진행 중인 이른 접수를 판정이 기다리고 인정 대표·클릭·전환·과금이 처리 순서와 무관한지 확인. **잠금 대기 초과 처리**: 접수의 결정 행 잠금이 대기 초과(1205)되면 503 + `Retry-After`이고 행이 남지 않으며 같은 ID 재시도가 처음 접수가 됨, 판정이 잠금 대기 초과·교착이면 `attempts`를 올리지 않고 다음 주기에 다시 판정함(`stuck`으로 빠지지 않음). **잠금의 소유 범위 [완료 2026-10-09 `a139e39`] (외부 검토 `974c28b`, 설계 §10 "반응 판정 세부" ⑪ (바))**: `records/ordering.py`의 접수 잠금은 보고 매체를 받아 잠그기 전 일반 조회로 소유를 확인하고 없는 결정·남의 결정은 잠금 없이 저장, 판정 앞 대기는 반응의 매체 = 결정 소유 매체일 때만. 실제 MySQL 두 연결 시험 3개: 다른 매체의 미커밋 보고가 소유 매체의 정상 접수를 막지 않음 · 소유 매체의 진행 중 접수가 남의 결정 보고의 판정을 기다리게 하지 않음 · 다른 매체의 진행 중 접수가 소유 매체 반응의 판정을 막지 않음(잠금 대기 초과·`attempts` 증가 없음). `FOR UPDATE`에 매체 조건만 붙인 변형은 첫 시험에서 실패해야 함 |
-| **DB-1d 부하·장애 [로컬 완료 2026-10-09 `554391d`, 인프라 서버 항목 남음]** | 부하 시험(`scripts/load_test.py`)을 MySQL로, **150 동시 재측정**(2-11에서 넘어온 항목), 처리 프로세스 정지·재기동·보류 해소 지연, 인프라 서버(Backend)에서 통합 확인: 마이그레이션·Router 경유 접속·**계획된 전환 중 503과 복구**, **원본 노드 장애 모의 뒤 강제 failover에서 수신 확인한 ID의 생존 검사** | 유실 0·이중 과금 0·잔액=원장 불변식 통과(단일 노드·계획된 전환 기준), `load-test.md` 갱신(MySQL 수치와 한계), 강제 failover 때 유실될 수 있는 범위와 복구 절차의 기록. **결과(2026-10-09)**: 로컬(개발 PC 단일 노드) — 150 동시 재측정 불변식 통과·보류 해소 1.1초·재기동 처리 수 초~십수 초, 장애 시험 `scripts/failure_test.py`(재시작·강제 종료·처리 프로세스 강제 종료) 통과, `load-test.md` §2·§7 갱신. **남은 항목(인프라 서버)**: Router 경유 접속·마이그레이션 통합 확인, 계획된 전환 중 503과 복구, 원본 노드 장애 모의 뒤 강제 failover에서 수신 확인한 ID의 생존 검사와 유실 범위·복구 절차 기록(허용 유실 범위는 7.3.4-6, 사람이 정함) |
+| **DB-1d 부하·장애 [로컬 완료 2026-10-09 `554391d`, 인프라 서버 항목 남음]** | 부하 시험(`scripts/load_test.py`)을 MySQL로, **150 동시 재측정**(2-11에서 넘어온 항목), 처리 프로세스 정지·재기동·보류 해소 지연, 인프라 서버(Backend)에서 통합 확인: 마이그레이션·Router 경유 접속·**계획된 전환 중 503과 복구**, **원본 노드 장애 모의 뒤 강제 failover에서 수신 확인한 ID의 생존 검사** | 유실 0·이중 과금 0·잔액=원장 불변식 통과(단일 노드·계획된 전환 기준), `load-test.md` 갱신(MySQL 수치와 한계), 강제 failover 때 유실될 수 있는 범위와 복구 절차의 기록. **결과(2026-10-09)**: 로컬(개발 PC 단일 노드) — 150 동시 재측정 불변식 통과·보류 해소 1.1초·재기동 처리 수 초~십수 초, 장애 시험 `scripts/failure_test.py`(재시작·강제 종료·처리 프로세스 강제 종료) 통과, `load-test.md` §2·§7 갱신. **로컬 클러스터 확인(2026-10-10, §7.3.4c)**: Router 경유 접속, 계획된 전환·primary 강제 종료 뒤 자동 failover에서 503과 복구, 확인한 쓰기의 생존을 InnoDB Cluster 3노드에서 확인했다. **남은 항목(인프라 서버)**: Router 경유 접속·마이그레이션 통합 확인, 계획된 전환 중 503과 복구, 원본 노드 장애 모의 뒤 강제 failover에서 수신 확인한 ID의 생존 검사와 유실 범위·복구 절차 기록(허용 유실 범위는 7.3.4-6, 사람이 정함) |
 | **DB-1e 정리 [완료 2026-10-09 `f2e930b`]** | SQLite 설정·`sqlite_config`·PRAGMA 시험·임시 파일 DB 코드 제거, 위협 모델의 "SQLite 단일 노드" 행과 `load-test.md`·README·설계의 SQLite 전제 문구 갱신, `.gitignore`의 `db.sqlite3` | `git grep -i sqlite`에 이력·결정 기록만 남음, `check.sh` 통과 |
 | **DB-2 MongoDB 연결 [로컬 완료 2026-10-10 `b01b425`, 인프라 서버 확인 남음]** | `pymongo`, 연결 설정(환경변수, 인증, 레플리카셋 이름), 관리 명령으로 `ad_events` 컬렉션·색인(`_id = event_id`) 생성, 상태 확인(연결·쓰기 권한·색인). **이벤트는 아직 쓰지 않는다**(Step 4) | 로컬 단일 노드 Replica Set과 인프라 서버 양쪽에서 연결·색인 확인, 연결 실패 시 앱이 영향을 받지 않음(아직 쓰지 않으므로). **결과(2026-10-10)**: 로컬 — 공유 컨테이너(Standalone·인증)와 임시 단일 노드 레플리카셋(인증 켜짐, `scripts/mongo_temp_rs.py`) 양쪽에서 시험 16개 통과(변형 검사로 확인). `ensure_event_store`는 컬렉션(공통 봉투 검증)과 색인 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`)을 만든다. 여러 번 불러도 같고, 같은 이름에 다른 키의 색인이 있으면 지우지 않고 멈춘다. `check_event_store`는 연결·8.x·레플리카셋 이름·쓰기 권한(별도 확인용 컬렉션, 계약 컬렉션은 건드리지 않음)·컬렉션·색인을 보고 하나라도 실패하면 비정상 종료한다. 쓰기는 과반 확인(`w=majority`), `_id = event_id`(UUID 표준 표현), 비밀번호는 URI 밖. 연결은 처음 쓸 때 만들고 앱 기동·요청 경로는 연결하지 않으며(`test_the_app_does_not_connect_at_all`), prod는 `MONGO_HOSTS`가 없어도 기동한다(Step 4에서 필수로). `check.sh`가 맨 앞에서 MongoDB 접속을 점검한다(없으면 멈춤). **남은 항목(인프라 서버)**: 3대 Replica Set(keyfile 인증)에서 연결·색인·쓰기 권한 확인 |
 
@@ -860,8 +860,14 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 3. **앱 전용 데이터베이스 이름과 생성 방식**(`dev` 계정이 `CREATE DATABASE`를 할 수 있다). 개발·스테이징 서버가 따로 있는지.
 4. **`max_connections`·`innodb_lock_wait_timeout` 기본값** 확인(Django 연결 수 = 워커 수 × 스레드 수).
 5. **MongoDB `ad_events`용 데이터베이스 이름**과 `dev` 계정의 쓰기 권한 범위 확인(`readWriteAnyDatabase`라 충분하지만 이름을 정한다).
-6. **강제 failover의 허용 유실 범위 결정**: 비동기 ReplicaSet은 원본 노드 장애 뒤 강제 승격에서 복제 지연분(수신 확인한 반응·결정 포함)을 잃을 수 있다. 허용할지, 매체가 2xx 뒤에도 `GET`으로 생존을 확인하는 절차를 둘지, 무손실 복제 구조(반동기·그룹 복제 — 서버 3대 이상이라 인프라 구성 변경)를 요청할지 정한다. 정하기 전에는 "유실 0"을 단일 노드 기준으로만 쓴다.
-7. 앱 배포 방식(프로세스 관리자·`process_reactions` 상시 실행·로그 위치)은 인프라가 "서비스 영역"으로 남겨 둔 부분이라 별도로 정해야 한다.
+6. **강제 failover의 허용 유실 범위 결정**: 비동기 ReplicaSet은 원본 노드 장애 뒤 강제 승격에서 복제 지연분(수신 확인한 반응·결정 포함)을 잃을 수 있다. 허용할지, 매체가 2xx 뒤에도 `GET`으로 생존을 확인하는 절차를 둘지, 무손실 복제 구조(반동기·그룹 복제 — 서버 3대 이상이라 인프라 구성 변경)를 요청할지 정한다. 정하기 전에는 "유실 0"을 단일 노드 기준으로만 쓴다. — **(2026-10-10)** 8번(InnoDB Cluster)으로 바꾸면 자동 failover와 그룹 과반 인증으로 이 문제를 줄인다. 로컬 클러스터 시험에서는 primary 강제 종료에도 확인한 쓰기 유실 0이었다(§7.3.4c). 허용 범위의 결정 자체는 여전히 사용자 몫이다.
+7. 앱 배포 방식(프로세스 관리자·`process_reactions`·`relay_events` 상시 실행, `purge_sent_events`·`export_hop_manifests` 주기 실행, 로그 위치)은 인프라가 "서비스 영역"으로 남겨 둔 부분이라 별도로 정해야 한다.
+8. **[요청 후보 2026-10-10] 운영 MySQL을 InnoDB ReplicaSet에서 InnoDB Cluster로**: 서버 3대(그룹 복제, 단일 primary, **자동 failover**) + MySQL Router. 6번의 강제 failover 유실 문제를 구조로 줄이는 안이고, 로컬 3노드 클러스터에서 앱 코드 변경 없이 점검·부하·장애 시험이 모두 통과했다(§7.3.4c). 요청에 담을 것:
+   - 노드 3대(과반 유지를 위해 홀수), 같은 8.4 LTS(Server·Shell·Router). 설정: GTID·ROW 바이너리 로그·`binlog_checksum=NONE`, InnoDB 외 엔진 비활성, `innodb_flush_log_at_trx_commit=1`·`sync_binlog=1`
+   - 클러스터 옵션: 일관성 `BEFORE_ON_PRIMARY_FAILOVER`(failover 직후에도 확인한 쓰기를 읽음), `expelTimeout`(로컬 5초 — failover 시간과 오탐의 균형), 자동 재합류
+   - 계정 분리: 클러스터 관리(`failover`), Router 부트스트랩 계정, 앱 계정(`dev`, DML·DDL). 앱은 **Router 읽기·쓰기 포트로만** 접속
+   - 운영 수치 확인: 실제 failover 시간(로컬 약 22~26초)과 계획된 전환 시간(로컬 부하 중 약 53초), 네트워크 분리 때의 동작, `max_connections`(4번)
+   - 앱 쪽 전제: 모든 표에 기본 키(이미 충족), 일시 오류는 503 + 재시도(이미 충족). 설계 §10 "그룹 복제(InnoDB Cluster) 전제"
 
 ### 7.3.4a DB-1a 결과: MySQL 8.4에서의 시험 실패 목록 (2026-10-08) — 아래 표의 7개는 DB-1b(2026-10-09)에서 모두 해결, 전체 692개 통과
 
@@ -903,6 +909,41 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 
 **반복 실행** — 동시성 시험 41개를 **30회**, 위험한 3묶음을 **60회** 반복해 실패 0. 정상 경쟁에서 오류·503·교착이 나면 드러나도록 SQLite 시절의 재시도 루프를 시험에서 없앴다(낙관적 잠금의 패자는 `StaleVersion`이어야 함). 변형 검사(행 잠금·키 갱신·키 수집·삭제·검사 제거·분류 코드 등) 모두 검출. 전체 772개 + `check.sh` 통과(보완 뒤 775개).
 
+### 7.3.4c InnoDB Cluster 로컬 시험 (2026-10-10, 구현 `b481024`)
+
+운영 MySQL을 InnoDB Cluster로 바꾸는 요청(7.3.4 #8)의 근거로, 앱을 바꾸지 않고 같은 점검·부하·장애 시험을 클러스터 위에서 돌렸다.
+
+**환경**
+- **이미지·도구**: `docker/innodb-cluster/` 이미지(서버 8.4.11 generic tarball, Shell·Router 8.4.10)와 `scripts/mysql_cluster.py`.
+- **구성**: 노드 3개(그룹 복제, 단일 primary, 일관성 `BEFORE_ON_PRIMARY_FAILOVER`, `expelTimeout` 5초, 자동 재합류) + Router 1대. 앱은 Router 읽기·쓰기 포트로만 접속한다.
+- **계정**: `root`(노드 안)·`failover`(클러스터 관리)·`router`(부트스트랩)·`dev`(앱).
+- **격리**: 포트·비밀번호는 무작위이고 공유 컨테이너는 건드리지 않는다.
+
+**사용법**
+- `scripts/cluster_check.sh`: 클러스터를 띄워 `check.sh`와 150 동시 부하를 돌리고 지운다.
+- `--failure`: 클러스터 장애 시험 8개를 더 돌린다. 실행 예: `env -u DB_NAME scripts/cluster_check.sh --failure`(셸에 정해 둔 `DB_NAME`을 빼고 돌린다 — 클러스터에는 `ads_server`만 만들어진다, README).
+- 기본 게이트는 단일 노드 `check.sh`이고, 이것은 운영 구성을 확인하는 추가 점검이다(README "InnoDB Cluster 시험 환경").
+- `cluster_check.sh`는 시작 전에 환경에 남은 이전 클러스터 값을 비우고, 기동 명령의 종료 코드를 직접 확인한다. 기동에 실패하면 후속 시험 없이 비정상 종료하고, 정리는 **이번 실행이 만든 클러스터에만** 건다(이전 ID를 지우지 않는다) [보완 2026-10-10, 외부 검토 `b481024`].
+
+**결과**
+- **게이트**: 클러스터에서 `check.sh` 통과(시험 977개, 단일 노드 약 90초 대비 약 127초 — 구현 세션). 단일 노드 `check.sh`도 977개로 다시 통과했다.
+- **150 동시**(문서 세션 재측정): 모든 불변식 충족, 모든 요청이 첫 시도에 성공했다. 쓰기 단계의 p95는 단일 노드보다 약 10~50% 길었다. 결정 POST의 서버 안쪽 중앙값은 약 11 ms로 단일 노드의 약 7~8 ms보다 길다. 이벤트 최대 지연은 4.5초이고 늦은 이벤트는 0건, 백필 훈련과 구간 manifest 일치도 통과했다(`load-test.md` §9.1).
+- **장애 시나리오 8개**(문서 세션 재측정): 모두 통과했다. 확인한 쓰기 유실 0·이중 과금 0·500 0이고, 끝에서 모든 노드가 ONLINE·primary 하나·노드 간 GTID 집합과 표별 행 수가 같았다.
+  - **primary-kill**: 24.7초 뒤 자동으로 새 primary, 끊김 114회. 죽은 노드는 재기동 뒤 스스로 합류했다. 이벤트 최대 지연은 22.3초로 여유 120초 안이다.
+  - **switchover**: 53.5초, 끊김 8회.
+  - **나머지**: primary-restart·router-restart는 끊김 8회, secondary-kill은 0회. processor-kill·mongo-restart·relay-kill은 단일 노드와 같았다.
+  - 수치는 `load-test.md` §9.2.
+
+**발견**
+- **기본 키 없는 표**: 그룹 복제는 기본 키 없는 표를 거부한다(오류 3098). 앱의 표는 모두 기본 키가 있고, 시험이 임시로 만들던 표(`test_mysql_admin`)만 걸려 기본 키를 더했다.
+- **failover 중 오류**: 앱이 본 오류는 연결 실패(2003)·연결 끊김(2013)뿐이었고, 기존 503 + 재시도가 처리했다. 읽기 전용(1290)·그룹 복제 롤백(3100·3101)은 관찰되지 않아 일시 오류 분류는 바꾸지 않았다.
+
+**한계와 인프라에 알릴 점**
+- **환경의 한계**: 한 호스트의 Docker 클러스터라 네트워크 분리·지연 주입이 없다. 인프라 서버의 실제 failover 시간과 유실 범위는 따로 확인한다.
+- **failover 시간**: failover가 앱에 보이기까지 약 22~26초다(`expelTimeout` 5초 + 선출 + Router 갱신). 매체 재시도는 "2xx까지"라 견디지만, 그동안 결정 요청은 503이다.
+- **계획된 전환**: 부하 중 약 53초가 걸렸다. 전환 전에 트래픽을 줄이는 운영 절차가 필요할 수 있다.
+- **허용 유실 범위**: 강제 failover의 허용 유실 범위 결정(7.3.4 #6)은 사용자 몫으로 남는다.
+
 ### 7.3.5 위험
 
 | 위험 | 대응 |
@@ -921,9 +962,11 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | Step 3-1 | 관리자(Django admin): 입찰 정책 새 버전 입력과 **일괄 입력 동작**, 매체·슬롯, 광고 모니터링(썸네일·이동 주소 도메인), 중단/해제(사유), **재검토 대기 목록(해제/반려)**, 광고주 비활성화·비밀번호 초기화, 포인트 조정, 감사 로그 열람 |
 | Step 3-2 | 광고주 콘솔: 대시보드(포인트 위젯), 캠페인·광고그룹 목록, 광고 만들기(단계형), **정지 사유·재검토 요청 버튼**, 포인트 내역, 내 정보. **콘솔 뷰에 비즈니스 규칙을 두지 않는다**(설계 §6.6). **규칙의 원본은 `contracts/console.openapi.yaml`(C6 초안)** — 서비스가 이 규칙을 지키고 화면은 그대로 따른다 |
 | Step DB | **DB 전환(Step 2 마무리 직후, Step 3 전)** — 상세는 §7.3. DB-1: MySQL 이전 — 설정·마이그레이션, SQLite 전용 동작(조건부 유일 제약 등) 재설계, 동시성 재검증(부하 시험 재실행), **테스트를 MySQL에서**. DB-2: MongoDB 연결(레플리카셋)·`ad_events` 컬렉션·색인(아직 쓰지 않음). 결정 근거는 설계 §10 "저장소 단계" |
-| Step 4-1 | outbox(MySQL, 업무 데이터와 같은 트랜잭션, 열은 Debezium outbox 라우터 기본 모양과 맞춤) + 중계 → MongoDB `ad_events`(`_id = event_id` 멱등: 같은 내용 통과·다른 내용 충돌로 멈춤), 이벤트 스키마(C2) 확정. 파이프라인 쪽 경계는 이 컬렉션(MySQL 직접 읽기 없음) |
-| Step 4-2 | NDJSON manifest·검증 도구(정합성 점검 결과, 재처리·백필 대상 목록. manifest = SHA-256·행 수·`schema_version`·`source_kind`·checkpoint, 임시 파일 → 교체) |
-| Step 5(확장) | 조건부·기록만: Debezium outbox 라우터 → Kafka(중계 대체), Spark → Delta 메달리온(설계 §10 "분석 계층 대응"), 스키마 저장소, C4 수신(`records.api` 집계 안쪽 교체) |
+| Step 4-1 **[완료 2026-10-10, 로컬]** | outbox(MySQL, 업무 데이터와 같은 트랜잭션, 열은 Debezium outbox 라우터 기본 모양과 맞춤) + 중계 → MongoDB `ad_events`(`_id = event_id` 멱등: 같은 내용 통과·다른 내용 충돌로 멈춤), 이벤트 스키마(C2) 확정. 파이프라인 쪽 경계는 이 컬렉션(MySQL 직접 읽기 없음). 하위 단계: 4-1a outbox 표·쓰기 규약, 4-1b 결정 이벤트, 4-1c 접수·판정 이벤트, 4-1d 과금 이벤트, 4-1e 중계·보존 정리, 4-1f 부하·장애 시험의 이벤트 검증(§10 진행 표). 남은 것: 3대 레플리카셋 failover(인프라 서버 확인) |
+| Step 4-2 **[완료 2026-10-10, 외부 검토 보완 반영]** | NDJSON manifest·검증 도구(정합성 점검 결과, 재처리·백필 대상 목록. 게시 = 내용 해시가 이름에 들어간 불변 데이터 파일 + manifest 포인터의 원자적 교체, manifest = 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·checkpoint(범위 서술, 재개 위치 아님)). 백필 대상 **목록까지** 만들었다 — 이 목록(`event_gaps`)이 4-3a 백필의 입력이다 |
+| Step 4-3 **[완료 2026-10-10, 로컬]** | 이벤트 백필과 구간별 정합 manifest(설계 §6.3a, 결정 설계 §10 "Step 4-3 백필·구간 manifest 결정"). 4-3a → 4-3b → 4-3c → 4-3d 순으로 하나씩 구현·검증·커밋하고, d05d681 위에 쌓는다. **4-3a 백필 실행** `backfill_events`: 검증을 통과한 `event_gaps` manifest를 입력으로 원본 행에서 이벤트를 다시 만들어 outbox에 쓴다(중계가 평소처럼 보냄). 멱등(결정적 이벤트 ID), 기본 `--dry-run`, 청크 단위 트랜잭션, 결과 `backfill_result`(새로 쓴 건수·이미 있던 건수·해석 불가) + 감사 로그 — 완료 증거: 백필 뒤 `export_integrity`의 `event_gaps` 0행, 백필한 이벤트가 `verify_events`(원본 대조)를 특별 처리 없이 통과. **4-3b 구간별 정합 manifest** `export_hop_manifests`: 같은 창에 대해 원본 기대 / outbox / MongoDB 세 구간의 (창, 이벤트 이름)별 건수·`ids_sha256`·`content_sha256` — 완료 증거: 세 구간이 같은 창에서 일치, 어느 구간을 바꿔도 manifest 대조만으로 검출. **4-3c 구간 대조** `verify_hops`: 두 구간 manifest(파이프라인 쪽이 같은 규칙으로 만든 것 포함)를 대조해 어긋난 창·이벤트 종류를 보고, 세대 연결(`previous_sha256`) 확인 — 완료 증거: 불일치 반례 시험, 백필로 창이 다시 열려도 새 세대로 일관. **4-3d 부하·장애 시험**에 백필과 구간 manifest 대조 추가 — 완료 증거: `check.sh` 통과, 장애 시나리오에서 복구 뒤 manifest 일치, **다음 세대에 늦게 나타난 이벤트 수**를 세어 창 닫힘 여유 2분(H11 A안)이 충분한지 확인(늦은 이벤트가 보이면 B안: 잠금 대기 제한을 정해 상한에서 여유를 정하고 150 동시·장애 시험을 다시 잰다). 문서와 시험은 MySQL 노드·주소에 기대지 않는다(InnoDB Cluster 전환 뒤에도 같은 계약) |
+| Step 4-4 **[완료 2026-10-11, 외부 검토 승인]** | 코드 정리 — 리팩터링 2차(`c4a6b63`~`5666946`)가 남긴 동작 차이 1건과 중복을 동작 변화를 명시하고 시험으로 고정하며 정리한다. **7단계 + 선택 1**(4-4a → b → c → d → i → h → k, 선택 4-4e). 일부러 남기는 중복 C1~C6, 상세는 §8.2. 구현 `e53a15a`~`4de457f`, 외부 검토 P2 보완 `6b563cf` |
+| Step 5(확장) | 조건부·기록만: Debezium outbox 라우터 → Kafka(중계 대체 — **전환 게이트**: 전송 확인·보존 기준, 라우터의 UPDATE·DELETE 처리, 봉투 매핑, 설계 §6.3), Spark → Delta 메달리온(설계 §10 "분석 계층 대응"), 스키마 저장소, C4 수신(`records.api` 집계 안쪽 교체) |
 
 ## 8.1 Step 3 상세 계획 (2026-10-08 작성, 착수 전 결정 6건은 아래 [결정 대기])
 
@@ -992,6 +1035,70 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 
 ---
 
+## 8.2 Step 4-4 코드 정리 계획 (리팩터링 2차 후속, 2026-10-10 작성, 완료 2026-10-11)
+
+**입력**: 리팩터링 2차(`c4a6b63`~`5666946`, 동작 변경 없음)를 하며 찾았지만, 동작이 바뀌거나 범위가 커서 리팩터링에서 고치지 않은 것들이다(리팩터링 세션 보고, 위치는 `5666946` 기준). 기능을 더하지 않는다. 다만 아래 단계에는 **동작이 바뀌는 것이 있으므로** 바뀌는 점을 단계마다 적고 시험으로 고정한다(리팩터링 세션이 아니라 구현 세션의 일).
+
+### 8.2.1 진행 기준 (모든 단계 공통)
+
+1. 바꿀 동작에 시험이 없으면 **특성 시험을 먼저** 넣고, 일부러 고장 내 실제로 잡는지 확인한다(변형 검사).
+2. 동작이 바뀌는 항목은 바뀌는 점을 이 표에 적고 시험으로 고정한다. 바뀌지 않아야 하는 항목은 기존 시험이 그대로 통과해야 한다.
+3. 단계마다 `scripts/check.sh` 전체를 돌린다. `events`·`records`의 처리 경로를 건드리면 **150 동시 부하 시험**, 상시 루프를 건드리면 **장애 시험**(단일 노드 5개, 해당하면 클러스터)까지 돌린다.
+4. 질의 수 기준선: 결정 10 · 반응 38 · 클릭 26. 늘면 안 된다.
+5. 한 단계 = 한 커밋. 한 단계가 다른 단계의 변경에 기대지 않게 순서를 지킨다(권하는 순서 = 아래 표의 순서).
+
+### 8.2.2 단계 (7단계 + 선택 1, 리팩터링 세션 검토 반영)
+
+진행 순서: **4-4a → 4-4b → 4-4c → 4-4d → 4-4i → 4-4h → 4-4k**. 4-4e는 선택이다. 처음 계획의 4-4f·4-4g(상시 루프 공용화)와 4-4j(`Counter`)는 빼고 §8.2.4로 옮겼다.
+
+| 단계 | 대상(위치) | 할 일 | 바뀌는 동작 | 완료 증거 |
+|---|---|---|---|---|
+| **4-4a 청크 크기 입구 검사** (A1) | `events/relay.py` `missing_event_ids(chunk=1000)`, `records/backfill.py` `backfill(chunk=500)` | 두 함수 입구에서 `chunk >= 1`을 명시적으로 검사하고 아니면 `ValueError`(R6). 리팩터링 전에는 음수면 빈 루프라 **누락 점검은 "누락 없음", 백필은 "아무것도 안 하고 성공"**으로 끝났고, 지금은 `itertools.batched`가 우연히 오류를 낸다 — 이 동작을 계약으로 굳힌다("모르면 없다고 답하지 않는다", `missing_event_ids` 설명과 같은 원칙) | 지금 동작을 명시적으로 고정(오류 문구만 바뀜). 이렇게 부르는 곳은 없다 — `backfill_events`는 `--chunk ≥ 1`을 이미 검사하고 나머지는 기본값을 쓴다 | 두 함수를 직접 부를 때 0·음수면 오류인 시험, 검사를 빼면 실패(변형 검사) |
+| **4-4b 판정 근거 쓰기 경계 시험을 AST로** (B2) | `tests/boundaries/test_judgment_scope.py`(정규식 `\bbasis\s*=(?!=)`), `records/hops.py` `expected_events`의 `**{"basis": r.basis}` | 경계 시험을 AST 기반으로 바꿔 **실제 쓰기만** 찾는다. **쓰기의 정의** [넓힘 2026-10-10, 외부 검토(Step 4-4) P2 `6b563cf`]: ① `basis=` 키워드나 `**{"basis": …}` 풀어 넘기기를 받는 `update`·`create`·`get_or_create`·`update_or_create`·`bulk_create` 호출과 `Reaction(basis=…)` 생성 ② `get_or_create`·`update_or_create`의 `defaults`·`create_defaults` dict에 든 `"basis"` 키 ③ `bulk_update`의 `fields`, `bulk_create`의 `update_fields` 목록에 든 `"basis"` ④ `.basis =`·`.basis +=` 대입. ②·③은 키워드로 넘기든 위치 인자로 넘기든 같은 인자로 본다(Django `QuerySet` 시그니처 순서). **한계**: 정적 검사라 실행 중에 만든 dict를 넘기는 `update(**fields)`는 보지 못한다. 쿼리셋이 `Reaction`인지는 정적으로 가리기 어려우므로 **이 꼴의 쓰기가 `records/processing.py`에만 있는지**를 규칙으로 한다(모델 정의·마이그레이션 제외). 그다음 `hops.py`의 우회 모양을 평범한 `basis=r.basis`로 돌린다(경계 시험이 코드를 어색하게 만든 사례) | 앱 동작 없음. 경계 시험(보안 태그)의 판정 기준이 "글자"에서 "실제 쓰기"로 바뀐다 | 다른 파일에 위 꼴의 쓰기(`update(basis=…)`·`bulk_update(…, ["basis"])`·`.basis =`)를 넣으면 실패, 읽기용 키워드 인자 `basis=r.basis`는 통과(변형 검사). 쓰기·읽기 꼴마다 소스 조각을 넣어 보는 시험(`BasisWriteFormsTests`: 위치 인자 `defaults`·`create_defaults`·`update_fields`, `bulk_create`의 두 번째 위치 인자 `batch_size`는 읽기). 같은 파일의 다른 구조 검사(`scoped_reactions` 입구 하나, `gather`·`display_signal` 호출)는 그대로 통과 |
+| **4-4c 원장 멱등 키 형식 한 쌍** (B4) | 만들기 `records/processing.py` `reaction_ref()`, 다시 만들기 `records/hops.py:31-32`(f-string), 해석 `records/backfill.py` `_parse_ref()` | `<매체>:<reaction_id>`를 만들고 해석하는 한 쌍을 한 곳에 두고 나머지 두 곳이 쓴다(R3: 형식 도우미만 공유, 기대 이벤트 매핑은 독립). 먼저 `_parse_ref`의 잘못된 입력 처리(구분자 없음·UUID 아님)를 특성 시험으로 고정 | 없음(형식 같음) | 만들기 → 해석 왕복 시험, 잘못된 키는 지금처럼 해석 불가, 질의 수 그대로 |
+| **4-4d 구간 계약 값 한 곳** (B3) | 대상은 **구간 계약 값 세 가지뿐**: ① 구간 줄 모양의 버전(`export_hop_manifests`의 `SCHEMA_VERSION` ↔ `hopcheck.SUPPORTED_SCHEMA_VERSION`) ② 창 이름 ↔ 크기 표 두 벌(`events/hops.py` `WINDOWS` {day, hour} ↔ `events/hopcheck.py` `WINDOW_SIZES` {utc-day, utc-hour})과 명령의 `f"utc-{window}"` 이어 붙이기 ③ 시각 형식(`%Y-%m-%dT%H:%M:%SZ` 해석·출력 4곳 `_z`·`_time`·`_parse`·`strftime`, 밀리초 형식) | 세 가지를 `events/hops.py` 한 곳에 두고 `events.api`로 노출한다(결정 R2. 설계의 의존 규칙 R2에 따라 `records` 명령은 `events.api`만 쓴다). 내보내는 쪽(`export_hop_manifests`)과 대조하는 쪽(`hopcheck`)이 같은 값을 쓴다. `verify_hops`·`export_integrity`·`backfill_events`의 `SCHEMA_VERSION`은 대상이 아니다(§8.2.4 C6) | 값을 그대로 옮기므로 없음 | 창 옵션마다 "내보낸 선언을 대조 쪽이 읽는다" 왕복 시험, 기존 구간 시험 그대로 통과 |
+| **4-4i 원자적 게시 단계 하나로** (B6) | `events/ndjson.py` `write()`(데이터 파일)와 `_publish()`(manifest·세대 사본) — 같은 "임시 파일 → fsync → `os.replace` → 폴더 fsync"가 두 벌. 데이터 파일은 쓰면서 해시를 계산해 그 해시로 최종 이름을 정하므로 `_publish`를 그대로 못 씀 | **방법은 하나**: "교체 + 폴더 동기화" 단계만 함수로 빼서(예: `_replace_durably(tmp, final)`) `write()`와 `_publish()`가 같이 쓴다. 콜백 방식은 쓰지 않는다 — 10줄 남짓의 중복을 없애려고 원자성 코드에 추상화 한 겹을 더하게 된다 | 없어야 한다. 외부 검토가 여러 번 본 원자성이라 단계마다 중간 실패를 넣어 확인한다 | 기존 원자성 시험(쓰다 죽음·manifest 교체 실패·동시 게시·내구성 순서) 통과 + 각 단계(쓰기·동기화·교체·폴더 동기화)에 실패를 넣는 변형 검사 |
+| **4-4h MongoDB 오류 문구 도우미** (B5, 우선순위 낮음) | 같은 꼴 `{type(e).__name__}: {str(e)[:N]}` 9곳(N이 200·300으로 섞임): 명령 6곳(`backfill_events.py:35`·`export_integrity.py:35`·`export_hop_manifests.py:50`·`relay_events.py:61`·`relay_events.py:65`·`ensure_event_store.py:15`)과 `events/store.py`의 상태 확인 결과 문구 3곳(연결·쓰기 권한·컬렉션, 90·105·118행) | `events`에 도우미 하나를 두고 `events.api`로 노출, 아홉 곳이 쓴다. 자르는 길이는 200자로 통일(R4). 도우미가 줄여 주는 것은 위 한 조각뿐이라 우선순위는 낮다 | 오류 문구(stderr·상태 확인 결과)가 조금 바뀐다(`ensure_event_store`의 300자 → 200자) | 도우미 단위 시험(형식·길이), 각 명령이 MongoDB 오류에서 여전히 비정상 종료하고 오류 종류 이름을 남김, `check_event_store` 결과 시험 그대로 통과 |
+| **4-4k 시험 스크립트의 `docker()` 하나로** (B8, 마지막) | `scripts/mongo_temp_rs.py:21`(시간 제한 120초), `scripts/failure_test.py:65`(180초), `scripts/mysql_cluster.py:27`(300초, `input` 인자) | `scripts/`에 공용 도우미를 두고 시간 제한을 인자로 받는다. 호출마다 지금 값을 넘긴다(R5) | 시험 하네스만 바뀐다(앱 없음) | 장애 시험(단일 노드·클러스터)과 `cluster_check.sh`가 그대로 통과 |
+| *4-4e 상시 명령 특성 시험 (선택)* | `process_reactions`, `relay_events` | 공용 루프를 만들지 않으므로(§8.2.4 C4), 두 명령의 동작 중 **시험이 없는 것만** 특성 시험으로 남긴다. 예: 중계의 점점 길게 쉬기(최대 30초), 충돌 시 멈춤 | 없음(시험만) | 변형 검사로 각 시험이 실제로 잡음을 확인, 장애 시험 그대로 통과 |
+
+### 8.2.3 정한 것 [확정 2026-10-10 — 리팩터링 세션 검토 반영, 사용자 전달]
+
+| # | 질문 | 정한 값 | 이유 |
+|---|---|---|---|
+| ~~R1~~ | ~~상시 루프의 재시도 정책을 통일하나~~ | 삭제 — 4-4f·g를 빼서 정할 필요가 없다(§8.2.4 C4) | — |
+| R2 | 구간 계약 값과 파일 종류별 `schema_version` (4-4d) | **구간 계약 값(줄 버전, 창 이름 ↔ 크기, 시각 형식)만 `events/hops.py` 한 곳에 두고 `events.api`로 노출한다.** 다른 파일 종류(`ledger_check`·`event_gaps`·`event_delivery`·`backfill_result`·`hop_report`)의 버전은 각 명령에 그대로 둔다. 값은 모두 1 그대로 | 각 버전은 한 곳에서만 정의된 서로 다른 계약이라 중복이 아니다. 구간 모듈로 모으면 소유가 흐려진다 |
+| R3 | 원장 멱등 키 형식을 `records/hops.py`도 공유하나 (4-4c) | **형식 도우미(만들기·해석)만 공유**하고, 기대 이벤트를 만드는 매핑은 독립으로 둔다 | 키 형식은 저장된 데이터의 형식(원장 `reaction_ref`)이라 검증 대상이 아니다. 독립 검증이 지키려는 것은 원본 → 이벤트 매핑이다(C1) |
+| R4 | MongoDB 오류 문구를 자르는 길이 (4-4h) | **200자**(`events/store.py` 3곳 포함) | 아홉 곳 중 여덟이 이미 200자다 |
+| R5 | `docker()` 시간 제한 (4-4k) | **호출마다 지금 값을 인자로 넘긴다**(120·180·300초, 기본값 하나로 바꾸지 않음) | 클러스터 기동처럼 오래 걸리는 호출과 짧은 호출이 섞여 있다 |
+| R6 | 청크 검사의 오류 형태 (4-4a) | **`ValueError`**(무엇이 잘못됐는지 적은 문구) | 지금 동작과 같은 종류의 오류를 명시적으로 낸다 |
+
+### 8.2.4 정리하지 않는 것 (일부러 남기는 중복)
+
+| 중복 | 위치 | 남기는 이유 |
+|---|---|---|
+| C1 결정 스냅샷 → 이벤트 매핑 두 벌 | `records/services.py` `_record_decision_event`, `records/hops.py` `expected_events` | 원본 행에서 기대 이벤트를 **따로** 만들어 라이브 경로의 매핑 결함을 드러내는 독립 검증 경로다. 합치면 검증력이 사라진다(R3과 같은 이유로 키 형식만 공유) |
+| C2 `_now` 다섯 벌, `_audit` 세 벌 | `masters`·`campaigns`·`billing`·`records`(두 곳) | 시험이 `records.services._now`·`records.processing._now`를 패치한다. `_audit`은 두 줄짜리 감싸개라 합쳐도 호출부만 바뀐다 |
+| C3 dev/prod 설정의 비슷한 블록 | `config/settings/dev.py`·`prod.py` | 환경별 필수 여부가 달라 명시적인 쪽이 낫다 |
+| C4 두 상시 루프(옵션 검증·SIGTERM·주기 쉬기) | `records/management/commands/process_reactions.py`, `events/management/commands/relay_events.py` | 실제로 같은 부분은 10줄 남짓이고, 실패 처리·출력·재시도는 일부러 다르다. 합치려면 정책을 인자로 받는 공용 실행기(부르는 곳 둘)를 `foundation`에 새로 만들어야 하고, 장애 시험이 지키는 "복구 뒤 상시 프로세스만으로 대기열 비우기" 보장을 건드린다. 시험이 없는 동작은 4-4e(선택)로 고정만 한다 |
+| C5 수동 카운트 `d[k] = d.get(k, 0) + 1` | `events/hops.py`, `verify_hops.py`, `records/integrity.py` | `Counter`로 바꿔도 줄이 줄지 않는다. `integrity`의 `stats`는 호출한 쪽이 넘긴 dict를 채우는 약속이고, 출력에는 `dict()`를 씌워야 한다 |
+| C6 파일 종류별 `SCHEMA_VERSION` | `verify_hops`(`hop_report`)·`export_integrity`(`ledger_check`·`event_gaps`·`event_delivery`)·`backfill_events`(`backfill_result`). `export_hop_manifests`의 `SCHEMA_VERSION`은 구간 줄 버전 하나뿐이라 대상이 아니다 — 4-4d에서 `events/hops.py`로 옮기고 이 명령에는 자기 상수가 남지 않는다 | 서로 다른 파일의 계약을 각 명령이 한 곳에서 정의한다(R2) |
+
+### 8.2.5 보류 (중복이 아니라 성능, 리팩터링 1차에서 미룸)
+
+| 항목 | 위치 | 보류 이유 | 다시 볼 때 |
+|---|---|---|---|
+| 광고그룹 목록 N+1 | `campaigns/services.py` `list_ad_groups` | 부르는 화면이 아직 없다 | Step 3-2 광고주 콘솔에서 목록 화면을 만들 때 |
+| 지갑별 원장 질의 N+1 | `billing/services.py` `_check_wallets` | 한 번에 읽으면 원장 전체가 메모리에 올라간다(교환 관계) | 지갑 수가 늘어 정합성 점검 시간이 문제가 될 때 |
+| 처리 직후 같은 반응 재조회 | `records/processing.py` `_wake_dependents` | 동시성 핵심 경로이고 반응당 질의 1회다 | 반응 처리량이 병목으로 측정될 때 |
+| 키별 UPDATE | `masters/services.py` `rotate_media_key` | 매체당 키가 1~2개라 이득이 없다 | 하지 않는다 |
+
+### 8.2.6 후속 변경 후보 (4-4 구현 중 발견, 구현 세션 보고)
+
+| 항목 | 위치 | 지금 | 다시 볼 때 |
+|---|---|---|---|
+| 준비 대기의 시간 제한 | `scripts/failure_test.py` `wait_ready` | 전체 대기 시간(기본 180초)은 있지만 한 번의 확인 호출(`docker exec … mysqladmin ping`)에는 시간 제한이 없어, 그 호출이 멈추면 전체 대기 시간을 넘길 수 있다. 4-4k(`docker()` 하나로)는 호출마다 지금 값을 넘기는 것까지만 했다(R5) | 장애 시험이 준비 대기에서 멈추는 일이 보이거나 시험 하네스를 다시 고칠 때. 개별 호출 시간 제한과 전체 대기 시간을 같이 정한다(시험 하네스만, 앱 없음) |
+
 # 9. 위험과 대응
 
 | 위험 | 대응 |
@@ -1032,6 +1139,26 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | **Step 2 전체** | **승인 (2026-10-08, 외부 검토 `1fe79e9` — V1 범위: SQLite·로컬 파일 독립 서버)** | §7.1 종료 점검표(사람의 일: 매체 담당자와 계약 공유). 구현: `serving_api`·`records`(수신함·처리)·`masters`(매체 키) |
 | 2-11 마무리 | 완료 (2026-10-08) | 계약 `info.version` **`1.1.0`**(draft 해제, `[v1.1]` 표시 정리, 순서·`occurred_at` 허용 오차 문구를 구현과 맞춤, 400 검사는 404·403 뒤), 매체용 요약 [contracts/README.md](contracts/README.md)를 v1.1로(슬롯 두 종류, `click_url` 이동, 반응 순서·기간·보류와 사유 표), DRD §5.2·5.3 v1.1 반영(0.12), 위협 모델 **T38(클릭 관측)·T39(반응 판정)·T40(성과 집계)** 추가(Step 3의 T41·T42로 번호 이동), 부하 시험 단계 **H(클릭 경유 전체 퍼널)·J(일괄 슬롯 사람별 + 노출 없는 임의 `s` 클릭)·I(보류 해소 지연: 처리 프로세스가 없으면 보류로 남고 뜨면 약 5초에 풀림)** 추가, 규칙을 끄면 실패함을 확인. 150 동시 재측정은 Step DB의 DB-1d로 이관(MySQL로 잼). `load-test.md` §6. **Step 2 전체(v1.1 포함) 구현 완료.** 테스트 671개(시험 코드 변경 없음, 부하 시험만 확장) |
 | 2-10 퍼널 집계 | 완료 (2026-10-08) | `records.api.daily_report`(`records/report.py`): 광고주의 일별 노출·클릭·전환(인정된 `ACCEPTED`만, 일괄 슬롯은 사람마다)·소진 포인트와 직전 같은 길이 구간 합계, 구간의 모든 날을 0 으로 채움, CTR·전환율은 합계의 파생 속성(분모 0 이면 `None`). 범위는 결정의 `owner_id`·`campaign_id`·`ad_group_id`(남의 캠페인·광고그룹은 404, 광고주만), 구간은 예산 일 경계·최대 92일(아니면 400), 날짜는 수신 시각의 예산 일(`BUDGET_DAY_OFFSET_HOURS` 반영). 소진은 실제 받은 포인트(잔액 부족분 제외): 캠페인·광고주는 `CampaignSpend`, 광고그룹은 원장 과금에서 읽어 합이 캠페인과 일치. `billing.api`에 `spend_by_day`·`charged_amounts`·`day_start`, `campaigns.api`에 `campaign_ids_of`, 결정 인덱스 `(owner_id, campaign_id, ad_group_id)`(마이그레이션 `records/0008`). 질의 수는 데이터 양과 무관(시험으로 고정). 새 시험 `tests/test_funnel_report.py` 16개, 변형 13종(살아남은 2개는 질의 하한 최적화라 결과에 영향 없는 동등 변형). 테스트 655 → 671 |
+| **Step 4-4 코드 정리** | **완료 (2026-10-11, 외부 검토 승인 — 로컬 구현 검토 닫힘)** | §8.2대로 7단계 + 선택 1, 한 단계 한 커밋. 4-4a `e53a15a`: `missing_event_ids`·`backfill`이 `chunk < 1`이면 `ValueError` · 4-4b `4669418`: 판정 근거 쓰기 경계 시험을 AST로, `records/hops.py`를 `basis=r.basis`로 → 외부 검토 P2 보완 `6b563cf`: 쓰기의 정의를 넓힘(위치 인자·`get_or_create`·`defaults`/`create_defaults`·`**{"basis": …}`·`Reaction(basis=)`, 한계는 실행 중에 만든 `update(**fields)`) · 4-4c `15bc8df`: `reaction_ref`·`parse_reaction_ref`를 `records/processing.py`에 두고 `hops`·`backfill`이 같이 씀 · 4-4d `90d4d6b`: 구간 줄 버전·창 이름과 크기·시각 형식을 `events/hops.py`에 두고 내보내기와 대조가 같이 씀 · 4-4i `4f66ab8`: `_replace_durably`(교체 + 폴더 동기화)를 데이터 파일과 manifest가 같이 씀 · 4-4h `9990f73`: 아홉 곳이 `events.api.mongo_error_text`(오류 종류 + 앞 200자)를 씀 · 4-4k `73b32ab`: `scripts/docker_cli`를 세 스크립트가 각자의 시간 제한(120·180·300초)으로 씀 · 4-4e `4de457f`: 상시 중계 특성 시험(점점 길게 쉬기 최대 30초와 성공 뒤 초기화, 충돌 시 재시도 없이 멈춤, 신호 처리기 복원). **바뀐 동작은 둘뿐**: 4-4a 오류 형태, 4-4h 문구 길이(`ensure_event_store` 300 → 200자). 시험 1006 → **1031개**, `check.sh` 통과(PR 브랜치 `feat;#13`·`doc;#14`를 합친 깨끗한 작업 트리). 질의 수 단계마다 그대로(결정 10 · 반응 38 · 클릭 26), 150 동시(4-4c·4-4d 뒤, 검사 52개·구간 `match` 12줄)·단일 노드 장애 5개(4-4k 뒤)·클러스터 `check.sh`·150 동시·장애 8개(primary-kill 26.2초 자동 전환, 미확인 0) 통과, 변형 검사 단계마다 잡음(4-4e 6/7, 놓친 1건은 등가 변형) — 구현 세션, 외부 검토도 다시 돌려 확인(`load-test.md` §10). 일부러 남긴 중복 C1~C6(§8.2.4), 후속 후보 §8.2.6(`wait_ready` 시간 제한) |
+| 4-4 코드 정리 계획 | 계획 확정 (2026-10-10) — 7단계 + 선택 4-4e | 리팩터링 2차 후속(리팩터링 세션 보고, 위치는 `5666946` 기준)을 §8.2에: 4-4a 청크 크기 입구 검사 → 4-4b 판정 근거 경계 시험 AST화(쓰기의 정의 명시) → 4-4c 원장 멱등 키 형식 → 4-4d 구간 계약 값(줄 버전·창 이름 ↔ 크기·시각 형식) → 4-4i 원자적 게시 단계(교체 + 폴더 동기화 함수 하나) → 4-4h MongoDB 오류 문구(9곳, 200자) → 4-4k 시험 `docker()`. 선택 4-4e: 상시 명령의 시험 없는 동작만 특성 시험. 리팩터링 세션 검토로 처음 11단계에서 상시 루프 공용화(4-4f·g)와 `Counter`(4-4j)를 빼 일부러 남기는 중복(C4·C5)으로 옮기고, 파일 종류별 버전을 C6으로. 결정 R2~R6 확정(R1 삭제), 성능 보류 4건 |
+| 리팩터링 2차 0~4단계 | 완료 (2026-10-10) | **동작 변경 없음**(`c4a6b63`~`5666946`). 0단계 `c4a6b63`: 청크로 나눠 읽는 조회 6곳의 경계를 고정하는 특성 시험(청크 크기를 넘는 입력, 변형 검사 6회). 1~3단계 `a7531b5`·`281dc17`·`9649501`(events·billing·records): 손으로 짠 청크 루프를 `itertools.batched`로, 중복 계산·옛 별칭·불필요한 dict 정리. 4단계 `5666946`: 시험의 안 쓰는 import. 단계마다 시험 1006개 + `check.sh` 통과, 3단계 뒤 150 동시 부하(이벤트·백필·구간 manifest 대조 포함) 통과. 남긴 것(동작 차이 1건·중복 8건)은 Step 4-4(§8.2) |
+| 외부 재검토(`f52d1df`) 후속 | 완료 (2026-10-10) — 외부 검토 보완 닫힘 | P2 1건(구현 `af4c65d`): manifest별 잠금만으로는 겹친 두 내보내기가 세 manifest의 최종 포인터와 최신 감사 고정점을 서로 다른 실행의 것으로 남길 수 있었다 → 내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지)을 폴더 단위 잠금(`flock`, `.run.lock`)으로 직렬화(manifest별 잠금은 그 안에서 그대로). 읽기 단계는 잠금 밖. 한 호스트의 로컬 파일시스템 전제. 시험 `test_two_overlapping_exports_leave_the_latest_audit_anchor_equal_to_the_published_pointer`. 설계 §6.3a·§10 H12, DRD §5.6(0.24), 위협 모델 T42 |
+| 외부 검토(`b481024`) 후속 | 완료 (2026-10-10) | P2 5건(구현 `f52d1df`). ① **중계 지연 판정**: "하류가 적고 미전송이 있으면 지연 후보" → 부족분이 그 (창, 이름)의 미전송 건수로 설명될 때만, 설명할 수 없는 부족분은 확정 불일치 ② **보존 정리와 대조 범위**: 대조 제외 창을 남은 outbox 줄이 아니라 보존 범위로 — 시작이 보존 기준 시각(지금 − 보존 일수) 이후인 창만 outbox 대조, 기준이 창 한가운데면 창 전체 제외, `checkpoint.retention_cutoff` ③ **구간 manifest 입력 검증**: 구간 종류·계약 버전·창 크기 선언·창 경계와 길이·건수와 해시 형식·(창, 이름) 중복 거부, 창 크기가 다른 manifest는 대조하지 않음 ④ **세대 사슬 동시 게시**: `flock`으로 직전 세대 읽기부터 포인터 교체까지 직렬화, 감사 로그 고정점은 이 실행이 게시한 manifest 해시(한 호스트의 로컬 파일시스템 전제) ⑤ **`cluster_check.sh` 기동 실패**: 기동 종료 코드를 직접 확인, 이전 클러스터 값을 비우고 이번 실행이 만든 클러스터만 정리. 시험 22개 추가(검토 반례를 먼저 재현, 변형 검사 18건). `check.sh` 통과(**시험 1000개**), 단일 노드 장애 시나리오·클러스터 primary-kill 재실행 통과(구현 세션). 설계 §6.3a·§10, DRD §5.6(0.23), 위협 모델 T42, README |
+| InnoDB Cluster 로컬 시험 | 완료 (2026-10-10, 외부 검토 `b481024` 보완 `f52d1df`·`af4c65d`으로 닫힘) — 운영 전환은 인프라 요청 후보 | 구현 `b481024`: `docker/innodb-cluster/`·`scripts/mysql_cluster.py`·`scripts/cluster_check.sh [--failure]`, `failure_test --mysql cluster`(8개 시나리오), 시험 표 하나에 기본 키 추가(그룹 복제 오류 3098). 클러스터에서 `check.sh` 통과(시험 977개), 150 동시 통과(문서 세션 재측정), 장애 8개 시나리오 통과. 앱 코드 변경 없음. 상세 §7.3.4c, `load-test.md` §9, 설계 §10 "그룹 복제(InnoDB Cluster) 전제", 인프라 요청 7.3.4 #8 |
+| 4-3d 부하·장애 시험에 백필·구간 대조·지연 측정 | 완료 (2026-10-10) | 구현 `1f4733b`. 이벤트 지연 표본기: 생성 시각 뒤 outbox에 처음 보이기까지를 재서, 창 닫힘 여유(120초)를 넘은 늦은 이벤트와 한 번도 못 본 이벤트가 0이어야 통과(H11 B안 전환 조건의 측정, 표본기 시험 3개). 부하 시험 끝에서 세 구간 manifest 일치(`--as-of`로 오늘 창을 닫아 재현)와 **백필 훈련**: 이벤트 60건을 outbox·MongoDB에서 지움 → `export_integrity` 목록 60건 → dry-run은 쓰지 않음 → `--apply` → 중계 → 점검 누락 0 → `verify_events` 통과 → 다시 돌려도 늘지 않음 → 구간 manifest 요약값이 지우기 전과 같음 → 세대 사슬 이어짐. 장애 시험은 모든 시나리오 끝에서 지연과 구간 일치를 확인. `export_hop_manifests`에 `--window day|hour`·`--as-of`. **측정(구현 세션)**: 150 동시 이벤트 6549건 최대 지연 3.4초, 장애 5개 시나리오 통과·복구 뒤 세 구간 12줄 모두 `match`·장애 중 포함 최대 지연 4.3초(MySQL 재시작), 늦은 이벤트·못 본 이벤트 0 → **H11 A안 유지**. 대조: 일하지 않는 중계면 미전송 3148건·`relay_lag_candidate` 8줄로 실패. **Step 4-3 전체 `check.sh` 통과(시험 977개)** |
+| 4-3c 구간 대조 `verify_hops` | 완료 (2026-10-10, 외부 검토 `b481024` 보완 `f52d1df`·`af4c65d`으로 닫힘) | 구현 `5019145`. 원본 → outbox, outbox → MongoDB, 원본 → MongoDB를 (창, 이벤트 이름)별로 대조해 `match`·`mismatch`(다른 필드)·`relay_lag_candidate`·`open_window`·`not_comparable`로 분류(원본 → outbox는 지연으로 보지 않음). manifest를 먼저 검증, 세대 사슬을 처음까지 확인, 최신 manifest가 감사 로그 고정점과 같은지 확인(고정점이 없으면 `--no-anchor` 요구). 파이프라인 manifest(`--pipeline`)는 MongoDB 구간과 대조. 확정 불일치·검증 실패·사슬 오류·고정점 불일치는 비정상 종료, 지연 후보만 있으면 정상 종료. 결과 `hop_report`. `foundation.api.latest_audit_detail` 추가. 시험 18개(변형 검사 10건) |
+| 4-3b 구간별 정합 manifest `export_hop_manifests` | 완료 (2026-10-10, 외부 검토 `b481024` 보완 `f52d1df`·`af4c65d`으로 닫힘) | 구현 `e01ee21`. `hop_source`(원본에서 독립적으로 다시 만든 기대 이벤트, 재구성을 `records.hops`로 옮겨 `verify_events`와 공유)·`hop_outbox`·`hop_mongo`를 각각 NDJSON + manifest로 게시. 원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖. 창은 UTC 자정 고정, 창 끝 + `EVENTS_HOP_GRACE_SECONDS`(120) 뒤 닫힘, 열린 창은 `checkpoint.open_windows`에만. 요약 규칙: `ids_sha256`(정렬한 소문자 UUID를 `\n`으로 이음)·`content_sha256`(MongoDB 문서 형태를 RFC 8785 JCS로, UTF-16 키 정렬·ECMAScript 숫자 표기, RFC 부록 예시로 시험). outbox 구간은 보존 정리 전 창만(`not_comparable_windows`), 줄마다 `unsent`. 세대: `previous_sha256` + 각 세대 manifest의 불변 사본, 감사 로그 `events.hop_manifests_exported`에 고정점. 시험 21개(변형 검사 10건) |
+| 4-3a 이벤트 백필 `backfill_events` | 완료 (2026-10-10) | 구현 `6c99c3e`. `--input <event_gaps manifest> --out DIR [--apply] [--chunk 500]`: 입력 manifest를 검증한 뒤(실패하면 거부) 원본 MySQL 행에서 이벤트를 다시 만든다. 목록의 `event_id`는 원천 ID에서 다시 계산한 값과 대조, 이벤트 이름·원천 종류 대조. 판정·과금 기록을 라이브와 공유(`processing.judged_event`·`charge_event`) — 라이브 이벤트를 지우고 백필하면 이름·버전·메시지 키·생성 시각·페이로드가 같다. outbox·MongoDB 어디에도 없는 이벤트만 쓴다. 해석 불가(원본 행이 없음·과금 반응을 못 찾음)는 쓰지 않고 비정상 종료, 판정 전 반응의 판정 이벤트는 쓰지 않음, 옛 형식 근거는 `legacy_basis`로 셈. 청크마다 이벤트와 감사 로그(`events.backfilled`)를 함께 커밋. 결과 `backfill_result`. `billing.api.charge_entries` 추가. 시험 18개(변형 검사 12건) |
+| 4-3 설계·결정 문서 반영 | 완료 (2026-10-10) | 구현 세션 요청서(기준 `d05d681`)를 반영: 설계 §6.3a, §10 "Step 4-3 백필·구간 manifest 결정"(H1~H7 구현 세션 기본값, H8~H12 문서 세션 제안, 사용자 확정. H11은 A안 — 창 끝 + 2분, 늦은 이벤트가 보이면 B안), DRD §5.6 구간별 manifest 계약·§5.9 작업 표, 위협 모델 T42, `load-test.md` §8 |
+| 외부 검토(`10a8808`) 후속 | 완료 (2026-10-10) | P2 1건(구현 `d05d681`): 이벤트 검사기가 봉투(`schema_version`·생성 시각)를 원본과 대조하지 않아, outbox와 MongoDB의 봉투를 같은 잘못된 값(버전 9999, 생성 시각 하루 뒤)으로 바꾸면 두 사본 비교는 통과하고 원본 대조도 정상으로 판정했다 → 원본 대조에 `schema_version`과 생성 시각(결정 = 결정 시각, 접수 = 수신 시각, 판정·과금 = 처리 시각)을 추가. 네 이벤트 종류 모두에서 봉투 변조가 실패함을 시험, 변형 검사 5건. **Step 4 최종 기준**: `d05d681`, `check.sh` 게이트 통과(시험 915개). 재검토에서 Step 4 로컬 구현·검증 완료 판정(다중 노드 failover·인프라 통합·다중 웹 워커·장시간 운용은 범위 밖) |
+| 외부 검토(`8e25f03`, Step 4-2 시점) 후속 | 완료 (2026-10-10) | P2 4건(구현 `10a8808`). ① **중계의 내용 비교**: 파이썬 값 비교라 `1`과 `true`·`1.0`(중첩 포함)을 같은 내용으로 인정 → JSON 타입까지 구분하는 정규화 직렬화(키 순서 무시), 타입이 다르면 충돌 ② **NDJSON 게시 원자성**: 데이터 파일과 manifest를 각각 교체해 manifest 교체만 실패하거나 두 실행이 엇갈리면 짝이 맞지 않는 쌍이 남음 → 불변 세대 파일 + manifest 포인터 교체 ③ **점검 범위**: `checkpoint`가 "재개 위치"·"이 시각 뒤 행 제외"로 설명됐지만 실제 조회에 조건이 없었음 → 세 점검을 한 읽기 스냅샷에서, checkpoint는 범위 서술 ④ **부하 검사기**: 이벤트 ID 집합만 비교 → 원본 행 ↔ outbox 내용, outbox ↔ MongoDB 문서 전체 대조. 시험 36개 추가. 문서: MongoDB 장애 문장을 보장(요청 경로는 MongoDB를 호출하지 않음)과 관찰(짧은 재시작에서 503 0)로 나누고 장기 장애의 MySQL 부담을 적음, 뒤처진 상태 표시(DRD §5.1 C2·§4.2 P2 처리, README) 정리, README에 상시 프로세스·보존 정리·`--status`·충돌 대응 안내, Step 5 전환 게이트(설계 §6.3) |
+| 4-2 NDJSON manifest·검증 | 완료 (2026-10-10, 외부 검토 보완 반영) | `events/ndjson`: **게시 = 불변 데이터 파일 하나 + manifest의 원자적 교체 하나**. 데이터 파일 이름에 내용 해시(`<이름>.<SHA-256 앞 16자>.ndjson`), manifest(`<이름>.manifest.json`)는 현재 게시본을 가리키는 포인터(파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·checkpoint·만든 시각). 데이터 파일을 완성(임시 파일 → 동기화 → 교체 → 폴더 동기화)한 뒤 manifest를 같은 방식으로 교체 — manifest 교체가 실패하거나 동시에 게시해도 manifest가 가리키는 파일은 온전하고 이전 게시가 보존된다. `verify_ndjson <manifest>`(SHA-256·행 수·줄 형식·가리키는 이름이 폴더 안·같은 이름인지). `export_integrity --out DIR`: 세 점검(`ledger_check`·`event_gaps`·`event_delivery`)을 **하나의 MySQL 읽기 스냅샷**에서 읽어 게시, checkpoint는 범위 서술(스냅샷 종류·시작 시각·원천별 훑은 행 수), 문제가 있으면 비정상 종료, MongoDB 오류면 아무것도 게시하지 않음. 백필 실행 명령은 만들지 않음 |
+| 4-1f 부하·장애 시험의 이벤트 검증 | 완료 (2026-10-10, 외부 검토 보완 반영) | `load_test`: 실행마다 무작위 이름의 MongoDB 데이터베이스(끝나면 그 이름만 삭제)와 상시 중계 2개. `verify_events` 검증 범위 — **원본 ↔ outbox: 이름·메시지 키·봉투(`schema_version`, 생성 시각 `produced_at`)·페이로드 전체 / outbox ↔ MongoDB: 문서 전체**: ① 원본 행 ↔ outbox — 이벤트가 정확히 하나씩(빠짐·남음 모두 실패), 원본 행에서 독립적으로 다시 만든 이벤트와 JSON 타입까지 같음 ② 중계가 끝나면 미전송 0, MongoDB ID 집합 = outbox, MongoDB 문서 전체 = outbox. outbox와 MongoDB를 같은 잘못된 값으로 바꿔도(봉투 포함) ①이 잡는다(처음 검사기는 ID 집합만, 다음 판은 봉투의 원본 대조가 없었다 — 외부 검토 `8e25f03`·`10a8808` P2). `failure_test`: 임시 MongoDB 레플리카셋을 함께 띄우고 모든 시나리오에 상시 중계 2개, 새 시나리오 `mongo-restart`·`relay-kill`. 대조: 중계를 일하지 않는 프로세스로 바꾸면 미전송 3052건·MongoDB 불일치로 실패. **최종 기준 커밋 `d05d681`**: `scripts/check.sh` 게이트 통과(시험 915개), 150 동시·`crash`·`mongo-restart` 재실행 통과(구현 세션). **문서 세션 측정(2026-10-10, 코드 `10a8808`, 봉투의 원본 대조 전)**: 150 동시 모든 불변식 충족(상시 중계만으로 미전송 0, 내용 대조 통과, 결정 요청 질의 9 → 10개, 결정 p95 1.56초·반응 p95 1.60초, 일시 오류 503 2건은 재시도로 수신 확인), 장애 시험 5개 시나리오 모두 통과(`mongo-restart` 요청 1260건 중 503 0·미전송 최대 191건 → 0, `relay-kill` 이벤트 내용까지 일치) — `load-test.md` §2·§7 |
+| 4-1e 중계 | 완료 (2026-10-10) | `relay_events`: 미전송 행을 `FOR UPDATE SKIP LOCKED`로 오래된 것부터 잡아 `insert_many(ordered=False)`, 같은 `_id`·같은 내용은 통과·다른 내용은 덮어쓰지 않고 멈춤(충돌하지 않은 것은 표시해 커밋), 중복이 아닌 쓰기 오류는 숨기지 않음, `produced_at`은 밀리초로 잘라 저장·비교. 상시 실행은 DB·MongoDB가 끊겨도 점점 길게 쉬며 재시도, SIGTERM 정상 종료, `--once`·`--status`. `purge_sent_events`(보낸 지 7일 지난 행만, 미전송은 지우지 않음). 시험 16개(변형 검사 10건 중 9건 검출, 나머지는 SQL 의미상 같은 변형) |
+| 4-1d 과금 이벤트 | 완료 (2026-10-10) | 원장 `CHARGE` 한 줄마다 `ad.charge`를 과금과 같은 트랜잭션에서. `decision_id`는 원장에 열을 더하지 않고 처리 중인 반응의 결정에서(DRD D-6 해결, 설계 §10 "Step 4 이벤트 결정" E1). `requested = charged + shortfall`, 예산 일은 원장 시각 기준, 지갑 잔액·광고주 계정은 싣지 않음. 과금이 없는 반응은 이벤트 없음, 다시 처리해도 한 줄, outbox 쓰기가 실패하면 과금·판정이 함께 되돌려짐. 시험 6개(변형 검사 5건) |
+| 4-1c 접수·판정 이벤트 | 완료 (2026-10-10) | 접수(`ad.reaction_received`)는 수신 행과 같은 트랜잭션(매체 보고·서버 관측 클릭 모두, 보고된 사실과 원문만, 재전송은 이벤트를 더하지 않음). 판정(`ad.reaction`)은 `processing._finish`에서 같은 트랜잭션(인정·거부 모두, `basis`를 그대로, `person_id`·`audience`는 `basis`에서, 보류는 이벤트 없음). outbox 쓰기가 실패하면 접수는 저장되지 않고(2xx 없음) 판정은 되돌려짐(`RECEIVED`, 과금 없음). 시험 12개(변형 검사 6건) |
+| 4-1b 결정 이벤트 | 완료 (2026-10-10) | `decide()`가 결정 저장과 outbox 쓰기를 한 트랜잭션으로: C1 뷰가 연 트랜잭션 안이면 그대로(저장점·질의 추가 없음), 직접 부르면 스스로 연다. 광고 없음도 이벤트(`selected = null`), 일괄 슬롯은 `subject_id = null`, 입찰가와 적용 금액을 따로, 광고주 계정은 싣지 않음. outbox 쓰기가 실패하면 결정도 저장되지 않고 503. 시험 11개(변형 검사 6건) |
+| 4-1a 이벤트 outbox | 완료 (2026-10-10) | `events_outbox`(PK = 이벤트 ID, 원천 ID·이벤트 종류에서 UUIDv5로 결정적으로, `aggregate_id` = `decision_id`, `payload` JSON, `created_at` = `produced_at`, `sent_at`, 색인 `(sent_at, created_at)`). 트랜잭션 밖 쓰기 거부, 같은 이벤트는 한 줄(`ON DUPLICATE KEY UPDATE` 무변경, `INSERT IGNORE`는 STRICT의 다른 오류를 삼켜 쓰지 않음). `events/schemas.py`가 필드 이름·형식을 한 곳에서 정함. 결정 4건(E1~E3·이벤트 ID)은 설계 §10 "Step 4 이벤트 결정". 시험 11개(변형 검사 7건). Step 4 전체 시험 897개 + `check.sh` 통과(구현 세션) |
 | 외부 검토(`f2e930b`) 후속 | 완료 (2026-10-09) | P2 2건(구현 `92f95ea`). ① **정합성 검사의 진입 조건**: 트랜잭션 밖에서 부르거나, 동시에 쓰는 연결이 없다는 호출자 보장이 있을 때의 `quiescent=True`만 허용한다. **세션 격리 수준은 판단 근거로 쓰지 않는다** — 세션 값이 `REPEATABLE READ`라도 `SET TRANSACTION`으로 그 트랜잭션만 `READ COMMITTED`로 시작할 수 있어 거짓 불일치가 재현됐다. 그래서 세션 값과 무관하게(RC·RR·SERIALIZABLE) 기존 트랜잭션 안에서는 `ConsistentReadUnavailable`로 거절한다. 설계 §10 "소진액 재계산 규약" ⑥. ② **장애 시험의 복구 판정**: 접수 직후 처리를 끄고 별도 처리 명령 없이, 복구 뒤 상시 처리 프로세스만으로 대기열이 비워지는지와 복구 뒤 실제 처리 건수 > 0을 판정한다. 대조 실험(일하지 않는 프로세스)에서는 남은 759건·처리 0건으로 실패한다. 문서 세션 재측정(코드 `92f95ea`): 세 시나리오 통과, 복구 뒤 상시 프로세스 처리 568·532·503건, 남은 대기열 0(`load-test.md` §7). 전체 시험 + `check.sh` 통과 |
 | 리팩터링 0~6단계 | 완료 (2026-10-10) | **동작 변경 없음**, 아래층부터 차례로(`3538d46`~`a71331c`). 0단계 `3538d46`: 합칠 코드의 동작을 먼저 고정하는 특성 시험 3개(일괄 조회는 형식이 틀린 ID를 버린다, 프로젝트 모델의 관리자 화면은 읽기 전용), 변형 검사 4회. 1단계 `b11178f`(foundation): 공용 도우미 `require_admin`·`require_advertiser`·`parse_uuids`·`ReadOnlyAdmin`을 `foundation.api`에 두고 옛 별칭·안 쓰는 재수출 정리. 2~3단계 `6e34b1f`·`0a0e733`(masters·engine·assets·events, campaigns·billing): 앱마다 있던 역할 검사·ID 거르기·읽기 전용 관리자 화면 사본을 공용 도우미로(문구 그대로), 안 쓰는 재수출 정리. 4단계 `c57abe5`(records): 결정 저장을 한 번 더 감싸던 트랜잭션 제거로 **결정 POST 질의 11 → 9**(`load-test.md` §2), 이미 정렬된 목록의 재정렬 제거. 5~6단계 `e1017b2`·`a71331c`: 앱별 `default_auto_field`(전역 설정과 중복) 삭제, 안 쓰는 import 정리. 단계마다 시험 806개 + `check.sh` 통과, 마이그레이션 변화 없음 |
 | DB-2 MongoDB 연결 | 로컬 완료 (2026-10-10) — 인프라 서버 확인 남음 | 구현 `b01b425`: `pymongo` 4.18, `EVENT_STORE` 설정(`MONGO_*`), `events/`(`ensure_event_store`·`check_event_store`), `scripts/mongo_admin.py`(`check.sh` 사전 점검)·`scripts/mongo_temp_rs.py`(임시 레플리카셋). 시험 16개, 단일 서버와 임시 레플리카셋 양쪽에서 통과. **이벤트는 아직 쓰지 않는다**(Step 4). 상세는 §7.3.3 DB-2 행 |
