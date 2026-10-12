@@ -14,7 +14,7 @@ Confirm topic, serializer, event version and required fields for point_granted. 
 
 ## Shared Canvas ownership
 
-No shared dist/accounts/campus/catalog file was changed in this implementation. Existing `CampusClassroom.create/shouldEnter/open/tick/blocking` interface now detects class1/python and class2/sql through the learning controller. SQL room works through its actual doorway. Main-map class2 display still uses the existing label: request dist/map-data.js owner to rename it to SQL 학습교실 and add a wall sign without changing room geometry. dist/index.html owner should refresh learning asset version tokens to avoid cached JS. Validate physical doorway entry, PC proximity+E, popup input blocking and E exit plus existing down-arrow compatibility.
+Integrated into the latest local campus on 2026-10-12. `learning/` remains separate. The shared renderer receives optional learning-only drawing hooks; existing stairs, city scenery, portals, doors and corrected furniture ordering remain intact. Class1/Python and class2/SQL use their real glass-door crossings and wall signs without changing room geometry. Django inserts learning panels/assets into the map's extension markers and gives each learning asset a content hash; the standalone map stays valid HTML. Main-map movement pauses while the private classroom or question panel is open. Classroom movement uses the configured campus speed. E and the existing down-arrow exit return to the corresponding corridor.
 
 ## Data completeness
 

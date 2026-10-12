@@ -46,13 +46,13 @@ class PositionStorageTests(TestCase):
         self.assertEqual(self.profile.last_position, DEFAULT_POSITION)
 
     def test_logout_saves_final_frame_before_invalidating_session_and_login_restores_it(self):
-        self.client.force_login(self.user)
+        self.client.post("/accounts/login/", {"username": self.user.username, "password": "Location!4820"})
         response = self.client.post("/accounts/logout/", {"last_position": json.dumps(self.position)})
         self.assertEqual(response.status_code, 302)
         self.assertNotIn(SESSION_KEY, self.client.session)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.last_position, self.position)
-        self.assertTrue(self.client.login(username=self.user.username, password="Location!4820"))
+        self.assertEqual(self.client.post("/accounts/login/", {"username": self.user.username, "password": "Location!4820"}).status_code, 302)
         html = self.client.get("/").content.decode()
         config = json.loads(re.search(r'<script id="campusPresenceConfig" type="application/json">(.*?)</script>', html).group(1))
         self.assertEqual(config["position"], self.position)
@@ -61,7 +61,7 @@ class PositionStorageTests(TestCase):
     def test_invalid_logout_payload_preserves_saved_position_but_still_logs_out(self):
         save_position(self.user, self.position)
         for raw in ["not-json", "[]", json.dumps({**self.position, "x": True})]:
-            self.client.force_login(self.user)
+            self.client.post("/accounts/login/", {"username": self.user.username, "password": "Location!4820"})
             self.assertEqual(self.client.post("/accounts/logout/", {"last_position": raw}).status_code, 302)
             self.assertNotIn(SESSION_KEY, self.client.session)
             self.profile.refresh_from_db()

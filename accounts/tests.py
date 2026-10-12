@@ -92,7 +92,7 @@ class AccountFlowTests(TestCase):
                     self.assertTrue(profile.setup_complete)
                     self.assertEqual(profile.course, cohort.split("-")[0])
                     self.client.logout()
-                    self.assertTrue(self.client.login(username=data["username"], password=self.password))
+                    self.assertEqual(self.client.post(reverse("accounts:login"), {"username": data["username"], "password": self.password}).status_code, 302)
                     self.assertContains(self.client.get(reverse("campus:map")), '"avatar": "' + avatar + '"')
 
     def test_signup_requires_one_of_the_five_cohorts(self):

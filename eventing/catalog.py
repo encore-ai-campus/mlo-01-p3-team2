@@ -19,6 +19,10 @@ CATALOG_IDS = {
     ("content", "war"): UUID("a68383ec-8dd0-4357-9503-be68e525e886"),
     ("content", "dad-and-me"): UUID("b6c5ea3c-cd02-4537-b764-9a2b3bc0e325"),
     ("content", "minesweeper"): UUID("26fa843f-7b89-46ed-9d6d-ff9aecf2cca2"),
+    ("content", "fruit-box"): UUID("6151bdea-7ee1-4009-b01b-400e585c2a53"),
+    ("content", "bubble-shooter"): UUID("e03b368a-2daf-48d3-b6ee-f456ec416763"),
+    ("content", "suika"): UUID("c03bb858-4962-460a-93e2-4e70d4db0485"),
+    ("content", "flashman"): UUID("c44c5181-3756-4871-8f65-3f6a849e0075"),
     ("content", "psych-test"): UUID("f5a32338-1b5a-40d5-a30f-195e7011cf21"),
 }
 
@@ -53,6 +57,10 @@ CONTENTS = (
     ("war", "game", "전쟁시대", "EXTERNAL_LINK", "https://vidkidz.tistory.com/51#waflashContainer", "game-booth"),
     ("dad-and-me", "game", "아빠와 나", "EXTERNAL_LINK", "https://vidkidz.tistory.com/605#waflashContainer", "game-booth"),
     ("minesweeper", "game", "지뢰찾기", "EXTERNAL_LINK", "https://minesweeper.one/%EC%A7%80%EB%A2%B0%EC%B0%BE%EA%B8%B0/", "game-booth"),
+    ("fruit-box", "game", "사과게임", "EXTERNAL_LINK", "https://www.gamesaien.com/game/fruit_box_a/", "game-booth"),
+    ("bubble-shooter", "game", "버블슈터", "EXTERNAL_LINK", "https://vidkidz.tistory.com/1514#waflashContainer", "game-booth"),
+    ("suika", "game", "수박게임", "EXTERNAL_LINK", "https://playsuikagame.com/ko", "game-booth"),
+    ("flashman", "game", "후레시맨", "EXTERNAL_LINK", "https://vidkidz.tistory.com/54#waflashContainer", "game-booth"),
     ("psych-test", "psychology", "심심테스트", "EXTERNAL_LINK", "https://simsimtest.com/", "psych-booth"),
 )
 

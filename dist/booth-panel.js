@@ -6,7 +6,7 @@
     const get=id=>panel.querySelector('#'+id),title=get('boothTitle'),intro=get('boothIntro'),status=get('boothStatus'),pipButton=get('boothPiP'),returnButton=get('boothReturn');
     const supported=window.isSecureContext&&typeof window.documentPictureInPicture?.requestWindow==='function';
     const names={youtube:'YouTube 부스',psych:'심리 테스트 존',game:'게임 부스'};
-    const games={gomoku:{name:'오목',url:'/content/gomoku/open/'},war:{name:'전쟁시대',url:'/content/war/open/'},'dad-and-me':{name:'아빠와 나',url:'/content/dad-and-me/open/'},minesweeper:{name:'지뢰찾기',url:'/content/minesweeper/open/'}};
+    const games={'gomoku':{name:'오목',url:'/content/gomoku/open/'},'war':{name:'전쟁시대',url:'/content/war/open/'},'dad-and-me':{name:'아빠와 나',url:'/content/dad-and-me/open/'},'minesweeper':{name:'지뢰찾기',url:'/content/minesweeper/open/'},'fruit-box':{name:'사과게임',url:'/content/fruit-box/open/'},'bubble-shooter':{name:'버블슈터',url:'/content/bubble-shooter/open/'},'suika':{name:'수박게임',url:'/content/suika/open/'},'flashman':{name:'후레시맨',url:'/content/flashman/open/'}};
     const psychUrl='/content/psych-test/open/';
     const card=panel.querySelector('.booth-service-card'),choices=get('boothGameChoices'),launcher=get('boothEmbeddedSection'),externalLink=get('boothExternalLink');
     let pipWindow=null,contentWindow=null,pending=false,closed=false,restoreModal=false;
@@ -14,17 +14,20 @@
       returnButton.hidden=!pipWindow;pipButton.hidden=!supported||!!pipWindow;
       if(panel.dataset.platform==='game'||panel.dataset.platform==='psych')pipButton.hidden=true;
     }
-    function openContentWindow(url){
+    function openContentWindow(url,{refreshExisting=false}={}){
       try{
-        if(contentWindow&&!contentWindow.closed){contentWindow.focus();return true;}
+        if(contentWindow&&!contentWindow.closed){
+          if(refreshExisting)contentWindow.location.replace(url);
+          contentWindow.focus();return true;
+        }
         const width=Math.min(1100,screen.availWidth),height=Math.min(850,screen.availHeight);
         const win=window.open('about:blank','_blank','popup=yes,width='+width+',height='+height);
         if(!win)return false;
         win.opener=null;win.location.replace(url);contentWindow=win;win.focus();return true;
       }catch{return false;}
     }
-    function launchContent(url){
-      if(openContentWindow(url)){if(dialog.open)dialog.close();return true;}
+    function launchContent(url,options){
+      if(openContentWindow(url,options)){if(dialog.open)dialog.close();return true;}
       status.hidden=false;status.textContent='브라우저에서 팝업을 허용한 뒤 다시 열어 주세요.';
       showModal();return false;
     }
@@ -69,7 +72,10 @@
       if(platform==='game'){
         intro.textContent='게임 창에서 카드를 선택해 플레이할 수 있어요.';
         if(pipWindow){const win=pipWindow;restorePanel();win.close();}
-        launchContent(new URL('game-booth.html',document.baseURI).href);return;
+        // The card list must refresh even if its old popup is still open.
+        const gameListUrl=new URL('game-booth.html',document.baseURI);
+        gameListUrl.searchParams.set('v',String(Date.now()));
+        launchContent(gameListUrl.href,{refreshExisting:true});return;
       }
       if(platform==='psych'){
         intro.textContent='별도 창에서 성격·연애·MBTI 등 다양한 심리 테스트를 골라볼 수 있어요.';

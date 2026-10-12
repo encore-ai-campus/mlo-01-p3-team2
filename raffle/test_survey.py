@@ -212,7 +212,7 @@ class SurveyRegistrationTests(TransactionTestCase):
         secure = Client(enforce_csrf_checks=True)
         secure.force_login(self.admin)
         self.assertEqual(secure.post('/api/raffle/survey/connect/', data=json.dumps(data), content_type='application/json').status_code, 403)
-        self.client.force_login(self.admin)
+        self.client.cookies = secure.cookies.copy()
         with patch('raffle.survey.google_request', return_value=google_result()) as remote:
             response = self.client.post('/api/raffle/survey/connect/', data=json.dumps(data), content_type='application/json')
             self.assertEqual(response.status_code, 200)

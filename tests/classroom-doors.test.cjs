@@ -35,3 +35,16 @@ test('opening frees the doorway while keeping the glass leaf solid; occupied thr
   assert.equal(geometry.blocked(door,false,[{...center,floor:'rooftop'}]),false);
  }
 });
+test('storage door slides parallel to its wall, clears the threshold and blocks occupied closing',()=>{
+ const door=data.objects.find(o=>o.id==='door-storage'),closed=geometry.leaf(door,false),opened=geometry.leaf(door,true);
+ assert.equal(geometry.isDoor(door),true);
+ assert.equal(geometry.isDoor(data.objects.find(o=>o.type==='sliding-door'&&!o.interactiveDoor)),false);
+ assert.equal(door.roomId,'storage');assert.equal(door.open,false);
+ assert.equal(closed.dx,opened.dx);assert.equal(closed.dy,opened.dy);assert.ok(opened.start.x>closed.end.x);
+ const opening=geometry.footprint(door,false),center={floor:'campus',x:opening.x+opening.w/2,y:opening.y+opening.h/2};
+ assert.equal(geometry.blocked(door,false,[center]),true);assert.equal(geometry.blocked(door,true,[center]),false);
+ assert.equal(geometry.distance({...door,open:true},center.x,center.y),0);
+ const room=data.rooms.find(r=>r.id==='storage'),park=geometry.footprint(door,true);
+ assert.ok(park.x+park.w<room.x+room.w);
+ const bounds=geometry.bounds(door);assert.ok(bounds.x<=opening.x&&bounds.x+bounds.w>=park.x+park.w);
+});

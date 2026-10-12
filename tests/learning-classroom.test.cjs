@@ -9,7 +9,7 @@ const inside=(x,y,r)=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
 const walkable=(x,y)=>D.rooms.some(r=>inside(x,y,r))&&!colliders.some(r=>Math.max(r.x-x,0,x-r.x-r.w)**2+Math.max(r.y-y,0,y-r.y-r.h)**2<(5.5+r.pad)**2);
 test('two existing classroom monitors are independently accessible with unchanged collision',()=>{
  const room=D.rooms.find(r=>r.id==='class1');assert.deepEqual([room.x,room.y,room.w,room.h],[1261.5,553.5,447,393]);
- const pcs=D.objects.filter(o=>o.action==='learning');assert.equal(pcs.length,2);
+ const pcs=D.objects.filter(o=>o.action==='learning'&&o.roomId==='class1');assert.equal(pcs.length,2);
  assert.deepEqual(Array.from(pcs,o=>o.contentType),['python_multiple_choice','python_fill_blank']);
  assert.equal(D.objects.filter(o=>o.roomId==='class1'&&o.type==='monitor').length,12);
  const nav=sandbox.window.CampusNavigation.create({width:D.width,height:D.height,isWalkable:walkable});

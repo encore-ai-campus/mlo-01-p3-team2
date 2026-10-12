@@ -10,8 +10,8 @@ window.CampusData = (() => {
   room('class4','강의실 4',456,24,313,243,'class',[496,243],{front:'bottom',boardInsetLeft:74,description:'강의실 1·2와 같은 방향으로, 아래쪽에 강의 전면과 강사 책상이 있습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
   room('class3','강의실 3',769,24,298,243,'class',[1027,243],{front:'bottom',boardInsetRight:73,description:'강의실 1·2와 같은 방향으로, 아래쪽에 강의 전면과 강사 책상이 있습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
   room('corridor','복도',456,267,611,102,'hall',[758,322]);
-  room('class2','SQL 학습교실',456,369,313,262,'class',[496,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
-  room('class1','Python 학습교실',769,369,298,262,'class',[1027,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
+  room('class2','강의실 2',456,369,313,262,'class',[496,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
+  room('class1','강의실 1',769,369,298,262,'class',[1027,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
   room('lounge1','라운지 1',1067,24,332,607,'wood',[1190,437],{photo:'assets/lounge1.png',description:'중앙 통로를 비워 둔 라운지입니다. 오른쪽에는 세로로 배치한 콘센트 작업 탁자와 네 좌석이 있습니다. 브라운 벽 쪽에는 마주보는 소파와 흰 탁자, 원형 스툴이 있고, 아래쪽 외벽의 유리 출입문과 두 좌석의 안내 데스크로 이어집니다. 위쪽 회의 탁자와 TV, 노트북용 긴 탁자, 프린터와 휴게 설비도 이용할 수 있습니다.',tags:['콘센트 작업 탁자','중앙 통로','마주보는 소파','외부 유리 출입문']});
   room('office','직원실',1399,26,117,321,'office',[1416,304]);
   room('meeting','회의실',1399,347,117,198,'meeting',[1417,501]);
@@ -34,8 +34,9 @@ window.CampusData = (() => {
   vertical(1067,24,631,[[267,369]]);vertical(1399,26,631,[[287,323],[485,520],[577,609]]);
   wall(1399,347,1516,347);wall(1399,545,1516,545);
   // Remove only the partition in front of the printer, keeping the storage doorway.
-  horizontal(84,1067,1399,[[1234,1307],[1320,1353]]);wall(1290,24,1290,72);
-  wall(278,24,278,68);wall(278,68,456,68);
+  horizontal(84,1067,1399,[[1234,1290],[1320,1353]]);wall(1290,24,1290,72);
+  walls.find(w=>w.y1===84&&w.y2===84&&w.x1===1067).occludes=['lounge1-utility-counter'];
+  wall(278,24,278,68);wall(278,68,456,68,undefined,{occludes:['lounge2-utility-counter']});
   vertical(315,425,631,[[463,501],[565,603]]);wall(315,425,456,425);wall(315,531,456,531);
   wall(1297,631,1297,718,'#bd7656');wall(1352,631,1352,718,'#dbb446');wall(1400,631,1400,718,'#dfc053');wall(1297,718,1400,718);
   const obj=(type,x,y,w,h,extra={})=>{objects.push({id:'object-'+objects.length,type,x,y,w,h,...extra});return objects[objects.length-1];};
@@ -48,7 +49,7 @@ window.CampusData = (() => {
     const flipped=r.front==='bottom';
     const place=(type,x,y,w,h,extra={})=>obj(type,r.x+x,r.y+(flipped?r.h-y-h:y),w,h,{roomId:r.id,...extra});
     const boardLeft=r.boardInsetLeft||40,boardRight=r.boardInsetRight||40;
-    place('board',boardLeft,16,r.w-boardLeft-boardRight,12,{front:r.front||'top'});
+    place('board',boardLeft,24,r.w-boardLeft-boardRight,12,{front:r.front||'top',mountHeight:20});
     place('desk',36,41,44,19,{teacher:true});place('laptop',42,43,15,12,{solid:false});
     for(let j=0;j<rows;j++) for(let i=0;i<columns;i++){
       const x=25+i*(deskW+gapX),y=83+j*45;
@@ -57,30 +58,26 @@ window.CampusData = (() => {
     place('plant',r.id.startsWith('left-')?12:r.w-38,35,20,20);
   };
   for(const r of rooms.filter(r=>r.floor==='class'))teaching(r,r.w>250?4:3,r.h>220?3:2);
-  // Reuse two existing monitors; desk footprints and classroom geometry stay intact.
-  const sqlRoom=rooms.find(r=>r.id==='class2');
-  sqlRoom.label=false;
-  sqlRoom.description='SQL 학습교실입니다. 출입구로 입장한 뒤 PC 가까이에서 E키로 객관식 또는 코드 빈칸 채우기를 시작하세요.';
-  obj('wall-sign',sqlRoom.x+65,sqlRoom.y+5,180,3,{id:'sql-classroom-wall-sign',roomId:'class2',solid:false,text:'SQL 학습교실'});
-  const learningRoom=rooms.find(r=>r.id==='class1');
-  learningRoom.label=false;
-  obj('wall-sign',learningRoom.x+58,learningRoom.y+5,180,3,{id:'python-classroom-wall-sign',roomId:'class1',solid:false,text:'Python 학습교실'});
-  learningRoom.description='강의실 1의 Python 학습교실입니다. Python 객관식과 코드 빈칸 채우기 PC에 가까이 이동한 뒤 E를 누르세요.';
-  const learningMonitors=objects.filter(o=>o.roomId==='class1'&&o.type==='monitor');
-  for(const [index,contentType,name,description] of [
-    [8,'python_multiple_choice','Python 객관식','Python 문제를 객관식으로 학습할 수 있습니다.'],
-    [11,'python_fill_blank','코드 빈칸 채우기','Python 코드의 빈칸을 직접 완성하는 학습입니다.'],
-  ]){
-    const pc=learningMonitors[index];
-    Object.assign(pc,{action:'learning',contentType,name,description:description+' 실제 학습 콘텐츠 연결 예정',tags:['초급 · 중급 · 고급','실제 학습 콘텐츠 연결 예정']});
+  const learningSigns=[];
+  for(const [id,subject,title,inset] of [['class1','python','Python 학습교실',58],['class2','sql','SQL 학습교실',65]]){
+    const r=rooms.find(room=>room.id===id);
+    Object.assign(r,{name:title,label:false,description:title+'입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.'});
+    learningSigns.push({type:'wall-sign',x:r.x+inset,y:r.y+5,w:180,h:3,id:subject+'-classroom-wall-sign',roomId:id,solid:false,text:title});
+    const monitors=objects.filter(o=>o.roomId===id&&o.type==='monitor');
+    for(const [index,kind,name] of [[8,'multiple_choice',subject==='python'?'Python 객관식':'SQL 객관식'],
+                                 [11,'fill_blank',subject==='python'?'코드 빈칸 채우기':'SQL 코드 빈칸 채우기']]){
+      Object.assign(monitors[index],{action:'learning',subject,contentType:subject+'_'+kind,name,
+        description:'학습교실 출입구로 입장해 객관식·코드 빈칸 채우기를 시작할 수 있습니다.',tags:['초급 · 중급 · 고급','학습교실']});
+    }
   }
-  obj('counter',283,31,164,27);obj('water',422,33,21,29,{name:'정수기',roomId:'lounge2',description:'라운지 2 맨 위 휴게 설비의 오른쪽 끝에 있는 정수기입니다.',tags:['오른쪽 끝','정수기']});
+  obj('counter',283,31,164,27,{id:'lounge2-utility-counter',inFrontOfWalls:true});obj('water',422,33,21,29,{name:'정수기',roomId:'lounge2',description:'라운지 2 맨 위 휴게 설비의 오른쪽 끝에 있는 정수기입니다.',tags:['오른쪽 끝','정수기']});
   for(let i=0;i<3;i++)obj('bin',328+i*28,35,21,24,{color:['#647779','#65a195','#cca966'][i],name:'분리수거함',roomId:'lounge2'});
   desk(318,120,58,128,{color:'#e1c395',name:'공용 회의 테이블',roomId:'lounge2'});
-  tv(314.5,89,65,20,'lounge2',{name:'긴 탁자 PC 연결 TV',description:'라운지 2 위쪽 긴 탁자의 중앙선에 맞춰 배치한 PC 연결용 TV입니다.'});
-  for(let i=0;i<4;i++){chair(296,124+i*32,'right','#b8915d');chair(384,124+i*32,'left','#b8915d');}
+  tv(314.5,89,65,20,'lounge2',{inFrontOfWalls:true,name:'긴 탁자 PC 연결 TV',description:'라운지 2 위쪽 긴 탁자의 중앙선에 맞춰 배치한 PC 연결용 TV입니다.'});
+  const lounge2RightSeats=[];
+  for(let i=0;i<4;i++){chair(296,124+i*32,'right','#b8915d');lounge2RightSeats.push(chair(384,124+i*32,'left','#b8915d'));}
   obj('laptop',336,131,18,14,{solid:false});obj('notebook',337,199,18,13,{solid:false});
-  obj('bar',426,78,24,182,{name:'벽면 바 테이블',roomId:'lounge2'});for(let i=0;i<5;i++)obj('stool',405,91+i*33,16,18,{color:'#bb996a'});
+  obj('bar',426,78,24,182,{name:'벽면 바 테이블',roomId:'lounge2',occludes:lounge2RightSeats.map(o=>o.id)});for(let i=0;i<5;i++)obj('stool',405,91+i*33,16,18,{color:'#bb996a'});
   plant(265,90,22);plant(265,258,24);obj('rug',280,305,150,76,{solid:false,color:'#d1d8c6'});plant(405,389,27);
   for(const yy of [425,531]){
     desk(350,yy+36,57,29,{color:'#dfc199'});
@@ -89,11 +86,11 @@ window.CampusData = (() => {
   }
   // Attach the extinguisher to the classroom 5 wall, clear of the doorway.
   obj('fire-extinguisher',253,608,16,22,{id:'extinguisher-meeting2',name:'소화기 · 옥상 이동',roomId:'lounge2',description:'강의실 5 쪽 벽면에 붙인 소화기입니다. 가까이에서 E를 누르면 옥상 맵 왼쪽 끝으로 이동합니다.',tags:['강의실 5 벽면','E · 옥상 이동']});
-  obj('counter',1074,32,171,36);obj('water',1081,35,24,33,{name:'정수기',roomId:'lounge1',description:'라운지 1 맨 위에 있습니다. 오른쪽에는 커피머신과 분리수거함이 이어집니다.',tags:['정수기','휴게 설비']});
+  obj('counter',1074,32,171,36,{id:'lounge1-utility-counter',inFrontOfWalls:true});obj('water',1081,35,24,33,{name:'정수기',roomId:'lounge1',description:'라운지 1 맨 위에 있습니다. 오른쪽에는 커피머신과 분리수거함이 이어집니다.',tags:['정수기','휴게 설비']});
   obj('coffee-machine',1115,38,25,28,{name:'커피머신',roomId:'lounge1',description:'라운지 1 정수기 바로 옆에 놓인 커피머신입니다. 오른쪽의 분리수거함을 함께 이용할 수 있습니다.',tags:['정수기 옆','커피']});
   for(let i=0;i<3;i++)obj('bin',1150+i*31,40,25,26,{color:['#647779','#65a195','#cca966'][i],name:'분리수거함',roomId:'lounge1',description:'커피머신 옆의 세 분리수거함입니다. 오른쪽에는 사무용 프린터와 창고가 있습니다.'});
   obj('printer',1247,31,35,41,{name:'대형 사무용 프린터',roomId:'lounge1',description:'분리수거함과 창고 사이에 놓인 대형 사무용 복합기입니다. 스캔 덮개, 조작 화면, 출력 트레이와 용지함이 있는 형태로 배치했습니다.',tags:['분리수거함과 창고 사이','사무용 복합기']});
-  obj('cabinet',1299,35,30,15);obj('cabinet',1365,36,24,35);obj('box',1304,55,21,19);obj('box',1367,64,19,12);
+  obj('cabinet',1299,35,30,15);obj('cabinet',1365,36,24,35);obj('box',1298,55,21,19);obj('box',1367,64,19,12);
   desk(1125,110,158,30,{color:'#e1c598',name:'노트북용 긴 탁자',roomId:'lounge1',description:'기존 대형 TV 자리를 긴 탁자로 바꾸고, 탁자 위에 노트북 한 대를 놓았습니다.',tags:['긴 탁자','노트북 1대']});obj('laptop',1192,113,24,19,{solid:false,roomId:'lounge1'});
   [1088,1165,1241].forEach((x,i)=>{desk(x,175,37,81,{color:'#f5f3e9',name:`팀 회의 탁자 ${i+1}`,roomId:'lounge1'});tv(x-6,156,49,17,'lounge1',{name:`PC 연결 TV · ${i+1}번 탁자`,description:`라운지 1의 ${i+1}번 회의 탁자에 배치한 PC 연결용 TV입니다. 세 탁자에 한 대씩 놓았습니다.`});for(let j=0;j<2;j++){chair(x-19,184+j*39,'right','#657f88');chair(x+42,184+j*39,'left','#657f88');}});
   obj('laptop',1097,181,17,14,{solid:false});obj('notebook',1174,216,18,13,{solid:false});obj('laptop',1250,184,17,14,{solid:false});
@@ -104,10 +101,10 @@ window.CampusData = (() => {
   // Move the right pillar and its bookshelves as one group, leaving a working area above.
   for(const [x,y] of [[1144,374],[1300,400]]){obj('pillar',x,y,40,40,{roomId:'lounge1'});obj('bookshelf',x-7,y-9,54,15,{name:'기둥 책장',roomId:'lounge1',photo:'assets/books.png',description:'라운지 1의 두 기둥에 사진 속 흰 프레임과 나무 선반의 책장을 반영했습니다. 색색의 책들이 둘러진 작은 도서 공간입니다.',tags:['기둥 주변 책장','흰 프레임','나무 선반']});obj('bookshelf',x-7,y+39,54,15,{name:'기둥 책장',roomId:'lounge1',photo:'assets/books.png'});obj('bookshelf-side',x+38,y+2,14,35,{name:'기둥 책장',roomId:'lounge1',photo:'assets/books.png'});}
   // Rotate the photographed seating group so its wood wall follows classroom 1's side.
-  obj('rug',1094,452,135,170,{solid:false,color:'#eadcc3'});obj('woodwall',1073,454,14,172,{name:'브라운 벽',roomId:'lounge1',photo:'assets/lounge1.png',description:'강의실 1 옆면에 붙어 있는 브라운색 벽입니다. 흰 탁자와 원형 스툴을 벽을 따라 배치했습니다.'});
-  obj('sofa',1133,593,79,27,{dir:'up',color:'#a6a5a0',name:'소파 라운지',roomId:'lounge1',photo:'assets/lounge1.png'});obj('sofa',1149,449,64,25,{dir:'down',seats:2,color:'#949a98',name:'2칸 소파',roomId:'lounge1',description:'위쪽으로 옮겨 아래 소파와 마주보도록 배치한 2칸 소파입니다.'});
-  obj('coffee',1175,533,26,50);obj('coffee',1169,477,24,39);
-  for(const [x,y,c] of [[1120,549,'#899e9c'],[1122,503,'#d9b65f'],[1123,461,'#8753a0']])obj('ottoman',x,y,25,25,{color:c});
+  obj('rug',1094,452,135,170,{solid:false,color:'#eadcc3'});obj('woodwall',1076,454,14,172,{inFrontOfWalls:true,name:'브라운 벽',roomId:'lounge1',photo:'assets/lounge1.png',description:'강의실 1 옆면에 붙어 있는 브라운색 벽입니다. 흰 탁자와 원형 스툴을 벽을 따라 배치했습니다.'});
+  obj('sofa',1133,574,79,27,{dir:'up',color:'#a6a5a0',name:'소파 라운지',roomId:'lounge1',photo:'assets/lounge1.png'});obj('sofa',1149,449,64,25,{dir:'down',seats:2,color:'#949a98',name:'2칸 소파',roomId:'lounge1',description:'위쪽으로 옮겨 아래 소파와 마주보도록 배치한 2칸 소파입니다.'});
+  obj('coffee',1175,524,26,50);obj('coffee',1169,477,24,39);
+  for(const [x,y,c] of [[1120,546,'#899e9c'],[1122,503,'#d9b65f'],[1123,461,'#8753a0']])obj('ottoman',x,y,25,25,{color:c});
   for(const y of [573,514,456])obj('roundtable',1094,y,18,27);
   obj('bookshelf-side',1216,585,13,37,{name:'라운지 책장',roomId:'lounge1',photo:'assets/books.png'});
   // The glass entrance belongs to the outside wall, between the seating rug and reception.
@@ -116,10 +113,10 @@ window.CampusData = (() => {
   desk(1275,538,24,86,{color:'#e0c197',name:'안내 데스크',roomId:'lounge1',description:'외부 유리 출입문 오른쪽의 안내 데스크입니다. 직원 좌석 두 개가 있습니다.',tags:['안내','직원 좌석 2개']});obj('monitor',1279,548,16,12,{solid:false});
   for(const y of [551,592])Object.assign(chair(1307,y,'left'),{roomId:'lounge1',reception:true});
   for(let i=0;i<4;i++){desk(1444,66+i*53,58,26,{color:'#eee9d9'});chair(1463,95+i*53,'up');obj('monitor',1461,69+i*53,21,13,{solid:false});}
-  obj('cabinet',1410,41,21,86);plant(1479,296,23);
+  obj('cabinet',1410,41,21,86,{inFrontOfWalls:true});plant(1479,296,23);
   desk(1440,386,41,91,{color:'#d8bd98'});for(let i=0;i<3;i++){chair(1421,391+i*30,'right');chair(1486,391+i*30,'left');}tv(1430,360,58,14,'meeting');plant(1479,509,21);
   obj('stairs',1407,553,100,70,{solid:false});
-  for(const [x,id] of [[1297,'consult-b'],[1352,'consult-a']]){desk(x+24,654,20,28,{oval:true,name:'상담 테이블',roomId:id});obj('monitor',x+26,650,15,11,{solid:false});chair(x+1,656,'right','#aaa797');chair(x+24,690,'up','#aaa797');}
+  for(const [x,id] of [[1297,'consult-b'],[1352,'consult-a']]){desk(x+20,654,20,28,{inFrontOfWalls:true,oval:true,name:'상담 테이블',roomId:id});obj('monitor',x+22,655,15,11,{solid:false});chair(x+1,656,'right','#aaa797');chair(x+20,690,'up','#aaa797');}
   obj('fire-extinguisher',761,280,16,22,{id:'extinguisher-corridor',name:'소화기',roomId:'corridor',description:'복도 위쪽, 통합 강의실 앞 벽면에 배치한 소화기입니다.',tags:['소화기','통합 강의실 앞']});
   obj('floor-arrow',530,305,28,16,{solid:false});obj('floor-arrow',972,305,28,16,{solid:false});
   // Hinged glass leaves open into their classrooms, keeping the corridor clear.
@@ -129,10 +126,13 @@ window.CampusData = (() => {
     ['left-top',245,146,6,38,'vertical',-1],['left-middle',245,344,6,38,'vertical',-1],
     ['left-bottom',245,554,6,38,'vertical',-1],
   ])obj('glass-door',x,y,w,h,{id:'door-'+roomId,roomId,orientation,swing,open:false,name:rooms.find(r=>r.id===roomId).name+' 유리문'});
+  // The storage leaf slides along its front wall, leaving the original threshold clear.
+  obj('sliding-door',1320,81,33,6,{id:'door-storage',roomId:'storage',orientation:'horizontal',slide:1,interactiveDoor:true,open:false,name:'창고 슬라이드문',renderHeight:60});
   // Merge after generating fixtures so other furniture and shared door IDs stay stable.
   const combinedClassroomIds=new Set(['class3','class4']);
   const combinedIndex=rooms.findIndex(r=>r.id==='class4');
   rooms.splice(combinedIndex,2,{id:'class3-4',name:'강의실 3·4',x:456,y:24,w:611,h:243,floor:'class',target:[758,145],label:false,info:false});
+  for(const r of rooms.filter(r=>r.floor==='class'))Object.assign(r,{label:false,info:false});
   for(const o of objects)if(o.type==='glass-door'&&combinedClassroomIds.has(o.roomId)){
     o.name='통합 강의실 '+(o.roomId==='class4'?'왼쪽':'오른쪽')+' 유리문';
     o.roomId='class3-4';
@@ -142,6 +142,7 @@ window.CampusData = (() => {
   // Leave clearance from the wall's visible thickness so the entire freestanding bookcase stays in front.
   obj('bookshelf-side',1084,389,18,48,{id:'lounge1-corridor-bookshelf',name:'벽면 책장',roomId:'lounge1',bookcaseHeight:58,photo:false,description:'라운지 1에서 복도로 들어가기 전 왼쪽 벽 앞에 놓인 책장입니다. 옆 휴식 공간과 복도 입구 사이의 벽면에 배치했습니다.'});
   // Keep the lounge and main wing proportions while making room for the wider classrooms.
+  objects.push(...learningSigns);
   for(const r of rooms)if(!r.id.startsWith('left-')){r.x+=layoutShiftX;r.target[0]+=layoutShiftX;}
   entrance.x+=layoutShiftX;entrance.target[0]+=layoutShiftX;
   for(const o of objects)if(o.type==='glass-door'||!o.roomId?.startsWith('left-'))o.x+=layoutShiftX;
@@ -151,5 +152,5 @@ window.CampusData = (() => {
   for(const r of [...rooms,entrance]){for(const key of ['x','y','w','h'])r[key]*=spaceScale;r.target=r.target.map(v=>v*spaceScale);}
   for(const o of objects){for(const key of ['x','y','w','h'])o[key]*=spaceScale;if(o.collision)for(const key of ['x','y','w','h'])o.collision[key]*=spaceScale;}
   for(const w of walls)for(const key of ['x1','y1','x2','y2'])w[key]*=spaceScale;
-  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
+  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>o.type!=='board'&&!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
 })();

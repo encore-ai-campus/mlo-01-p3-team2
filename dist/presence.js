@@ -13,7 +13,7 @@
       let welcomed = false;
       let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastState = '';
       const floorBounds = floors || {campus:{width,height}};
-      const doorIds = new Set((floors?.campus?.objects||[]).filter(o=>o.type==='glass-door').map(o=>o.id));
+      const doorIds = new Set((floors?.campus?.objects||[]).filter(o=>(o.type==='glass-door'||(o.type==='sliding-door'&&o.interactiveDoor===true))).map(o=>o.id));
       const colors = new Set(['#dfa34d', '#4e9b91', '#8a78bb', '#cb7773', '#648eb5']);
       const directions = new Set(['up', 'down', 'left', 'right']);
       const avatars = new Set(['male-1', 'male-2', 'female-1', 'female-2']);

@@ -1,4 +1,3 @@
-{% load static %}
 <!doctype html>
 <html lang="ko">
 <head>
@@ -16,6 +15,7 @@
   <link rel="stylesheet" href="community.css">
   <link rel="stylesheet" href="session-policy.css">
   <link rel="stylesheet" href="floor-transition.css">
+  <link rel="stylesheet" href="lunch-wheel.css">
   <link rel="preload" href="assets/fonts/PressStart2P-Regular.ttf" as="font" type="font/ttf" crossorigin>
 </head>
 <body>
@@ -41,11 +41,11 @@
         </div>
         <ul id="presencePeers" class="sr-only" aria-label="다른 접속자"></ul>
         <div id="speechBubbles" class="speech-bubbles" aria-hidden="true"></div>
-        <section id="chatPanel" class="chat-panel" aria-labelledby="chatTitle">
+        <section id="chatPanel" class="chat-panel" aria-labelledby="chatTitle" hidden>
           <div class="chat-heading"><strong id="chatTitle">캠퍼스 채팅</strong><span>전체 채팅</span></div>
           <div class="chat-history"><p id="chatEmpty" class="chat-empty">캠퍼스에 있는 사람들과 이야기해 보세요.</p><ul id="chatMessages" class="chat-messages" role="log" aria-label="채팅 메시지" aria-live="polite" aria-relevant="additions"></ul></div>
-          <form id="chatForm" class="chat-compose"><label for="chatInput" class="sr-only">채팅 메시지</label><input id="chatInput" type="text" maxlength="400" placeholder="메시지를 입력하세요" autocomplete="off" aria-describedby="chatStatus chatCount" disabled><button id="chatSend" type="submit" disabled>전송</button></form>
-          <div class="chat-composer-meta"><span id="chatStatus" role="status">채팅 연결 중…</span><span id="chatCount">0/200</span></div>
+          <form id="chatForm" class="chat-compose" hidden><label for="chatInput" class="sr-only">채팅 메시지</label><input id="chatInput" type="text" maxlength="400" placeholder="메시지를 입력하세요" autocomplete="off" aria-describedby="chatStatus chatCount" disabled><button id="chatSend" type="submit" disabled>전송</button></form>
+          <div class="chat-composer-meta" hidden><span id="chatStatus" role="status">채팅 연결 중…</span><span id="chatCount">0/200</span></div>
         </section>
         <section id="boardShortcut" class="board-shortcut" aria-labelledby="boardShortcutTitle" hidden>
           <div class="board-shortcut-heading"><span class="board-shortcut-mark" aria-hidden="true">P</span><strong id="boardShortcutTitle">18F 게시판</strong></div>
@@ -64,7 +64,7 @@
           <p class="settings-hint">내 화면에 표시할 항목을 선택하세요.</p>
           <h3>화면 표시</h3>
           <label class="setting-row"><span class="setting-copy"><strong>다른 사람 닉네임</strong><small>캐릭터 머리 위 이름 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingNicknames" type="checkbox" role="switch" checked></span></label>
-          <label class="setting-row"><span class="setting-copy"><strong>채팅창</strong><small>좌측 하단 채팅 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingChat" type="checkbox" role="switch" checked></span></label>
+          <label class="setting-row"><span class="setting-copy"><strong>채팅창</strong><small>Enter로 입력 · 새 메시지 후 10초 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingChat" type="checkbox" role="switch" checked></span></label>
           <label class="setting-row"><span class="setting-copy"><strong>말풍선</strong><small>캐릭터 위에 5초 동안 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingBubbles" type="checkbox" role="switch" checked></span></label>
           <div id="settingsAccount" class="settings-account"></div>
         </div>
@@ -75,7 +75,7 @@
           <section id="floorTransitionAdSlot" aria-label="층 전환 광고" hidden></section>
         </div>
       </dialog>
-      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span></div></footer>
+      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span><button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span></div></footer>
     </section>
   </main>
   <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-top"><div><span id="detailEyebrow" class="eyebrow">SPACE GUIDE</span><h2 id="detailTitle"></h2></div><button id="closeDialog" class="close-button" aria-label="안내 닫기">×</button></div><img id="detailImage" alt="" hidden><div class="dialog-content"><p id="detailText"></p><div id="detailTags" class="detail-tags"></div><div class="dialog-actions"><button id="detailClose" class="btn quiet">닫기</button></div></div></dialog>
@@ -102,6 +102,21 @@
         <p id="boardMenuStatus" class="board-menu-status" role="status" aria-live="polite"></p>
         <img id="boardMenuImage" alt="더좋은밥상 구내식당 식단 사진" hidden>
         <div class="board-menu-caption"><span id="boardMenuUpdated"></span><a id="boardMenuOpen" class="toolbtn" target="_blank" rel="noopener" hidden>사진 크게 보기 ↗</a></div>
+        <section id="lunchWheel" class="lunch-wheel-panel" aria-labelledby="lunchWheelTitle">
+          <header class="lunch-wheel-heading"><h4 id="lunchWheelTitle">결정장애를 위한 오늘의 점메추</h4><p>오늘 점심 고민 끝! 돌림판으로 골라보세요.</p></header>
+          <div class="lunch-wheel-layout">
+            <div class="lunch-wheel-stage" aria-hidden="true">
+              <span class="lunch-wheel-pointer"></span>
+              <svg class="lunch-wheel-disc" data-lunch-wheel viewBox="0 0 320 320"></svg>
+              <span class="lunch-wheel-hub"><span>오늘 점심</span><strong>점메추</strong></span>
+            </div>
+            <div class="lunch-wheel-controls">
+              <div class="lunch-wheel-result" role="status" aria-live="polite" aria-atomic="true"><span class="lunch-wheel-result-label">오늘의 추천</span><strong data-lunch-choice>돌림판을 돌려보세요</strong><span data-lunch-message>8가지 메뉴 중 하나를 골라드릴게요.</span></div>
+              <button class="lunch-wheel-spin" data-lunch-spin type="button">돌림판 돌리기</button>
+              <ul class="lunch-wheel-options" data-lunch-options aria-label="추천 메뉴 종류"></ul>
+            </div>
+          </div>
+        </section>
       </section>
       <section id="communityPanel" class="community-panel" aria-label="엔코아 타임 커뮤니티" hidden>
         <div class="community-toolbar">
@@ -148,7 +163,7 @@
   </dialog>
   <dialog id="transferDialog" class="exit-dialog" aria-labelledby="transferTitle" aria-describedby="transferDescription">
     <div class="dialog-top"><div><span class="eyebrow">층간 이동</span><h2 id="transferTitle">이동하시겠습니까?</h2></div></div>
-    <div class="dialog-content"><p id="transferDescription"></p><div class="dialog-actions"><button id="transferNo" type="button" class="btn quiet" autofocus>아니오</button><button id="transferYes" type="button" class="btn solid">예</button></div></div>
+    <div class="dialog-content"><p id="transferDescription"></p><div class="dialog-actions"><button id="transferNo" type="button" class="btn quiet">아니오</button><button id="transferYes" type="button" class="btn solid" autofocus>예</button></div></div>
   </dialog>
   <dialog id="boothDialog" aria-labelledby="boothTitle">
     <section id="boothPanel" class="booth-panel" data-platform="basic">
@@ -176,6 +191,22 @@
             <button type="button" class="board-card booth-game-card" data-game="minesweeper" aria-label="지뢰찾기 게임 시작">
               <span class="board-card-media game-card-minesweeper" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><rect x="38" y="13" width="144" height="124" rx="12" fill="#b4c9bb"/><rect x="50" y="25" width="120" height="100" rx="4" fill="#f5f8f1"/><path d="M80 25v100m30-100v100m30-100v100M50 50h120M50 75h120M50 100h120" stroke="#c9d7cb" stroke-width="2"/><path d="M51 76h28v23H51Zm60-50h28v23h-28Zm30 25h28v23h-28Z" fill="#c7d9cd"/><text x="60" y="44" font-family="sans-serif" font-size="19" font-weight="700" fill="#5173b2">1</text><text x="90" y="69" font-family="sans-serif" font-size="19" font-weight="700" fill="#48855d">2</text><text x="118" y="94" font-family="sans-serif" font-size="19" font-weight="700" fill="#5173b2">1</text><path d="M65 79v16m-5 0h10" stroke="#3c5c4a" stroke-width="2.5" stroke-linecap="round"/><path d="m66 78 13 4-13 6Z" fill="#da7469"/><circle cx="155" cy="113" r="7" fill="#40594c"/><path d="M155 101v24m-12-12h24m-20-8 16 16m-16 0 16-16" stroke="#40594c" stroke-width="2.5"/><circle cx="153" cy="111" r="2" fill="#fff"/></svg></span>
               <span class="board-card-label"><strong>지뢰찾기</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">숫자 힌트로 지뢰를 피하는 퍼즐</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="fruit-box" aria-label="사과게임 게임 시작">
+              <span class="board-card-media game-card-fruit-box" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><rect x="35" y="14" width="150" height="122" rx="16" fill="#fffaf1" stroke="#efceae" stroke-width="3"/><g fill="#e96458"><path d="M69 35c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M122 34c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M69 87c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M122 85c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/></g><path d="m68 35 7-10m46 10 7-10M68 87l7-10m46 8 7-10" stroke="#648e54" stroke-width="5" stroke-linecap="round"/><g fill="#fff" font-family="sans-serif" font-size="18" font-weight="700" text-anchor="middle"><text x="69" y="57">3</text><text x="122" y="56">7</text><text x="69" y="109">4</text><text x="122" y="107">6</text></g><rect x="47" y="24" width="97" height="47" rx="10" stroke="#78a879" stroke-width="3" stroke-dasharray="6 4"/></svg></span>
+              <span class="board-card-label"><strong>사과게임</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">사과를 묶어 숫자 합계 10 만들기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="bubble-shooter" aria-label="버블슈터 게임 시작">
+              <span class="board-card-media game-card-bubble-shooter" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><g stroke="#fff" stroke-width="2"><g fill="#8a79ca"><circle cx="50" cy="31" r="17"/><circle cx="87" cy="31" r="17"/><circle cx="106" cy="65" r="17"/></g><g fill="#5eb6b7"><circle cx="124" cy="31" r="17"/><circle cx="161" cy="31" r="17"/><circle cx="143" cy="65" r="17"/></g><g fill="#eead63"><circle cx="68" cy="65" r="17"/><circle cx="87" cy="99" r="17"/></g><circle cx="180" cy="65" r="17" fill="#e48091"/></g><g fill="#fff" opacity=".65"><ellipse cx="45" cy="25" rx="5" ry="3"/><ellipse cx="119" cy="25" rx="5" ry="3"/><ellipse cx="138" cy="59" rx="5" ry="3"/><ellipse cx="63" cy="59" rx="5" ry="3"/></g><path d="m115 126 14-20m-11 3 11-3 1 11" stroke="#6b7e9c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="110" cy="135" r="13" fill="#5eb6b7" stroke="#fff" stroke-width="2"/></svg></span>
+              <span class="board-card-label"><strong>버블슈터</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">같은 색 버블을 모아 터뜨리기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="suika" aria-label="수박게임 게임 시작">
+              <span class="board-card-media game-card-suika" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><path d="M42 20v106q0 9 9 9h118q9 0 9-9V20" stroke="#b0c69b" stroke-width="4" stroke-linecap="round"/><circle cx="91" cy="99" r="34" fill="#84b46b"/><path d="M71 72q-10 26 0 53m16-58q-10 32 0 65m17-62q-7 29 2 57" stroke="#4f8c59" stroke-width="5"/><circle cx="143" cy="112" r="19" fill="#f1ab61"/><circle cx="143" cy="75" r="16" fill="#efd477"/><circle cx="57" cy="62" r="11" fill="#d77e6f"/><circle cx="109" cy="28" r="10" fill="#d9878e"/><path d="m109 13 4-8" stroke="#6c9960" stroke-width="3" stroke-linecap="round"/><path d="m107 49 5 6 5-6" stroke="#92ad80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="81" cy="97" r="3" fill="#315f42"/><circle cx="100" cy="97" r="3" fill="#315f42"/><path d="M85 107q6 5 12 0" stroke="#315f42" stroke-width="3" stroke-linecap="round"/></svg></span>
+              <span class="board-card-label"><strong>수박게임</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">같은 과일을 합쳐 커다란 수박 만들기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="flashman" aria-label="후레시맨 게임 시작">
+              <span class="board-card-media game-card-flashman" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><path d="m110 7 16 24 29-11-6 32 34 8-26 21 19 29-35-3-7 31-24-22-24 22-7-31-35 3 19-29-26-21 34-8-6-32 29 11Z" fill="#f4d9ad"/><g stroke="#fff" stroke-width="3"><path d="m66 89-17 34m17-34 18 34m-29-45-16 17m41-17 14 15" stroke="#6486ad" stroke-width="10" stroke-linecap="round"/><rect x="51" y="64" width="29" height="36" rx="9" fill="#6486ad"/><circle cx="66" cy="46" r="20" fill="#6486ad"/><path d="m59 68 7 12 7-12"/><path d="m155 89-17 34m17-34 18 34m-29-45-14 16m42-16 14 17" stroke="#89a577" stroke-width="10" stroke-linecap="round"/><rect x="140" y="64" width="29" height="36" rx="9" fill="#89a577"/><circle cx="155" cy="46" r="20" fill="#89a577"/><path d="m148 68 7 12 7-12"/><path d="m110 101-18 34m18-34 18 34m-32-47-20 17m47-18 20 17" stroke="#d97869" stroke-width="11" stroke-linecap="round"/><rect x="93" y="71" width="34" height="41" rx="10" fill="#d97869"/><circle cx="110" cy="51" r="24" fill="#d97869"/><path d="m101 77 9 13 9-13"/></g><path d="M52 39h28v11H52Zm89 0h28v11h-28ZM92 42h36v14H92Z" fill="#344457"/><path d="M96 46h9m-51-3h7m82 0h7" stroke="#cddfec" stroke-width="3" stroke-linecap="round"/></svg></span>
+              <span class="board-card-label"><strong>후레시맨</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">세 명의 히어로와 함께하는 액션 게임</span><span class="board-card-state">게임 시작</span>
             </button>
           </div>
         </section>
@@ -212,25 +243,23 @@
     </div>
   </dialog>
   <script src="raffle.js"></script>
-  {% include "learning/classroom.html" %}
-  {% include "learning/panel.html" %}
-  <link rel="stylesheet" href="{% static 'learning/learning.css' %}?v=equal-panel-height-20261012">
-  <script src="{% static 'learning/learning.js' %}?v=result-compact-points-20261012"></script>
+  <!-- learning-panels -->
   <script src="booth-panel.js"></script>
   <script src="classroom-doors.js"></script>
   <script src="map-data.js"></script>
   <script src="rooftop-data.js"></script>
+  <script src="stair-motion.js"></script>
   <script src="navigation.js"></script>
   <script src="avatars.js"></script>
   <script src="session-policy.js"></script>
   <script src="presence.js"></script>
   <script src="social.js"></script>
   <script src="community.js"></script>
+  <script src="rooftop-city.js"></script>
   <script src="isometric.js"></script>
   <script src="floor-transition.js"></script>
-  <script src="{% static 'learning/classroom-assets.js' %}?v=keyboard-clean-20261012"></script>
-  <script src="{% static 'learning/classroom-map.js' %}?v=learning-zones-20261012"></script>
-  <script src="{% static 'learning/classroom.js' %}?v=keyboard-clean-20261012"></script>
+  <script src="lunch-wheel.js"></script>
+  <!-- learning-assets -->
   <script src="campus.js"></script>
 </body>
 </html>

@@ -53,6 +53,7 @@ class CampusLoginView(LoginView):
         context["session_expired_message"] = {
             "idle": "활동이 없어 자동 로그아웃됐습니다. 다시 로그인해 주세요.",
             "maximum": "로그인 유지 시간이 끝났습니다. 다시 로그인해 주세요.",
+            "replaced": "다른 브라우저에서 같은 계정으로 로그인해 기존 접속이 종료됐습니다.",
         }.get(self.request.GET.get("expired"), "")
         return context
 

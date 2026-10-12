@@ -95,6 +95,13 @@ class CampusConsumer(AsyncWebsocketConsumer):
         async with room.lock:
             await self.channel_layer.group_add(room.group, self.channel_name)
             await self.channel_layer.group_add(self.session_group, self.channel_name)
+            # Subscribe before the final check so a login replacing this key
+            # during the handshake cannot leave an unnoticed stale socket.
+            if await self.current_identity() is None:
+                await self.channel_layer.group_discard(room.group, self.channel_name)
+                await self.channel_layer.group_discard(self.session_group, self.channel_name)
+                await self.close(code=4401)
+                return
             session_registry.register(self.player_id, self.session_key, self.user.pk)
             room.players[self.player_id] = self.state.copy()
             await self.accept()
@@ -399,7 +406,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if self.player_id not in room.players:
             return
         reason = event.get("reason", "signed_out")
-        if reason in {"idle", "maximum", "invalid"}:
+        if reason in {"idle", "maximum", "invalid", "replaced"}:
             await self.send_packet({"type": "session_expired", "reason": reason})
         await self.leave()
         await self.close(code=4401)

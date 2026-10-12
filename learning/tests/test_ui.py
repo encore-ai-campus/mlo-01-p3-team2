@@ -49,10 +49,11 @@ class LearningUiTests(TestCase):
         self.assertEqual(self.client.post('/learning/').status_code, 405)
 
     def test_both_types_ten_questions_retry_and_result_with_csrf(self):
+        # Reuse one authenticated browser, matching the campus single-login policy.
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
         for kind in ['multiple_choice', 'fill_blank']:
             with self.subTest(kind=kind):
-                client = Client(enforce_csrf_checks=True)
-                client.force_login(self.user)
                 client.get('/api/learning/csrf/')
                 token = client.cookies['campus_csrftoken'].value
 

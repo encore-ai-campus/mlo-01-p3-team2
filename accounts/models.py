@@ -25,6 +25,16 @@ class Profile(models.Model):
         return course_for_cohort(self.cohort)
 
 
+class ActiveLogin(models.Model):
+    """The latest accepted login key, retained after logout to reject superseded sessions."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True,
+        related_name="active_campus_login",
+    )
+    session_key = models.CharField(max_length=40, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 def get_nickname(user):
     # Accounts created before nicknames were introduced can still enter the map.
     profile = getattr(user, "campus_profile", None)

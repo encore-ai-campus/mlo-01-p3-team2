@@ -21,7 +21,11 @@
 .settings-account-link:hover { background:#f0f6f2; }
 .settings-logout { justify-content:center; margin-top:3px; color:#a34b42; border-color:#eddbd5; background:#fffaf8; }
 .settings-logout:hover { background:#fbede8; }
-.chat-panel { position:absolute; left:20px; bottom:20px; width:min(320px,calc(100% - 40px)); border:1px solid #cadbd1a6; border-radius:13px; background:rgba(255,255,255,.6); box-shadow:0 6px 24px #254b2710; overflow:hidden; z-index:3; touch-action:auto; }
+.chat-panel { position:absolute; left:20px; bottom:20px; width:min(320px,calc(100% - 40px)); border:1px solid #cadbd1a6; border-radius:13px; background:rgba(255,255,255,.6); box-shadow:0 6px 24px #254b2710; overflow:hidden; z-index:3; touch-action:auto; opacity:1; transition:opacity .4s ease,transform .4s ease; }
+.chat-panel.is-fading { opacity:0; transform:translateY(6px); pointer-events:none; }
+.chat-open { display:inline-flex; align-items:center; gap:6px; margin-left:6px; padding:4px 8px; border:1px solid #d6e3da; border-radius:6px; color:var(--teal-dark); background:#fff; font:inherit; white-space:nowrap; }
+.chat-open:hover { background:#edf6f1; }
+.chat-open:disabled { opacity:.45; cursor:default; }
 .chat-heading { display:flex; align-items:center; justify-content:space-between; padding:10px 13px 8px; border-bottom:1px solid #e3ece5; }
 .chat-heading strong { font-size:12px; }
 .chat-heading span { font-size:10px; color:#668275; }
@@ -48,7 +52,7 @@
 .speech-bubble::after { content:''; position:absolute; left:50%; bottom:-5px; width:8px; height:8px; border-right:1px solid #bed5c8; border-bottom:1px solid #bed5c8; background:#fff; transform:translateX(-50%) rotate(45deg); }
 .speech-bubble[data-self=true] { border-color:#80bba8; background:#f2fbf6fa; }
 .speech-bubble[data-self=true]::after { border-color:#80bba8; background:#f2fbf6; }
-.chat-panel[hidden],.speech-bubble[hidden],.chat-empty[hidden],.settings-account[hidden] { display:none; }
+.chat-panel[hidden],.chat-compose[hidden],.chat-composer-meta[hidden],.speech-bubble[hidden],.chat-empty[hidden],.settings-account[hidden] { display:none; }
 .chat-empty { position:absolute; left:0; top:0; pointer-events:none; }
 .map-status-tools { position:absolute; right:18px; top:18px; display:flex; align-items:center; gap:8px; max-width:calc(100% - 36px); z-index:4; }
 .map-status-tools .presence-status { position:static; flex:0 0 auto; white-space:nowrap; }
@@ -66,11 +70,15 @@
   .map-status-tools .presence-status { padding:7px 8px; font-size:10px; }
   .map-status-tools .map-controls button { width:28px; height:28px; }
   .map-status-tools .map-controls #zoomLabel { min-width:44px; padding:4px; }
-  .map-shell[data-chat-visible=true] .interaction-prompt { bottom:240px; max-width:calc(100% - 24px); }
+  .map-shell[data-chat-visible=true] .interaction-prompt { bottom:174px; max-width:calc(100% - 24px); }
+  .map-shell[data-chat-editing=true] .interaction-prompt { bottom:240px; }
   .settings-button { font-size:11px; padding:6px 9px; }
   .speech-bubble { max-width:180px; font-size:11px; }
 }
 @media(max-width:520px) {
   .topbar .top-actions .account-nav { display:none; }
   .topbar div.top-actions { padding-top:0; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .chat-panel { transition:none; }
 }

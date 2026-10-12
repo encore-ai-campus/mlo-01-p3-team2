@@ -14,7 +14,7 @@
   function frameFor(actor, t) {
     const row = rows[actor.dir] ?? 0;
     const elapsed = Number.isFinite(actor.walkTime) ? actor.walkTime * 1000 : t;
-    const column = actor.moving ? Math.floor(elapsed / 115) % 4 : (row === 1 || row === 2 ? 4 : 1);
+    const column = actor.moving ? (Number.isInteger(actor.stairFrame) ? actor.stairFrame : Math.floor(elapsed / 115) % 4) : (row === 1 || row === 2 ? 4 : 1);
     return {row, column};
   }
   function draw(ctx, actor, t) {
