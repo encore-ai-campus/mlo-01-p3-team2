@@ -37,11 +37,13 @@ class Campaign(models.Model):
     suspended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 광고 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다)
 
     class Meta:
         db_table = "campaigns_campaign"
         indexes = [models.Index(fields=["status", "ends_at"])]
         constraints = [
+            models.UniqueConstraint(fields=["request_key"], name="campaigns_campaign_once_per_request"),  # NULL(키 없이 만든 캠페인)은 서로 다르다
             models.CheckConstraint(condition=Q(daily_budget__gt=0, daily_budget__lte=MAX_AMOUNT), name="campaigns_campaign_budget_range"),
             models.CheckConstraint(condition=Q(ends_at__isnull=True) | Q(ends_at__gte=F("starts_at")), name="campaigns_campaign_period_order"),
         ]
@@ -54,6 +56,7 @@ class AdGroup(models.Model):
     pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)  # 화면이 본 값과 대조해 옛 폼(이름·게재 위치)이 그 사이의 변경을 덮지 않게(3-2d)
 
     class Meta:
         db_table = "campaigns_ad_group"
@@ -148,3 +151,17 @@ class ReviewRequest(models.Model):
     class Meta:
         db_table = "campaigns_review_request"
         constraints = [models.UniqueConstraint(fields=["open_campaign"], name="campaigns_one_open_review_per_campaign")]
+
+
+class AdvertiserQuota(models.Model):
+    """광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)을 지키는 **잠금 행**(값은 담지 않는다 — 수는 잠금 안에서 센다).
+
+    캠페인마다 잠그면 서로 다른 캠페인의 동시 쓰기가 함께 줄을 서지 않아 상한을 넘었다(외부 검토 41d2288). 만들기·이미지 교체는 이 행을 **가장 먼저** 잠그고
+    (그다음 캠페인 → 광고그룹·소재), 잠금 안에서 상한을 다시 센 뒤 쓴다. 처음 쓸 때 만든다. 사용자 행을 잠그지 않는 것은 인증·계정 경로와 순서를 섞지 않기 위해서다."""
+
+    quota_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "campaigns_advertiser_quota"

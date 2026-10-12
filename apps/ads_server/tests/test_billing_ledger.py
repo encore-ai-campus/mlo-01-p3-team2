@@ -67,7 +67,7 @@ class SignupGrantTests(TestCase):
     def test_signup_and_grant_same_transaction(self):
         """지급이 실패하면 사용자도, 가입 감사 기록도 남지 않는다."""
         client = Client(raise_request_exception=False)
-        with mock.patch("console.views.auth.grant_signup", side_effect=RuntimeError("boom")):
+        with mock.patch("billing.services.grant_signup", side_effect=RuntimeError("boom")):  # 가입 묶음은 billing.register_advertiser
             response = self.post_signup(client)
         self.assertEqual(response.status_code, 500)
         self.assertFalse(User.objects.filter(username="ad_wallet1").exists())

@@ -38,6 +38,7 @@ class LedgerEntry(AppendOnlyModel):
     balance_after = models.PositiveBigIntegerField()
     campaign_id = models.UUIDField(null=True, blank=True)  # FK 가 아니다: 캠페인은 다른 모듈의 것
     reaction_ref = models.CharField(max_length=100, null=True, blank=True)  # 과금 멱등 키(예: "<매체>:<reaction_id>")
+    adjust_key = models.CharField(max_length=64, null=True, blank=True)  # 관리자 조정의 멱등 키(화면 폼 하나 = 조정 하나). 같은 키는 한 번만 반영
     charge_policy = models.CharField(max_length=64, blank=True)  # 어떤 과금 정책이었는지(R8)
     shortfall = models.PositiveBigIntegerField(default=0)  # 잔액이 모자라 못 받은 금액
     note = models.CharField(max_length=200, blank=True)
@@ -65,6 +66,10 @@ class LedgerEntry(AppendOnlyModel):
             ),
             models.CheckConstraint(
                 condition=Q(entry_type="CHARGE") | Q(reaction_ref__isnull=True), name="billing_only_charges_have_reaction_ref"
+            ),
+            models.UniqueConstraint(fields=["adjust_key"], name="billing_adjust_once_per_key"),  # NULL(키 없는 조정·다른 종류)은 서로 다르다
+            models.CheckConstraint(
+                condition=Q(entry_type="ADMIN_ADJUST") | Q(adjust_key__isnull=True), name="billing_only_adjustments_have_adjust_key"
             ),
             models.CheckConstraint(condition=Q(balance_after__lte=MAX_AMOUNT), name="billing_entry_balance_after_max"),
         ]

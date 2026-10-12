@@ -1,6 +1,6 @@
 """접수와 판정의 순서 규약(`records/ordering.py`, 설계 §10 "판정 설계 기준" ②): 더 이른 `received_at` 의 반응이 **아직 커밋되지 않았을 때** 뒤의 반응이 대표로 굳지 않는다.
 
-검토 2-13 후속 P2(228f671): 먼저 받은 유효한 노출이 INSERT 뒤 커밋 직전에 있고(다른 연결에서 안 보임) 뒤 노출이 먼저 커밋·처리되면 뒤 노출이 인정되고,
+검토 2-13 후속 P2(0b23b86): 먼저 받은 유효한 노출이 INSERT 뒤 커밋 직전에 있고(다른 연결에서 안 보임) 뒤 노출이 먼저 커밋·처리되면 뒤 노출이 인정되고,
 앞 노출은 나중에 커밋돼 `duplicate_type` 으로 거부된다 — 최종 데이터에 더 이른 유효 노출이 있는데도 클릭이 거부돼 정상 과금이 빠진다.
 
 실제 MySQL 연결을 스레드마다 하나씩 쓰고, 접수 트랜잭션을 열어 둔 채 커밋을 미루는 방식으로 순서를 고정한다(시각은 `now=` 로 주입).
@@ -14,27 +14,9 @@ from django.utils import timezone
 
 from records import api as records
 from records.models import Reaction
+from tests.concurrency import BLOCKED, WAIT, Worker
 from tests.factories import NOW, SUBJECT, World
 from tests.test_funnel_rules import FunnelMixin, at
-
-WAIT = 30  # 안전망(시험이 멈춰도 영원히 기다리지 않는다)
-BLOCKED = 0.7  # 이만큼 기다려도 끝나지 않으면 '막혀 있다'고 본다
-
-
-class Worker(threading.Thread):
-    """별도 연결에서 `work()` 를 실행한다. 예외는 모아 둔다."""
-
-    def __init__(self, work):
-        super().__init__(daemon=True)
-        self.work, self.errors, self.result = work, [], None
-
-    def run(self):
-        try:
-            self.result = self.work()
-        except BaseException as error:  # noqa: BLE001
-            self.errors.append(error)
-        finally:
-            connection.close()
 
 
 class InFlightReceipt:
@@ -194,7 +176,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
 class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTestCase):
-    """검토 2-13 후속 P2(2ba7430): 접수는 남의 결정에 대한 보고도 저장하지만, 그런 보고가 **결정 소유 매체**의 접수·판정을 기다리게 하거나 막으면 안 된다.
+    """검토 2-13 후속 P2(974c28b): 접수는 남의 결정에 대한 보고도 저장하지만, 그런 보고가 **결정 소유 매체**의 접수·판정을 기다리게 하거나 막으면 안 된다.
 
     잠금은 소유 매체의 접수만 잡고(소유 확인은 잠금 전 일반 조회), 판정 앞 대기도 반응의 매체와 결정 소유 매체가 같을 때만 한다.
     """

@@ -1,8 +1,82 @@
 {% extends "console/base.html" %}
-{% block title %}광고주{% endblock %}
+{% load kst console_format console_chart %}
+{% block title %}대시보드{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>{{ user.nickname }}님, 환영합니다</h1>
-  <p class="muted">대시보드는 준비 중입니다. (Step 3)</p>
-</div>
+<form method="get" class="card filters" aria-label="기간과 그래프 고르기">
+  <div>{{ form.days.label_tag }}{{ form.days }}</div>
+  <div>{{ form.metric.label_tag }}{{ form.metric }}</div>
+  <button type="submit">보기</button>
+  <p class="muted">{{ report.start|kst:"%Y-%m-%d %H:%M" }} ~ {{ report.end|kst:"%Y-%m-%d %H:%M" }} (KST) · 오늘은 아직 집계 중입니다 · 직전 {{ days }}일과 비교</p>
+</form>
+
+<section class="card" aria-label="알림">
+  <h1>알림</h1>
+  {% if alerts %}
+  <ul class="alerts">
+    {% for alert in alerts %}
+    <li class="alert {{ alert.severity }}"><span class="badge">{{ alert.severity|severity_label }}</span> {{ alert.message }} <span class="muted">{{ alert.since|kst }}부터</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">지금 확인할 알림이 없습니다.</p>
+  {% endif %}
+</section>
+
+<section class="cards" aria-label="지표">
+  {% for name, label in metrics %}
+  <div class="card">
+    <div class="muted">{{ label }}</div>
+    <div class="value">{{ report.totals|metric:name|number }}</div>
+    <div class="muted">직전 {{ days }}일 대비 {{ report|change:name }}</div>
+    {% if name == "clicks" %}<div class="muted">클릭률 {{ report.totals.ctr|percent }}</div>{% endif %}
+    {% if name == "conversions" %}<div class="muted">전환율 {{ report.totals.conversion_rate|percent }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section class="card" aria-label="상위 캠페인">
+  <h1>상위 캠페인</h1>
+  <p class="muted">이 기간에 소진 포인트가 많은 순으로 {{ top_limit }}개까지.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th>{% for name, label in metrics %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for campaign, totals in top %}
+        <tr><td>{{ campaign.name }}</td><td>{{ campaign.status|status_label }}</td>{% for name, label in metrics %}<td class="num">{{ totals|metric:name|number }}</td>{% endfor %}</tr>
+      {% empty %}
+        <tr><td colspan="6">이 기간에 성과가 있는 캠페인이 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" aria-label="포인트">
+  <h1>포인트</h1>
+  {% if wallet %}
+  <p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }}</p>
+  <p class="muted">오늘의 예산은 {{ wallet.resets_at|kst }}(KST)에 새로 시작합니다. <a href="{% url 'points' %}">포인트 내역</a></p>
+  {% else %}
+  <p class="muted">지갑이 없습니다. 관리자에게 문의하세요.</p>
+  {% endif %}
+</section>
+
+<section class="card" aria-label="{{ metric_label }} 추세">
+  <h1>{{ metric_label }} 추세</h1>
+  {% trend_chart report.rows metric metric_label today %}
+  <div class="table-wrap">
+    <table>
+      <caption class="muted">그래프와 같은 값</caption>
+      <thead><tr><th scope="col">날짜</th>{% for name, label in metrics %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in report.rows %}
+        <tr{% if row.date == today %} class="partial"{% endif %}>
+          <td>{{ row.date|date:"Y-m-d" }}{% if row.date == today %} (집계 중){% endif %}</td>
+          {% for name, label in metrics %}<td class="num">{{ row.totals|metric:name|number }}</td>{% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

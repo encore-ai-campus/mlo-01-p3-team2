@@ -14,25 +14,13 @@ from django.test import TransactionTestCase, tag
 from campaigns import api
 from campaigns.models import Campaign, ReviewRequest
 from foundation.models import AuditLog
+from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
 from tests.factories import DAY, NOW, World
-from tests.test_receipt_ordering import BLOCKED, WAIT, Worker
 
 EXPIRE_AT = NOW + 11 * DAY  # World 의 캠페인은 NOW + 10일에 끝난다
 EXTENDED = NOW + 16 * DAY
 
 
-def pausing_before(verb, table, work, paused, release):
-    """`work()` 를 실행하되 `table` 에 대한 첫 `verb`(UPDATE·INSERT) 직전에 `paused` 를 알리고 `release` 를 기다린다."""
-    def hook(execute, sql, params, many, context):
-        if sql.lstrip().upper().startswith(verb) and f"`{table}`" in sql and not paused.is_set():
-            paused.set()
-            assert release.wait(WAIT)
-        return execute(sql, params, many, context)
-
-    def run():
-        with connection.execute_wrapper(hook):
-            return work()
-    return run
 
 
 @tag("security")

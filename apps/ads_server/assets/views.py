@@ -6,9 +6,7 @@ from django.http import FileResponse, Http404
 from django.utils.module_loading import import_string
 from django.views.decorators.http import condition, require_safe
 
-from .api import asset_exists, open_asset
-
-CONTENT_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
+from .api import asset_exists, content_type, open_asset
 
 
 def _ensure_servable(name):
@@ -46,5 +44,4 @@ def _asset_headers(view):
 @_asset_headers
 @condition(etag_func=_etag)
 def serve_asset(request, name):
-    ext = name.rsplit(".", 1)[1]
-    return FileResponse(open_asset(name), content_type=CONTENT_TYPES[ext])
+    return FileResponse(open_asset(name), content_type=content_type(name))

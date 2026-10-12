@@ -1,0 +1,19 @@
+{% extends "console/base.html" %}
+{% load kst console_format %}
+{% block title %}포인트{% endblock %}
+{% block content %}
+<section class="card" aria-label="잔액">
+  <h1>포인트</h1>
+  {% if wallet %}
+  <p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }}</p>
+  <p class="muted">오늘의 예산은 {{ wallet.resets_at|kst }}(KST)에 새로 시작합니다. 잔액이 적용 금액보다 적으면 광고가 나가지 않습니다.</p>
+  {% else %}
+  <p class="muted">지갑이 없습니다. 관리자에게 문의하세요.</p>
+  {% endif %}
+</section>
+<section class="card" aria-label="원장 내역">
+  <h1>내역 (최신순)</h1>
+  <p class="muted">지급·과금·관리자 조정이 모두 남습니다. 원장은 고치지 않고, 바로잡을 때는 반대 부호의 새 항목이 생깁니다.</p>
+  {% include "console/_ledger.html" %}
+</section>
+{% endblock %}

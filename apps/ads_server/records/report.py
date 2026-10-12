@@ -14,7 +14,7 @@ from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.http import Http404
-from django.db.models import Count, DateTimeField, Exists, ExpressionWrapper, F, OuterRef, Q
+from django.db.models import Count, DateTimeField, Exists, ExpressionWrapper, F, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDate
 
 from billing import api as billing
@@ -64,8 +64,8 @@ def _scope(user, campaign_id, ad_group_id):
     return filters, group
 
 
-def _counts(decision_filters, since, until):
-    """`{날짜: {지표: 수}}` — **SQL 한 번**(질의 한 번 = 같은 읽기 상태).
+def _counts(decision_filters, since, until, key=None):
+    """`{날짜: {지표: 수}}` — **SQL 한 번**(질의 한 번 = 같은 읽기 상태). `key` 로 묶는 기준을 바꾼다(기본: 수신일, 캠페인별 합계는 결정의 캠페인).
 
     노출·클릭·전환 수와 `converted_clicks`(클릭 코호트: 같은 (결정, 사람)에 인정된 전환이 있는 클릭 수, 전환이 구간 뒤에 와도 센다. 날짜는 **클릭**의 수신일)를
     한 SELECT 에서 센다. 분자와 분모를 따로 읽으면(`READ COMMITTED` 는 SELECT 마다 새 스냅샷) 그 사이에 인정된 퍼널이 한쪽에만 들어가 전환율이 1 을 넘는다.
@@ -76,12 +76,12 @@ def _counts(decision_filters, since, until):
     by_type = lambda rtype: Count("inbox_id", filter=Q(type=rtype))  # noqa: E731
     rows = (
         Reaction.objects.filter(status=ReactionStatus.ACCEPTED, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
-        .annotate(day=_day_expression()).values("day").annotate(
+        .annotate(key=key if key is not None else _day_expression()).values("key").annotate(
             impressions=by_type(ReactionType.IMPRESSION), clicks=by_type(ReactionType.CLICK), conversions=by_type(ReactionType.CONVERSION),
             converted_clicks=Count("inbox_id", filter=Q(type=ReactionType.CLICK) & Q(Exists(converted))),
-        ).values_list("day", "impressions", "clicks", "conversions", "converted_clicks")
+        ).values_list("key", "impressions", "clicks", "conversions", "converted_clicks")
     )
-    return {day: dict(impressions=i, clicks=c, conversions=v, converted_clicks=cc) for day, i, c, v, cc in rows}
+    return {k: dict(impressions=i, clicks=c, conversions=v, converted_clicks=cc) for k, i, c, v, cc in rows}
 
 
 def _spent_by_day(user, group, decision_filters, since, until, first_day, last_day):
@@ -129,3 +129,15 @@ def daily_report(owner, start, end, campaign_id=None, ad_group_id=None):
         start=start, end=end, rows=tuple(ReportRow(date=day, totals=totals_of([day])) for day in days),
         totals=totals_of(days), previous_totals=totals_of(previous_days),
     )
+
+
+def campaign_totals(owner, start, end):
+    """기간의 캠페인별 합계 `{campaign_id: ReportTotals}`(대시보드의 상위 캠페인 표, Step 3-2a). `daily_report` 와 같은 규칙이다 — 인정된 반응을
+    수신일로 세고, `spent` 는 실제로 받은 포인트. 반응·소진이 없는 캠페인은 결과에 없다. 질의 수는 데이터 양과 무관(반응 1 + 소진 1 + 캠페인 목록 1)."""
+    require_advertiser(owner, "광고주만 볼 수 있습니다.")
+    _check_window(start, end)
+    campaign_of = Subquery(Decision.objects.filter(pk=OuterRef("decision_id")).values("campaign_id")[:1])
+    counts = _counts({"owner_id": owner.pk}, start, end, key=campaign_of)
+    spent = billing.spend_by_campaign(campaigns.campaign_ids_of(owner), billing.budget_day_of(start), billing.budget_day_of(end))
+    zero = dict.fromkeys(("impressions", "clicks", "conversions", "converted_clicks"), 0)
+    return {cid: ReportTotals(spent=spent.get(cid, 0), **{**zero, **counts.get(cid, {})}) for cid in set(counts) | set(spent)}

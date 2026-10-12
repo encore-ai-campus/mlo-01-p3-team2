@@ -1,0 +1,7 @@
+{% if page.paginator.num_pages > 1 %}
+<nav class="pager" aria-label="쪽 이동">
+  {% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}" rel="prev">이전</a>{% else %}<span class="muted">이전</span>{% endif %}
+  <span>{{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="{% querystring page=page.next_page_number %}" rel="next">다음</a>{% else %}<span class="muted">다음</span>{% endif %}
+</nav>
+{% endif %}

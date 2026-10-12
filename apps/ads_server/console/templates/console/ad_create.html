@@ -1,0 +1,84 @@
+{% extends "console/base.html" %}
+{% load static console_format %}
+{% block title %}광고 만들기{% endblock %}
+{% block content %}
+<p><a href="{% url 'campaign_list' %}">← 캠페인</a></p>
+<form method="post" enctype="multipart/form-data" class="ad-create" novalidate>
+  {% csrf_token %}{{ form.request_key }}
+  {# 칸에서 Enter 를 누르면 폼의 첫 제출 버튼이 눌린다 — '단위 보기'(화면만 다시 그리고 고른 이미지를 잃는다)가 아니라 집행(확인 창)이 되게 맨 앞에 둔다 #}
+  <button type="submit" name="action" value="create" data-confirm="입력한 내용으로 광고를 만들어 바로 집행합니다." hidden>집행</button>
+  {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+
+  <section class="card" aria-labelledby="step-unit">
+    <h1 id="step-unit">① 과금 단위</h1>
+    <p class="muted">광고그룹이 어떤 반응에 포인트를 낼지 고릅니다. 만든 뒤에는 바꿀 수 없고, 같은 단위의 게재 위치만 고를 수 있습니다.</p>
+    <div class="unit-cards" role="radiogroup" aria-label="과금 단위">
+      {% for value, label in form.fields.pricing_unit.choices %}
+      <label class="unit-card"><input type="radio" name="pricing_unit" value="{{ value }}"{% if unit == value %} checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </div>
+    {{ form.pricing_unit.errors }}
+    <button type="submit" name="action" value="unit" class="secondary js-hide">이 단위의 게재 위치 보기</button>
+  </section>
+
+  <section class="card" aria-labelledby="step-campaign">
+    <h1 id="step-campaign">② 캠페인</h1>
+    {{ form.campaign_name.as_field_group }}
+    {{ form.starts_at.as_field_group }}
+    {{ form.ends_at.as_field_group }}
+    {{ form.daily_budget.as_field_group }}
+  </section>
+
+  <section class="card" aria-labelledby="step-group">
+    <h1 id="step-group">③ 광고그룹</h1>
+    {{ form.group_name.as_field_group }}
+    <fieldset class="slots">
+      <legend>게재 위치</legend>
+      {% regroup slots by media_name as by_media %}
+      {% for media in by_media %}
+      <p class="media">{{ media.grouper }}</p>
+      {% for s in media.list %}
+      <label class="slot"><input type="checkbox" name="slot_ids" value="{{ s.slot_id }}" data-unit="{{ s.pricing_unit }}"{% if s.pricing_unit != unit %} disabled{% endif %}{% if s.slot_id|stringformat:"s" in chosen %} checked{% endif %}>
+        {{ s.name }} <span class="muted">{{ s.pricing_unit|unit_label }} · {{ s.audience|audience_label }} · 하한 {{ s.policy.floor|points }} ~ 상한 {{ s.policy.cap|points }} · 기준가 {{ s.policy.base|points }}</span></label>
+      {% endfor %}
+      {% empty %}
+      <p class="muted">고를 수 있는 게재 위치가 없습니다.</p>
+      {% endfor %}
+      {% if not unit %}<p class="muted unit-hint">과금 단위를 먼저 고르세요.</p>{% endif %}
+    </fieldset>
+    {% if form.slot_ids.errors %}<div id="id_slot_ids_error">{{ form.slot_ids.errors }}</div>{% endif %}
+    {{ form.bid_amount.as_field_group }}
+    <p class="muted">하한보다 낮은 입찰도 저장되지만 그 위치에는 노출되지 않고, 상한보다 높으면 상한 금액으로 적용됩니다.</p>
+    <button type="submit" name="action" value="preview" class="secondary">위치별 결과 미리보기</button>
+    {% if effects %}
+    <div class="table-wrap">
+      <table>
+        <caption class="muted">지금 정책 기준(서버 계산)</caption>
+        <thead><tr><th scope="col">게재 위치</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th></tr></thead>
+        <tbody>
+        {% for name, e in effects %}
+          <tr><td>{{ name }}</td><td>{{ e.reason|effect_label }}</td><td class="num">{% if e.applied_amount is not None %}{{ e.applied_amount|points }}{% else %}—{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="step-creative">
+    <h1 id="step-creative">④ 소재</h1>
+    {{ form.title.as_field_group }}
+    {{ form.redirect_url.as_field_group }}
+    <p class="muted">이미지: PNG·JPEG, 최대 {{ max_bytes|filesizeformat }}, 움직이는 이미지는 받지 않습니다. ‘단위 보기’·‘미리보기’를 누르면 고른 이미지는 다시 골라야 합니다.</p>
+    {{ form.image.as_field_group }}
+    <img id="image-preview" class="preview" alt="고른 이미지 미리보기" hidden>
+  </section>
+
+  <section class="card" aria-labelledby="step-confirm">
+    <h1 id="step-confirm">⑤ 확인 후 집행</h1>
+    <p>집행하면 캠페인·광고그룹·소재가 한 번에 만들어지고, <strong>승인 없이 바로</strong> 광고가 나갈 수 있습니다. 하나라도 거절되면 아무것도 만들지 않습니다.</p>
+    <button type="submit" name="action" value="create" data-confirm="입력한 내용으로 광고를 만들어 바로 집행합니다.">집행</button>
+  </section>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script><script src="{% static 'console/ad_create.js' %}" defer></script>{% endblock %}

@@ -9,7 +9,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, Role, clean_request_key, clean_text, create_advertiser, errors, parse_uuid, record_audit, require_admin
 
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
@@ -57,6 +57,16 @@ def _append(wallet, entry_type, amount, now, **extra):
     return entry
 
 
+def register_advertiser(username, password, nickname, class_label, request=None):
+    """광고주 가입과 가입 지급을 **한 트랜잭션**으로(설계 §4.7: 지급이 실패하면 가입도 취소된다). 감사 로그(`account.signup`)도 같은 트랜잭션.
+    가입 검증의 ValidationError(필드별)를 그대로 전달한다. `request` 는 감사 로그의 IP·요청 ID 용이다."""
+    with transaction.atomic():
+        user = create_advertiser(username, password, nickname, class_label)
+        grant_signup(user)
+        record_audit(request, "account.signup", target=user, actor=user, detail={"class_label": user.class_label})
+    return user
+
+
 def grant_signup(user, now=None):
     """가입 지급. **한 사용자에 한 번만**이고(재호출은 변화 없음), 호출한 쪽의 가입 트랜잭션 안에서 실행한다."""
     now = _now(now)
@@ -75,21 +85,45 @@ def grant_signup(user, now=None):
     return _entry_view(existing) if existing else None
 
 
-def adjust(actor, user_id, amount, note, now=None):
-    """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수."""
+_ADJUST_KEY_REUSED = "이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요."
+
+
+def adjust(actor, user_id, amount, note, now=None, request_key=None):
+    """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수.
+
+    `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키는 한 번만 반영**한다: 키는 원장 줄에 금액 변경과 같은 트랜잭션으로 저장되고(유일 제약),
+    같은 키·같은 내용의 다시 보냄(두 번 누름·동시 제출·응답이 실패한 뒤 재시도)은 처음 줄을 그대로 돌려준다. 같은 키에 다른 내용이면 409.
+    지갑을 잠근 뒤 키를 보므로 동시에 들어온 같은 키는 뒤쪽이 앞쪽의 커밋을 기다렸다가 처음 줄을 받는다.
+    """
     now = _now(now)
     require_admin(actor)
     note = clean_text(note, "사유", "/note", 200)
     if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0 or abs(amount) > MAX_AMOUNT:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"0이 아닌 정수(절댓값 {MAX_AMOUNT} 이하)여야 합니다."}])
-    with transaction.atomic():
-        wallet = _lock_wallet(parse_uuid(user_id, "지갑"))
-        if wallet.balance + amount < 0:
-            raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])
-        if wallet.balance + amount > MAX_AMOUNT:  # 개별 금액이 범위 안이어도 합산 결과가 잔액 상한을 넘을 수 있다
-            raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"조정 후 잔액이 {MAX_AMOUNT} 을 넘을 수 없습니다."}])
-        entry = _append(wallet, EntryType.ADMIN_ADJUST, amount, now, note=note)
-        _audit(actor, "billing.adjusted", ("billing.wallet", wallet.pk), {"amount": amount, "note": note, "balance_after": entry.balance_after})
+    request_key = clean_request_key(request_key)
+    try:
+        with transaction.atomic():
+            return _adjust(actor, parse_uuid(user_id, "지갑"), amount, note, now, request_key)
+    except IntegrityError:  # 다른 지갑에 같은 키(위조한 폼)만 여기에 온다 — 같은 지갑은 지갑 잠금이 줄 세운다
+        if request_key is not None and LedgerEntry.objects.filter(adjust_key=request_key).exists():
+            raise errors.Conflict(_ADJUST_KEY_REUSED)
+        raise
+
+
+def _adjust(actor, owner_id, amount, note, now, request_key):
+    wallet = _lock_wallet(owner_id)
+    if request_key is not None:
+        done = LedgerEntry.objects.filter(adjust_key=request_key).first()
+        if done is not None:
+            if (done.wallet_id, done.amount, done.note) != (wallet.pk, amount, note):
+                raise errors.Conflict(_ADJUST_KEY_REUSED)
+            return _entry_view(done)
+    if wallet.balance + amount < 0:
+        raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])
+    if wallet.balance + amount > MAX_AMOUNT:  # 개별 금액이 범위 안이어도 합산 결과가 잔액 상한을 넘을 수 있다
+        raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"조정 후 잔액이 {MAX_AMOUNT} 을 넘을 수 없습니다."}])
+    entry = _append(wallet, EntryType.ADMIN_ADJUST, amount, now, note=note, adjust_key=request_key)
+    _audit(actor, "billing.adjusted", ("billing.wallet", wallet.pk), {"amount": amount, "note": note, "balance_after": entry.balance_after})
     return _entry_view(entry)
 
 
@@ -148,10 +182,9 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
         return ChargeResult(_entry_view(existing), charged=-existing.amount, shortfall=existing.shortfall, duplicate=True)
 
 
-def get_wallet(user, now=None):
-    now = _now(now)
+def _wallet_view(owner_id, now):
     try:
-        wallet = Wallet.objects.get(owner=user)
+        wallet = Wallet.objects.get(owner_id=owner_id)
     except Wallet.DoesNotExist:
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
     day = budget_day_of(now)
@@ -160,18 +193,52 @@ def get_wallet(user, now=None):
         LedgerEntry.objects.filter(wallet=wallet, entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1))
         .aggregate(s=Sum("amount"))["s"] or 0
     )
-    return WalletView(owner_id=user.pk, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
+    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
+
+
+def _cursor(before):
+    """목록 커서(지갑 안의 순번 `seq`). 주소에서 온 값은 ASCII 숫자 10자리까지만 읽고, 형식이 틀린 값은 첫 쪽으로 본다(`²`·`①`도 `isdigit()` 은 참이다)."""
+    if isinstance(before, int) and not isinstance(before, bool):
+        return before
+    if isinstance(before, str) and before.isascii() and before.isdigit() and len(before) <= 10:
+        return int(before)
+    return None
+
+
+def _ledger(owner_id, before, limit):
+    limit = max(1, min(int(limit), 200))
+    qs = LedgerEntry.objects.filter(wallet__owner_id=owner_id).order_by("-seq")
+    before = _cursor(before)
+    if before is not None:
+        qs = qs.filter(seq__lt=before)
+    rows = list(qs[: limit + 1])
+    next_cursor = rows[limit - 1].seq if len(rows) > limit else None
+    return [_entry_view(e) for e in rows[:limit]], next_cursor
+
+
+def get_wallet(user, now=None):
+    return _wallet_view(user.pk, _now(now))
 
 
 def list_ledger(user, before=None, limit=50):
     """원장 내역(최신순). `before` 는 앞 쪽의 `next_cursor`(지갑 안의 순번 `seq`). 반환: (항목 목록, 다음 커서 또는 None)."""
-    limit = max(1, min(int(limit), 200))
-    qs = LedgerEntry.objects.filter(wallet__owner=user).order_by("-seq")
-    if before is not None:
-        qs = qs.filter(seq__lt=int(before))
-    rows = list(qs[: limit + 1])
-    next_cursor = rows[limit - 1].seq if len(rows) > limit else None
-    return [_entry_view(e) for e in rows[:limit]], next_cursor
+    return _ledger(user.pk, before, limit)
+
+
+def wallet_of(actor, owner_id, now=None):
+    """관리자가 보는 광고주의 지갑(Step 3-1d). 광고주 화면의 `get_wallet` 과 같은 값. **지갑이 없으면 `None`**(가입 묶음을 거치지 않은 옛 계정 —
+    화면은 "지갑 없음"으로 보이고 비활성화는 그대로 할 수 있다. 조회가 지급을 몰래 만들지 않는다)."""
+    require_admin(actor)
+    try:
+        return _wallet_view(parse_uuid(owner_id, "지갑"), _now(now))
+    except errors.NotFound:
+        return None
+
+
+def ledger_of(actor, owner_id, before=None, limit=50):
+    """관리자가 보는 광고주의 원장(Step 3-1d). `list_ledger` 와 같은 쪽 나누기."""
+    require_admin(actor)
+    return _ledger(parse_uuid(owner_id, "지갑"), before, limit)
 
 
 def balances(owner_ids):
@@ -194,6 +261,15 @@ def spend_by_day(campaign_ids, start_day, end_day):
     return dict(rows)
 
 
+def spend_by_campaign(campaign_ids, start_day, end_day):
+    """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함) — **질의 한 번**. 소진이 없는 캠페인은 결과에 없다."""
+    rows = (
+        CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
+        .values("campaign_id").annotate(total=Sum("spent")).values_list("campaign_id", "total")
+    )
+    return dict(rows)
+
+
 def charged_amounts(reaction_refs):
     """반응 멱등 키(`reaction_ref`)별로 **실제로 받은** 포인트 `{키: 포인트}`. 과금되지 않은 키(과금 단위가 아닌 유형 등)는 결과에 없다.
 
@@ -211,11 +287,28 @@ def charge_entry_ids():
     return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE).values_list("entry_id", flat=True).iterator(chunk_size=2000)
 
 
+def charge_refs_after(after=None, limit=2000):
+    """원장 `CHARGE` 항목의 (entry_id, reaction_ref) 를 ID 순으로 한 묶음(`after` 다음부터). 큰 표를 한꺼번에 읽지 않고 이어 읽는다(구간 manifest 의 미해결 과금 찾기)."""
+    rows = LedgerEntry.objects.filter(entry_type=EntryType.CHARGE)
+    if after is not None:
+        rows = rows.filter(entry_id__gt=after)
+    return list(rows.order_by("entry_id").values_list("entry_id", "reaction_ref")[:limit])
+
+
 def charge_entries(entry_ids):
     """원장 `CHARGE` 항목을 ID 로 읽는다(없는 ID 는 결과에 없다). 이벤트 백필이 원본 행에서 과금 이벤트를 다시 만들 때 쓴다."""
+    return _charge_entries("entry_id__in", entry_ids)
+
+
+def charge_entries_for(reaction_refs):
+    """원장 `CHARGE` 항목을 반응 멱등 키(`reaction_ref`)로 읽는다(과금되지 않은 키는 결과에 없다). 구간 manifest 가 창 하나의 반응으로 과금 줄을 찾을 때 쓴다."""
+    return _charge_entries("reaction_ref__in", reaction_refs)
+
+
+def _charge_entries(lookup, keys):
     found = []
-    for chunk in batched(entry_ids, 500):
-        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, entry_id__in=chunk):
+    for chunk in batched(keys, 500):  # 한 번에 많은 키를 IN 에 넣지 않는다
+        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, **{lookup: chunk}):
             found.append(ChargeEntryView(
                 entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, reaction_ref=e.reaction_ref, charged=-e.amount,
                 shortfall=e.shortfall, created_at=e.created_at,

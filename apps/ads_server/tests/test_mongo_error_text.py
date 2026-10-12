@@ -55,7 +55,7 @@ class CommandTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertFormatted(self.run_command("export_integrity", "--out", self.out_dir()))
 
     def test_export_hop_manifests(self):
-        with mock.patch.object(events, "mongo_documents", side_effect=down()):
+        with mock.patch.object(events, "mongo_streams", side_effect=down()):
             self.assertFormatted(self.run_command("export_hop_manifests", "--out", self.out_dir()))
 
     def test_relay_events_once(self):

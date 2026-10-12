@@ -79,9 +79,11 @@ class MediaKey(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     expires_at = models.DateTimeField(null=True, blank=True)  # 교체 유예가 끝나는 시각. 없으면 계속 유효
     revoked_at = models.DateTimeField(null=True, blank=True)
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 발급 요청의 멱등 키(화면 폼 하나 = 키 하나). 같은 키로는 다시 발급하지 않는다
 
     class Meta:
         db_table = "masters_media_key"
+        constraints = [models.UniqueConstraint(fields=["request_key"], name="masters_key_once_per_request")]  # NULL(키 없는 발급)은 서로 다르다
 
 
 class BidPolicy(AppendOnlyModel):

@@ -82,15 +82,20 @@ class UploadGuardTests(TestCase):
 
     LIMIT = 1000
 
-    def post_multipart(self, size, enforce_csrf):
+    def post_multipart(self, size, enforce_csrf, path=None):
         client = Client(enforce_csrf_checks=enforce_csrf)
         upload = SimpleUploadedFile("big.png", b"\x89PNG" + b"x" * size, content_type="image/png")
-        return client.post(reverse("signup"), {"username": "a", "image": upload})
+        return client.post(path or reverse("signup"), {"username": "a", "image": upload})
 
     def test_oversized_multipart_is_413_with_and_without_csrf_and_leaves_no_temp_files(self):
+        """화면 경로는 읽을 수 있는 HTML 오류 화면(Step 3-2c — 광고 만들기의 큰 이미지), API 경로는 problem+json(다른 오류 응답과 같은 규약)."""
         with tempfile.TemporaryDirectory() as tmp, override_settings(ASSET_MAX_BYTES=self.LIMIT, FILE_UPLOAD_TEMP_DIR=tmp):
             for enforce_csrf in (True, False):
                 response = self.post_multipart(self.LIMIT + REQUEST_BODY_OVERHEAD + 100, enforce_csrf)
+                self.assertEqual(response.status_code, 413, enforce_csrf)
+                self.assertIn("text/html", response["Content-Type"])
+                self.assertIn("X-Request-ID", response)
+                response = self.post_multipart(self.LIMIT + REQUEST_BODY_OVERHEAD + 100, enforce_csrf, path="/api/media/v1/decisions")
                 self.assertEqual(response.status_code, 413, enforce_csrf)
                 self.assertEqual(response["Content-Type"], "application/problem+json")
                 self.assertEqual(response.json()["code"], "payload_too_large")

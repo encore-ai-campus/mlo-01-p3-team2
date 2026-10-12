@@ -68,8 +68,9 @@ TEMPLATES = [
 
 AUTH_USER_MODEL = "foundation.User"
 
-# --- 비밀번호 (설계 §5.1): Argon2, 최소 10자, 흔한 비밀번호·숫자만·아이디 유사 금지 ---
+# --- 비밀번호 (설계 §5.1): Argon2, 10~128자(C6), 흔한 비밀번호·숫자만·아이디 유사 금지 ---
 PASSWORD_MIN_LENGTH = 10
+PASSWORD_MAX_LENGTH = 128
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.Argon2PasswordHasher"]
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
@@ -78,6 +79,7 @@ AUTH_PASSWORD_VALIDATORS = [
      "OPTIONS": {"min_length": PASSWORD_MIN_LENGTH}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {"NAME": "foundation.validators.MaximumLengthValidator", "OPTIONS": {"max_length": PASSWORD_MAX_LENGTH}},  # 화면 폼만이 아니라 서비스·서버 명령도(C6)
 ]
 
 # --- 로그인 잠금: 같은 (아이디 + IP) 로 5회 실패하면 5분 잠금 (설계 §5.1) ---
@@ -92,6 +94,7 @@ AXES_RESET_ON_SUCCESS = True
 AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False  # 잠금 중 시도가 잠금을 연장하지 않는다("5분 뒤 재시도")
 AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 가입 제한과 같은 IP 판정을 쓴다
 AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
+AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 화면)을 끄고 foundation/admin.py 가 읽기 전용으로 다시 등록한다(위협 모델 T44)
 
 # 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다).
 TRUSTED_PROXY_COUNT = 0

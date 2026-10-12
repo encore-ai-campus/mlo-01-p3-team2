@@ -46,6 +46,7 @@ class AdGroupView:
     slot_ids: tuple
     current_bid: BidView | None
     created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,25 @@ class CreativeView:
     enabled: bool
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class CreatedAd:
+    """광고 만들기(`create_ad`)가 한 번에 만든 세 가지."""
+
+    campaign: CampaignView
+    ad_group: AdGroupView
+    creative: CreativeView
+    duplicate: bool = False  # 같은 요청 키로 이미 만든 것을 돌려줬다(새로 만들지 않았다)
+
+
+@dataclass(frozen=True)
+class MonitoredCampaign:
+    """관리자 광고 모니터링의 한 줄(S5): 캠페인과 그 소재, 캠페인·소재 중 늦은 마지막 변경 시각."""
+
+    campaign: CampaignView
+    creatives: tuple  # CreativeView 들
+    last_changed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -94,3 +114,49 @@ class CandidateFacts:
     title: str
     redirect_url: str
     image_name: str
+
+
+@dataclass(frozen=True)
+class ReviewQueueItem:
+    """관리자 재검토 대기 목록의 한 줄: 열린 요청과 그 캠페인(중단 사유 포함), 그 캠페인의 소재(썸네일로 판단을 돕는다)."""
+
+    review: ReviewRequestView
+    campaign: CampaignView
+    creatives: tuple = ()  # CreativeView 들
+
+
+@dataclass(frozen=True)
+class AdvertiserUsage:
+    """관리자 광고주 목록의 사용량과 상한(남용 방지, 설계 §5.1). 업로드는 보유한 이미지 파일 총량(교체한 과거 파일 포함 — 상한 검사와 같은 기준)."""
+
+    campaigns: int
+    campaign_limit: int
+    creatives: int
+    creative_limit: int
+    image_bytes: int
+    image_bytes_limit: int
+
+
+@dataclass(frozen=True)
+class SlotEffect:
+    """입찰 금액 하나가 **이 게재 위치의 현재 정책**에서 어떻게 취급되는지(C6 `SlotEffect`). 적용 금액 규칙은 engine 한 곳(`effect_of`)."""
+
+    slot_id: uuid.UUID
+    eligible: bool
+    applied_amount: int | None
+    reason: str  # within_range | capped_at_cap | below_floor | no_policy | slot_inactive
+    policy_version: int | None
+
+
+@dataclass(frozen=True)
+class AdGroupEffects:
+    """광고그룹 하나의 현재 입찰과 게재 위치별 결과(알림·화면 조립용). 입찰이 없으면 `bid_amount` 가 `None` 이고 `effects` 는 비어 있다."""
+
+    ad_group_id: uuid.UUID
+    campaign_id: uuid.UUID
+    name: str
+    pricing_unit: str
+    enabled: bool
+    bid_amount: int | None
+    bid_created_at: datetime | None
+    effects: tuple  # SlotEffect 들

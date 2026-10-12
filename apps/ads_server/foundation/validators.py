@@ -66,3 +66,29 @@ def clean_text(value, label, pointer, max_len=100):
     if not value or len(value) > max_len or _has_control_or_format_chars(value):
         raise InvalidRequest(errors=[{"pointer": pointer, "message": f"{label}은(는) 1~{max_len}자의 보이는 문자여야 합니다."}])
     return value
+
+
+def is_request_key(value):
+    """두 번 하면 안 되는 동작의 요청 키(화면 폼 하나마다 새 값) 형식: 1~64자 문자열(저장하는 열의 길이)."""
+    return isinstance(value, str) and 1 <= len(value) <= 64
+
+
+def clean_request_key(value):
+    """요청 키 검증. 없으면(`None`) 그대로, 형식이 틀리면 400 `InvalidRequest`(`/request_key`)."""
+    if value is not None and not is_request_key(value):
+        raise InvalidRequest(errors=[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}])
+    return value
+
+
+class MaximumLengthValidator:
+    """비밀번호 최대 길이(C6 `maxLength`). Django 에는 최소 길이 검증기만 있다 — 화면 폼의 `max_length` 만으로는 서비스·서버 명령이 더 긴 비밀번호를 받았다."""
+
+    def __init__(self, max_length=128):
+        self.max_length = max_length
+
+    def validate(self, password, user=None):
+        if len(password) > self.max_length:
+            raise ValidationError(f"비밀번호는 {self.max_length}자 이하여야 합니다.", code="password_too_long")
+
+    def get_help_text(self):
+        return f"비밀번호는 {self.max_length}자 이하여야 합니다."

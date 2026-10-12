@@ -1,0 +1,85 @@
+{% extends "console/base.html" %}
+{% load static kst console_format %}
+{% block title %}{{ campaign.name }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'campaign_list' %}">← 캠페인</a></p>
+<section class="card">
+  <h1>{{ campaign.name }} <span class="status {{ campaign.status|lower }}">{{ campaign.status|status_label }}</span></h1>
+  <p>기간(KST) {{ campaign.starts_at|kst }} ~ {% if campaign.ends_at %}{{ campaign.ends_at|kst }}{% else %}끝 없음{% endif %}</p>
+  <p>일예산 {{ campaign.daily_budget|points }} · 오늘 소진 {{ today.spent|points }} · 남은 예산 {{ today.remaining|points }}
+    <span class="muted">({{ today.resets_at|kst }}에 새로 시작)</span></p>
+  {% if campaign.status == "ACTIVE" or campaign.status == "PAUSED" %}
+  <form method="post" action="{% url 'campaign_status' campaign.campaign_id %}">{% csrf_token %}
+    <input type="hidden" name="status" value="{% if campaign.status == 'ACTIVE' %}PAUSED{% else %}ACTIVE{% endif %}">
+    <button type="submit" class="secondary">{% if campaign.status == "ACTIVE" %}끄기(일시 중지){% else %}켜기{% endif %}</button>
+  </form>
+  {% endif %}
+</section>
+
+{% if campaign.suspension %}
+<section class="card notice error" aria-label="중단">
+  <h1>관리자가 이 캠페인을 중단했습니다</h1>
+  <p>사유: {{ campaign.suspension.reason }} <span class="muted">({{ campaign.suspension.suspended_at|kst }})</span></p>
+  {% if campaign.suspension.open_review_request_id %}
+  <p>재검토를 요청했습니다. 관리자가 확인하고 있습니다.</p>
+  {% else %}
+  <p>소재를 고친 뒤 재검토를 요청하세요.</p>
+  <form method="post" action="{% url 'campaign_review' campaign.campaign_id %}">{% csrf_token %}
+    {{ review_form.as_div }}
+    <button type="submit">재검토 요청</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if reviews %}
+<section class="card" aria-label="재검토 요청 내역">
+  <h1>재검토 요청 내역</h1>
+  <ul>
+  {% for r in reviews %}
+    <li>{{ r.created_at|kst }} · {{ r.status|review_label }}{% if r.message %} · 메모: {{ r.message }}{% endif %}{% if r.response_note %} · 답변: {{ r.response_note }}{% endif %}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if campaign.status != "ENDED" %}
+<section class="card" aria-label="수정">
+  <h1>수정</h1>
+  <form method="post">{% csrf_token %}
+    {{ form.as_div }}
+    <button type="submit">저장</button>
+  </form>
+</section>
+<section class="card" aria-label="끝내기">
+  <h1>캠페인 끝내기</h1>
+  <p class="muted">끝낸 캠페인은 다시 켤 수 없고 어떤 값도 바꿀 수 없습니다.</p>
+  <form method="post" action="{% url 'campaign_end' campaign.campaign_id %}" data-confirm="‘{{ campaign.name }}’ 캠페인을 끝냅니다. 되돌릴 수 없습니다.">{% csrf_token %}
+    <button type="submit" class="secondary">끝내기</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card" aria-label="광고그룹">
+  <h1>광고그룹</h1>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">광고그룹</th><th scope="col">과금 단위</th><th scope="col">상태</th><th scope="col" class="num">입찰</th><th scope="col">게재 위치</th></tr></thead>
+      <tbody>
+      {% for g, summary in groups %}
+        <tr>
+          <td><a href="{% url 'ad_group_detail' g.ad_group_id %}">{{ g.name }}</a></td>
+          <td>{{ g.pricing_unit|unit_label }}</td>
+          <td>{% if g.enabled %}켜짐{% else %}꺼짐{% endif %}</td>
+          <td class="num">{% if g.bid_amount is not None %}{{ g.bid_amount|points }}{% else %}없음{% endif %}</td>
+          <td>노출 가능 {{ summary.eligible }}곳{% if summary.below_floor %} · 하한 미만 {{ summary.below_floor }}곳{% endif %}{% if summary.capped %} · 상한 적용 {{ summary.capped }}곳{% endif %}{% if summary.inactive %} · 꺼진 위치 {{ summary.inactive }}곳{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">광고그룹이 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script>{% endblock %}

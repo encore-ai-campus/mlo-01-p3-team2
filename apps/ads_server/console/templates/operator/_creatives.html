@@ -1,0 +1,14 @@
+{# 소재 목록 칸: 썸네일(관리자 전용 경로 — 중단 중에도 보인다), 제목, 이동 주소(도메인 강조, https 만 링크) #}
+{% load console_format %}
+{% for cr in creatives %}
+  <div class="creative">
+    <img src="{% url 'operator:asset' cr.image_name %}" alt="소재 이미지: {{ cr.title }}" width="96" height="54" loading="lazy">
+    <div>
+      {{ cr.title }}{% if not cr.enabled %} (꺼짐){% endif %}<br>
+      <strong>{{ cr.redirect_url|domain }}</strong><br>
+      {% if cr.redirect_url|slice:":8" == "https://" %}<a href="{{ cr.redirect_url }}" rel="noopener noreferrer nofollow">{{ cr.redirect_url|truncatechars:80 }}</a>{% else %}{{ cr.redirect_url|truncatechars:80 }}{% endif %}
+    </div>
+  </div>
+{% empty %}
+  <span class="help">소재 없음</span>
+{% endfor %}

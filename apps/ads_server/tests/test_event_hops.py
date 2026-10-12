@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from random import Random
@@ -11,14 +12,18 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, TransactionTestCase, override_settings, tag
+from django.db import connection
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings, tag
 
-from events import hops, ndjson, store
+from billing import api as billing
+from events import api as events, hops, ndjson, store
 from events.models import EventOutbox
 from events.relay import relay_batch
 from foundation.models import AuditLog
 from records import api as records
-from tests.factories import NOW, SUBJECT, World
+from records.models import Decision, Reaction
+from records.processing import reaction_ref
+from tests.factories import DAY, NOW, SUBJECT, World
 from tests.mongo_support import MongoDatabaseMixin
 
 UTC = timezone.utc
@@ -100,12 +105,99 @@ class SummaryTests(SimpleTestCase):
         lines, open_windows = hops.summarize([self.doc(1, at), self.doc(2, at + timedelta(minutes=45))], self.NOW, 120, size=hops.HOUR)
         self.assertEqual([(l["window_start"], l["window_end"], l["count"]) for l in lines], [("2026-10-09T05:00:00Z", "2026-10-09T06:00:00Z", 1), ("2026-10-09T06:00:00Z", "2026-10-09T07:00:00Z", 1)])
         self.assertEqual(hops.summarize([self.doc(1, datetime(2026, 10, 10, 11, 59, tzinfo=UTC))], datetime(2026, 10, 10, 12, 1, tzinfo=UTC), 120, size=hops.HOUR), ([], [datetime(2026, 10, 10, 11, tzinfo=UTC)]))  # 여유 2분이 안 됐다
-        self.assertEqual(hops.unsent_counts([(self.doc(1, at), False)], size=hops.HOUR), {("2026-10-09T05:00:00Z", "ad.decision"): 1})
 
     def test_since_drops_older_windows(self):
         old, new = datetime(2026, 10, 1, 5, tzinfo=UTC), datetime(2026, 10, 9, 5, tzinfo=UTC)
         lines, _ = hops.summarize([self.doc(1, old), self.doc(2, new)], self.NOW, 120, since=datetime(2026, 10, 5, tzinfo=UTC))
         self.assertEqual([l["window_start"] for l in lines], ["2026-10-09T00:00:00Z"])
+
+
+@tag("security")
+class WindowedSummaryTests(TestCase):
+    """외부 검토(00d3067) P3-3: 내보내기는 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 결과는 전부 읽어 한 번에 요약한 것과 같다."""
+
+    AS_OF = NOW + 3 * DAY  # 2026-10-10 12:00 — 10-09 까지의 창은 닫혔고 10-10 은 열려 있다
+    SINCE = datetime(2026, 10, 7, tzinfo=UTC)
+    STREAM = {events.NAMES["decision"]: "결정", events.NAMES["reaction_received"]: "접수", events.NAMES["reaction"]: "처리", events.NAMES["charge"]: "처리"}  # 과금은 판정과 같은 시각
+
+    def setUp(self):
+        w = World(ends_in=None)
+        edge = NOW + DAY + timedelta(hours=11, minutes=59, seconds=58)  # 10-08 23:59:58 에 받고 10-09 00:00:05 에 처리 — 접수와 판정·과금의 창이 다르다
+        midnight = datetime(2026, 10, 8, tzinfo=UTC)  # 창 경계에 딱 놓인 행은 뒤 창의 것
+        for at in (NOW - DAY, NOW, midnight, NOW + DAY, NOW + DAY, edge, NOW + 2 * DAY, NOW + 3 * DAY):  # 10-06(--since 앞) ~ 10-10(열린 창)
+            d = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=at, rng=Random(1))
+            view, _ = records.receive_reaction(w.slot.media_id, d.decision_id, uuid.uuid4(), "IMPRESSION", at, {"type": "IMPRESSION"}, now=at)
+            if at != NOW + DAY:
+                records.process_reaction(view.inbox_id, now=at + timedelta(seconds=7))  # 10-08 낮의 반응은 아직 판정 전(처리 시각 없음)
+
+    def everything(self):
+        """전부 읽은 기대 이벤트(예전 방식의 입력)."""
+        return [events.normal_document(i, name, events.SCHEMA_VERSION, at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
+
+    def test_the_source_hop_matches_summarizing_everything_at_once(self):
+        docs = self.everything()
+        self.assertEqual({d["event_name"] for d in docs}, set(self.STREAM))  # 네 종류가 모두 있다(과금 포함)
+        for since, size in ((None, hops.DAY), (self.SINCE, hops.DAY), (None, hops.HOUR)):
+            lines, open_windows, _read, _largest = events.summarize_windows(records.source_streams(), self.AS_OF, 120, since, size)
+            self.assertEqual((lines, open_windows), events.summarize(docs, self.AS_OF, 120, since, size), (since, size))
+
+    def test_the_outbox_hop_matches_summarizing_everything_at_once(self):
+        docs = [events.normal_document(r.event_id, r.event_name, r.schema_version, r.created_at, r.payload) for r in EventOutbox.objects.all()]
+        for since, size in ((None, hops.DAY), (self.SINCE, hops.DAY), (None, hops.HOUR)):
+            lines, open_windows, _read, _largest = events.summarize_windows(events.outbox_streams(), self.AS_OF, 120, since, size)
+            self.assertEqual((lines, open_windows), events.summarize(docs, self.AS_OF, 120, since, size), (since, size))
+
+    def test_it_reads_only_closed_windows_after_since_one_window_and_kind_at_a_time(self):
+        _lines, _open, read, largest = events.summarize_windows(records.source_streams(), self.AS_OF, 120, self.SINCE)
+        produced = [(hops.window_start(hops._produced(d)), self.STREAM[d["event_name"]]) for d in self.everything()]
+        in_range = Counter(key for key in produced if self.SINCE <= key[0] < hops.window_start(self.AS_OF))
+        self.assertEqual(read, sum(in_range.values()))  # --since 앞(10-06)과 열린 창(10-10)의 행은 읽지 않는다
+        self.assertLess(read, len(produced))
+        self.assertEqual(largest, max(in_range.values()))  # 한 번에 든 것은 창 하나·종류 하나
+
+    def test_unresolved_charges_are_counted_without_holding_the_ledger(self):
+        """창에 놓을 수 없는 과금 원장 줄(반응이 없음·판정 전·키 형식이 틀림)만 센다. 원장을 묶음으로 이어 읽어도(묶음 1) 결과가 같다."""
+        self.assertEqual(records.unresolved_charges(), (0, []))  # 정상 과금은 모두 판정한 반응이 있다
+        w = World(ends_in=None)
+        pending, _ = records.receive_reaction(w.slot.media_id, records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(5)).decision_id,
+                                              uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)  # 받았지만 판정 전
+        refs = [f"{w.slot.media_id}:{uuid.uuid4()}", f"{w.slot.media_id}:{pending.reaction_id}", "형식이-틀린-키"]
+        for ref in refs:
+            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, ref, now=NOW)
+        entries = [e.entry_id for e in billing.charge_entries_for(refs)]
+        count, examples = records.unresolved_charges()
+        self.assertEqual((count, sorted(examples)), (3, sorted(str(e) for e in entries)))
+        self.assertEqual(records.unresolved_charges(batch=1), (count, examples))
+        self.assertEqual(records.unresolved_charges(examples=2)[1], examples[:2])
+
+    def test_the_reaction_lookup_reads_only_the_charged_pairs(self):
+        """재검토(5e8fa8c) P3: 반응 조회가 매체 집합 × 반응 ID 집합의 교차 조합을 읽었다(키 B개에 최대 B²행). 정확한 (매체, 반응) 쌍만 읽는다.
+        매체 넷이 같은 반응 ID 넷을 모두 판정했고 과금은 대각선 넷뿐 — 한 묶음(4)의 조회가 4행을 넘지 않는다."""
+        ids, worlds = [uuid.uuid4() for _ in range(4)], [World(ends_in=None) for _ in range(4)]
+        for i, w in enumerate(worlds):
+            d = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(i))
+            for reaction_id in [ids[i]] + [x for x in ids if x != ids[i]]:  # 대각선이 먼저 인정·과금되고 나머지는 같은 사람의 중복이라 판정만 된다
+                view, _ = records.receive_reaction(w.slot.media_id, d.decision_id, reaction_id, "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)
+                records.process_reaction(view.inbox_id, now=NOW)
+        self.assertEqual(Reaction.objects.filter(media_id__in=[w.slot.media_id for w in worlds], processed_at__isnull=False).count(), 16)
+        self.assertEqual(len(billing.charge_entries_for([reaction_ref(w.slot.media_id, ids[i]) for i, w in enumerate(worlds)])), 4)
+        fetched = []
+
+        def count_rows(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "FROM `records_reaction`" in sql:
+                fetched.append(context["cursor"].rowcount)
+            return result
+        with connection.execute_wrapper(count_rows):
+            self.assertEqual(records.unresolved_charges(batch=4)[0], 0)
+        self.assertTrue(fetched)
+        self.assertLessEqual(max(fetched), 4, fetched)
+
+    def test_unsent_counts_read_only_the_unsent_rows(self):
+        EventOutbox.objects.filter(event_name=events.NAMES["charge"]).update(sent_at=NOW)
+        expected = Counter((events.format_time(hops.window_start(r.created_at, hops.HOUR)), r.event_name) for r in EventOutbox.objects.filter(sent_at__isnull=True))
+        self.assertEqual(events.unsent_counts(size=hops.HOUR), dict(expected))
+        self.assertNotIn(events.NAMES["charge"], {name for _, name in events.unsent_counts()})
 
 
 @tag("security")
@@ -147,6 +239,57 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
                 self.assertEqual(source[key][field], outbox[key][field], (key, field))
                 self.assertEqual(source[key][field], mongo[key][field], (key, field))
             self.assertEqual(outbox[key]["unsent"], 0)
+
+    def test_several_windows_agree_and_only_the_range_is_read(self):
+        """창 여러 개(--since 앞의 창 포함): 세 구간이 창마다 같고, 읽은 이벤트 수는 범위 안의 것뿐이다. 실행 결과에 한 번에 든 최대 이벤트 수와 최대 메모리를 적는다."""
+        w = World()
+        for at in (NOW - 2 * DAY, datetime(2026, 10, 8, tzinfo=UTC)):  # 10-05(--since 앞), 10-08 의 시작(창 경계)
+            records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=at, rng=Random(3))
+        relay_batch()
+        ok, text = self.export("--since", "2026-10-07", "--as-of", "2026-10-10T00:05:00Z")
+        self.assertTrue(ok, text)
+        hop_lines = {h: self.lines(h) for h in ("hop_source", "hop_outbox", "hop_mongo")}
+        self.assertEqual([l["window_start"][:10] for l in hop_lines["hop_source"][0]], ["2026-10-07"] * 4 + ["2026-10-08"])
+        for hop, (lines, manifest) in hop_lines.items():
+            self.assertEqual([(l["count"], l["ids_sha256"], l["content_sha256"]) for l in lines], [(l["count"], l["ids_sha256"], l["content_sha256"]) for l in hop_lines["hop_source"][0]], hop)
+            self.assertEqual(manifest["checkpoint"]["scanned_events"], 5, hop)  # 10-05 의 결정은 읽지 않는다
+        self.assertRegex(text, r"hop_source: rows=5 events=5 open_windows=0 largest_window=\d+ ")
+        self.assertRegex(text, r"peak_rss=\d+(\.\d)?MiB")
+
+    def test_a_charge_that_cannot_be_placed_in_a_window_fails_the_export_and_the_check(self):
+        """외부 검토(e781f20) P2 재현: 반응이 없는 과금 원장 줄(잔액·원장은 서로 맞음, 이벤트 없음)이 원본 구간에서 조용히 빠져 내보내기·대조가 '일치'로 끝났다.
+        생성 시각을 정할 수 없으니 추정하지 않고 미해결로 남긴다 — 내보내기는 게시한 뒤 실패로 끝나고 verify_hops 도 실패한다. 정상 이벤트의 대조는 그대로 한다."""
+        relay_batch()
+        w = World()
+        ref = f"{w.slot.media_id}:{uuid.uuid4()}"
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        (orphan,) = billing.charge_entries_for([ref])
+        self.assertEqual(billing.check_ledger(), [])  # 원장 자체는 맞다 — 이 점검만으로는 보이지 않는다
+        ok, text = self.export()
+        self.assertFalse(ok, text)
+        self.assertIn("창에 놓을 수 없는 과금 원장 줄 1건", text)
+        checkpoint = self.lines("hop_source")[1]["checkpoint"]
+        self.assertEqual((checkpoint["unresolved_charges"], checkpoint["unresolved_charge_examples"]), (1, [str(orphan.entry_id)]))
+        ok, text = self.verify()
+        self.assertFalse(ok, text)
+        self.assertIn(f"FAIL hop_source: 창에 놓을 수 없는 과금 원장 줄 1건(반응이 없거나 판정 전, 예: {orphan.entry_id})", text)
+        self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
+
+    def test_a_charge_key_that_only_looks_like_a_judged_reactions_key_is_unresolved(self):
+        """재검토(5e8fa8c) P2 재현: 판정한 반응의 키를 다른 UUID 표기(대문자·하이픈 없음·중괄호)로 바꾼 과금 세 건이 원본 구간의 문자열 조회에도,
+        UUID 로 해석하는 미해결 검사에도 걸리지 않아 '일치'로 끝났다. 키는 반응에서 만든 표준 문자열과 정확히 같아야 그 반응의 과금이다."""
+        relay_batch()
+        r = Reaction.objects.get()
+        decision = Decision.objects.get(pk=r.decision_id)
+        for ref in (f"{str(r.media_id).upper()}:{r.reaction_id}", f"{r.media_id.hex}:{r.reaction_id}", f"{{{r.media_id}}}:{r.reaction_id}"):
+            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        self.assertEqual(billing.check_ledger(), [])
+        ok, text = self.export()
+        self.assertFalse(ok, text)
+        self.assertIn("창에 놓을 수 없는 과금 원장 줄 3건", text)
+        ok, text = self.verify()
+        self.assertFalse(ok, text)
+        self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
     def test_before_the_relay_mongodb_is_empty_and_outbox_shows_unsent(self):
         self.export()

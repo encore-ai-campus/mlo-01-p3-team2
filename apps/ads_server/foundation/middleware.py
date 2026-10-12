@@ -5,7 +5,8 @@ from django.conf import settings
 from django.utils.cache import add_never_cache_headers
 
 from .errors import ApiError, PayloadTooLarge
-from .http import problem_response
+from .dberrors import is_transient_lock_error
+from .http import error_response, problem_response, transient_db_error
 from .logging import request_id_var
 
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -50,7 +51,8 @@ class RequestBodyLimitMiddleware:
         except ValueError:
             declared = 0  # Django 와 같게: 형식이 틀린 길이는 0 으로 본다
         if declared > settings.ASSET_MAX_BYTES + REQUEST_BODY_OVERHEAD:
-            return problem_response(request, PayloadTooLarge("요청 본문이 허용 크기를 넘습니다."))
+            limit = f"{settings.ASSET_MAX_BYTES / 1024 / 1024:g}MB"
+            return error_response(request, PayloadTooLarge("요청 본문이 허용 크기를 넘습니다."), f"보낸 내용이 너무 큽니다. 이미지는 {limit}까지 올릴 수 있습니다.")
         return self.get_response(request)
 
 
@@ -70,7 +72,8 @@ class CsrfExemptPrefixesMiddleware:
 
 
 class ApiErrorMiddleware:
-    """뷰가 던진 ApiError 를 problem+json 으로 바꾼다. (다른 예외는 Django 핸들러가 처리한다.)"""
+    """뷰가 던진 ApiError 를 problem+json 으로 바꾼다. 교착·잠금 대기 초과는 503 + `Retry-After`(화면은 HTML, API 는 problem+json).
+    (다른 예외는 Django 핸들러가 처리한다.)"""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -81,6 +84,8 @@ class ApiErrorMiddleware:
     def process_exception(self, request, exception):
         if isinstance(exception, ApiError):
             return problem_response(request, exception)
+        if is_transient_lock_error(exception):
+            return transient_db_error(request)
         return None
 
 

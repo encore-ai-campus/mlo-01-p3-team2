@@ -3,23 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{% block title %}광고 서버{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'console/app.css' %}">
 </head>
 <body>
-  <header>
-    <strong>광고 서버</strong>
+  <header class="topbar">
+    <strong class="brand">광고 서버</strong>
     {% if user.is_authenticated %}
-    <form method="post" action="{% url 'logout' %}">
+    {% if user.role == "advertiser" %}
+    <nav class="mainnav" aria-label="주 메뉴">
+      {% url 'advertiser_home' as home_url %}
+      <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>대시보드</a>
+      {% url 'campaign_list' as campaigns_url %}
+      <a href="{{ campaigns_url }}"{% if campaigns_url in request.path %} aria-current="page"{% endif %}>캠페인</a>
+      {% url 'points' as points_url %}
+      <a href="{{ points_url }}"{% if request.path == points_url %} aria-current="page"{% endif %}>포인트</a>
+      {% url 'my_account' as me_url %}
+      <a href="{{ me_url }}"{% if request.path == me_url %} aria-current="page"{% endif %}>내 정보</a>
+    </nav>
+    {% endif %}
+    <form method="post" action="{% url 'logout' %}" class="account">
       {% csrf_token %}
       <span class="muted">{{ user.nickname }}({{ user.class_label }})</span>
-      <button type="submit">로그아웃</button>
+      <button type="submit" class="secondary">로그아웃</button>
     </form>
     {% endif %}
   </header>
-  <main>
-    {% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}
+  <main class="{% block main_class %}{% endblock %}">
+    {% for message in messages %}<div class="notice{% if message.tags %} {{ message.tags }}{% endif %}" role="status">{{ message }}</div>{% endfor %}
     {% block content %}{% endblock %}
   </main>
+  {# 스크립트는 우리 서버의 정적 파일만(인라인·외부 CDN 없음, CSP 그대로). 없어도 화면이 동작해야 한다(설계 D3-1): <script src="{% static '…' %}" defer></script> #}
+  {% block scripts %}{% endblock %}
 </body>
 </html>

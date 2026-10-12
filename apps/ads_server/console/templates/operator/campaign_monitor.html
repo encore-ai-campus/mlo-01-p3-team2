@@ -1,0 +1,39 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › 광고 모니터링{% endblock %}
+{% block content %}
+<p class="help">모든 광고주의 캠페인입니다. 캠페인이나 소재가 최근에 바뀐 것부터 보입니다(이동 주소만 바꿔도 위로 올라옵니다). 중단하면 그 캠페인의 광고가 바로 나가지 않고, 광고주 화면에 사유가 보입니다.</p>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">캠페인</th><th scope="col">광고주</th><th scope="col">소재</th><th scope="col">상태</th><th scope="col">마지막 변경 (KST)</th><th scope="col">조치</th></tr></thead>
+    <tbody>
+    {% for item in page %}{% with c=item.campaign person=people|get_item:item.campaign.owner_id %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td><a href="{% url 'operator:advertiser_detail' c.owner_id %}">{{ person.nickname }}({{ person.class_label }})</a></td>
+        <td>{% include "operator/_creatives.html" with creatives=item.creatives %}</td>
+        <td>{{ c.status|status_label }}{% if person and not person.is_active %}<br><strong>광고주 비활성 — 광고가 나가지 않습니다</strong>{% endif %}{% if c.suspension %}<br><span class="help">사유: {{ c.suspension.reason }}</span>{% if c.suspension.open_review_request_id %}<br><a href="{% url 'operator:review_queue' %}">재검토 요청 있음</a>{% endif %}{% endif %}</td>
+        <td>{{ item.last_changed_at|kst }}</td>
+        <td>
+          {% if c.status == "SUSPENDED" %}
+            <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="campaigns">
+              <input type="hidden" name="suspended_at" value="{{ c.suspension.suspended_at.isoformat }}">
+              <button type="submit">중단 해제</button>
+            </form>
+          {% elif c.status != "ENDED" %}
+            <form method="post" action="{% url 'operator:campaign_suspend' c.campaign_id %}" data-confirm="이 캠페인을 중단합니다. 광고가 바로 나가지 않고 광고주 화면에 사유가 보입니다.">{% csrf_token %}<input type="hidden" name="back" value="campaigns">
+              <label for="reason-{{ c.campaign_id }}">중단 사유</label>
+              <input type="text" name="reason" id="reason-{{ c.campaign_id }}" maxlength="500" required>
+              <button type="submit">중단</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endwith %}{% empty %}
+      <tr><td colspan="6">캠페인이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "console/_pager.html" %}
+{% endblock %}
