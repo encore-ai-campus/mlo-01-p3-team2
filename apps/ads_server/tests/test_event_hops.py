@@ -14,6 +14,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings, tag
 
+from billing import api as billing
 from events import api as events, hops, ndjson, store
 from events.models import EventOutbox
 from events.relay import relay_batch
@@ -151,6 +152,21 @@ class WindowedSummaryTests(TestCase):
         self.assertLess(read, len(produced))
         self.assertEqual(largest, max(in_range.values()))  # 한 번에 든 것은 창 하나·종류 하나
 
+    def test_unresolved_charges_are_counted_without_holding_the_ledger(self):
+        """창에 놓을 수 없는 과금 원장 줄(반응이 없음·판정 전·키 형식이 틀림)만 센다. 원장을 묶음으로 이어 읽어도(묶음 1) 결과가 같다."""
+        self.assertEqual(records.unresolved_charges(), (0, []))  # 정상 과금은 모두 판정한 반응이 있다
+        w = World(ends_in=None)
+        pending, _ = records.receive_reaction(w.slot.media_id, records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(5)).decision_id,
+                                              uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)  # 받았지만 판정 전
+        refs = [f"{w.slot.media_id}:{uuid.uuid4()}", f"{w.slot.media_id}:{pending.reaction_id}", "형식이-틀린-키"]
+        for ref in refs:
+            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, ref, now=NOW)
+        entries = [e.entry_id for e in billing.charge_entries_for(refs)]
+        count, examples = records.unresolved_charges()
+        self.assertEqual((count, sorted(examples)), (3, sorted(str(e) for e in entries)))
+        self.assertEqual(records.unresolved_charges(batch=1), (count, examples))
+        self.assertEqual(records.unresolved_charges(examples=2)[1], examples[:2])
+
     def test_unsent_counts_read_only_the_unsent_rows(self):
         EventOutbox.objects.filter(event_name=events.NAMES["charge"]).update(sent_at=NOW)
         expected = Counter((events.format_time(hops.window_start(r.created_at, hops.HOUR)), r.event_name) for r in EventOutbox.objects.filter(sent_at__isnull=True))
@@ -213,6 +229,25 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertEqual(manifest["checkpoint"]["scanned_events"], 5, hop)  # 10-05 의 결정은 읽지 않는다
         self.assertRegex(text, r"hop_source: rows=5 events=5 open_windows=0 largest_window=\d+ ")
         self.assertRegex(text, r"peak_rss=\d+(\.\d)?MiB")
+
+    def test_a_charge_that_cannot_be_placed_in_a_window_fails_the_export_and_the_check(self):
+        """외부 검토(4bd3ce8) P2 재현: 반응이 없는 과금 원장 줄(잔액·원장은 서로 맞음, 이벤트 없음)이 원본 구간에서 조용히 빠져 내보내기·대조가 '일치'로 끝났다.
+        생성 시각을 정할 수 없으니 추정하지 않고 미해결로 남긴다 — 내보내기는 게시한 뒤 실패로 끝나고 verify_hops 도 실패한다. 정상 이벤트의 대조는 그대로 한다."""
+        relay_batch()
+        w = World()
+        ref = f"{w.slot.media_id}:{uuid.uuid4()}"
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        (orphan,) = billing.charge_entries_for([ref])
+        self.assertEqual(billing.check_ledger(), [])  # 원장 자체는 맞다 — 이 점검만으로는 보이지 않는다
+        ok, text = self.export()
+        self.assertFalse(ok, text)
+        self.assertIn("창에 놓을 수 없는 과금 원장 줄 1건", text)
+        checkpoint = self.lines("hop_source")[1]["checkpoint"]
+        self.assertEqual((checkpoint["unresolved_charges"], checkpoint["unresolved_charge_examples"]), (1, [str(orphan.entry_id)]))
+        ok, text = self.verify()
+        self.assertFalse(ok, text)
+        self.assertIn(f"FAIL hop_source: 창에 놓을 수 없는 과금 원장 줄 1건(반응이 없거나 판정 전, 예: {orphan.entry_id})", text)
+        self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
     def test_before_the_relay_mongodb_is_empty_and_outbox_shows_unsent(self):
         self.export()

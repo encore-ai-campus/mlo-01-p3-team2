@@ -33,6 +33,7 @@ class Hop:
         self.window = checkpoint.get("window")
         self.open_windows = set(checkpoint.get("open_windows", []))
         self.not_comparable = set(checkpoint.get("not_comparable_windows", []))
+        self.unresolved_charges = checkpoint.get("unresolved_charges", 0)  # 원본 구간: 창에 놓을 수 없는 과금 원장 줄(대조할 줄이 없으므로 따로 실패)
 
 
 def _time(text, what):
@@ -87,6 +88,9 @@ def load_hop(manifest_path, name=None, expected_kind=None):
     size = hops.WINDOW_SIZES.get(checkpoint.get("window"))
     if size is None:
         raise HopInputError(f"{manifest_path.name}: 창 크기 선언(checkpoint.window)이 없거나 알 수 없다: {checkpoint.get('window')!r}")
+    unresolved = checkpoint.get("unresolved_charges", 0)
+    if isinstance(unresolved, bool) or not isinstance(unresolved, int) or unresolved < 0:
+        raise HopInputError(f"{manifest_path.name}: unresolved_charges 는 0 이상의 정수여야 한다: {unresolved!r}")
     if checkpoint.get("hop", kind) != kind:
         raise HopInputError(f"{manifest_path.name}: checkpoint 의 구간({checkpoint.get('hop')})이 source_kind({kind})와 다르다")
     lines = {}

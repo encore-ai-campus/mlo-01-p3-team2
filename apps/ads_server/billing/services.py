@@ -285,6 +285,14 @@ def charge_entry_ids():
     return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE).values_list("entry_id", flat=True).iterator(chunk_size=2000)
 
 
+def charge_refs_after(after=None, limit=2000):
+    """원장 `CHARGE` 항목의 (entry_id, reaction_ref) 를 ID 순으로 한 묶음(`after` 다음부터). 큰 표를 한꺼번에 읽지 않고 이어 읽는다(구간 manifest 의 미해결 과금 찾기)."""
+    rows = LedgerEntry.objects.filter(entry_type=EntryType.CHARGE)
+    if after is not None:
+        rows = rows.filter(entry_id__gt=after)
+    return list(rows.order_by("entry_id").values_list("entry_id", "reaction_ref")[:limit])
+
+
 def charge_entries(entry_ids):
     """원장 `CHARGE` 항목을 ID 로 읽는다(없는 ID 는 결과에 없다). 이벤트 백필이 원본 행에서 과금 이벤트를 다시 만들 때 쓴다."""
     return _charge_entries("entry_id__in", entry_ids)

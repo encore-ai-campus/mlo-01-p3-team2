@@ -34,6 +34,9 @@ class Command(BaseCommand):
                 errors.append(f"{name}: {error}")
                 continue
             errors += [f"{name}: 세대 사슬 — {p}" for p in ndjson.verify_chain(path)]
+            if hops[name].unresolved_charges:
+                examples = ", ".join(hops[name].manifest["checkpoint"].get("unresolved_charge_examples", []))
+                errors.append(f"{name}: 창에 놓을 수 없는 과금 원장 줄 {hops[name].unresolved_charges}건(반응이 없거나 판정 전, 예: {examples}) — 줄 대조에 나오지 않는다")
         if not options["no_anchor"] and not errors:
             anchors = (latest_audit_detail("events.hop_manifests_exported") or {}).get("anchors")
             if anchors is None:

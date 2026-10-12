@@ -6,6 +6,8 @@
 생성 시각(`produced_at`)은 종류마다 생성 규약이 정한 원본 시각이다: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각(`processed_at`),
 과금 = 그 과금을 일으킨 반응의 처리 시각(과금과 판정은 같은 처리 트랜잭션의 같은 `now` 를 쓴다).
 """
+import uuid
+
 from billing import api as billing
 from events import api as events
 
@@ -46,6 +48,34 @@ def _judged_documents(rows):
     for e in billing.charge_entries_for(list(reactions)):
         docs.append(_document(_charge_event(e, reactions[e.reaction_ref].decision_id, reactions[e.reaction_ref].processed_at)))
     return docs
+
+
+def unresolved_charges(batch=2000, examples=10):
+    """창에 놓을 수 없는 과금 원장 줄 — 멱등 키(`reaction_ref`)로 **판정한 반응**을 찾지 못한 `CHARGE` 항목(반응이 없거나 아직 판정 전).
+    과금 이벤트의 생성 시각은 그 반응의 처리 시각이라 이런 줄은 원본 구간의 어느 창에도 넣을 수 없고, `source_streams` 는 반응에서 과금을 찾으므로 조용히 빠진다.
+    원장 시각으로 추정하지 않고 따로 센다(외부 검토 4bd3ce8 P2). 원장을 ID 순으로 이어 읽어 메모리는 한 묶음만 쓴다. 반환: (건수, 예시 entry_id 최대 `examples`개)."""
+    count, sample, after = 0, [], None
+    while rows := billing.charge_refs_after(after, batch):
+        after = rows[-1][0]
+        keys = {entry_id: _reaction_key(ref) for entry_id, ref in rows}
+        wanted = {key for key in keys.values() if key}
+        judged = set(Reaction.objects.filter(
+            media_id__in={m for m, _ in wanted}, reaction_id__in={r for _, r in wanted}, processed_at__isnull=False,
+        ).values_list("media_id", "reaction_id")) if wanted else set()
+        for entry_id, key in keys.items():
+            if key not in judged:
+                count += 1
+                sample += [str(entry_id)][:examples - len(sample)]
+    return count, sample
+
+
+def _reaction_key(ref):
+    """`reaction_ref`(<매체>:<reaction_id>) → (매체 ID, 반응 ID). 형식이 틀리면 None(찾을 수 없음)."""
+    try:
+        media, reaction = (ref or "").split(":", 1)
+        return uuid.UUID(media), uuid.UUID(reaction)
+    except ValueError:
+        return None
 
 
 def _document(item):

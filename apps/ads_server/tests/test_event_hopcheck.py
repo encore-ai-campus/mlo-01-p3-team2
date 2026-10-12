@@ -126,7 +126,7 @@ def hour_line(start="2026-10-07T05:00:00Z", end="2026-10-07T06:00:00Z", **kw):
 class InputValidationTests(SimpleTestCase):
     """검토 P2-3: 파일 체크섬이 맞는 것과 집계 범위가 같은 것은 별개다 — 대조 전에 창 시작·끝·크기와 계약 버전·구간 종류를 확인한다."""
 
-    def publish(self, lines, kind="hop_mongo", window="utc-day", schema_version=1, hop_field="same"):
+    def publish(self, lines, kind="hop_mongo", window="utc-day", schema_version=1, hop_field="same", **extra):
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, directory, True)
         checkpoint = {"window": window, "open_windows": []}
@@ -134,6 +134,8 @@ class InputValidationTests(SimpleTestCase):
             checkpoint["hop"] = kind
         elif hop_field:
             checkpoint["hop"] = hop_field
+        if "unresolved" in extra:
+            checkpoint["unresolved_charges"] = extra["unresolved"]
         ndjson.write(directory, "h", lines, kind, schema_version, checkpoint=checkpoint)
         return ndjson.manifest_path(directory, "h")
 
@@ -174,6 +176,13 @@ class InputValidationTests(SimpleTestCase):
             with self.subTest(kwargs=kwargs):
                 with self.assertRaises(hopcheck.HopInputError):
                     self.load(self.publish([self.day()], **kwargs))
+
+    def test_the_unresolved_charge_count_must_be_a_non_negative_integer(self):
+        """원본 구간의 `unresolved_charges`(창에 놓을 수 없는 과금 원장 줄)는 줄 대조에 나오지 않고 이 값으로만 실패한다 — 형식이 틀린 값으로 0 처럼 지나가지 않는다."""
+        self.assertEqual(self.load(self.publish([self.day()], kind="hop_source", unresolved=2), "hop_source").unresolved_charges, 2)
+        for bad in ("1", -1, True, 1.5, None):
+            with self.subTest(bad=bad), self.assertRaises(hopcheck.HopInputError):
+                self.load(self.publish([self.day()], kind="hop_source", unresolved=bad), "hop_source")
 
     def test_the_file_must_be_the_hop_it_is_loaded_as(self):
         outbox_file = self.publish([self.day(unsent=0)], kind="hop_outbox")
