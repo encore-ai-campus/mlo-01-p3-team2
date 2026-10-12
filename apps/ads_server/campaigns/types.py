@@ -1,0 +1,96 @@
+"""campaigns 가 밖으로 내보내는 값 객체. 다른 모듈은 모델이 아니라 이것만 받는다(설계 R2, 계획 §6.0-1)."""
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass(frozen=True)
+class SuspensionView:
+    reason: str
+    suspended_at: datetime
+    open_review_request_id: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class CampaignView:
+    campaign_id: uuid.UUID
+    owner_id: uuid.UUID
+    name: str
+    starts_at: datetime
+    ends_at: datetime | None
+    daily_budget: int
+    status: str  # 보이는 상태: 기간이 지났으면 저장된 상태가 아직 ACTIVE 여도 ENDED 다(판정은 engine 한 곳)
+    ended_from: str | None  # 종료 직전 상태. ENDED 일 때만 값이 있다
+    suspension: SuspensionView | None  # SUSPENDED 일 때만
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class BidView:
+    bid_id: uuid.UUID
+    ad_group_id: uuid.UUID
+    bid_version: int
+    amount: int
+    created_by: uuid.UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class AdGroupView:
+    ad_group_id: uuid.UUID
+    campaign_id: uuid.UUID
+    name: str
+    pricing_unit: str
+    enabled: bool
+    slot_ids: tuple
+    current_bid: BidView | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class CreativeView:
+    creative_id: uuid.UUID
+    ad_group_id: uuid.UUID
+    title: str
+    redirect_url: str
+    image_name: str
+    image_bytes: int
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ReviewRequestView:
+    review_request_id: uuid.UUID
+    campaign_id: uuid.UUID
+    message: str
+    status: str
+    response_note: str
+    created_at: datetime
+    closed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class CandidateFacts:
+    """슬롯 하나의 후보 후보. 판정은 하지 않은 **사실**이다(기간·금액 판정은 engine). records 가 이것으로 `Candidate` 를 조립한다."""
+
+    owner_id: uuid.UUID
+    campaign_id: uuid.UUID
+    ad_group_id: uuid.UUID
+    creative_id: uuid.UUID
+    slot_id: uuid.UUID
+    pricing_unit: str
+    bid_id: uuid.UUID
+    bid_amount: int
+    bid_version: int
+    bid_created_at: datetime
+    campaign_status: str  # 저장된 상태
+    ad_group_enabled: bool
+    period_start: datetime
+    period_end: datetime | None
+    daily_budget: int
+    title: str
+    redirect_url: str
+    image_name: str
