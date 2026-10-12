@@ -54,7 +54,7 @@ def health(request):
 @media_endpoint("decisions")
 def create_decision(request):
     fields = parse_decision_request(parse_json(request))
-    with transaction.atomic():  # 응답에 필요한 조회까지 한 트랜잭션: 어느 단계가 실패해도 503 은 "저장하지 않았다"는 뜻이다(계약 Unavailable)
+    with transaction.atomic():  # 응답에 필요한 조회까지 한 트랜잭션: 커밋 전 어느 단계가 실패해도 되돌린다. 503 은 "성공을 확인하지 못했다"이다(계약 Unavailable — 커밋 응답이 끊기면 저장됐을 수 있다)
         decision = records.decide(request.media.media_id, fields.slot_id, subject_id=fields.subject_id, context=fields.context)
         body = _decision_body(decision)
     response = JsonResponse(body, status=201)  # 커밋된 뒤에만 여기에 온다
@@ -75,7 +75,7 @@ def put_reaction(request, decision_id, reaction_id):
     decision_id, reaction_id = path_uuid(decision_id, "decision_id"), path_uuid(reaction_id, "reaction_id")
     body = parse_json(request)
     fields = parse_reaction_request(body)
-    with transaction.atomic():  # 커밋된 뒤에만 2xx 를 보낸다: 2xx 는 "수신함에 저장했다"는 확인이다(커밋이 실패해도 503)
+    with transaction.atomic():  # 커밋된 뒤에만 2xx 를 보낸다: 2xx 는 "수신함에 저장했다"는 확인이다(커밋 결과를 모르면 503 — 같은 reaction_id 로 다시 보내면 한 번만 처리된다)
         reaction, created = records.receive_reaction(
             request.media.media_id, decision_id, reaction_id, fields.type, fields.occurred_at, raw=body, subject_id=fields.subject_id,
         )

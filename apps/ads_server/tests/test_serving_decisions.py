@@ -120,7 +120,7 @@ class CreateDecisionTests(DecisionApiBase):
         self.assertEqual(self.post().status_code, 201)  # 복구되면 다음 요청은 정상
 
     def test_a_failure_after_the_insert_still_means_nothing_was_saved(self):
-        """응답을 만드는 중(슬롯 이름 조회)에 저장소가 실패하면 503 이고 결정도 남지 않는다 — 503 은 '저장하지 않았다'는 뜻이다."""
+        """응답을 만드는 중(슬롯 이름 조회)에 저장소가 실패하면 503 이고 결정도 남지 않는다 — 커밋 전의 실패는 되돌린다(커밋 응답이 끊긴 503 만 결과를 모른다)."""
         with mock.patch("serving_api.views.masters.slot_names", side_effect=OperationalError("database is locked")):
             response = self.post()
         self.assertEqual(response.status_code, 503)

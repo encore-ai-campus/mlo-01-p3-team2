@@ -63,7 +63,7 @@ def media_endpoint(group):
                     raise errors.RateLimited("요청이 너무 많습니다.", retry_after=wait)
                 request.media = identity
                 return view(request, *args, **kwargs)
-            except OperationalError:  # 잠금·디스크·연결 장애: 복구되면 다시 보내면 된다. 뷰의 트랜잭션은 이미 되돌려졌다
+            except OperationalError:  # 잠금·디스크·연결 장애: 복구되면 다시 보내면 된다. 뷰의 트랜잭션은 되돌려졌거나, 커밋 응답이 끊겼다면 이미 커밋됐을 수 있다(그래서 503 = 성공 미확인)
                 logger.exception("저장소 일시 장애 group=%s", group)
                 raise errors.Unavailable("일시적으로 처리할 수 없습니다. 잠시 뒤에 다시 시도하세요.")
 

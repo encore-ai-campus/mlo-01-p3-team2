@@ -109,7 +109,7 @@ class DecisionEventHttpTests(DecisionApiBase):
     def test_if_the_outbox_cannot_be_written_the_answer_is_503_and_nothing_is_saved(self):
         with mock.patch("records.services.events.record_decision", side_effect=OperationalError("disk full")):
             response = self.post()
-        self.assertEqual(response.status_code, 503)  # 503 은 "저장하지 않았다"는 뜻
+        self.assertEqual(response.status_code, 503)  # 커밋 전의 실패: 결정과 이벤트를 함께 되돌린다
         self.assertNotIn("decision_id", response.json())
         self.assertEqual((Decision.objects.count(), EventOutbox.objects.count()), (0, 0))
         self.assertEqual(self.post().status_code, 201)
