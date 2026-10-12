@@ -43,14 +43,16 @@ def request_decision(request):
     try:
         config = AdsConfig.from_env()
         # 브라우저 입력 대신 로그인 프로필과 서버 전용 비밀로 광고 가명을 만든다.
-        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
-        if subject_id is None:
+        owner_id = _owner_id(request.user)
+        if owner_id is None:
             return JsonResponse({
                 "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
             }, status=409)
         client = AdsClient(config)
+        subject_id = _subject_id(owner_id, subject_secret=config.subject_secret)
         decision = create_decision(
-            client=client, store=decision_store, slot_id=slot_id, subject_id=subject_id,
+            client=client, store=decision_store, slot_id=slot_id,
+            subject_id=subject_id, owner_id=owner_id,
         )
     except DatabaseError:
         return JsonResponse({
@@ -102,8 +104,8 @@ def report_impression(request, decision_id):
         }, status=503)
     try:
         config = AdsConfig.from_env()
-        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
-        if subject_id is None:
+        owner_id = _owner_id(request.user)
+        if owner_id is None:
             return JsonResponse({
                 "error": "profile_uuid_missing", "message": "게임 프로필의 사용자 UUID가 없습니다.",
             }, status=409)
@@ -112,7 +114,7 @@ def report_impression(request, decision_id):
         occurred_at = timezone.now().astimezone(utc_timezone.utc).isoformat().replace("+00:00", "Z")
         outcome = report_impression_once(
             client=client, store=impression_store, decision_id=decision_id,
-            subject_id=subject_id, occurred_at=occurred_at,
+            owner_id=owner_id, occurred_at=occurred_at,
         )
     except impression_store.DecisionNotFound:
         return JsonResponse({
@@ -158,8 +160,8 @@ def report_impression(request, decision_id):
 
 
 
-def _subject_id(user, *, subject_secret: str):
-    """로그인 프로필의 UUID에서 광고 전용 가명을 생성한다."""
+def _owner_id(user) -> UUID | None:
+    """로그인 프로필의 내부 소유자 UUID를 읽고 원문 없는 오류로 검증한다."""
     value = user
     for attribute in getattr(settings, "ADS_SUBJECT_ID_ATTRIBUTE", "campus_profile.user_uuid").split("."):
         value = getattr(value, attribute, None)
@@ -168,9 +170,13 @@ def _subject_id(user, *, subject_secret: str):
     if value is None:
         return None
     try:
-        user_uuid = UUID(str(value))
+        return UUID(str(value))
     except (ValueError, TypeError, AttributeError):
         raise ValueError("게임 프로필의 사용자 UUID가 올바르지 않습니다.") from None
+
+
+def _subject_id(user_uuid: UUID, *, subject_secret: str) -> UUID:
+    """검증된 내부 UUID에서 결정 발급에 사용할 광고 전용 가명을 생성한다."""
     # UUID 표기를 정규화하고 계약의 앞 16바이트를 그대로 사용한다. 버전 비트는 바꾸지 않는다.
     digest = hmac.new(
         subject_secret.encode("utf-8"),
@@ -199,15 +205,15 @@ def reaction_result(request, decision_id):
         return JsonResponse({"error": "ads_storage_not_configured", "message": "ad_bridge 앱 등록과 마이그레이션이 필요합니다."}, status=503)
     try:
         config = AdsConfig.from_env()
-        subject_id = _subject_id(request.user, subject_secret=config.subject_secret)
-        if subject_id is None:
+        owner_id = _owner_id(request.user)
+        if owner_id is None:
             return JsonResponse({"error": "profile_uuid_missing", "message": "게임 사용자 UUID가 없습니다."}, status=409)
-        record = impression_store.get_impression(decision_id=decision_id, subject_id=subject_id)
+        record = impression_store.get_impression(decision_id=decision_id, owner_id=owner_id)
         # 재전송 대기 중에는 로컬 상태만 반환한다. 이미 확정된 판정도 재조회하지 않는다.
         if record.delivery_state != "ACKNOWLEDGED" or record.status in ("ACCEPTED", "REJECTED"):
             return JsonResponse(_result_payload(record), status=202 if record.delivery_state != "ACKNOWLEDGED" else 200)
         record = refresh_result(client=AdsClient(config), store=impression_store,
-                                decision_id=decision_id, subject_id=subject_id)
+                                decision_id=decision_id, owner_id=owner_id)
         return JsonResponse(_result_payload(record))
     except impression_store.DecisionNotFound:
         return JsonResponse({"error": "decision_not_found", "message": "사용자의 노출 기록이 없습니다."}, status=404)

@@ -29,7 +29,7 @@ class GameImpressionTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.path = reverse("ad_bridge:impression", kwargs={"decision_id": DECISION_ID})
-        self.store = MemoryImpressionStore(owner=AD_SUBJECT_ID)
+        self.store = MemoryImpressionStore(owner=SUBJECT_ID, subject=AD_SUBJECT_ID)
         self.client = Mock()
         self.client.report_impression.side_effect = received_reaction
         self.config = SimpleNamespace(media_key=PRIVATE_KEY, subject_secret=SUBJECT_SECRET)
@@ -93,6 +93,15 @@ class GameImpressionTests(SimpleTestCase):
         for name in ("decision_id", "reaction_id", "occurred_at", "status"):
             self.assertEqual(first_payload[name], second_payload[name])
         self.client.report_impression.assert_called_once()
+
+    def test_secret_rotation_keeps_the_decision_subject(self):
+        # 발급 뒤 비밀을 바꿔도 노출에는 저장소의 발급 당시 가명이 사용되어야 한다.
+        self.config.subject_secret = "rotated-subject-secret"
+        response = self.report()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.client.report_impression.call_args.kwargs["subject_id"], AD_SUBJECT_ID)
+        self.assertEqual(self.store.owner, SUBJECT_ID)
+        self.assertNotIn(SUBJECT_ID, response.content.decode())
 
     def test_anonymous_request_requires_login_without_sending(self):
         request = self.request()

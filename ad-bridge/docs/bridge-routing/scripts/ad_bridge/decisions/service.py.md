@@ -1,6 +1,6 @@
-# scripts/ad_bridge/decisions/service.py
+# ad-bridge/scripts/decisions/service.py
 
-원본: `scripts/ad_bridge/decisions/service.py` · [원본 파일](../../../../../scripts/ad_bridge/decisions/service.py)
+원본: `ad-bridge/scripts/decisions/service.py` · [원본 파일](../../../../../scripts/decisions/service.py)
 
 [통합 목차](../../../ROUTING-README.md)
 
@@ -14,9 +14,9 @@
 
 ### create_decision
 
-`scripts/ad_bridge/decisions/service.py::def create_decision(*, client, store, slot_id, subject_id) -> Decision`
+`ad-bridge/scripts/decisions/service.py::def create_decision(*, client, store, slot_id, subject_id, owner_id) -> Decision`
 
-클라이언트로 광고 결정을 요청한 뒤 저장소의 소유권 저장을 완료하고 같은 결정 객체를 반환한다. 광고 없음도 저장한다. 저장 실패를 정상 발급 결과로 숨기지 않으며 클라이언트와 저장소의 구체 구현은 호출자가 주입한다.
+광고 서버에는 subject_id 가명만 전달하고, 내부 사용자 UUID인 owner_id는 발급 저장소에만 전달한다. 발급 당시 가명과 내부 소유권 저장을 완료한 뒤 같은 결정 객체를 반환한다. 광고 없음도 저장한다. 저장 실패를 정상 발급 결과로 숨기지 않으며 클라이언트와 저장소의 구체 구현은 호출자가 주입한다.
 
 AST 호출 표기:
 

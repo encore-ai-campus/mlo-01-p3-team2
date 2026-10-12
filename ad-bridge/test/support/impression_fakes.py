@@ -27,8 +27,9 @@ def received_reaction(**payload):
 class MemoryImpressionStore:
     """예약 완료 상태와 쓰기 실패 위치를 관측하는 테스트 전용 저장소."""
 
-    def __init__(self, *, owner=SUBJECT_ID, has_ad=True):
+    def __init__(self, *, owner=SUBJECT_ID, subject=SUBJECT_ID, has_ad=True):
         self.owner = str(owner)
+        self.subject = str(subject)
         self.has_ad = has_ad
         self.records = {}
         self.events = []
@@ -46,11 +47,11 @@ class MemoryImpressionStore:
         else:
             self.records[value.reaction_id] = value
 
-    def reserve_impression(self, decision_id, subject_id, occurred_at, *, now=None, lease_seconds=60):
+    def reserve_impression(self, decision_id, owner_id, occurred_at, *, now=None, lease_seconds=60):
         self.events.append("reserve")
         if self.reserve_error:
             raise self.reserve_error
-        if str(decision_id) != DECISION_ID or str(subject_id) != self.owner:
+        if str(decision_id) != DECISION_ID or str(owner_id) != self.owner:
             raise DecisionNotFound()
         if not self.has_ad:
             raise NoAdForDecision()
@@ -59,7 +60,7 @@ class MemoryImpressionStore:
         current = now or datetime.now(timezone.utc)
         self.record = StoredImpression(
             decision_id=str(decision_id), reaction_id=REACTION_ID,
-            subject_id=str(subject_id), occurred_at=occurred_at, delivery_state="SENDING",
+            subject_id=self.subject, occurred_at=occurred_at, delivery_state="SENDING",
             attempts=1, lease_token=str(uuid4()),
             lease_expires_at=current + timedelta(seconds=lease_seconds),
         )

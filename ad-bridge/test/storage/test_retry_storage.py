@@ -18,14 +18,15 @@ class RetryStorageTests(TestCase):
     def setUp(self):
         self.now = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
         self.subject = uuid4()
+        self.owner = uuid4()
         self.decision = IssuedDecision.objects.create(
-            decision_id=uuid4(), subject_id=self.subject, slot_id=uuid4(),
+            decision_id=uuid4(), owner_id=self.owner, subject_id=self.subject, slot_id=uuid4(),
             decided_at=self.now, has_ad=True,
         )
 
     def reserve(self):
         return reserve_impression(
-            self.decision.pk, self.subject, "2026-10-11T12:00:00.123000Z", now=self.now,
+            self.decision.pk, self.owner, "2026-10-11T12:00:00.123000Z", now=self.now,
         )[0]
 
     def fail(self, record, *, due=None):
@@ -174,7 +175,7 @@ class RetryStorageTests(TestCase):
     def test_duplicate_notification_does_not_extend_or_replace_lease(self):
         first = self.reserve()
         repeated, created = reserve_impression(
-            self.decision.pk, self.subject, "2026-10-11T12:00:30Z",
+            self.decision.pk, self.owner, "2026-10-11T12:00:30Z",
             now=self.now + timedelta(seconds=30), lease_seconds=600,
         )
         self.assertFalse(created)
@@ -294,5 +295,37 @@ class RetryMigrationTests(TransactionTestCase):
                 else:
                     self.assertIsNone(row.next_attempt_at)
                     self.assertIsNone(row.lease_expires_at)
+        finally:
+            MigrationExecutor(connection).migrate([("ad_bridge", "0003_decision_owner")])
+
+
+class OwnerMigrationTests(TransactionTestCase):
+    def test_migration_preserves_existing_decision_and_impression_payloads(self):
+        previous = [("ad_bridge", "0002_impression_retry")]
+        latest = [("ad_bridge", "0003_decision_owner")]
+        executor = MigrationExecutor(connection)
+        executor.migrate(previous)
+        old_apps = executor.loader.project_state(previous).apps
+        OldDecision = old_apps.get_model("ad_bridge", "IssuedDecision")
+        OldImpression = old_apps.get_model("ad_bridge", "Impression")
+        snapshots = []
+        try:
+            # 원본 UUID 기반 기록과 이전 가명 기반 기록 모두 내용을 그대로 남긴다.
+            for subject in (UUID("11223344-1234-4234-8234-123456789abc"),
+                            UUID("d8d3d672-5458-ddcc-c90c-a7844b3aa51a")):
+                decision = OldDecision.objects.create(decision_id=uuid4(), subject_id=subject,
+                    slot_id=uuid4(), decided_at=datetime(2026, 10, 11, tzinfo=timezone.utc), has_ad=True)
+                row = OldImpression.objects.create(decision=decision, subject_id=subject,
+                    occurred_at="2026-10-11T12:00:00.123000Z", delivery_state="UNCONFIRMED",
+                    attempts=3, next_attempt_at=datetime(2026, 10, 12, tzinfo=timezone.utc),
+                    last_error="ads_http_error", last_http_status=503, lease_token=uuid4())
+                snapshots.append((OldDecision.objects.values().get(pk=decision.pk),
+                                  OldImpression.objects.values().get(pk=row.pk)))
+            MigrationExecutor(connection).migrate(latest)
+            for decision_before, impression_before in snapshots:
+                decision_after = IssuedDecision.objects.values().get(pk=decision_before["decision_id"])
+                self.assertIsNone(decision_after.pop("owner_id"))
+                self.assertEqual(decision_after, decision_before)
+                self.assertEqual(Impression.objects.values().get(pk=impression_before["reaction_id"]), impression_before)
         finally:
             MigrationExecutor(connection).migrate(latest)

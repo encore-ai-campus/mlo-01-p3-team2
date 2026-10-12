@@ -1,12 +1,12 @@
-# scripts/ad_bridge/decisions/store.py
+# ad-bridge/scripts/decisions/store.py
 
-원본: `scripts/ad_bridge/decisions/store.py` · [원본 파일](../../../../../scripts/ad_bridge/decisions/store.py)
+원본: `ad-bridge/scripts/decisions/store.py` · [원본 파일](../../../../../scripts/decisions/store.py)
 
 [통합 목차](../../../ROUTING-README.md)
 
 ## 역할
 
-개인 슬롯 결정의 소유자, 슬롯, 광고 유무와 결정 시각을 게임 DB의 발급 기록으로 보관한다. 광고가 없는 결정도 기록하며 기존 발급 기록의 소유권과 내용을 바꾸지 않도록 확인한다. 후속 노출 보고에서 사용자의 결정 소유권과 광고 유무를 판별하기 위한 저장소다. 공유 슬롯의 다중 사용자 흐름을 저장하는 구현으로 해석하면 안 된다.
+개인 슬롯 결정의 내부 소유자 owner_id와 광고 전송 가명 subject_id를 분리해 게임 DB에 보관한다. 슬롯, 광고 유무와 결정 시각도 저장한다. 광고가 없는 결정도 기록하며 기존 발급 기록의 소유권과 내용을 바꾸지 않도록 확인한다. 후속 노출 보고는 owner_id로 소유권을 검사하고 저장된 subject_id를 전송에 사용한다. 공유 슬롯의 다중 사용자 흐름을 저장하는 구현으로 해석하면 안 된다.
 
 역할 설명은 기존 연동 안내와 AST에서 추출한 문서 문자열·의존 및 호출 표기를 근거로 한다. 아래 선언은 AST가 직접 찾은 클래스·함수·메서드이며 dataclass 등이 실행 시 생성하는 메서드는 포함하지 않는다.
 
@@ -14,7 +14,7 @@
 
 ### _uuid
 
-`scripts/ad_bridge/decisions/store.py::def _uuid(value: str | UUID) -> UUID`
+`ad-bridge/scripts/decisions/store.py::def _uuid(value: str | UUID) -> UUID`
 
 저장에 사용할 문자열 또는 UUID 입력을 UUID 값으로 정규화한다.
 
@@ -29,7 +29,7 @@ str
 
 ### _utc_time
 
-`scripts/ad_bridge/decisions/store.py::def _utc_time(value: str) -> datetime`
+`ad-bridge/scripts/decisions/store.py::def _utc_time(value: str) -> datetime`
 
 결정의 UTC 시각 문자열을 검사하고 DB 저장에 사용할 datetime 값으로 해석한다.
 
@@ -44,9 +44,9 @@ re.fullmatch
 
 ### remember_decision
 
-`scripts/ad_bridge/decisions/store.py::def remember_decision(decision: Decision, subject_id: str | UUID) -> None`
+`ad-bridge/scripts/decisions/store.py::def remember_decision(decision: Decision, subject_id: str | UUID, *, owner_id: str | UUID) -> None`
 
-개인 결정과 가명 사용자 UUID를 받아 발급 소유권 기록을 생성하거나 기존 기록과 일치하는지 확인한다. 광고 유무를 함께 저장하고 반환 값은 없다. 모델 import는 함수 내부에 있다.
+개인 결정·광고 가명과 필수 키워드 인자 owner_id를 받아 발급 기록을 생성하거나 기존 기록과 일치하는지 확인한다. owner_id와 subject_id 모두 UUID로 검증하고 불변으로 유지한다. owner_id가 비어 있는 이전 기록의 소유자를 자동 추정하거나 채우지 않는다. 광고 유무를 함께 저장하고 반환 값은 없다. 모델 import는 함수 내부에 있다.
 
 선언 내부 import:
 

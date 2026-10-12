@@ -105,7 +105,7 @@ def _lease_end(now: datetime, lease_seconds: float) -> datetime:
 
 
 def reserve_impression(
-    decision_id: str | UUID, subject_id: str | UUID, occurred_at: str,
+    decision_id: str | UUID, owner_id: str | UUID, occurred_at: str,
     *, now: datetime | None = None, lease_seconds: float = 60,
 ) -> tuple[StoredImpression, bool]:
     from django.db import transaction
@@ -113,7 +113,7 @@ def reserve_impression(
     from ..models import Impression, IssuedDecision
 
     decision_uuid = _uuid(decision_id)
-    subject_uuid = _uuid(subject_id)
+    owner_uuid = _uuid(owner_id)
     _utc_time(occurred_at)
     current_time = _aware_time(now if now is not None else datetime.now(timezone.utc), "now")
     expires = _lease_end(current_time, lease_seconds)
@@ -121,7 +121,7 @@ def reserve_impression(
     with transaction.atomic(durable=True):
         try:
             decision = IssuedDecision.objects.get(
-                decision_id=decision_uuid, subject_id=subject_uuid
+                decision_id=decision_uuid, owner_id=owner_uuid
             )
         except IssuedDecision.DoesNotExist as error:
             raise DecisionNotFound("사용자에게 발급한 광고 결정이 없습니다.") from error
@@ -131,7 +131,8 @@ def reserve_impression(
         record, created = Impression.objects.get_or_create(
             decision=decision,
             defaults={
-                "subject_id": subject_uuid, "occurred_at": occurred_at,
+                # 현재 비밀로 가명을 다시 만들지 않고 결정 발급 당시 값을 고정한다.
+                "subject_id": decision.subject_id, "occurred_at": occurred_at,
                 "attempts": 1, "lease_token": uuid4, "lease_expires_at": expires,
             },
         )
@@ -242,21 +243,22 @@ class ImpressionNotReady(Exception):
     """접수 완료되지 않은 노출은 판정 조회 대상으로 삼지 않는다."""
 
 
-def get_impression(*, decision_id: str | UUID, subject_id: str | UUID) -> StoredImpression:
+def get_impression(*, decision_id: str | UUID, owner_id: str | UUID) -> StoredImpression:
     """사용자 소유의 기존 노출만 읽으며 새 기록을 만들지 않는다."""
     from ..models import Impression
+    from django.db.models import F
 
     try:
         record = Impression.objects.get(
-            decision_id=_uuid(decision_id), subject_id=_uuid(subject_id),
-            decision__subject_id=_uuid(subject_id), decision__has_ad=True,
+            decision_id=_uuid(decision_id), decision__owner_id=_uuid(owner_id),
+            subject_id=F("decision__subject_id"), decision__has_ad=True,
         )
     except Impression.DoesNotExist:
         raise DecisionNotFound("사용자에게 발급한 노출 기록이 없습니다.") from None
     return _snapshot(record)
 
 
-def update_result(*, decision_id: str | UUID, subject_id: str | UUID,
+def update_result(*, decision_id: str | UUID, owner_id: str | UUID,
                   reaction_id: str | UUID, status: str, reason_code: str | None,
                   request_id: str | None) -> StoredImpression:
     """판정만 조건부 갱신한다. 이미 확정된 판정과 전송 정보는 보존한다."""
@@ -267,7 +269,7 @@ def update_result(*, decision_id: str | UUID, subject_id: str | UUID,
         raise ValueError("지원하지 않는 반응 처리 상태입니다.")
     if any(value is not None and not isinstance(value, str) for value in (reason_code, request_id)):
         raise ValueError("반응 메타데이터는 문자열이어야 합니다.")
-    record = get_impression(decision_id=decision_id, subject_id=subject_id)
+    record = get_impression(decision_id=decision_id, owner_id=owner_id)
     if record.reaction_id != str(_uuid(reaction_id)):
         raise DecisionNotFound("사용자에게 발급한 노출 기록이 없습니다.")
     if record.delivery_state != "ACKNOWLEDGED":
@@ -277,4 +279,4 @@ def update_result(*, decision_id: str | UUID, subject_id: str | UUID,
         Q(status__isnull=True) | Q(status="RECEIVED"),
         reaction_id=_uuid(reaction_id), delivery_state="ACKNOWLEDGED",
     ).update(status=status, reason_code=reason_code, request_id=request_id)
-    return get_impression(decision_id=decision_id, subject_id=subject_id)
+    return get_impression(decision_id=decision_id, owner_id=owner_id)

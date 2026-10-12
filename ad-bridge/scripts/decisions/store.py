@@ -27,12 +27,13 @@ def _utc_time(value: str) -> datetime:
         raise ValueError("시각은 유효한 UTC 시각이어야 합니다.") from error
 
 
-def remember_decision(decision: Decision, subject_id: str | UUID) -> None:
+def remember_decision(decision: Decision, subject_id: str | UUID, *, owner_id: str | UUID) -> None:
     from ..models import IssuedDecision
 
     if decision.audience != "individual":
         raise ValueError("게임 연결 저장소는 개인 슬롯만 지원합니다.")
     values = {
+        "owner_id": _uuid(owner_id),
         "subject_id": _uuid(subject_id),
         "slot_id": _uuid(decision.slot_id),
         "decided_at": _utc_time(decision.decided_at),
@@ -41,6 +42,6 @@ def remember_decision(decision: Decision, subject_id: str | UUID) -> None:
     record, created = IssuedDecision.objects.get_or_create(
         decision_id=_uuid(decision.decision_id), defaults=values
     )
-    # 동일 결정 ID의 소유권이나 광고 유무를 덮어쓰면 안 된다.
+    # 같은 결정의 내부 소유자와 발급 당시 가명 모두 불변으로 유지한다.
     if not created and any(getattr(record, name) != value for name, value in values.items()):
         raise ValueError("이미 저장된 광고 결정과 일치하지 않습니다.")

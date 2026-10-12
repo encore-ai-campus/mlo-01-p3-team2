@@ -16,7 +16,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve, reverse
 
 from ad_bridge import AdsConfig
-from ad_bridge.game.views import request_decision, report_impression, reaction_result, _subject_id
+from ad_bridge.game.views import request_decision, report_impression, reaction_result, _subject_id, _owner_id
 from ad_bridge.api.errors import AdsHTTPError, AdsResponseError, AdsTransportError
 from ad_bridge.api.types import Ad, Decision
 
@@ -90,7 +90,7 @@ class GameAdapterTests(SimpleTestCase):
                 slot_id=SLOT_ID, subject_id=AD_SUBJECT_ID
             )
         self.assertEqual(response.status_code, 201)
-        self.remember_decision.assert_called_once_with(self.decision, AD_SUBJECT_ID)
+        self.remember_decision.assert_called_once_with(self.decision, AD_SUBJECT_ID, owner_id=SUBJECT_ID)
         payload = json.loads(response.content)
         self.assertEqual(payload, {
             "decision_id": DECISION_ID,
@@ -281,8 +281,8 @@ class GameAdapterTests(SimpleTestCase):
         for value in (SUBJECT_ID, str(SUBJECT_ID), str(SUBJECT_ID).upper(), SUBJECT_ID.hex):
             user = self.request().user
             user.campus_profile.user_uuid = value
-            self.assertEqual(_subject_id(user, subject_secret=SUBJECT_SECRET), AD_SUBJECT_ID)
-        self.assertNotEqual(_subject_id(self.request().user, subject_secret="other-secret"), AD_SUBJECT_ID)
+            self.assertEqual(_subject_id(_owner_id(user), subject_secret=SUBJECT_SECRET), AD_SUBJECT_ID)
+        self.assertNotEqual(_subject_id(_owner_id(self.request().user), subject_secret="other-secret"), AD_SUBJECT_ID)
 
     def test_missing_or_invalid_subject_secret_blocks_all_game_calls(self):
         # 세 경로 모두 가명 비밀 오류에서 DB 조회와 외부 요청 전에 중단한다.
@@ -304,11 +304,11 @@ class GameAdapterTests(SimpleTestCase):
                 client_class.assert_not_called()
                 lookup.assert_not_called()
 
-    def test_result_lookup_uses_the_same_pseudonym(self):
+    def test_result_lookup_uses_internal_owner(self):
         record = SimpleNamespace(delivery_state="ACKNOWLEDGED", status="ACCEPTED",
             decision_id=DECISION_ID, reaction_id="reaction", reason_code=None,
             request_id=None, attempts=1, last_error=None)
         with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record) as lookup:
             response = reaction_result(self.request(), DECISION_ID)
         self.assertEqual(response.status_code, 200)
-        lookup.assert_called_once_with(decision_id=DECISION_ID, subject_id=AD_SUBJECT_ID)
+        lookup.assert_called_once_with(decision_id=DECISION_ID, owner_id=SUBJECT_ID)

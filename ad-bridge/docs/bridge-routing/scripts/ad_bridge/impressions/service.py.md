@@ -1,12 +1,12 @@
-# scripts/ad_bridge/impressions/service.py
+# ad-bridge/scripts/impressions/service.py
 
-원본: `scripts/ad_bridge/impressions/service.py` · [소스 파일](../../../../../scripts/ad_bridge/impressions/service.py)
+원본: `ad-bridge/scripts/impressions/service.py` · [소스 파일](../../../../../scripts/impressions/service.py)
 
-[라우팅 목차](../../../ROUTING-README.md) · [구현 안내](../../../../../README.md)
+[라우팅 목차](../../../ROUTING-README.md) · [구현 안내](../../../../../scripts/README.md)
 
 ## 역할
 
-게임의 최초 노출 알림을 저장소에 예약한 다음 공통 전송 코드로 전달한다. 중복 알림은 기존 기록을 반환하고, 미접수 기록의 재전송은 delivery 작업자가 맡는다.
+게임의 최초 노출 알림을 내부 소유자 owner_id로 저장소에 예약한 다음 공통 전송 코드로 전달한다. 광고 가명은 호출자가 새로 계산해 전달하지 않고 저장소가 발급 기록에서 선택한다. 중복 알림은 기존 기록을 반환하고, 미접수 기록의 재전송은 delivery 작업자가 맡는다.
 
 AST에서 확인한 모듈 설명:
 
@@ -16,7 +16,7 @@ AST에서 확인한 모듈 설명:
 
 ### report_impression_once
 
-참조·시그니처: `scripts/ad_bridge/impressions/service.py::def report_impression_once(*, client, store, decision_id, subject_id, occurred_at: str, policy: RetryPolicy | None=None, now=utc_now) -> ImpressionReport`
+참조·시그니처: `ad-bridge/scripts/impressions/service.py::def report_impression_once(*, client, store, decision_id, owner_id, occurred_at: str, policy: RetryPolicy | None=None, now=utc_now) -> ImpressionReport`
 
 최초 알림만 즉시 전송한다. 중복 알림의 재전송은 별도 작업자가 담당한다.
 

@@ -7,6 +7,9 @@ from django.db import models
 
 class IssuedDecision(models.Model):
     decision_id = models.UUIDField(primary_key=True, editable=False)
+    # 내부 소유자는 외부 전송 가명과 분리한다. 기존 기록의 소유자는 자동 추정하지 않는다.
+    owner_id = models.UUIDField(null=True, default=None, editable=False)
+    # 결정 발급 당시의 가명은 비밀 교체 뒤에도 노출 요청에 그대로 사용한다.
     subject_id = models.UUIDField(editable=False)
     slot_id = models.UUIDField(editable=False)
     decided_at = models.DateTimeField(editable=False)

@@ -10,13 +10,13 @@ from test.support.impression_fakes import DECISION_ID, REACTION_ID, SUBJECT_ID, 
 
 class ResultStorageTests(TestCase):
     def setUp(self):
-        IssuedDecision.objects.create(decision_id=DECISION_ID, subject_id=SUBJECT_ID,
+        IssuedDecision.objects.create(decision_id=DECISION_ID, subject_id=SUBJECT_ID, owner_id=SUBJECT_ID,
             slot_id=REACTION_ID, decided_at=datetime.now(timezone.utc), has_ad=True)
         Impression.objects.create(reaction_id=REACTION_ID, decision_id=DECISION_ID, subject_id=SUBJECT_ID,
             occurred_at=OCCURRED_AT, delivery_state="ACKNOWLEDGED", attempts=3, status="RECEIVED")
 
     def update(self, status="ACCEPTED", reason=None):
-        return update_result(decision_id=DECISION_ID, subject_id=SUBJECT_ID, reaction_id=REACTION_ID,
+        return update_result(decision_id=DECISION_ID, owner_id=SUBJECT_ID, reaction_id=REACTION_ID,
                              status=status, reason_code=reason, request_id="lookup")
 
     def test_save(self):
@@ -36,9 +36,9 @@ class ResultStorageTests(TestCase):
 
     def test_owner(self):
         with self.assertRaises(DecisionNotFound):
-            get_impression(decision_id=DECISION_ID, subject_id=REACTION_ID)
+            get_impression(decision_id=DECISION_ID, owner_id=REACTION_ID)
         with self.assertRaises(DecisionNotFound):
-            get_impression(decision_id=SUBJECT_ID, subject_id=SUBJECT_ID)
+            get_impression(decision_id=SUBJECT_ID, owner_id=SUBJECT_ID)
 
     def test_pending(self):
         Impression.objects.update(delivery_state="UNCONFIRMED")

@@ -10,6 +10,7 @@ from test.support.impression_fakes import DECISION_ID, REACTION_ID, SUBJECT_ID, 
 
 class ResultServiceTests(TestCase):
     def setUp(self):
+        self.owner_id = "99887766-1234-4234-8234-123456789abc"
         self.record = StoredImpression(DECISION_ID, REACTION_ID, SUBJECT_ID, OCCURRED_AT, "ACKNOWLEDGED")
         self.result = received_reaction(decision_id=DECISION_ID, reaction_id=REACTION_ID,
                                         subject_id=SUBJECT_ID, occurred_at=OCCURRED_AT)
@@ -19,7 +20,7 @@ class ResultServiceTests(TestCase):
         self.client.get_reaction.return_value = self.result
 
     def refresh(self):
-        return refresh_result(client=self.client, store=self.store, decision_id=DECISION_ID, subject_id=SUBJECT_ID)
+        return refresh_result(client=self.client, store=self.store, decision_id=DECISION_ID, owner_id=self.owner_id)
 
     def check_state(self, state):
         self.client.get_reaction.return_value = replace(self.result, status=state, reason_code="future" if state == "REJECTED" else None)
@@ -27,6 +28,8 @@ class ResultServiceTests(TestCase):
         self.assertEqual(self.refresh().status, state)
         self.client.get_reaction.assert_called_once_with(decision_id=DECISION_ID, reaction_id=REACTION_ID)
         self.assertEqual(self.store.update_result.call_args.kwargs["status"], state)
+        self.store.get_impression.assert_called_once_with(decision_id=DECISION_ID, owner_id=self.owner_id)
+        self.assertEqual(self.store.update_result.call_args.kwargs["owner_id"], self.owner_id)
         self.client.report_impression.assert_not_called()
 
     def test_received(self):
