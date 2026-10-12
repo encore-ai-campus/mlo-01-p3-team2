@@ -34,3 +34,6 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local pre-integration database backup
+/var/learning-integration-backup.sqlite3

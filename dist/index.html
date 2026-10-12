@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="ko">
 <head>
@@ -211,6 +212,10 @@
     </div>
   </dialog>
   <script src="raffle.js"></script>
+  {% include "learning/classroom.html" %}
+  {% include "learning/panel.html" %}
+  <link rel="stylesheet" href="{% static 'learning/learning.css' %}?v=equal-panel-height-20261012">
+  <script src="{% static 'learning/learning.js' %}?v=result-compact-points-20261012"></script>
   <script src="booth-panel.js"></script>
   <script src="classroom-doors.js"></script>
   <script src="map-data.js"></script>
@@ -223,6 +228,9 @@
   <script src="community.js"></script>
   <script src="isometric.js"></script>
   <script src="floor-transition.js"></script>
+  <script src="{% static 'learning/classroom-assets.js' %}?v=keyboard-clean-20261012"></script>
+  <script src="{% static 'learning/classroom-map.js' %}?v=learning-zones-20261012"></script>
+  <script src="{% static 'learning/classroom.js' %}?v=keyboard-clean-20261012"></script>
   <script src="campus.js"></script>
 </body>
 </html>
