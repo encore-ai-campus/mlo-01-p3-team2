@@ -149,7 +149,6 @@ def error_response(request, error, message):
     return _html_error(error.status, error.title, message)
 
 
-
 def bad_request(request, exception=None):
     return error_response(request, InvalidRequest(), "요청을 처리할 수 없습니다.")
 
