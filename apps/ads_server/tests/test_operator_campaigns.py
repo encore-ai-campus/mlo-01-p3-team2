@@ -38,6 +38,18 @@ class MonitoringServiceTests(TestCase):
         first = self.listed()[0]
         self.assertEqual((first.campaign.name, first.last_changed_at, len(first.creatives)), ("캠페인", NOW + 2 * DAY, 2))
 
+    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)
+    def test_creatives_are_listed_in_creation_order_in_both_lists(self):
+        earlier = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "먼저 만든 소재", "https://example.com/0", png_file((8, 8, 8)),
+                                            now=NOW - DAY / 2)  # 행은 나중에 넣었지만 만든 시각은 앞이다(넣은 순서와 다르게)
+        expected = [earlier.creative_id, self.w.creative.creative_id]
+        monitored = next(i for i in self.listed() if i.campaign.campaign_id == self.w.campaign.campaign_id)
+        self.assertEqual([c.creative_id for c in monitored.creatives], expected)
+        campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW)
+        campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW)
+        (item,) = campaigns.open_review_queue(self.w.admin, now=NOW)
+        self.assertEqual([c.creative_id for c in item.creatives], expected)
+
     def test_a_page_reads_only_its_own_campaigns(self):
         """P3-4 2단계(외부 검토 7936ac7): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
         쪽 하나는 질의 네 번(개수·그 쪽 캠페인·그 소재·그 요청) — 캠페인이 늘어도 같다."""
