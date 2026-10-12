@@ -112,9 +112,8 @@ def missing_event_ids(event_ids, chunk=1000):
     for part in batched(event_ids, chunk):
         found = set(EventOutbox.objects.filter(pk__in=part).values_list("pk", flat=True))
         rest = [i for i in part if i not in found]
-        if rest:
-            found |= {d["_id"] for d in store.collection().find({"_id": {"$in": rest}}, {"_id": 1})}
-        missing += [i for i in part if i not in found]
+        if rest:  # 모두 outbox 에 있으면 MongoDB 에 묻지 않는다
+            missing += _absent_from_mongo(rest)
     return missing
 
 
