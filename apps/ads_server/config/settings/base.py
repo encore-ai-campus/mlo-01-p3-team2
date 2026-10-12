@@ -100,7 +100,7 @@ AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 
 TRUSTED_PROXY_COUNT = 0
 
 # --- 가입 (설계 §5.1, 열린 결정 §7-6: 수치는 설정값) ---
-SIGNUP_MAX_PER_IP_PER_HOUR = 5
+SIGNUP_MAX_PER_IP_PER_HOUR = 5  # 확정값(설계 §10 "가입 시도 제한"). dev/prod 는 환경변수로 바꿀 수 있다(6-3d, 임시방편)
 
 # --- 세션·쿠키: 게임 서버와 같은 호스트에서 돌 때 충돌하지 않도록 전용 이름 ---
 SESSION_COOKIE_NAME = "ads_sessionid"
