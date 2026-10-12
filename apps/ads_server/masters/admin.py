@@ -6,12 +6,18 @@ from django.contrib import admin
 
 from foundation.api import ReadOnlyAdmin
 
-from .models import BidPolicy, Media, MediaKey, Slot
+from .models import BidPolicy, Media, MediaDeactivation, MediaKey, Slot
 
 
 @admin.register(Media)
 class MediaAdmin(ReadOnlyAdmin):
     list_display = ("name", "is_active", "created_at")
+
+
+@admin.register(MediaDeactivation)
+class MediaDeactivationAdmin(ReadOnlyAdmin):
+    list_display = ("media", "deactivated_at")
+    ordering = ("-deactivated_at",)
 
 
 @admin.register(Slot)

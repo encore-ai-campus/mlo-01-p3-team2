@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
 
-from .models import Audience, BidPolicy, Media, MediaKey, PricingUnit, Slot
+from .models import Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
 
 
@@ -92,9 +92,17 @@ def set_media_active(actor, media_id, active):
     require_admin(actor)
     media_id = parse_uuid(media_id, "매체")
     with transaction.atomic():
-        if not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
+        # 실제로 켜져 있던 매체를 끌 때만 비활성화 기록을 더한다(조건부 UPDATE 라 동시에 꺼도 한 줄)
+        if not active and Media.objects.filter(pk=media_id, is_active=True).update(is_active=False):
+            MediaDeactivation.objects.create(media_id=media_id, deactivated_at=timezone.now())
+        elif not Media.objects.filter(pk=media_id).update(is_active=bool(active)):
             raise errors.NotFound("매체를 찾을 수 없습니다.")
         _audit(actor, "masters.media_active_changed", ("masters.media", media_id), {"active": bool(active)})
+
+
+def first_deactivation(media_id, after, until):
+    """`after` 보다 뒤, `until` 까지(포함) 그 매체를 끈 가장 이른 시각. 없으면 `None`. 반응 판정의 `media-period` 규칙이 쓴다(결정 시각 → 접수 시각)."""
+    return MediaDeactivation.objects.filter(media_id=media_id, deactivated_at__gt=after, deactivated_at__lte=until).order_by("deactivated_at").values_list("deactivated_at", flat=True).first()
 
 
 def _validate_audience(audience):

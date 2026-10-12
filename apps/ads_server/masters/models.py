@@ -34,6 +34,19 @@ class Media(models.Model):
         return self.name
 
 
+class MediaDeactivation(AppendOnlyModel):
+    """매체를 끈 시각(설계 §10 "매체 비활성화는 그 전에 만든 결정을 끝낸다", 6-1a). 활성 → 비활성으로 **실제로 바뀔 때만** 한 줄 더한다.
+    반응 판정이 "결정 뒤·접수 전에 꺼진 적이 있나"를 이 기록으로 본다(`first_deactivation`). 다시 켜도 지우지 않는다."""
+
+    deactivation_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="deactivations")
+    deactivated_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "masters_media_deactivation"
+        indexes = [models.Index(fields=["media", "deactivated_at"], name="masters_media_deact_at_idx")]
+
+
 class Slot(models.Model):
     slot_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="slots")

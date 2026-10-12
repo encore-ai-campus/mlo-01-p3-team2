@@ -6,12 +6,13 @@ from unittest import mock
 from django.db import IntegrityError, connection
 from django.db.models import Model
 from django.test import TestCase, TransactionTestCase, tag
+from django.utils import timezone
 
 from foundation.errors import Conflict, Forbidden, InvalidRequest, NotFound, StaleVersion
 from foundation.logging import request_id_var
 from foundation.models import AuditLog
 from masters import api
-from masters.models import BidPolicy, Media, Slot
+from masters.models import BidPolicy, Media, MediaDeactivation, Slot
 from tests.factories import make_admin, make_advertiser
 
 
@@ -134,6 +135,21 @@ class PolicyServiceTests(TestCase):
             api.set_slot_active(self.admin, uuid.uuid4(), True)
         with self.assertRaises(NotFound):
             api.set_media_active(self.admin, uuid.uuid4(), True)
+
+    def test_only_turning_an_active_media_off_records_a_deactivation(self):
+        """6-1a: 켜져 있던 매체를 실제로 끌 때만 기록한다(이미 꺼진 매체를 다시 끄거나 켜면 없음). 반응 판정은 이 기록에서 (결정 시각, 접수 시각] 안의 가장 이른 비활성화를 찾는다."""
+        media = api.create_media(self.admin, "끄는 매체")
+        before = timezone.now()
+        api.set_media_active(self.admin, media.media_id, False)
+        api.set_media_active(self.admin, media.media_id, False)  # 이미 꺼져 있다
+        api.set_media_active(self.admin, media.media_id, True)
+        first = MediaDeactivation.objects.get(media_id=media.media_id).deactivated_at
+        api.set_media_active(self.admin, media.media_id, False)
+        self.assertEqual(MediaDeactivation.objects.filter(media_id=media.media_id).count(), 2)
+        self.assertEqual(api.first_deactivation(media.media_id, before, timezone.now()), first)  # 가장 이른 것
+        self.assertEqual(api.first_deactivation(media.media_id, before, first), first)  # 끝(접수 시각)은 포함
+        self.assertIsNone(api.first_deactivation(media.media_id, first, first))  # 시작(결정 시각)은 제외
+        self.assertIsNone(api.first_deactivation(uuid.uuid4(), before, timezone.now()))
 
     def test_list_and_get_media_for_the_operator_screens(self):
         a, b = api.create_media(self.admin, "나 매체"), api.create_media(self.admin, "가 매체")
