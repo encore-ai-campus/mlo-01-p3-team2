@@ -10,7 +10,7 @@
 | `raw.chat` | `chat_sent` | 서버가 받아들인 채팅 |
 | `raw.board` | `post_created`, `post_updated`, `post_deleted`, `post_read` | 커뮤니티 게시글 작성·수정·삭제·상세 조회 |
 | `raw.comment` | `comment_created`, `comment_updated`, `comment_deleted` | 댓글·대댓글 작성·수정·삭제 |
-| `raw.content_usage` | `content_open_requested` | 오목·전쟁시대·아빠와 나·지뢰찾기·심심테스트 열기 요청 |
+| `raw.content_usage` | `content_open_requested` | 오목·전쟁시대·아빠와 나·지뢰찾기·사과게임·버블슈터·수박게임·후레시맨·심심테스트 열기 요청 |
 | `raw.movement` | `movement_observed`, `floor_transferred` | 이동 좌표·층 전환 |
 
 포인트 지급, 퀴즈 답안, 옥상 부저 참여·추첨은 현재 Raw 이벤트 범위에서 제외함.
@@ -60,7 +60,7 @@
 - `revision`: 1부터 시작하며 수정·삭제 시 증가함.
 - `content_kind`: 현재 콘텐츠는 `"EXTERNAL_LINK"`로 기록함.
 - `action`: 현재 `"OPEN_REQUESTED"`로 기록함. 외부 사이트의 실제 로딩·게임 완료·테스트 완료를 의미하지 않음.
-- `domain`: 현재 오목·전쟁시대·아빠와 나·지뢰찾기와 심심테스트는 모두 `"REST"`임. 게임과 심리 테스트는 서로 다른 `category_uuid`로 구분하고 각 게임은 서로 다른 `content_uuid`로 구분함. `"LEARNING"`은 추후 학습 콘텐츠용으로 남겨두며 현재 등록된 콘텐츠는 없음.
+- `domain`: 현재 오목·전쟁시대·아빠와 나·지뢰찾기·사과게임·버블슈터·수박게임·후레시맨와 심심테스트는 모두 `"REST"`임. 게임과 심리 테스트는 서로 다른 `category_uuid`로 구분하고 각 게임은 서로 다른 `content_uuid`로 구분함. `"LEARNING"`은 추후 학습 콘텐츠용으로 남겨두며 현재 등록된 콘텐츠는 없음.
 - `input_kind`: 현재 `"KEYBOARD"`로 기록함.
 - `x`, `y`: 맵 좌표임. 이동 Raw에는 방향 필드를 넣지 않음.
 - 게시글·이동·층 전환의 `zone_uuid`는 현재 `null`임. 콘텐츠 열기는 해당 부스 ID를 넣음.
@@ -85,7 +85,7 @@
 
 | 상위 분류 (`domain`) | 하위 카테고리 | 현재 콘텐츠 |
 |---|---|---|
-| `REST` | `game` — 게임 | 오목, 전쟁시대, 아빠와 나, 지뢰찾기 |
+| `REST` | `game` — 게임 | 오목, 전쟁시대, 아빠와 나, 지뢰찾기, 사과게임, 버블슈터, 수박게임, 후레시맨 |
 | `REST` | `psychology` — 심리 테스트 | 심심테스트 |
 | `LEARNING` | 추후 학습 콘텐츠에 맞춰 추가 | 현재 없음 |
 
