@@ -22,7 +22,7 @@
   const boardCards=[...boardDialog.querySelectorAll('[data-board-choice]')];
   const communityUI=window.CampusCommunity.create({onBack:()=>showBoardChoices()});
   let menuRequest=null,menuVersion=0;
-  const isDialogOpen=()=>window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
+  const isDialogOpen=()=>classroom.blocking||window.CampusLearning?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -49,6 +49,14 @@
   let pendingTransfer=null,ignoredPortalId=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
   const raffleUI=window.CampusRaffle.create({onStart:(id,resume)=>presence.joinRaffle(id,{resume}),onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});},onState:state=>{for(const view of renderers.values())view.setRaffleState(state);},isNear:()=>{const point=worlds.rooftop.objects.find(o=>o.id==='roof-event-buzzer').interactionPoint;return D.id==='rooftop'&&Math.hypot(player.x-point[0],player.y-point[1])<35;},notify:toast});
+  const classroom=window.CampusClassroom.create({data:worlds.campus,getPlayer:()=>player,
+    onOpen(){keys.clear();player.moving=false;},
+    onExit(point){
+      const p=closestOpen(point.x,point.y);const room=p&&roomAt(p.x,p.y);
+      if(!p||['class1','class2'].includes(room?.id)){toast('출입구 위치를 확인해 주세요.');return false;}
+      keys.clear();Object.assign(player,p,{moving:false,walkTime:0});focusPlayer();canvas.focus({preventScroll:true});
+    }
+  });
   const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
   const solidTypes=new Set(['desk','chair','bar','counter','water','coffee-machine','printer','bin','pillar','bookshelf','bookshelf-side','sofa','bench','coffee','roundtable','ottoman','cabinet','box','tv','plant','fire-extinguisher','noticeboard','stool','woodwall','glass-wall','tree','planter','terrace-bench','festival-booth','festival-stage','speaker','photo-frame','booth-collider','booth-side','game-arcade','game-gomoku-table','game-pc-station','game-console-display','game-controller-shelf','creator-screen','camera-tripod','microphone-stand','creator-console','creator-award','photo-backdrop','ring-light','phone-podium','photo-display','psych-test-backdrop','psych-type-wheel','psych-question-kiosk','psych-mood-cards','fountain','plaza-display','plaza-lamp']);
   solidTypes.add('raffle-buzzer');
@@ -73,7 +81,7 @@
   }
   const roomAt=(x,y)=>[...D.rooms].reverse().find(r=>inside(r,x,y))||(D.entrance&&inside(D.entrance,x,y)?D.entrance:null);
   function move(dx,dy){
-    if(floorTransition.blocking||window.CampusSession?.ending){player.moving=false;return false;}
+    if(classroom.blocking||window.CampusLearning?.blocking||floorTransition.blocking||window.CampusSession?.ending){player.moving=false;return false;}
     const px=player.x,py=player.y;
     if(walkable(player.x+dx,player.y))player.x+=dx;
     if(walkable(player.x,player.y+dy))player.y+=dy;
@@ -114,6 +122,7 @@
   }
   function update(t){
     const dt=Math.min((t-lastTime)/1000,.04)||.016;lastTime=t;
+    const previousPosition={floor:player.floor,x:player.x,y:player.y};
     const wasMoving=player.moving;player.moving=false;
     if(!isDialogOpen()){
       const k=keys;let dx=(k.has('d')||k.has('arrowright')?1:0)-(k.has('a')||k.has('arrowleft')?1:0),dy=(k.has('s')||k.has('arrowdown')?1:0)-(k.has('w')||k.has('arrowup')?1:0);
@@ -126,6 +135,8 @@
       }
 
     }
+    if(!isDialogOpen()&&classroom.shouldEnter(previousPosition,player))classroom.open();
+    classroom.tick(t,dt);
     checkPortals(t);checkExit();
     presence.tick(t,dt);
     for(const actor of visibleActors()){
@@ -259,6 +270,7 @@
     logoutForm.requestSubmit();
   }
   function showDetail(item,{keyboard=false}={}){
+    if(item.action==='learning'){toast('학습교실 출입구로 입장해 주세요.');return;} 
     if(floorTransition.blocking||window.CampusSession?.ending)return;
     if(item.info===false)return;
     if(item.type==='glass-door'){toggleDoor(item);return;}

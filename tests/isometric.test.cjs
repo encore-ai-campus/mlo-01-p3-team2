@@ -21,7 +21,7 @@ test('screen arrow directions map back to the same visible directions',()=>{
 });
 test('enlarged map merges classroom 3/4 with only glass doors and a mounted board, and keeps the vertical worktable',()=>{
   assert.equal(D.width,2448);assert.equal(D.height,1230);assert.equal(D.spaceScale,1.5);
-  assert.deepEqual(Array.from(D.rooms.filter(r=>r.floor==='class'),r=>r.name).sort(),['강의실 1','강의실 2','강의실 3·4','강의실 5','강의실 6','강의실 7']);
+  assert.deepEqual(Array.from(D.rooms.filter(r=>r.floor==='class'),r=>r.name).sort(),['Python 학습교실','SQL 학습교실','강의실 3·4','강의실 5','강의실 6','강의실 7']);
   const merged=D.rooms.find(r=>r.id==='class3-4');assert.equal(merged.w,916.5);assert.equal(merged.h,364.5);
   assert.equal(merged.label,false);assert.equal(merged.info,false);
   assert.equal(D.rooms.some(r=>r.id==='class3'||r.id==='class4'),false);

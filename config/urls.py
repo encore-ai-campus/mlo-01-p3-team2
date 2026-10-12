@@ -1,6 +1,9 @@
 from django.urls import include, path
+from learning.views import learning_page
 
 urlpatterns = [
+    path("api/learning/", include("learning.urls")),
+    path("learning/", learning_page, name="learning-home"),
     path("accounts/", include("accounts.urls")),
     path("api/community/", include("community.urls")),
     path("", include("eventing.urls")),

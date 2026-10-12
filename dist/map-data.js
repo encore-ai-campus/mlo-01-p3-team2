@@ -10,8 +10,8 @@ window.CampusData = (() => {
   room('class4','강의실 4',456,24,313,243,'class',[496,243],{front:'bottom',boardInsetLeft:74,description:'강의실 1·2와 같은 방향으로, 아래쪽에 강의 전면과 강사 책상이 있습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
   room('class3','강의실 3',769,24,298,243,'class',[1027,243],{front:'bottom',boardInsetRight:73,description:'강의실 1·2와 같은 방향으로, 아래쪽에 강의 전면과 강사 책상이 있습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
   room('corridor','복도',456,267,611,102,'hall',[758,322]);
-  room('class2','강의실 2',456,369,313,262,'class',[496,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
-  room('class1','강의실 1',769,369,298,262,'class',[1027,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
+  room('class2','SQL 학습교실',456,369,313,262,'class',[496,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 왼쪽 끝에 있습니다.'});
+  room('class1','Python 학습교실',769,369,298,262,'class',[1027,393],{front:'bottom',description:'강의 전면이 건물 바깥쪽인 아래쪽 벽을 향하도록 책상과 의자를 뒤집었습니다. 출입문은 중앙 복도의 오른쪽 끝에 있습니다.'});
   room('lounge1','라운지 1',1067,24,332,607,'wood',[1190,437],{photo:'assets/lounge1.png',description:'중앙 통로를 비워 둔 라운지입니다. 오른쪽에는 세로로 배치한 콘센트 작업 탁자와 네 좌석이 있습니다. 브라운 벽 쪽에는 마주보는 소파와 흰 탁자, 원형 스툴이 있고, 아래쪽 외벽의 유리 출입문과 두 좌석의 안내 데스크로 이어집니다. 위쪽 회의 탁자와 TV, 노트북용 긴 탁자, 프린터와 휴게 설비도 이용할 수 있습니다.',tags:['콘센트 작업 탁자','중앙 통로','마주보는 소파','외부 유리 출입문']});
   room('office','직원실',1399,26,117,321,'office',[1416,304]);
   room('meeting','회의실',1399,347,117,198,'meeting',[1417,501]);
@@ -57,6 +57,23 @@ window.CampusData = (() => {
     place('plant',r.id.startsWith('left-')?12:r.w-38,35,20,20);
   };
   for(const r of rooms.filter(r=>r.floor==='class'))teaching(r,r.w>250?4:3,r.h>220?3:2);
+  // Reuse two existing monitors; desk footprints and classroom geometry stay intact.
+  const sqlRoom=rooms.find(r=>r.id==='class2');
+  sqlRoom.label=false;
+  sqlRoom.description='SQL 학습교실입니다. 출입구로 입장한 뒤 PC 가까이에서 E키로 객관식 또는 코드 빈칸 채우기를 시작하세요.';
+  obj('wall-sign',sqlRoom.x+65,sqlRoom.y+5,180,3,{id:'sql-classroom-wall-sign',roomId:'class2',solid:false,text:'SQL 학습교실'});
+  const learningRoom=rooms.find(r=>r.id==='class1');
+  learningRoom.label=false;
+  obj('wall-sign',learningRoom.x+58,learningRoom.y+5,180,3,{id:'python-classroom-wall-sign',roomId:'class1',solid:false,text:'Python 학습교실'});
+  learningRoom.description='강의실 1의 Python 학습교실입니다. Python 객관식과 코드 빈칸 채우기 PC에 가까이 이동한 뒤 E를 누르세요.';
+  const learningMonitors=objects.filter(o=>o.roomId==='class1'&&o.type==='monitor');
+  for(const [index,contentType,name,description] of [
+    [8,'python_multiple_choice','Python 객관식','Python 문제를 객관식으로 학습할 수 있습니다.'],
+    [11,'python_fill_blank','코드 빈칸 채우기','Python 코드의 빈칸을 직접 완성하는 학습입니다.'],
+  ]){
+    const pc=learningMonitors[index];
+    Object.assign(pc,{action:'learning',contentType,name,description:description+' 실제 학습 콘텐츠 연결 예정',tags:['초급 · 중급 · 고급','실제 학습 콘텐츠 연결 예정']});
+  }
   obj('counter',283,31,164,27);obj('water',422,33,21,29,{name:'정수기',roomId:'lounge2',description:'라운지 2 맨 위 휴게 설비의 오른쪽 끝에 있는 정수기입니다.',tags:['오른쪽 끝','정수기']});
   for(let i=0;i<3;i++)obj('bin',328+i*28,35,21,24,{color:['#647779','#65a195','#cca966'][i],name:'분리수거함',roomId:'lounge2'});
   desk(318,120,58,128,{color:'#e1c395',name:'공용 회의 테이블',roomId:'lounge2'});

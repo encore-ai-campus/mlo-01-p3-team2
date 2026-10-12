@@ -224,6 +224,10 @@
       try{paintFurniture({...o,...o.drawing,drawing:null},base);}finally{drawing=previous;}
     }
     function paintFurniture(o,base=0) {
+      if(D.paintFurniture?.(o,{g,p,plane,box,line,ellipse,verticalPanel,shadow},base)){
+        for(const child of o.children||[])furniture(child,base+21);
+        return;
+      }
       const {x,y,w,h,type}=o,c=o.color;
       if(!o.mounted&&!['monitor','laptop','notebook','festival-banner','stair-handrail','glass-door'].includes(type))shadow(o,base);
       if(['desk','coffee','roundtable'].includes(type)) {
@@ -265,6 +269,9 @@
           verticalPanel(sx+(axis==='x'?2:0),sy+(axis==='y'?2:0),sw-4,7,base+5,'#8bb9b5',axis);
           line(p(sx,sy,base+2),p(sx+v.x,sy+v.y,base+2),'#516b68',1.2);
         }
+      } else if(type==='wall-sign') {
+        verticalPanel(x,y,w,22,9,'#897355','x');
+        verticalPanel(x+3,y,w-6,18,11,'#f3eddd','x',o.text,'#28554e');
       } else if(type==='board'||type==='tv') {
         const axis=w>h?'x':'y',span=Math.max(w,h),sx=axis==='x'?x:x+w*.5,sy=axis==='x'?y+h*.65:y;
         if(type==='tv'){box(x+w*.3,y+h*.3,w*.4,h*.4,base,3,'#708983','#556c65','#40554e');}
@@ -655,6 +662,7 @@
       }
       g.restore();
     }
+    D.paintFloor?.({g,P});
     function cacheSprite(o,paint,isWall=false) {
       const r=footprint(o),area=o.type==='glass-door'?window.CampusDoors.bounds(o):o,corners=[[area.x-12,area.y-12],[area.x+area.w+12,area.y-12],[area.x+area.w+12,area.y+area.h+12],[area.x-12,area.y+area.h+12]].map(([x,y])=>p(x,y));
       const b={x:Math.floor(Math.min(...corners.map(q=>q.x))-7),y:Math.floor(Math.min(...corners.map(q=>q.y))-groundHeight(o.x+o.w/2,o.y+o.h/2)-(o.renderHeight||110))};
@@ -666,7 +674,7 @@
         b.w=Math.ceil(spreadX*2+20);b.h=Math.ceil(spreadY*2+(o.renderHeight||230)+14);
       }
       const canvas=makeCanvas(b.w*2,b.h*2);g=canvas.getContext('2d',{willReadFrequently:Boolean(o.name)});g.scale(2,2);g.translate(-b.x,-b.y);paint();
-      return {o,r,b,canvas,isWall,depth:p(r.x+r.w/2,r.y+r.h/2).y};
+      return {o,r,b,canvas,isWall,depth:isWall&&D.backdropWalls&&((o.x<=15&&o.w<=10)||(o.y<=15&&o.h<=10))?-Infinity:p(r.x+r.w/2,r.y+r.h/2).y};
     }
     const sprites=[];
     for(const o of objects.filter(o=>!attached.has(o.id)&&!['rug','plaza-paving','floor-arrow','booth-collider'].includes(o.type)))sprites.push(cacheSprite(o,()=>furniture(o,groundHeight(o.x+o.w/2,o.y+o.h/2))));
@@ -679,13 +687,13 @@
       }
       const bands=[...cuts].sort((a,b)=>a-b);
       for(let band=1;band<bands.length;band++){
-        const start=bands[band-1],end=bands[band],steps=Math.ceil(Math.hypot(dx,dy)*(end-start)/72);
+        const start=bands[band-1],end=bands[band],steps=D.continuousWalls?1:Math.ceil(Math.hypot(dx,dy)*(end-start)/72);
         for(let i=0;i<steps;i++){
           const a=start+(end-start)*i/steps,b=start+(end-start)*(i+1)/steps;
           const x1=wall.x1+dx*a,y1=wall.y1+dy*a,x2=wall.x1+dx*b,y2=wall.y1+dy*b;
           const z=groundHeight((x1+x2)/2,(y1+y2)/2),h=Number.isFinite(wall.topZ)?wall.topZ-z:wall.height??D.wallHeight??35;
           const o={type:'wall',x:Math.min(x1,x2)-5,y:Math.min(y1,y2)-5,w:Math.abs(x2-x1)+10,h:Math.abs(y2-y1)+10,renderHeight:h+14};
-          sprites.push(cacheSprite(o,()=>{shadow(o,z);box(o.x,o.y,o.w,o.h,z,h,wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387');box(o.x,o.y,o.w,o.h,z+h,4,D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449');},true));
+          sprites.push(cacheSprite(o,()=>{if(D.wallShadows!==false)shadow(o,z);box(o.x,o.y,o.w,o.h,z,h,wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387');box(o.x,o.y,o.w,o.h,z+h,4,D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449');},true));
         }
       }
     }
@@ -710,6 +718,7 @@
       const x=r.labelX??r.x+r.w/2,y=r.labelY??r.y+9;
       labels.push({value:r.name,x,y,z:groundHeight(x,y)+48,size:r.id.startsWith('festival')?18:r.id.startsWith('lounge')?17:isClass?14:12});
     }
+    for(const o of objects.filter(o=>o.learningLabel))labels.push({value:o.learningLabel,x:o.x+o.w/2,y:o.y+o.h/2,z:groundHeight(o.x,o.y)+(o.learningLabelHeight??48),size:11});
     function drawLabels(ctx,actors=[]){g=ctx;for(const a of labels){const q=p(a.x,a.y,a.z);if(actors.some(actor=>{const b=projectActor(actor);return Math.abs(q.x-b.x)<70&&q.y>b.y-53&&q.y<b.y+12;}))continue;label(a.value,a.x,a.y,a.size,'#4e5d56','#fffaf0ee',a.z);}}
     function drawSprite(ctx,s,alpha=1){ctx.globalAlpha=alpha;ctx.drawImage(s.canvas,s.b.x,s.b.y,s.b.w,s.b.h);ctx.globalAlpha=1;}
     const scene=makeCanvas(P.width*resolution,P.height*resolution),sg=scene.getContext('2d');
@@ -730,7 +739,9 @@
     function drawActor(ctx,actor,t,zoom,labelText,self) {
       const q=projectActor(actor);ctx.save();ctx.translate(q.x,q.y);
       ctx.fillStyle='#304d4038';ctx.beginPath();ctx.ellipse(0,1,7,2.8,0,0,Math.PI*2);ctx.fill();
-      if(!window.CampusAvatars?.draw(ctx,actor,t)){
+      // Classroom seated NPCs reuse the existing sprite; the chair hides their legs.
+      if(actor.seated){ctx.beginPath();ctx.rect(-22,-45,44,34);ctx.clip();}
+      if(!D.drawActor?.(ctx,actor,t)&&!window.CampusAvatars?.draw(ctx,actor,t)){
         ctx.fillStyle=actor.color||'#4e9b91';ctx.fillRect(-5,-21,10,18);
         ctx.fillStyle='#e9bc98';ctx.fillRect(-5,-30,10,9);
       }
@@ -756,14 +767,15 @@
       if(path.length){ctx.strokeStyle='#2586789c';ctx.lineWidth=1.5/camera.zoom;ctx.setLineDash([4/camera.zoom,5/camera.zoom]);ctx.beginPath();let q=projectGround(actors[0].x,actors[0].y);ctx.moveTo(q.x,q.y);for(const a of path){q=projectGround(a.x,a.y);ctx.lineTo(q.x,q.y);}ctx.stroke();ctx.setLineDash([]);}
       const focused=hover||nearby;if(focused){const r=footprint(focused);plane(r.x-3,r.y-3,r.w+6,r.h+6,groundHeight(r.x+r.w/2,r.y+r.h/2)+.5,'#37a29022','#258876');}
       const visible=sprites.filter(s=>{const b=s.b;return b.x*camera.zoom+camera.x<viewportWidth&&b.y*camera.zoom+camera.y<viewportHeight&&(b.x+b.w)*camera.zoom+camera.x>0&&(b.y+b.h)*camera.zoom+camera.y>0;});
-      const entities=[...visible,...actors.map(actor=>({actor,depth:p(actor.x,actor.y).y}))].sort(compare);
+      const entities=[...visible.filter(s=>s.o.type!=="wall-sign"),...actors.map(actor=>({actor,depth:p(actor.x,actor.y).y}))].sort(compare);
       for(const e of entities){
         if(e.actor){drawActor(ctx,e.actor,t,camera.zoom);continue;}
         const blocked=e.isWall&&actors.some(a=>{const q=projectActor(a),b=e.b;return q.x>b.x+10&&q.x<b.x+b.w-10&&q.y>b.y+55&&q.y<b.y+b.h+7&&q.y<e.depth+20;});
         drawSprite(ctx,e,blocked ? .27 : 1);
       }
+      for(const s of visible.filter(s=>s.o.type==="wall-sign"))drawSprite(ctx,s);
       drawLabels(ctx,actors);
-      for(const actor of actors)if(actor===actors[0]||showNicknames)drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0]);
+      for(const actor of actors)if(actor===actors[0]||(showNicknames&&actor.nickname))drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0]);
     }
     return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState};
   }
