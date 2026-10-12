@@ -10,7 +10,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
 
 from .models import Audience, BidPolicy, Media, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
@@ -257,12 +257,6 @@ def _media_for_key_admin(media_id):
         raise errors.NotFound("매체를 찾을 수 없습니다.")
 
 
-def _request_key(value):
-    if value is not None and not (isinstance(value, str) and 1 <= len(value) <= 64):
-        raise errors.InvalidRequest(errors=[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}])
-    return value
-
-
 def _issue_once(request_key, work):
     """`work()`(발급·교체)를 한 트랜잭션으로. **같은 요청 키는 한 번만**: 키 행의 유일 제약이 두 번째 INSERT 를 막고(동시에 오면 첫 번째의 커밋을 기다렸다가),
     트랜잭션 전체가 되돌려진다(교체의 기존 키 만료도). 두 번 누름·동시 제출·발급 뒤 응답이 실패한 재시도 모두 새 키를 만들지 않는다.
@@ -282,7 +276,7 @@ def issue_media_key(actor, media_id, label="", now=None, request_key=None):
     require_admin(actor)
     now = _now(now)
     label = clean_text(label, "라벨", "/label") if label else ""
-    request_key = _request_key(request_key)
+    request_key = clean_request_key(request_key)
 
     def work():
         return _issue(actor, _media_for_key_admin(media_id), label, now, "masters.media_key_issued", request_key=request_key)
@@ -299,7 +293,7 @@ def rotate_media_key(actor, media_id, grace_seconds, label="", now=None, request
     if isinstance(grace_seconds, bool) or not isinstance(grace_seconds, int) or not 0 <= grace_seconds <= MAX_GRACE.total_seconds():
         raise errors.InvalidRequest(errors=[{"pointer": "/grace_seconds", "message": "0 이상 30일(초) 이하의 정수여야 합니다."}])
     label = clean_text(label, "라벨", "/label") if label else ""
-    request_key = _request_key(request_key)
+    request_key = clean_request_key(request_key)
 
     def work():
         media = _media_for_key_admin(media_id)
