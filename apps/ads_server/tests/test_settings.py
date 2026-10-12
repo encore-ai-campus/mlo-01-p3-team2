@@ -39,8 +39,9 @@ class ProdSettingsTests(SimpleTestCase):
         r = run_python(SHOW_SECRET, "config.settings.prod", PROD_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_prod_event_store_is_optional_until_events_are_written(self):
-        """DB-2: 이벤트를 아직 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None). 있으면 읽고, 비밀번호는 설정 문자열에 섞지 않는다."""
+    def test_prod_web_starts_without_an_event_store(self):
+        """6-3e(설계 §10 "이벤트 저장소 설정"): 웹은 MongoDB 를 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None — 웹 노드에 비밀번호를 두지 않는다).
+        있으면 읽고, 비밀번호는 설정 문자열에 섞지 않는다. 설정이 없을 때 멈추는 쪽은 중계다(test_ops_event_store)."""
         show = "from django.conf import settings; print(settings.EVENT_STORE)"
         r = run_python(show, "config.settings.prod", PROD_ENV)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "None"), r.stderr)

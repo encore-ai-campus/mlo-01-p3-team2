@@ -51,7 +51,8 @@ DATABASES = {"default": mysql_config(
     env_str("DB_ISOLATION_LEVEL", default="read committed"),  # 측정으로 확정한 값(base.mysql_config). 바꿔 비교할 때만 쓴다
 )}
 
-# 이벤트 저장소(MongoDB `ad_events`, DB-2). 아직 이벤트를 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None). 이벤트를 쓰는 Step 4 에서 필수로 바꾼다.
+# 이벤트 저장소(MongoDB `ad_events`). 웹은 MongoDB 를 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None — 웹 노드에 MongoDB 비밀번호를 두지 않는다).
+# 중계(relay_events)는 설정이 없으면 바로 멈춘다(설계 §10 "이벤트 저장소 설정", 6-3e — Step 4 에서 필수로 바꾸려던 계획을 바꿨다).
 EVENT_STORE = mongo_config(
     env_list("MONGO_HOSTS"),
     env_str("MONGO_DB", default="ads_events"),
