@@ -5,7 +5,6 @@
 
 실제 MySQL 연결을 스레드마다 하나씩 쓰고, 접수 트랜잭션을 열어 둔 채 커밋을 미루는 방식으로 순서를 고정한다(시각은 `now=` 로 주입).
 """
-import threading
 import uuid
 
 from django.db import connection
@@ -14,40 +13,9 @@ from django.utils import timezone
 
 from records import api as records
 from records.models import Reaction
-from tests.concurrency import BLOCKED, WAIT, Worker
+from tests.concurrency import BLOCKED, WAIT, Uncommitted, Worker
 from tests.factories import NOW, SUBJECT, World
 from tests.test_funnel_rules import FunnelMixin, at
-
-
-class InFlightReceipt:
-    """접수 트랜잭션을 열고 INSERT 까지 한 뒤 **커밋을 미룬다**(다른 연결에서는 이 행이 보이지 않는다)."""
-
-    def __init__(self, receive):
-        self.inserted, self.release_commit = threading.Event(), threading.Event()
-
-        def work():
-            from django.db import transaction
-
-            with transaction.atomic():
-                receive()
-                self.inserted.set()
-                self.release_commit.wait(WAIT)
-
-        self.worker = Worker(work)
-
-    def __enter__(self):
-        self.worker.start()
-        assert self.inserted.wait(WAIT), self.worker.errors
-        return self
-
-    def commit(self):
-        self.release_commit.set()
-        self.worker.join(WAIT)
-        assert not self.worker.errors, self.worker.errors
-
-    def __exit__(self, *exc):
-        self.release_commit.set()
-        self.worker.join(WAIT)
 
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
@@ -70,7 +38,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
 
     def test_a_later_receipt_cannot_commit_ahead_of_an_in_flight_earlier_one(self):
         """같은 결정의 접수는 결정 행 잠금으로 줄을 선다: 앞 접수가 커밋되기 전에는 뒤 접수가 끝나지 않는다."""
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 300.9)) as early:
+        with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
             later = Worker(lambda: self.receive("IMPRESSION", 301.1))
             later.start()
             self.assert_blocked(later, "뒤 접수")
@@ -82,7 +50,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
     def test_the_review_scenario_ends_with_the_earlier_impression_as_the_representative(self):
         """검토 재현: 클릭 t+1(허용 기한 t+301), 먼저 받은 노출 t+300.9(커밋 직전), 뒤 노출 t+301.1 — 최종 상태는 이른 노출 인정·클릭 인정·30 과금."""
         click = self.click(when=1)
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 300.9)) as early:
+        with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
             later = Worker(lambda: self.receive("IMPRESSION", 301.1))
             later.start()
             self.assert_blocked(later, "뒤 접수")
@@ -104,7 +72,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
     def test_judging_waits_for_an_in_flight_earlier_receipt_and_then_sees_it(self):
         """뒤 반응이 이미 커밋돼 있어도, 판정이 시작될 때 더 이른 시각의 접수가 진행 중이면 그 커밋을 기다린 뒤 판정한다."""
         later, _ = self.receive("IMPRESSION", 301.1)
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 300.9)) as early:
+        with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
             judging = Worker(lambda: records.process_reaction(later.inbox_id, now=at(303)))
             judging.start()
             self.assert_blocked(judging, "판정")
@@ -119,7 +87,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.accept_impression()
         second = self.decide(self.w.slot, SUBJECT, when=at(10))
         click = self.click(when=100)
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 90, decision=second)) as replacement:
+        with Uncommitted(lambda: self.receive("IMPRESSION", 90, decision=second)) as replacement:
             judging = Worker(lambda: records.process_reaction(click.inbox_id, now=at(101)))
             judging.start()
             self.assert_blocked(judging, "클릭 판정")
@@ -133,7 +101,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
     def test_a_conversion_waits_for_an_in_flight_click_of_its_decision(self):
         self.accept_impression()
         conversion = self.report("CONVERSION", when=50)
-        with InFlightReceipt(lambda: records.observe_click(self.decision.decision_id, None, now=at(40))) as click:
+        with Uncommitted(lambda: records.observe_click(self.decision.decision_id, None, now=at(40))) as click:
             judging = Worker(lambda: records.process_reaction(conversion.inbox_id, now=at(51)))
             judging.start()
             self.assert_blocked(judging, "전환 판정")
@@ -144,7 +112,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
 
     def test_other_decisions_do_not_wait_for_each_other(self):
         other = self.decide(self.w.slot, "0197a5c0-0000-7000-8000-0000000000b2", when=at(1))  # 다른 사람 = 다른 표시 단위의 다른 결정
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 10)):
+        with Uncommitted(lambda: self.receive("IMPRESSION", 10)):
             quick = Worker(lambda: self.receive("IMPRESSION", 11, decision=other))
             quick.start()
             quick.join(10)
@@ -160,7 +128,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
     def test_the_receipt_time_is_taken_after_the_lock_is_acquired(self):
         """시각을 잠근 뒤에 정하므로, 앞 접수를 기다린 뒤 받은 반응의 `received_at` 은 앞 접수가 풀린 시각 이후다."""
         released = []
-        with InFlightReceipt(lambda: self.receive("IMPRESSION", 10)) as early:
+        with Uncommitted(lambda: self.receive("IMPRESSION", 10)) as early:
             later = Worker(lambda: records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", at(11), {}))  # now 를 주입하지 않는다
             later.start()
             self.assert_blocked(later, "뒤 접수")
@@ -203,13 +171,13 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
         return worker.result
 
     def test_the_owners_receipt_does_not_wait_for_another_medias_in_flight_report(self):
-        with InFlightReceipt(lambda: self.foreign_receive(10)):
+        with Uncommitted(lambda: self.foreign_receive(10)):
             view, created = self.finishes(lambda: self.own_receive(11), "소유 매체의 접수")
         self.assertTrue(created)
 
     def test_judging_a_foreign_report_does_not_wait_for_the_owners_in_flight_receipt(self):
         foreign_view, _ = self.foreign_receive(10)
-        with InFlightReceipt(lambda: self.own_receive(11)):
+        with Uncommitted(lambda: self.own_receive(11)):
             outcome = self.finishes(lambda: records.process_reaction(foreign_view.inbox_id, now=at(12)), "남의 보고의 판정")
         self.assertEqual(outcome, "REJECTED")
         self.assertEqual(Reaction.objects.get(pk=foreign_view.inbox_id).reason_code, "media_mismatch")
@@ -217,7 +185,7 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
     def test_the_owners_judgment_does_not_wait_for_another_medias_in_flight_report_and_does_not_count_a_failure(self):
         """잠금 대기 초과로 소유 매체의 정상 반응에 실패 횟수가 쌓이면 안 된다(자동 재처리에서 빠진다). 판정 연결의 잠금 대기 제한을 1초로 줄여도 기다리지 않는다."""
         mine, _ = self.own_receive(10)
-        with InFlightReceipt(lambda: self.foreign_receive(11)):
+        with Uncommitted(lambda: self.foreign_receive(11)):
             def judge():
                 with connection.cursor() as cur:
                     cur.execute("SET SESSION innodb_lock_wait_timeout = 1")
@@ -235,7 +203,7 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
 
     def test_the_owners_own_receipts_still_queue_behind_each_other(self):
         """소유 매체의 접수끼리는 여전히 줄을 선다(순서 규약이 유지된다)."""
-        with InFlightReceipt(lambda: self.own_receive(10)) as early:
+        with Uncommitted(lambda: self.own_receive(10)) as early:
             later = Worker(lambda: self.own_receive(11))
             later.start()
             later.join(BLOCKED)

@@ -4,10 +4,11 @@
 - `pausing_before`: 첫 해당 SQL 직전에 멈춘다(`paused` 를 알리고 `release` 를 기다린다). 시험이 중간에 실패해도 스레드가 `WAIT` 동안 매달리지
   않게 `self.addCleanup(release.set)` 을 함께 건다.
 - `arriving_before`: 멈추지 않고 첫 해당 SQL 직전에 `arrived` 만 알린다. 뒤따르는 `is_alive()` 가 "느린 실행"이 아니라 **그 SQL(잠금)에서의 대기**임을 보인다.
+- `Uncommitted`: 별도 연결의 트랜잭션에서 일을 끝까지 하고 **커밋을 미룬다**(진행 중인 접수·비활성화).
 """
 import threading
 
-from django.db import connection
+from django.db import connection, transaction
 
 WAIT = 30  # 안전망(시험이 멈춰도 영원히 기다리지 않는다)
 BLOCKED = 0.7  # 이만큼 기다려도 끝나지 않으면 '막혀 있다'고 본다
@@ -58,3 +59,32 @@ def arriving_before(fragment, table, work, arrived):
         with connection.execute_wrapper(hook):
             return work()
     return run
+
+
+class Uncommitted:
+    """`work()` 를 별도 연결의 트랜잭션에서 끝까지 실행하고 **커밋을 미룬다**(다른 연결에서는 그 변경이 보이지 않는다). `commit()` 으로 커밋한다."""
+
+    def __init__(self, work):
+        self.done, self.release = threading.Event(), threading.Event()
+
+        def run():
+            with transaction.atomic():
+                work()
+                self.done.set()
+                self.release.wait(WAIT)
+
+        self.worker = Worker(run)
+
+    def __enter__(self):
+        self.worker.start()
+        assert self.done.wait(WAIT), self.worker.errors
+        return self
+
+    def commit(self):
+        self.release.set()
+        self.worker.join(WAIT)
+        assert not self.worker.errors, self.worker.errors
+
+    def __exit__(self, *exc):
+        self.release.set()
+        self.worker.join(WAIT)

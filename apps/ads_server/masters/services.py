@@ -6,7 +6,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 
@@ -103,6 +103,20 @@ def set_media_active(actor, media_id, active, now=None):
 def first_deactivation(media_id, after, until):
     """`after` 보다 뒤, `until` 까지(포함) 그 매체를 끈 가장 이른 시각. 없으면 `None`. 반응 판정의 `media-period` 규칙이 쓴다(결정 시각 → 접수 시각)."""
     return MediaDeactivation.objects.filter(media_id=media_id, deactivated_at__gt=after, deactivated_at__lte=until).order_by("deactivated_at").values_list("deactivated_at", flat=True).first()
+
+
+def media_active_for_share(media_id):
+    """매체 행을 **공유 잠금**(`FOR SHARE`)으로 읽은 활성 여부(없는 매체면 `None`) — 매체 생명주기 잠금(설계 §10 "매체 비활성화와 판정·결정의 순서", 6-2).
+
+    `set_media_active` 는 이 행을 배타 잠금으로 쥔 채 비활성화 시각을 정하고 커밋한다. 일반 조회는 그 커밋을 기다리지 않고 커밋 전 값을 보지만,
+    공유 잠금은 커밋까지 기다린 뒤 커밋된 값을 읽는다. 잠금은 호출한 트랜잭션이 끝날 때 놓인다(판정은 지나가기만, 결정은 커밋까지 쥔다). 공유 잠금끼리는 서로 막지 않는다.
+    ORM 에 `FOR SHARE` 가 없어 ORM 이 만든 조회에 잠금 절만 붙인다(테이블 이름·값 변환은 ORM 그대로).
+    """
+    sql, params = Media.objects.filter(pk=parse_uuid(media_id, "매체")).values_list("is_active", flat=True).query.sql_with_params()
+    with connection.cursor() as cursor:
+        cursor.execute(f"{sql} FOR SHARE", params)
+        row = cursor.fetchone()
+    return None if row is None else bool(row[0])
 
 
 def _validate_audience(audience):
