@@ -17,8 +17,8 @@ python manage.py runserver 127.0.0.1:8001
 
 - **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
-- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod.
-- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`가 없으면 기동하지 않는다.
+- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod. 단 지금은 `.env`에 `DJANGO_SETTINGS_MODULE`이 있으면 `wsgi/asgi`도 그 값을 따른다(아래 "운영 배포").
+- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`이 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
 - dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
 
@@ -81,20 +81,42 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
   `eval "$(python scripts/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.test_event_store` → `python scripts/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
 - 앱(웹 프로세스)은 MongoDB를 호출하지 않는다. 요청은 MySQL의 outbox에 이벤트를 쓰기만 하고, MongoDB로 옮기는 일은 상시 중계(`relay_events`, 아래)가 한다. MongoDB가 끊기면 이벤트는 outbox에 쌓였다가 복구 뒤 옮겨진다(짧은 재시작 시험에서 요청 503 0, 장기 장애는 확인하지 않음 — 설계 §10 "MongoDB 장애와 요청").
 
-## 상시 프로세스와 이벤트 운영
+## 운영 배포
 
-웹 프로세스 말고 두 프로세스를 **상시로** 띄운다. 둘 다 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다.
+- **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 기본 prod지만 지금은 `.env`에 `DJANGO_SETTINGS_MODULE`이 있으면 그 값을 따르므로, `.env.example`을 복사했다면 그 줄(dev)을 지운다(웹 진입점이 `.env`의 값을 무시하게 바꾸는 것은 Step 6-3a).
+- **배포 순서**: `migrate` → `ensure_event_store` → 상시 프로세스(아래). 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
+- **배포 점검 — 리버스 프록시 뒤면 `TRUSTED_PROXY_COUNT`(신뢰할 프록시 수)를 설정한다.** 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다. 그러면 가입 제한(IP당 시간당 5회)이 서비스 전체에서 시간당 5회가 되고, 로그인 잠금(아이디 + IP 기준)은 아이디만 보는 것과 같아져 남이 계정을 잠글 수 있으며, 감사 로그의 IP는 모두 프록시 IP가 된다.
+
+## 상시·주기 작업
+
+이 목록이 상시·주기 작업의 원본이다(설계 §10 "운영 작업 목록"). 주기와 스케줄러는 인프라와 정한다(설계 §7-9).
+
+| 작업 | 언제 | 하지 않으면 |
+|---|---|---|
+| `process_reactions` | 상시 | 반응이 `RECEIVED`로 남는다(판정·과금이 멈춘다) |
+| `relay_events` | 상시 | 이벤트가 outbox에 쌓인다 |
+| `relay_events --status` | 감시 | 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB가 끊긴 것 |
+| `purge_sent_events` | 매일 | 보낸 outbox 행이 쌓인다(보낸 지 7일 지난 것만 지운다, `EVENTS_OUTBOX_RETENTION_DAYS`) |
+| `clearsessions` | 매일 | 만료된 로그인 세션 행이 DB에 쌓인다(세션은 DB에 저장되고 지우는 곳이 따로 없다) |
+| `axes_reset_logs --age 30` | 매주 | 로그인 접속 기록(django-axes)이 계속 쌓인다(30일 넘은 것만 지운다) |
+| `end_expired_campaigns` | 주기 | 기간이 지난 캠페인의 저장 상태가 `ENDED`로 바뀌지 않는다(노출은 기간 판정이 막는다) |
+| `check_ledger` | 주기 | 잔액·원장·일 소진액의 불일치를 모른다(불일치면 비정상 종료) |
+| `export_hop_manifests` → `verify_hops` | 주기(창이 닫힌 뒤) | 구간(원본·outbox·MongoDB) 대조를 하지 않는다 |
+| `export_integrity` | 수시 | 원장·이벤트 정합성 점검 |
+| `process_reactions --retry-stuck` | 필요할 때 | 실패가 반복돼 자동 처리에서 빠진(stuck) 반응을 원인을 고친 뒤 다시 처리 대상으로 돌린다 |
+| `recompute_spend` | 예산 일 경계(`BUDGET_DAY_OFFSET_HOURS`)를 바꾼 뒤 | 일 소진액이 옛 경계 기준으로 남는다 |
+| `backfill_events` | 필요할 때(아래 "백필") | 이벤트가 빠진 원본 행이 그대로 남는다 |
+
+두 상시 프로세스는 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다.
 
 ```bash
-python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함). 멈추면 반응이 RECEIVED 로 남는다
-python manage.py relay_events                # outbox → MongoDB ad_events. 멈추면 이벤트가 outbox 에 쌓인다
-python manage.py relay_events --status       # 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB 가 끊긴 것
-python manage.py purge_sent_events           # 보낸 지 7일(EVENTS_OUTBOX_RETENTION_DAYS) 지난 outbox 행 삭제. 미전송은 지우지 않는다. 하루 한 번처럼 주기적으로
+python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함)
+python manage.py relay_events                # outbox → MongoDB ad_events
 python manage.py export_integrity --out DIR  # 원장·이벤트 정합성 점검(한 읽기 스냅샷). 결과는 NDJSON + manifest, 문제가 있으면 비정상 종료
 python manage.py verify_ndjson DIR/event_gaps.manifest.json   # 게시된 결과가 manifest 와 맞는지 확인
 python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT          # 백필 미리보기(dry-run, 쓰지 않음)
 python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT --apply  # 원본 행에서 이벤트를 다시 만들어 outbox 에 씀(중계가 보냄)
-python manage.py export_hop_manifests --out HOPS   # 원본 기대·outbox·MongoDB 세 구간의 창별 manifest(창이 닫힌 뒤, 주기적으로)
+python manage.py export_hop_manifests --out HOPS   # 원본 기대·outbox·MongoDB 세 구간의 창별 manifest
 python manage.py verify_hops --dir HOPS            # 구간 대조. 확정 불일치·사슬 오류·고정점 불일치면 비정상 종료, 중계 지연 후보만 있으면 보고
 ```
 
@@ -148,3 +170,5 @@ python manage.py media_key revoke <키 ID>   --admin <관리자 아이디>      
 ```
 
 요청 제한(`MEDIA_RATE_LIMITS`)은 프로세스 메모리 기반이라 워커가 여러 개면 한도가 그만큼 느슨해진다(설계 §10).
+
+키 발급·교체(`issue`·`rotate`)와 매체 켜기·끄기는 매체 행을 잠근다. 그동안 그 매체의 결정 요청과 반응 판정이 잠시 기다린다(매체 생명주기 잠금, 설계 §10 "매체 비활성화와 판정·결정의 순서"). 키 폐기(`revoke`)는 매체 행을 잠그지 않는다.
