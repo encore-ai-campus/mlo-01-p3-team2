@@ -585,7 +585,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `amount` | 정수(부호) | N | 유형별 부호 `CHECK`(아래) | |
 | `balance_after` | 정수 | N | ≥ 0 | 이 줄을 반영한 뒤의 잔액 |
 | `campaign_id` | UUID | Y | FK 아님 | 과금일 때 |
-| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키. 형식 제안: `<media_id>:<reaction_id>` |
+| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키 `<media_id>:<reaction_id>` — `records.processing.reaction_ref`가 만드는 **표준 표기(UUID 소문자, 하이픈 있음)일 때만 그 반응의 키**다(`parse_reaction_ref`). 같은 UUID라도 대문자·하이픈 없음·중괄호 같은 다른 표기면 원본 구간에 놓을 수 없는 과금으로 세고(§5.6 `checkpoint.unresolved_charges`), 백필도 해석 불가로 남긴다 [`77dfc64`] |
 | `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
 | `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
 | `note` | 문자 200 | N | | 조정 사유 등 |
@@ -1210,6 +1210,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.31 | 2026-10-12 | 재검토(`f6a2a1b`) P2 `77dfc64`: B2 `reaction_ref`는 표준 표기일 때만 그 반응의 키(다른 표기면 미해결 과금·백필 해석 불가) |
 | 0.30 | 2026-10-12 | 외부 검토(`4bd3ce8`) P2 `f6a2a1b`: §5.6 원본 구간 `checkpoint.unresolved_charges`·`unresolved_charge_examples`(창에 놓을 수 없는 과금 원장 줄 — 생성 시각을 추정하지 않고 세어 내보내기·대조를 실패로), 입력 검증에 그 값 형식 |
 | 0.29 | 2026-10-12 | 3-3 종료 점검(`1930fd7`): A1 `password` 원문 길이 10~128자(최대는 서비스의 비밀번호 검증기), C6 `SignupRequest`·`PasswordChange`와 같음 |
 | 0.28 | 2026-10-12 | 3-3e(`449bb68`, 외부 검토 7936ac7 P3-3): 색인 `records_reaction_received_idx`·`records_reaction_processed_idx`(반응 표 쓰기 비용이 조금 늚)·`events_outbox_name_created_idx`, §5.6 `checkpoint.scanned_events`는 범위 안에서 읽은 수 |
