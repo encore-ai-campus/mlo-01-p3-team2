@@ -364,6 +364,8 @@ erDiagram
 #### A1. 사용자 `foundation_user` [구현]
 
 > 아래 모든 표에서 PK 열은 **UUIDv7**이다(R-2). 코드도 같다(§4.8).
+>
+> **키·제약 열은 실제 MySQL 구현(물리)을 적는다.** MySQL은 조건부 유일 제약(`… WHERE 조건`)을 만들지 않는다(Django 경고 W036). 그래서 "캠페인당 대기 요청 하나" 같은 **논리 규칙**은 둘 중 하나로 구현한다: ① 규칙에 해당하는 줄에만 값을 채우는 **NULL 허용 일반 `UNIQUE`**(NULL끼리는 서로 다른 값 — `reaction_ref`·`adjust_key`·`accepted_key`) ② DB가 계산해 저장하는 열(`GeneratedField`, `db_persist`)에 해당 줄만 값을 두고 그 위에 일반 `UNIQUE`(`open_campaign`·`signup_grant_wallet`). 논리 규칙은 설명 열과 §4.4 무결성 규칙 표에 적는다.
 
 광고주와 관리자가 쓰는 계정 하나. 역할로 화면이 나뉜다. 이메일·실명·전화는 받지 않는다(설계서 §5.1).
 
@@ -554,12 +556,13 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|:---:|---|---|
 | `review_request_id` | UUID | N | PK | |
-| `campaign_id` | UUID | N | FK→O1 `PROTECT`, **부분 UNIQUE(campaign) WHERE status='OPEN'** | 캠페인당 대기 요청은 하나 |
+| `campaign_id` | UUID | N | FK→O1 `PROTECT` | **캠페인당 대기(`OPEN`) 요청은 하나**(논리 규칙 — 아래 `open_campaign`의 `UNIQUE`가 지킨다) |
 | `message` | 문자 500 | N | | 광고주 메모(선택, 빈 값 가능) |
 | `status` | 코드 | N | `OPEN`·`RELEASED`·`REJECTED`·`CLOSED_ENDED` | §4.5 |
 | `response_note` | 문자 500 | N | | 반려 사유 등 |
 | `created_at` | 시각 | N | | |
 | `closed_at` | 시각 | Y | | |
+| `open_campaign` | UUID | Y | **UNIQUE**, DB 계산 열(`GeneratedField`, `db_persist`) | `status = 'OPEN'`이면 `campaign_id`, 그 밖에는 NULL. 닫히면 DB가 비우므로 상태를 바꾸는 코드는 이 열을 다루지 않는다. 마이그레이션 `campaigns 0003`(DB-1b) |
 
 #### O7. 소재 이미지 보유 `campaigns_creative_image` [구현, 추가 전용]
 
@@ -605,14 +608,15 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `amount` | 정수(부호) | N | 유형별 부호 `CHECK`(아래) | |
 | `balance_after` | 정수 | N | ≥ 0 | 이 줄을 반영한 뒤의 잔액 |
 | `campaign_id` | UUID | Y | FK 아님 | 과금일 때 |
-| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키 `<media_id>:<reaction_id>` — `records.processing.reaction_ref`가 만드는 **표준 표기(UUID 소문자, 하이픈 있음)일 때만 그 반응의 키**다(`parse_reaction_ref`). 같은 UUID라도 대문자·하이픈 없음·중괄호 같은 다른 표기면 원본 구간에 놓을 수 없는 과금으로 세고(§5.6 `checkpoint.unresolved_charges`), 백필도 해석 불가로 남긴다 [`13f3bc2`] |
+| `reaction_ref` | 문자 100 | Y | **UNIQUE**(NULL 허용 — NULL끼리는 서로 다름), `CHARGE`만 허용(`CHECK`) | 과금 멱등 키 `<media_id>:<reaction_id>` — `records.processing.reaction_ref`가 만드는 **표준 표기(UUID 소문자, 하이픈 있음)일 때만 그 반응의 키**다(`parse_reaction_ref`). 같은 UUID라도 대문자·하이픈 없음·중괄호 같은 다른 표기면 원본 구간에 놓을 수 없는 과금으로 세고(§5.6 `checkpoint.unresolved_charges`), 백필도 해석 불가로 남긴다 [`13f3bc2`] |
 | `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
 | `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
 | `note` | 문자 200 | N | | 조정 사유 등 |
 | `adjust_key` | 문자 64 | Y | **UNIQUE**(NULL 제외), `ADMIN_ADJUST`만 허용(`CHECK`) | 관리자 조정의 멱등 키(화면 폼 하나 = 조정 하나). 같은 키는 한 번만 반영하고 다른 내용이면 거절 [구현 `ab7a607`] |
+| `signup_grant_wallet` | UUID | Y | **UNIQUE**, DB 계산 열(`GeneratedField`, `db_persist`) | `entry_type = 'SIGNUP_GRANT'`이면 `wallet_id`, 그 밖에는 NULL — **가입 지급은 지갑당 한 번**(논리 규칙). 마이그레이션 `billing 0003`(DB-1b) |
 | `created_at` | 시각 | N | 인덱스 | |
 
-유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(부분 UNIQUE).
+유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(`signup_grant_wallet`의 `UNIQUE`).
 
 #### B3. 캠페인 일 소진액 `billing_campaign_spend` [구현, 파생값]
 
@@ -686,13 +690,13 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs` |
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
-| 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
+| 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
 | 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
 | 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
-| 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
-| 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
+| 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
+| 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `test_only_one_open_review_request_per_campaign` |
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
 | 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `test_chosen_columns_are_all_or_none_in_db` |
 | 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `test_decision_not_saved_when_storage_fails` |
@@ -1209,7 +1213,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | ~~D-4~~ | **입찰·정책 행의 식별 방식** — **해결(2026-10-07)**: ② 서버 두 테이블에 UUID 열을 추가하는 안으로 결정 | C2 이벤트와 분석 조인 | `campaigns_bid.bid_id`, `masters_bid_policy.bid_policy_id`(UNIQUE) 추가, 결정이 `bid_id`·`bid_policy_id`를 함께 기록. 2026-10-08의 PK 규칙 적용으로 이 UUID가 PK가 되었다(D-8) |
 | ~~D-5~~ | **반응을 사용자·세션·강의실과 잇는 방법** — **해결(2026-10-12, 사용자 — 매체 연동 검토)**: 팀 DRD의 반응 로그는 `user_id`·`session_id`·`classroom_id`가 필수인데 광고 서버는 `subject_id`(가명)만 안다(팀 DRD A-19) | 분석 계층 조인. Kafka 메시지 키 | **필요하면 비밀을 가진 매체가 자기 쪽에서 가명 ↔ 사용자 대응을 내보내고, 파이프라인이 매체의 접근 통제 아래에서 잇는다. 광고 서버는 사용자 모델을 모른다.** 이를 위해 `subject_id`는 매체가 자기 비밀로 만든 광고 전용 가명이어야 한다(C1 v1.2 MUST, 설계 §10) — 회원 ID를 그대로 받으면 광고 로그만으로 매체의 다른 데이터와 이어져 한 사람의 이력이 식별된다 |
 | ~~D-6~~ | **원장 `CHARGE`에 `decision_id`가 없다** — **해결(Step 4-1d, 2026-10-10)**: 원장은 바꾸지 않고 과금 이벤트가 `decision_id`를 싣는다 | `ad.charge.v1`이 결정과 바로 이어진다 | 과금하는 반응 처리 트랜잭션에서 그 반응의 결정으로 채운다(원장은 추가 전용, 과금은 반응 처리에서만 일어남). 원장에서 결정을 찾을 때는 이벤트나 `reaction_ref`로 |
-| **D-7** | **충전(C5) 멱등 키를 담을 열이 없다** | C5 구현 시 | 원장에 외부 거래 ID 열(부분 UNIQUE, `TOPUP`만) 추가. C5 구현 때 |
+| **D-7** | **충전(C5) 멱등 키를 담을 열이 없다** | C5 구현 시 | 원장에 외부 거래 ID 열(`TOPUP` 줄에만 채우는 NULL 허용 `UNIQUE` + `CHECK` — `adjust_key`와 같은 방식, §4.3 앞의 표기 설명) 추가. C5 구현 때 |
 | ~~D-8~~ | **PK 규칙의 코드 적용** — **해결(2026-10-08)**: 모든 모델의 PK가 UUIDv7(`uuid.uuid7`)이고 자동 증가 열이 없다 | 문서와 코드가 같아졌다 | 각 앱 마이그레이션을 새 `0001`로 다시 만들었다(운영 데이터 없음. 옛 마이그레이션의 데이터 복구 단계와 그 테스트는 함께 없어졌다. `billing`·`campaigns`는 앱 사이 순환 때문에 `0001`·`0002`로 나뉜다). 원장에 `seq`와 `UNIQUE(wallet, seq)`가 들어가고 원장 점검·목록 커서는 `seq`, 관리자 정렬은 시각 열을 쓴다 |
 
 ### 10.2 설계서에서 이어지는 열린 결정 (데이터 관점)
@@ -1231,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.34 | 2026-10-12 | Step 6-2 문구 정정(외부 검토, 동작·스키마 변화 없음): "부분 UNIQUE"를 실제 MySQL 구현으로 — §4.3 표기에 논리 규칙과 물리 구현의 구분(MySQL은 조건부 유일 제약을 만들지 않음, W036), O6 `open_campaign`·B2 `signup_grant_wallet`(DB 계산 열 + `UNIQUE`) 행 추가, B2 `reaction_ref`는 NULL 허용 일반 `UNIQUE`, §4.4 무결성 표 세 행, D-7 계획도 같은 방식 |
 | 0.33 | 2026-10-12 | Step 6-1 서버 규칙(6-1a `42de743`·6-1b `a70d769`): M5 `masters_media_deactivation`(ERD·엔터티 목록·컬럼·수명주기), M1 `is_active` 설명, P2 `basis` v3 `media_deactivated_at`, §5.3 규칙 체인에 `media-period` |
 | 0.32 | 2026-10-12 | 매체 연동 검토(Step 6-1 결정 반영, C1 v1.2): `subject_id`는 매체가 만든 광고 전용 가명(결정 표·C1 입력·반응 입력·L2), D-5 해결(가명 ↔ 사용자 대응은 매체가 접근 통제 아래에서 내보냄) |
 | 0.31 | 2026-10-12 | 재검토(`5e8fa8c`) P2 `13f3bc2`: B2 `reaction_ref`는 표준 표기일 때만 그 반응의 키(다른 표기면 미해결 과금·백필 해석 불가) |
