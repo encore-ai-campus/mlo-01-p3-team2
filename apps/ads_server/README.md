@@ -85,7 +85,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 - **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 **`.env`의 설정 모듈을 따르지 않는다** — 실제 환경변수에 있으면 그 값, 없으면 prod다(`.env`의 다른 값은 그대로 읽는다, Step 6-3a). 그래서 `.env`에 dev가 남아 있어도 웹은 dev로 뜨지 않는다.
 - **배포 순서**: `migrate` → `ensure_event_store` → 상시 프로세스(아래). 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
-- **배포 점검 — 리버스 프록시 뒤면 `TRUSTED_PROXY_COUNT`(신뢰할 프록시 수)를 설정한다.** 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다. 그러면 가입 제한(IP당 시간당 5회)이 서비스 전체에서 시간당 5회가 되고, 로그인 잠금(아이디 + IP 기준)은 아이디만 보는 것과 같아져 남이 계정을 잠글 수 있으며, 감사 로그의 IP는 모두 프록시 IP가 된다.
+- **배포 점검 — 리버스 프록시 뒤면 `TRUSTED_PROXY_COUNT`(신뢰할 프록시 수)를 설정한다.** 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다. 그러면 가입 제한(IP당 시간당 5회)이 서비스 전체에서 시간당 5회가 되고, 로그인 잠금(아이디 + IP 기준)은 아이디만 보는 것과 같아져 남이 계정을 잠글 수 있으며, 감사 로그의 IP는 모두 프록시 IP가 된다. TLS 종단 프록시 뒤(`BEHIND_TLS_PROXY=1`)에서 빠뜨리면 `check --deploy`가 `foundation.W001`로 알린다. 그 밖의 프록시 구성은 잡지 못하니 직접 확인한다.
 - **단체 가입**(같은 교실·같은 NAT)이 6번째부터 막히면 그때만 `SIGNUP_MAX_PER_IP_PER_HOUR`(1 이상, 기본 5)를 잠시 올렸다가 내린다. 바꾸면 재시작해야 한다. 임시방편이다 — 올린 만큼 여러 계정으로 지급 포인트를 모으기 쉬워진다(설계 §10 "가입 시도 제한"). 프록시 뒤라면 `TRUSTED_PROXY_COUNT`부터 확인한다.
 - **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
 
@@ -97,7 +97,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 |---|---|---|
 | `process_reactions` | 상시 | 반응이 `RECEIVED`로 남는다(판정·과금이 멈춘다). 한가할 때도 시작 직후·stuck 건수가 바뀔 때·60초마다 `idle {현황}` 줄을 찍으므로 **출력이 끊기면 멈춘 것**이다 |
 | `relay_events` | 상시 | 이벤트가 outbox에 쌓인다 |
-| `process_reactions --status` | 감시 | 처리하지 않고 현황만 본다: 대기(`received`, 아래 둘 포함)·보류(`held`)·`stuck`·가장 오래된 대기(`oldest_age_seconds`, 초, stuck 제외). `stuck`이 0보다 크면 과금되지 않은 반응이 있다(같은 결정의 뒤 반응도 그것을 기다리며 묶일 수 있다 → 원인을 고친 뒤 `--retry-stuck`). 대기 시간이 계속 늘면 처리기가 멈춘 것이다 |
+| `process_reactions --status` | 감시 | 처리하지 않고 현황만 본다: 대기(`received`, 아래 둘 포함)·보류(`held`)·`stuck`·가장 오래된 대기(`oldest_age_seconds`, 초, stuck 제외). `stuck`이 0보다 크면 과금되지 않은 반응이 있다(같은 결정의 뒤 반응도 그것을 기다리며 묶일 수 있다 → 원인을 고친 뒤 `--retry-stuck`). 대기 시간이 계속 늘면 처리기가 멈춘 것이다. 같은 값을 관리자 첫 화면 카드에서도 본다(화면을 연 때의 값) |
 | `relay_events --status` | 감시 | 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB가 끊긴 것 |
 | `purge_sent_events` | 매일 | 보낸 outbox 행이 쌓인다(보낸 지 7일 지난 것만 지운다, `EVENTS_OUTBOX_RETENTION_DAYS`) |
 | `clearsessions` | 매일 | 만료된 로그인 세션 행이 DB에 쌓인다(세션은 DB에 저장되고 지우는 곳이 따로 없다) |
@@ -154,10 +154,11 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 
 0-4 이후 prod 설정의 경고는 **0**이다(`python -m django check --deploy --fail-level WARNING`, 테스트로 강제).
 `security.W021`(HSTS 프리로드)만 **의도적으로 끈다**: 내부 서비스이고 프리로드 등록은 되돌리기 어렵다(`config/settings/prod.py`에 사유).
+직접 만든 경고는 `foundation.W001` 하나다(6-3h): 프록시 뒤(`BEHIND_TLS_PROXY=1`)인데 `TRUSTED_PROXY_COUNT`가 0 이하면 경고한다. `check --deploy`에서만 돌고, 샘플 환경(프록시 아님)의 경고는 그대로 0이다. 실제 배포에서 빠뜨리면 `--fail-level WARNING`이 실패한다.
 
 ## 알려진 사항
 
-- 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다.
+- 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다. 첫 화면에는 반응 처리 현황 카드(대기·보류·stuck·가장 오래된 대기, stuck이 있으면 강조)가 있다.
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
 - 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
 - 정적 파일(CSS)은 DEBUG 에서만 `runserver` 가 서빙한다. 운영에서는 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 웹서버(인프라)가 서빙한다. 웹서버 설정은 배포 단계의 일이다.
