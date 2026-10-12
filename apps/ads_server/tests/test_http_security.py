@@ -141,6 +141,21 @@ class ParseJsonTests(SimpleTestCase):
         for body in ('{"a": NaN}', '{"a": Infinity}', '{"a": -Infinity}', '{"a": 1e999999}'):
             self.assertRejects(errors.InvalidRequest, body)
 
+    def test_parse_json_limits_numbers_to_the_javascript_safe_range_at_any_depth(self):
+        """6-2c: 정수·실수 모두 ±(2^53−1), 중첩 객체·배열 안에서도. 범위 밖은 형식 오류와 다른 문구의 400 이다(더 큰 수는 문자열로 보내라고 알린다)."""
+        huge = "1" + "0" * 400  # MySQL JSON 의 double 도 넘는 값(전에는 저장 오류 3140 → 503)
+        for body in (
+            '{"a": 9007199254740992}', '{"a": -9007199254740992}', '{"a": 18446744073709551617}', '{"a": %s}' % huge, '{"a": -%s}' % huge,
+            '{"a": 12345678901234567}', '{"a": %s}' % ("9" * 5000), '{"a": 9007199254740992.0}', '{"a": -1e300}', '{"a": [{"b": [1, 9007199254740992]}]}', '{"a": {"b": -9007199254740992}}',
+        ):
+            with self.assertRaises(errors.InvalidRequest, msg=body[:60]) as caught:
+                parse_json(json_request(body))
+            self.assertIn("9007199254740991", caught.exception.detail)
+        body = '{"a": 9007199254740991, "b": -9007199254740991, "c": [0, -0, 1.5, -0.25, 1e-300, 9007199254740991.0], "d": {"e": "18446744073709551617"}}'
+        self.assertEqual(parse_json(json_request(body)), {
+            "a": 2**53 - 1, "b": -(2**53 - 1), "c": [0, 0, 1.5, -0.25, 1e-300, float(2**53 - 1)], "d": {"e": "18446744073709551617"},
+        })
+
     def test_parse_json_rejects_unpaired_surrogates_but_keeps_valid_pairs(self):
         """`\\ud800` 같은 짝 없는 서로게이트는 JSON 문법상 유효하지만 UTF-8 로 쓸 수 없다 → 키·값·중첩 어디서든 400(500 이 되지 않는다)."""
         for body in ('{"a": "\\ud800"}', '{"a": "\\udfff"}', '{"\\ud800": 1}', '{"a": [{"b": ["x\\udc00"]}]}', '{"a": {"\\ud83d": 1}}'):
