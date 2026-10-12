@@ -69,7 +69,8 @@ def unresolved_charges(batch=2000, examples=10):
         for entry_id, key in keys.items():
             if key not in judged:
                 count += 1
-                sample += [str(entry_id)][:examples - len(sample)]
+                if len(sample) < examples:
+                    sample.append(str(entry_id))
     return count, sample
 
 

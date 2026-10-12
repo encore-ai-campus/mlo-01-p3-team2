@@ -13,7 +13,6 @@ from foundation.api import record_audit
 from records.api import source_streams, unresolved_charges
 
 SCOPE = "mysql-repeatable-read-snapshot"
-HOPS = ("hop_source", "hop_outbox", "hop_mongo")
 
 
 class Command(BaseCommand):
@@ -78,9 +77,9 @@ class Command(BaseCommand):
                 anchors[hop] = events.manifest_digest(manifest)  # 이 실행이 게시한 manifest 의 해시(포인터를 다시 읽지 않는다)
                 self.stdout.write(f"{hop}: rows={manifest['rows']} events={scanned[hop]} open_windows={len(open_windows)} largest_window={results[hop][3]} file={manifest['file']}")
             record_audit(None, "events.hop_manifests_exported", detail={"anchors": anchors, "since": options["since"], "grace_seconds": grace})  # 폴더 밖의 고정점(H12)
-        self.stdout.write(f"peak_rss={peak_rss_mib():.1f}MiB")
+        self.stdout.write(f"peak_rss={peak_rss_mib():.1f}MiB")  # 이 프로세스의 최대 상주 메모리 — 이력이 쌓여도 늘지 않아야 한다(창 하나·종류 하나만 든다)
         if unresolved:  # 게시는 한다(나머지 대조는 계속된다). 실패로 끝내고 verify_hops 도 실패로 본다
-            raise CommandError(f"창에 놓을 수 없는 과금 원장 줄 {unresolved}건 — 반응이 없거나 판정 전이라 생성 시각을 정할 수 없다(추정하지 않는다). 예: {', '.join(examples)}")  # 이 프로세스의 최대 상주 메모리 — 이력이 쌓여도 늘지 않아야 한다(창 하나·종류 하나만 든다)
+            raise CommandError(f"창에 놓을 수 없는 과금 원장 줄 {unresolved}건 — 반응이 없거나 판정 전이라 생성 시각을 정할 수 없다(추정하지 않는다). 예: {', '.join(examples)}")
 
 
 def peak_rss_mib():
