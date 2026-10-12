@@ -1,0 +1,52 @@
+{
+  "raw.account": {
+    "output_topic": "standardized.account",
+    "event_types": [
+      "session_started",
+      "session_ended"
+    ]
+  },
+  "raw.chat": {
+    "output_topic": "standardized.chat",
+    "event_types": [
+      "chat_sent"
+    ]
+  },
+  "raw.content_usage": {
+    "output_topic": "standardized.content_usage",
+    "event_types": [
+      "content_open_requested",
+      "quiz_answered"
+    ]
+  },
+  "raw.movement": {
+    "output_topic": "standardized.movement",
+    "event_types": [
+      "movement_observed",
+      "floor_transferred"
+    ]
+  },
+  "raw.points": {
+    "output_topic": "standardized.points",
+    "event_types": [
+      "point_granted"
+    ]
+  },
+  "raw.board": {
+    "output_topic": "standardized.board",
+    "event_types": [
+      "post_created",
+      "post_updated",
+      "post_deleted",
+      "post_read"
+    ]
+  },
+  "raw.comment": {
+    "output_topic": "standardized.comment",
+    "event_types": [
+      "comment_created",
+      "comment_updated",
+      "comment_deleted"
+    ]
+  }
+}

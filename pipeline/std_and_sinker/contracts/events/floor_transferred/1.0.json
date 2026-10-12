@@ -1,0 +1,31 @@
+{
+  "event_type": "floor_transferred",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "from_floor_uuid",
+      "nullable": false
+    },
+    {
+      "name": "to_floor_uuid",
+      "nullable": false
+    },
+    {
+      "name": "zone_uuid",
+      "nullable": true
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "from_floor_uuid",
+    "to_floor_uuid",
+    "zone_uuid"
+  ],
+  "constants": {
+    "event_type": "FLOOR_TRANSFERRED"
+  },
+  "double_fields": []
+}

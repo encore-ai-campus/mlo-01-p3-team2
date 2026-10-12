@@ -1,0 +1,17 @@
+{% load static %}<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{% static 'console/app.css' %}">
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+    </div>
+  </main>
+</body>
+</html>

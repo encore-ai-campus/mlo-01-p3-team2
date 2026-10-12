@@ -1,0 +1,47 @@
+.board-shortcut {
+  position:absolute;
+  right:20px;
+  bottom:20px;
+  z-index:3;
+  width:228px;
+  padding:12px;
+  border:1px solid #bdcfc3;
+  border-radius:12px;
+  background:#fffffff2;
+  box-shadow:0 5px 22px #173e2b18;
+}
+.board-shortcut[hidden] { display:none; }
+.board-shortcut-heading { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+.board-shortcut-heading strong { font-size:12px; }
+.board-shortcut-mark { display:grid; place-items:center; width:23px; height:23px; border-radius:6px; background:var(--teal); color:#fff; font-size:15px; font-weight:800; }
+.board-shortcut-previews { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:10px; }
+.board-shortcut-preview { overflow:hidden; border:1px solid #e0e7dd; border-radius:7px; text-align:center; }
+.board-shortcut-preview>span:last-child { display:block; padding:6px 2px; font-size:10px; color:#526e61; white-space:nowrap; }
+.board-shortcut-menu,.board-shortcut-logo { display:flex; align-items:center; justify-content:center; height:49px; background:#f4f2e6; }
+.board-shortcut-menu svg { width:72px; height:44px; }
+.board-shortcut-logo { padding:5px; background:#fff; }
+.board-shortcut-logo img { display:block; width:100%; height:100%; object-fit:contain; }
+.board-shortcut-open { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:34px; padding:8px 10px; border:0; border-radius:7px; color:#fff; background:var(--teal); font-size:12px; font-weight:650; }
+.board-shortcut-open:hover { background:var(--teal-dark); }
+.board-shortcut-open:focus-visible { outline:3px solid #36a9a1; outline-offset:3px; }
+@media(max-width:1000px) {
+  .board-shortcut { right:12px; bottom:12px; width:168px; padding:10px; }
+  .board-shortcut-previews { gap:5px; }
+  .board-shortcut-menu,.board-shortcut-logo { height:40px; }
+  .board-shortcut-menu svg { width:55px; height:33px; }
+  .board-shortcut-preview>span:last-child { font-size:9px; }
+  .map-shell[data-board-shortcut-visible=true] .chat-panel { width:min(300px,calc(100% - 212px)); }
+}
+@media(max-width:700px) {
+  .board-shortcut { width:144px; padding:9px; }
+  .board-shortcut-heading { gap:6px; margin-bottom:8px; }
+  .board-shortcut-heading strong { font-size:11px; }
+  .board-shortcut-mark { width:21px; height:21px; font-size:14px; }
+  .board-shortcut-menu,.board-shortcut-logo { height:36px; }
+  .board-shortcut-menu svg { width:46px; height:30px; }
+  .board-shortcut-open { min-height:34px; font-size:11px; }
+  .map-shell[data-board-shortcut-visible=true] .chat-panel { width:min(280px,calc(100% - 180px)); }
+}
+@media(max-height:650px) {
+  .board-shortcut-previews { display:none; }
+}

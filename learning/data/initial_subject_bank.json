@@ -1,0 +1,1352 @@
+[
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-001",
+    "category": "sql-standard",
+    "question_text": "결과의 중복 행을 제거하는 SELECT 수식어는?",
+    "correct_answer": "DISTINCT",
+    "choices": [
+      "UNIQUE ROWS",
+      "DISTINCT",
+      "DEDUP",
+      "ONLY"
+    ],
+    "explanation": "DISTINCT는 선택된 열 조합의 중복을 제거합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-002",
+    "category": "sql-standard",
+    "question_text": "NULL 여부를 검사하는 조건은?",
+    "correct_answer": "IS NULL",
+    "choices": [
+      "IS NULL",
+      "EQUALS NULL",
+      "== NULL",
+      "= NULL"
+    ],
+    "explanation": "NULL은 일반 동등 비교 대신 IS NULL로 검사합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-003",
+    "category": "sql-standard",
+    "question_text": "COUNT(*)가 세는 대상은?",
+    "correct_answer": "모든 결과 행",
+    "choices": [
+      "모든 결과 행",
+      "테이블의 열",
+      "NULL이 아닌 첫 열",
+      "서로 다른 값"
+    ],
+    "explanation": "COUNT(*)는 열의 NULL과 관계없이 행을 셉니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-004",
+    "category": "sql-standard",
+    "question_text": "오름차순 정렬을 명시하는 키워드는?",
+    "correct_answer": "ASC",
+    "choices": [
+      "ASC",
+      "DESC",
+      "SORT",
+      "UP"
+    ],
+    "explanation": "ORDER BY 뒤의 ASC는 오름차순입니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-005",
+    "category": "sql-standard",
+    "question_text": "두 조건이 모두 참이어야 하는 논리 연산자는?",
+    "correct_answer": "AND",
+    "choices": [
+      "NOT",
+      "XOR",
+      "AND",
+      "OR"
+    ],
+    "explanation": "AND는 두 조건이 모두 참일 때 참입니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-006",
+    "category": "sql-standard",
+    "question_text": "LIKE 패턴에서 0개 이상의 임의 문자와 대응하는 와일드카드는?",
+    "correct_answer": "%",
+    "choices": [
+      "*",
+      "?",
+      "%",
+      "_"
+    ],
+    "explanation": "SQL LIKE의 %는 길이가 0 이상인 문자열과 대응합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-007",
+    "category": "sql-standard",
+    "question_text": "GROUP BY 이후 그룹을 필터링하는 절은?",
+    "correct_answer": "HAVING",
+    "choices": [
+      "FILTER BY",
+      "WHERE AFTER",
+      "GROUP FILTER",
+      "HAVING"
+    ],
+    "explanation": "HAVING은 그룹별 집계 결과에 조건을 적용합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-008",
+    "category": "sql-standard",
+    "question_text": "AVG(score)가 일반적으로 제외하는 값은?",
+    "correct_answer": "NULL",
+    "choices": [
+      "0",
+      "NULL",
+      "음수",
+      "중복 점수"
+    ],
+    "explanation": "AVG는 NULL을 제외한 값으로 평균을 계산합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-009",
+    "category": "sql-standard",
+    "question_text": "SELECT의 출력 열 이름을 지정하는 키워드는?",
+    "correct_answer": "AS",
+    "choices": [
+      "ALIAS BY",
+      "NAME",
+      "AS",
+      "TO"
+    ],
+    "explanation": "AS는 결과 열의 별칭을 지정합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "multiple_choice",
+    "question_code": "B-MC-010",
+    "category": "sql-standard",
+    "question_text": "범위 조건 BETWEEN 10 AND 20에 포함되는 경계는?",
+    "correct_answer": "10과 20 모두",
+    "choices": [
+      "10과 20 모두",
+      "20만",
+      "10만",
+      "둘 다 제외"
+    ],
+    "explanation": "BETWEEN은 양 끝 경계를 포함합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-001",
+    "category": "sql-standard",
+    "question_text": "users의 모든 열을 조회하는 첫 키워드를 채우세요.",
+    "correct_answer": "SELECT",
+    "explanation": "조회문은 SELECT로 시작합니다.",
+    "code_snippet": "____ * FROM users"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-002",
+    "category": "sql-standard",
+    "question_text": "age가 18 이상인 행을 거르는 절을 채우세요.",
+    "correct_answer": "WHERE",
+    "explanation": "WHERE는 개별 행에 조건을 적용합니다.",
+    "code_snippet": "SELECT name FROM users ____ age >= 18"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-003",
+    "category": "sql-standard",
+    "question_text": "price를 내림차순으로 정렬하는 키워드는?",
+    "correct_answer": "DESC",
+    "explanation": "DESC는 내림차순을 지정합니다.",
+    "code_snippet": "SELECT price FROM products ORDER BY price ____"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-004",
+    "category": "sql-standard",
+    "question_text": "NULL 대신 기본값을 선택하는 함수를 채우세요.",
+    "correct_answer": "COALESCE",
+    "explanation": "COALESCE는 첫 번째 NULL이 아닌 인수를 반환합니다.",
+    "code_snippet": "SELECT ____(nickname, 'unknown') FROM users"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-005",
+    "category": "sql-standard",
+    "question_text": "최댓값을 구하는 집계 함수를 채우세요.",
+    "correct_answer": "MAX",
+    "explanation": "MAX는 NULL이 아닌 값 중 최댓값을 반환합니다.",
+    "code_snippet": "SELECT ____(price) FROM products"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-006",
+    "category": "sql-standard",
+    "question_text": "값 목록 포함 여부를 검사하는 연산자는?",
+    "correct_answer": "IN",
+    "explanation": "IN은 값이 주어진 목록에 있는지 검사합니다.",
+    "code_snippet": "SELECT * FROM users WHERE city ____ ('Seoul', 'Busan')"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-007",
+    "category": "sql-standard",
+    "question_text": "여러 값을 합산하는 집계 함수를 채우세요.",
+    "correct_answer": "SUM",
+    "explanation": "SUM은 NULL이 아닌 값들의 합을 계산합니다.",
+    "code_snippet": "SELECT ____(amount) FROM payments"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-008",
+    "category": "sql-standard",
+    "question_text": "조건의 참과 거짓을 반전하는 키워드는?",
+    "correct_answer": "NOT",
+    "explanation": "NOT은 논리 조건을 부정합니다.",
+    "code_snippet": "SELECT * FROM users WHERE ____ (age < 18)"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-009",
+    "category": "sql-standard",
+    "question_text": "부서별 집계를 위한 그룹화 키워드를 채우세요.",
+    "correct_answer": "GROUP BY",
+    "explanation": "GROUP BY는 같은 부서의 행을 하나의 그룹으로 묶습니다.",
+    "code_snippet": "SELECT department, COUNT(*) FROM staff ____ department"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "beginner",
+    "question_type": "fill_blank",
+    "question_code": "B-FB-010",
+    "category": "sql-standard",
+    "question_text": "두 비교 중 하나라도 참이면 되는 연산자는?",
+    "correct_answer": "OR",
+    "explanation": "OR는 적어도 하나의 조건이 참일 때 참입니다.",
+    "code_snippet": "SELECT * FROM users WHERE city = 'Seoul' ____ age >= 65"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-001",
+    "category": "sql-standard",
+    "question_text": "왼쪽 테이블의 매칭 없는 행도 보존하는 JOIN은?",
+    "correct_answer": "LEFT JOIN",
+    "choices": [
+      "INNER JOIN",
+      "MATCH JOIN",
+      "CROSS JOIN",
+      "LEFT JOIN"
+    ],
+    "explanation": "LEFT JOIN은 오른쪽 매칭이 없어도 왼쪽 행을 NULL과 함께 보존합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-002",
+    "category": "sql-standard",
+    "question_text": "N행과 M행을 CROSS JOIN한 행 수는?",
+    "correct_answer": "N 곱하기 M",
+    "choices": [
+      "N 더하기 M",
+      "N 빼기 M",
+      "항상 N",
+      "N 곱하기 M"
+    ],
+    "explanation": "CROSS JOIN은 두 입력의 모든 행 조합을 만듭니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-003",
+    "category": "sql-standard",
+    "question_text": "서브쿼리가 한 행 이상 반환하는지 검사하는 연산자는?",
+    "correct_answer": "EXISTS",
+    "choices": [
+      "ANY ROW",
+      "PRESENT",
+      "EXISTS",
+      "COUNT EXISTS"
+    ],
+    "explanation": "EXISTS는 반환된 값보다 행 존재 여부를 검사합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-004",
+    "category": "sql-standard",
+    "question_text": "UNION ALL과 UNION의 차이는?",
+    "correct_answer": "UNION ALL은 중복을 보존한다",
+    "choices": [
+      "UNION ALL만 정렬한다",
+      "UNION ALL은 중복을 보존한다",
+      "차이 없다",
+      "UNION은 중복을 보존한다"
+    ],
+    "explanation": "UNION은 중복을 제거하고 UNION ALL은 보존합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-005",
+    "category": "sql-standard",
+    "question_text": "공통 테이블 표현식의 시작 키워드는?",
+    "correct_answer": "WITH",
+    "choices": [
+      "TEMP SELECT",
+      "WITH",
+      "DECLARE TABLE",
+      "CTE"
+    ],
+    "explanation": "WITH는 이름을 가진 쿼리 결과를 정의합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-006",
+    "category": "sql-standard",
+    "question_text": "SELECT에서 집계되지 않은 부서 열과 COUNT(*)를 함께 출력하려면?",
+    "correct_answer": "부서 열로 GROUP BY",
+    "choices": [
+      "WHERE 부서",
+      "ORDER BY COUNT만 사용",
+      "부서 열로 GROUP BY",
+      "COUNT 제거"
+    ],
+    "explanation": "비집계 열로 그룹화하면 부서별 집계가 됩니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-007",
+    "category": "sql-standard",
+    "question_text": "WHERE에서 집계 함수 SUM을 직접 필터링하지 않고 사용하는 절은?",
+    "correct_answer": "HAVING",
+    "choices": [
+      "SORT",
+      "WITHIN",
+      "AFTER",
+      "HAVING"
+    ],
+    "explanation": "집계 결과 조건은 HAVING에 둡니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-008",
+    "category": "sql-standard",
+    "question_text": "스칼라 서브쿼리가 요구하는 반환 형태는?",
+    "correct_answer": "한 열과 최대 한 행",
+    "choices": [
+      "모든 열",
+      "한 열과 최대 한 행",
+      "두 열과 한 행",
+      "한 열과 임의의 행"
+    ],
+    "explanation": "스칼라 위치에서는 하나의 값만 허용됩니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-009",
+    "category": "sql-standard",
+    "question_text": "NULL이 섞인 목록의 NOT IN이 주의가 필요한 이유는?",
+    "correct_answer": "비교 결과가 UNKNOWN이 될 수 있다",
+    "choices": [
+      "NULL을 자동 제거해서",
+      "정렬이 필요해서",
+      "비교 결과가 UNKNOWN이 될 수 있다",
+      "항상 TRUE이기 때문"
+    ],
+    "explanation": "NULL 비교는 UNKNOWN을 만들며 WHERE는 TRUE인 행만 보존합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-010",
+    "category": "sql-standard",
+    "question_text": "CASE 식의 기본 분기 키워드는?",
+    "correct_answer": "ELSE",
+    "choices": [
+      "OTHER",
+      "ELSE",
+      "DEFAULT CASE",
+      "FALLBACK"
+    ],
+    "explanation": "WHEN이 모두 거짓이면 ELSE 값이 선택됩니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-001",
+    "category": "sql-standard",
+    "question_text": "두 테이블의 공통 id를 매칭하는 JOIN 조건 키워드를 채우세요.",
+    "correct_answer": "ON",
+    "explanation": "ON은 JOIN의 매칭 조건을 지정합니다.",
+    "code_snippet": "SELECT a.id FROM a JOIN b ____ a.id = b.id"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-002",
+    "category": "sql-standard",
+    "question_text": "동일 이름 열을 이용한 JOIN 절을 채우세요.",
+    "correct_answer": "USING",
+    "explanation": "USING은 양쪽 테이블에서 이름이 같은 열을 조인 키로 사용합니다.",
+    "code_snippet": "SELECT * FROM a JOIN b ____(id)"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-003",
+    "category": "sql-standard",
+    "question_text": "조건부 값을 만드는 표현식 시작 키워드는?",
+    "correct_answer": "CASE",
+    "explanation": "CASE는 조건별 반환 값을 선택합니다.",
+    "code_snippet": "SELECT ____ WHEN score >= 60 THEN 'pass' ELSE 'fail' END FROM results"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-004",
+    "category": "sql-standard",
+    "question_text": "첫 조건이 맞을 때 반환할 값을 연결하는 키워드는?",
+    "correct_answer": "THEN",
+    "explanation": "THEN 뒤에는 해당 WHEN의 반환 표현식이 옵니다.",
+    "code_snippet": "SELECT CASE WHEN active = 1 ____ 'yes' ELSE 'no' END FROM users"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-005",
+    "category": "sql-standard",
+    "question_text": "CTE의 별칭과 쿼리를 연결하는 키워드는?",
+    "correct_answer": "AS",
+    "explanation": "CTE는 이름 AS (쿼리) 형식으로 선언합니다.",
+    "code_snippet": "WITH adults ____ (SELECT * FROM users WHERE age >= 18) SELECT * FROM adults"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-006",
+    "category": "sql-standard",
+    "question_text": "중복을 유지하여 쿼리 결과를 합치는 연산을 채우세요.",
+    "correct_answer": "UNION ALL",
+    "explanation": "UNION ALL은 두 쿼리의 행을 중복 제거 없이 연결합니다.",
+    "code_snippet": "SELECT id FROM a ____ SELECT id FROM b"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-007",
+    "category": "sql-standard",
+    "question_text": "두 식이 같으면 NULL을 반환하는 함수를 채우세요.",
+    "correct_answer": "NULLIF",
+    "explanation": "NULLIF는 첫 인수가 두 번째와 같으면 NULL을 반환합니다.",
+    "code_snippet": "SELECT ____(denominator, 0) FROM ratios"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-008",
+    "category": "sql-standard",
+    "question_text": "정수 타입으로 변환하는 함수 이름을 채우세요.",
+    "correct_answer": "CAST",
+    "explanation": "CAST는 AS 뒤에 지정된 자료형으로 변환합니다.",
+    "code_snippet": "SELECT ____(value AS INTEGER) FROM inputs"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-009",
+    "category": "sql-standard",
+    "question_text": "CTE 쿼리와 함께 사용할 조회 키워드를 채우세요.",
+    "correct_answer": "SELECT",
+    "explanation": "CTE는 정의된 이름을 후속 SELECT에서 조회합니다.",
+    "code_snippet": "WITH totals AS (SELECT SUM(amount) AS total FROM sales) ____ total FROM totals"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-010",
+    "category": "sql-standard",
+    "question_text": "평균보다 높은 가격을 조회할 비교 연산자를 채우세요.",
+    "correct_answer": ">",
+    "explanation": "평균을 초과해야 하므로 엄격한 크기 비교가 필요합니다.",
+    "code_snippet": "SELECT * FROM products WHERE price ____ (SELECT AVG(price) FROM products)"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-001",
+    "category": "sql-standard",
+    "question_text": "윈도 함수를 지정할 때 사용하는 절은?",
+    "correct_answer": "OVER",
+    "choices": [
+      "GROUP OVER",
+      "OVER",
+      "PARTITION ONLY",
+      "WINDOW BY"
+    ],
+    "explanation": "OVER는 윈도 함수의 분할과 정렬 및 프레임을 지정합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-002",
+    "category": "sql-standard",
+    "question_text": "ROW_NUMBER()의 동점 처리 특징은?",
+    "correct_answer": "동점에도 서로 다른 번호를 부여한다",
+    "choices": [
+      "동점에 같은 번호",
+      "동점에도 서로 다른 번호를 부여한다",
+      "동점 삭제",
+      "항상 0"
+    ],
+    "explanation": "ROW_NUMBER는 각 행에 고유한 순번을 매깁니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-003",
+    "category": "sql-standard",
+    "question_text": "DENSE_RANK()가 RANK()와 다른 점은?",
+    "correct_answer": "다음 순위에 간격이 없다",
+    "choices": [
+      "다음 순위에 간격이 없다",
+      "동점이 불가능",
+      "역순만 지원",
+      "모든 행이 1"
+    ],
+    "explanation": "DENSE_RANK는 동점 뒤에도 순위 번호를 건너뛰지 않습니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-004",
+    "category": "sql-standard",
+    "question_text": "LAG(x)가 참조하는 기본 대상은?",
+    "correct_answer": "윈도 정렬의 이전 행",
+    "choices": [
+      "모든 행 합계",
+      "첫 그룹",
+      "다음 행",
+      "윈도 정렬의 이전 행"
+    ],
+    "explanation": "LAG는 기본 오프셋 1로 이전 행 값을 반환합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-005",
+    "category": "sql-standard",
+    "question_text": "LEAD(x)가 참조하는 기본 대상은?",
+    "correct_answer": "윈도 정렬의 다음 행",
+    "choices": [
+      "마지막 그룹",
+      "이전 행",
+      "윈도 정렬의 다음 행",
+      "현재 행만"
+    ],
+    "explanation": "LEAD는 기본 오프셋 1로 다음 행 값을 반환합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-006",
+    "category": "sql-standard",
+    "question_text": "윈도 함수의 PARTITION BY는 무엇을 나누는가?",
+    "correct_answer": "계산 대상 행 집합",
+    "choices": [
+      "테이블 스키마",
+      "SQL 문장",
+      "DB 파일",
+      "계산 대상 행 집합"
+    ],
+    "explanation": "PARTITION BY는 윈도 계산을 독립 그룹으로 분할합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-007",
+    "category": "sql-standard",
+    "question_text": "트랜잭션의 변경을 확정하는 명령은?",
+    "correct_answer": "COMMIT",
+    "choices": [
+      "ROLLBACK",
+      "CANCEL",
+      "UNDO",
+      "COMMIT"
+    ],
+    "explanation": "COMMIT은 트랜잭션의 변경을 확정합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-008",
+    "category": "sql-standard",
+    "question_text": "트랜잭션의 미확정 변경을 취소하는 명령은?",
+    "correct_answer": "ROLLBACK",
+    "choices": [
+      "SAVEPOINT",
+      "COMMIT",
+      "ACCEPT",
+      "ROLLBACK"
+    ],
+    "explanation": "ROLLBACK은 미확정 변경을 되돌립니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-009",
+    "category": "sql-standard",
+    "question_text": "인덱스를 추가할 때 쓰기 비용이 증가할 수 있는 이유는?",
+    "correct_answer": "행 변경 시 인덱스도 갱신해야 해서",
+    "choices": [
+      "SELECT를 금지해서",
+      "NULL을 삭제해서",
+      "행 변경 시 인덱스도 갱신해야 해서",
+      "트랜잭션을 제거해서"
+    ],
+    "explanation": "인덱스는 조회를 도울 수 있지만 추가 유지 비용이 듭니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-010",
+    "category": "sql-standard",
+    "question_text": "NOT EXISTS로 미매칭 행을 찾을 때 확인하는 것은?",
+    "correct_answer": "상관 서브쿼리의 행 부재",
+    "choices": [
+      "상관 서브쿼리의 행 부재",
+      "정렬된 마지막 값",
+      "인덱스 이름",
+      "COUNT의 문자열"
+    ],
+    "explanation": "NOT EXISTS는 매칭 조건을 만족하는 행이 없음을 검사합니다."
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-001",
+    "category": "sql-standard",
+    "question_text": "윈도 함수로 고유 순번을 만드는 함수명을 채우세요.",
+    "correct_answer": "ROW_NUMBER",
+    "explanation": "ROW_NUMBER는 윈도 정렬 순서에 따라 각 행에 순번을 부여합니다.",
+    "code_snippet": "SELECT ____() OVER (ORDER BY id) FROM users"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-002",
+    "category": "sql-standard",
+    "question_text": "부서별 윈도 계산을 나누는 절을 채우세요.",
+    "correct_answer": "PARTITION BY",
+    "explanation": "PARTITION BY는 부서마다 윈도 계산을 독립적으로 수행합니다.",
+    "code_snippet": "SELECT SUM(salary) OVER (____ department) FROM staff"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-003",
+    "category": "sql-standard",
+    "question_text": "현재 행까지 누적 합계를 위한 프레임 경계 키워드를 채우세요.",
+    "correct_answer": "CURRENT ROW",
+    "explanation": "CURRENT ROW는 현재 행을 프레임의 끝으로 지정합니다.",
+    "code_snippet": "SELECT SUM(amount) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND ____) FROM sales"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-004",
+    "category": "sql-standard",
+    "question_text": "누적 프레임의 시작을 처음으로 지정하는 키워드는?",
+    "correct_answer": "UNBOUNDED PRECEDING",
+    "explanation": "UNBOUNDED PRECEDING은 파티션의 첫 행까지 확장합니다.",
+    "code_snippet": "SELECT SUM(amount) OVER (ORDER BY id ROWS BETWEEN ____ AND CURRENT ROW) FROM sales"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-005",
+    "category": "sql-standard",
+    "question_text": "이전 행 값을 조회할 함수명을 채우세요.",
+    "correct_answer": "LAG",
+    "explanation": "LAG는 정렬된 윈도에서 이전 행의 값을 가져옵니다.",
+    "code_snippet": "SELECT ____(amount) OVER (ORDER BY id) FROM sales"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-006",
+    "category": "sql-standard",
+    "question_text": "다음 행 값을 조회할 함수명을 채우세요.",
+    "correct_answer": "LEAD",
+    "explanation": "LEAD는 정렬된 윈도에서 다음 행의 값을 가져옵니다.",
+    "code_snippet": "SELECT ____(amount) OVER (ORDER BY id) FROM sales"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-007",
+    "category": "sql-standard",
+    "question_text": "트랜잭션을 확정하는 문장을 채우세요.",
+    "correct_answer": "COMMIT",
+    "explanation": "COMMIT은 현재 트랜잭션의 변경을 확정합니다.",
+    "code_snippet": "BEGIN; UPDATE users SET active = 1; ____;"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-008",
+    "category": "sql-standard",
+    "question_text": "트랜잭션 내부 복귀 지점을 만드는 키워드는?",
+    "correct_answer": "SAVEPOINT",
+    "explanation": "SAVEPOINT는 부분 롤백에 사용할 이름 있는 지점을 정의합니다.",
+    "code_snippet": "____ before_update;"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-009",
+    "category": "sql-standard",
+    "question_text": "존재하지 않는 주문을 가진 사용자 검사의 키워드를 채우세요.",
+    "correct_answer": "NOT EXISTS",
+    "explanation": "NOT EXISTS는 사용자와 매칭되는 주문이 없을 때 참입니다.",
+    "code_snippet": "SELECT * FROM users u WHERE ____ (SELECT 1 FROM orders o WHERE o.user_id = u.id)"
+  },
+  {
+    "subject": "sql",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-010",
+    "category": "sql-standard",
+    "question_text": "동점 뒤 순위 간격이 없는 함수명을 채우세요.",
+    "correct_answer": "DENSE_RANK",
+    "explanation": "DENSE_RANK는 동점에 같은 순위를 부여하고 다음 순위를 연속으로 매깁니다.",
+    "code_snippet": "SELECT ____() OVER (ORDER BY score DESC) FROM results"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-001",
+    "category": "python-core",
+    "question_text": "함수 인수의 기본값이 평가되는 시점은?",
+    "correct_answer": "함수를 정의할 때",
+    "choices": [
+      "함수를 정의할 때",
+      "모듈 종료 시",
+      "호출할 때마다",
+      "반환 시"
+    ],
+    "explanation": "기본값 객체는 정의 시 생성되므로 가변 기본값을 주의해야 합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-002",
+    "category": "python-core",
+    "question_text": "얕은 복사가 중첩 리스트에 미치는 영향은?",
+    "correct_answer": "내부 리스트 참조를 공유한다",
+    "choices": [
+      "원본 삭제",
+      "항상 튜플로 변환",
+      "내부 리스트 참조를 공유한다",
+      "모든 내부 객체 복제"
+    ],
+    "explanation": "얕은 복사는 외부 컨테이너만 새로 만들고 내부 참조는 공유합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-003",
+    "category": "python-core",
+    "question_text": "zip(a, b)의 기본 종료 시점은?",
+    "correct_answer": "더 짧은 입력이 끝날 때",
+    "choices": [
+      "둘 다 무한 반복",
+      "더 긴 입력 끝",
+      "항상 10회",
+      "더 짧은 입력이 끝날 때"
+    ],
+    "explanation": "기본 zip은 가장 짧은 입력 길이까지만 묶습니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-004",
+    "category": "python-core",
+    "question_text": "딕셔너리에서 없는 키를 기본값과 함께 조회하는 메서드는?",
+    "correct_answer": "get",
+    "choices": [
+      "append",
+      "get",
+      "index",
+      "insert"
+    ],
+    "explanation": "dict.get은 키가 없으면 지정한 기본값을 반환합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-005",
+    "category": "python-core",
+    "question_text": "list.sort()의 반환값은?",
+    "correct_answer": "None",
+    "choices": [
+      "원래 길이",
+      "True",
+      "정렬된 새 리스트",
+      "None"
+    ],
+    "explanation": "sort는 리스트를 제자리에서 변경하고 None을 반환합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-006",
+    "category": "python-core",
+    "question_text": "함수의 *args가 수집하는 자료형은?",
+    "correct_answer": "tuple",
+    "choices": [
+      "set",
+      "tuple",
+      "dict",
+      "list"
+    ],
+    "explanation": "추가 위치 인수는 튜플로 수집됩니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-007",
+    "category": "python-core",
+    "question_text": "함수의 **kwargs가 수집하는 자료형은?",
+    "correct_answer": "dict",
+    "choices": [
+      "frozenset",
+      "tuple",
+      "dict",
+      "list"
+    ],
+    "explanation": "추가 키워드 인수는 딕셔너리로 수집됩니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-008",
+    "category": "python-core",
+    "question_text": "예외 발생 여부와 관계없이 실행할 정리 블록은?",
+    "correct_answer": "finally",
+    "choices": [
+      "finally",
+      "except only",
+      "else only",
+      "catch"
+    ],
+    "explanation": "finally는 try 구문을 떠날 때 정리 작업을 수행합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-009",
+    "category": "python-core",
+    "question_text": "with 문에서 파일을 여는 이점은?",
+    "correct_answer": "블록 종료 시 파일 정리",
+    "choices": [
+      "블록 종료 시 파일 정리",
+      "읽기 금지",
+      "파일 자동 삭제",
+      "내용 자동 암호화"
+    ],
+    "explanation": "컨텍스트 관리자는 종료 시 파일을 닫습니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "multiple_choice",
+    "question_code": "I-MC-010",
+    "category": "python-core",
+    "question_text": "nonlocal이 대상으로 하는 변수는?",
+    "correct_answer": "바깥 함수 범위의 변수",
+    "choices": [
+      "클래스 속성",
+      "내장 함수",
+      "바깥 함수 범위의 변수",
+      "모든 전역 변수"
+    ],
+    "explanation": "nonlocal은 둘러싼 함수 범위의 기존 변수에 바인딩합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-001",
+    "category": "python-core",
+    "question_text": "인덱스와 값을 함께 반복하는 내장 함수를 채우세요.",
+    "correct_answer": "enumerate",
+    "explanation": "enumerate는 기본 0부터 인덱스와 값을 제공합니다.",
+    "code_snippet": "for index, value in ____(items):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-002",
+    "category": "python-core",
+    "question_text": "튜플 첫 요소를 정렬 키로 지정할 익명 함수 키워드는?",
+    "correct_answer": "lambda",
+    "explanation": "lambda는 하나의 표현식으로 함수를 정의합니다.",
+    "code_snippet": "sorted(pairs, key=____ item: item[0])"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-003",
+    "category": "python-core",
+    "question_text": "집합에 단일 원소를 추가하는 메서드는?",
+    "correct_answer": "add",
+    "explanation": "set.add는 한 원소를 집합에 추가합니다.",
+    "code_snippet": "seen.____('new')"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-004",
+    "category": "python-core",
+    "question_text": "딕셔너리의 키-값 쌍을 순회하는 메서드는?",
+    "correct_answer": "items",
+    "explanation": "dict.items는 키와 값의 쌍을 제공합니다.",
+    "code_snippet": "for key, value in data.____():"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-005",
+    "category": "python-core",
+    "question_text": "예외를 다시 발생시키는 키워드는?",
+    "correct_answer": "raise",
+    "explanation": "인수 없는 raise는 현재 처리 중인 예외를 다시 발생시킵니다.",
+    "code_snippet": "except ValueError: ____"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-006",
+    "category": "python-core",
+    "question_text": "여러 리스트 요소를 기존 리스트 뒤에 붙이는 메서드는?",
+    "correct_answer": "extend",
+    "explanation": "extend는 이터러블의 각 요소를 리스트에 추가합니다.",
+    "code_snippet": "values.____([3, 4])"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-007",
+    "category": "python-core",
+    "question_text": "함수 인수의 합계를 구하는 내장 함수를 채우세요.",
+    "correct_answer": "sum",
+    "explanation": "sum은 숫자 이터러블의 합을 계산합니다.",
+    "code_snippet": "total = ____(numbers)"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-008",
+    "category": "python-core",
+    "question_text": "문자열 목록을 쉼표로 결합하는 메서드는?",
+    "correct_answer": "join",
+    "explanation": "구분자 문자열의 join은 문자열 이터러블을 결합합니다.",
+    "code_snippet": "text = ','.____(names)"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-009",
+    "category": "python-core",
+    "question_text": "파일을 컨텍스트 관리자로 여는 키워드를 채우세요.",
+    "correct_answer": "with",
+    "explanation": "with는 컨텍스트의 진입과 종료를 관리합니다.",
+    "code_snippet": "____ open('data.txt', encoding='utf-8') as handle:"
+  },
+  {
+    "subject": "python",
+    "difficulty": "intermediate",
+    "question_type": "fill_blank",
+    "question_code": "I-FB-010",
+    "category": "python-core",
+    "question_text": "클래스 생성 후 초기화를 담당하는 메서드명은?",
+    "correct_answer": "__init__",
+    "explanation": "__init__는 이미 생성된 인스턴스의 초기 상태를 설정합니다.",
+    "code_snippet": "def ____(self, name):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-001",
+    "category": "python-core",
+    "question_text": "제너레이터 함수를 만드는 키워드는?",
+    "correct_answer": "yield",
+    "choices": [
+      "yield",
+      "async only",
+      "return only",
+      "generate"
+    ],
+    "explanation": "yield가 포함된 함수는 제너레이터 객체를 반환합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-002",
+    "category": "python-core",
+    "question_text": "이터레이터에서 다음 값을 얻는 내장 함수는?",
+    "correct_answer": "next",
+    "choices": [
+      "step",
+      "move",
+      "next",
+      "advance"
+    ],
+    "explanation": "next는 이터레이터의 __next__를 호출합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-003",
+    "category": "python-core",
+    "question_text": "이터레이터 종료를 알리는 예외는?",
+    "correct_answer": "StopIteration",
+    "choices": [
+      "IndexError",
+      "GeneratorError",
+      "StopIteration",
+      "EndError"
+    ],
+    "explanation": "__next__는 더 이상 값이 없을 때 StopIteration을 발생시킵니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-004",
+    "category": "python-core",
+    "question_text": "classmethod가 첫 인수로 받는 것은?",
+    "correct_answer": "클래스 자체",
+    "choices": [
+      "모듈",
+      "파일 객체",
+      "클래스 자체",
+      "항상 인스턴스"
+    ],
+    "explanation": "classmethod는 호출 클래스에 바인딩됩니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-005",
+    "category": "python-core",
+    "question_text": "staticmethod의 자동 바인딩 특징은?",
+    "correct_answer": "self나 cls를 자동 전달하지 않는다",
+    "choices": [
+      "cls 자동 전달",
+      "self나 cls를 자동 전달하지 않는다",
+      "둘 다 자동 전달",
+      "self 자동 전달"
+    ],
+    "explanation": "staticmethod는 클래스 공간의 일반 함수처럼 동작합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-006",
+    "category": "python-core",
+    "question_text": "property가 주로 제공하는 접근 형태는?",
+    "correct_answer": "속성처럼 읽는 메서드",
+    "choices": [
+      "함수 삭제",
+      "새 클래스 생성",
+      "스레드 실행",
+      "속성처럼 읽는 메서드"
+    ],
+    "explanation": "property는 메서드 호출을 속성 접근 형태로 제공합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-007",
+    "category": "python-core",
+    "question_text": "컨텍스트 관리자의 진입 메서드는?",
+    "correct_answer": "__enter__",
+    "choices": [
+      "__enter__",
+      "__begin__",
+      "__start__",
+      "__open__"
+    ],
+    "explanation": "with 진입 시 __enter__가 호출됩니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-008",
+    "category": "python-core",
+    "question_text": "컨텍스트 관리자의 종료 메서드는?",
+    "correct_answer": "__exit__",
+    "choices": [
+      "__exit__",
+      "__close__",
+      "__finish__",
+      "__end__"
+    ],
+    "explanation": "with 종료 시 __exit__가 예외 정보를 받을 수 있습니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-009",
+    "category": "python-core",
+    "question_text": "functools.wraps가 보존을 돕는 것은?",
+    "correct_answer": "원래 함수의 메타데이터",
+    "choices": [
+      "파일 내용",
+      "DB 트랜잭션",
+      "모든 지역 변수",
+      "원래 함수의 메타데이터"
+    ],
+    "explanation": "wraps는 이름과 문서 문자열 등의 메타데이터를 래퍼로 복사합니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "multiple_choice",
+    "question_code": "A-MC-010",
+    "category": "python-core",
+    "question_text": "인스턴스에 함수 호출 문법을 제공하는 메서드는?",
+    "correct_answer": "__call__",
+    "choices": [
+      "__execute__",
+      "__call__",
+      "__invoke__",
+      "__run__"
+    ],
+    "explanation": "__call__ 구현으로 obj() 형태를 사용할 수 있습니다."
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-001",
+    "category": "python-core",
+    "question_text": "제너레이터에서 값을 하나 내보내는 키워드를 채우세요.",
+    "correct_answer": "yield",
+    "explanation": "yield는 실행 상태를 보존하면서 호출자에게 값을 내보냅니다.",
+    "code_snippet": "def numbers():\n    ____ 1"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-002",
+    "category": "python-core",
+    "question_text": "반복 가능한 객체에서 이터레이터를 얻는 내장 함수는?",
+    "correct_answer": "iter",
+    "explanation": "iter는 객체의 이터레이션 프로토콜을 사용합니다.",
+    "code_snippet": "iterator = ____(values)"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-003",
+    "category": "python-core",
+    "question_text": "클래스 메서드 데코레이터를 채우세요.",
+    "correct_answer": "classmethod",
+    "explanation": "classmethod는 첫 인수 cls에 호출 클래스를 바인딩합니다.",
+    "code_snippet": "@____\ndef from_text(cls, text):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-004",
+    "category": "python-core",
+    "question_text": "정적 메서드 데코레이터를 채우세요.",
+    "correct_answer": "staticmethod",
+    "explanation": "staticmethod는 인스턴스나 클래스를 자동 인수로 전달하지 않습니다.",
+    "code_snippet": "@____\ndef validate(value):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-005",
+    "category": "python-core",
+    "question_text": "읽기 속성 데코레이터를 채우세요.",
+    "correct_answer": "property",
+    "explanation": "property는 메서드를 속성 조회와 연결합니다.",
+    "code_snippet": "@____\ndef name(self):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-006",
+    "category": "python-core",
+    "question_text": "await를 사용할 수 있는 함수의 정의 수식어를 채우세요.",
+    "correct_answer": "async",
+    "explanation": "async def는 코루틴 함수를 정의합니다.",
+    "code_snippet": "____ def fetch():"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-007",
+    "category": "python-core",
+    "question_text": "코루틴 결과를 기다리는 키워드를 채우세요.",
+    "correct_answer": "await",
+    "explanation": "await는 awaitable이 완료될 때까지 해당 코루틴을 일시 중단합니다.",
+    "code_snippet": "result = ____ fetch()"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-008",
+    "category": "python-core",
+    "question_text": "사용자 객체의 반복 시작 메서드명은?",
+    "correct_answer": "__iter__",
+    "explanation": "__iter__는 이터레이터를 반환해야 합니다.",
+    "code_snippet": "def ____(self):\n    return iter(self.values)"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-009",
+    "category": "python-core",
+    "question_text": "사용자 이터레이터의 다음 값 메서드명은?",
+    "correct_answer": "__next__",
+    "explanation": "__next__는 다음 값을 반환하거나 StopIteration을 발생시킵니다.",
+    "code_snippet": "def ____(self):"
+  },
+  {
+    "subject": "python",
+    "difficulty": "advanced",
+    "question_type": "fill_blank",
+    "question_code": "A-FB-010",
+    "category": "python-core",
+    "question_text": "데코레이터의 함수 메타데이터 보존 도우미를 채우세요.",
+    "correct_answer": "wraps",
+    "explanation": "functools.wraps는 래핑된 함수의 메타데이터를 보존합니다.",
+    "code_snippet": "from functools import ____"
+  }
+]

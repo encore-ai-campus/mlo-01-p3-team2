@@ -1,0 +1,31 @@
+{
+  "event_type": "chat_sent",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "message_uuid",
+      "nullable": false
+    },
+    {
+      "name": "channel_code",
+      "nullable": false
+    },
+    {
+      "name": "floor_uuid",
+      "nullable": true
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "message_uuid",
+    "channel_code",
+    "floor_uuid"
+  ],
+  "constants": {
+    "event_type": "CHAT_SENT"
+  },
+  "double_fields": []
+}

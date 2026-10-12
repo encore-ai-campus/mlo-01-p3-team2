@@ -1,0 +1,47 @@
+{
+  "event_type": "content_open_requested",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "content_uuid",
+      "nullable": false
+    },
+    {
+      "name": "category_uuid",
+      "nullable": false
+    },
+    {
+      "name": "domain",
+      "nullable": false
+    },
+    {
+      "name": "content_kind",
+      "nullable": false
+    },
+    {
+      "name": "zone_uuid",
+      "nullable": false
+    },
+    {
+      "name": "action",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "content_uuid",
+    "category_uuid",
+    "domain",
+    "content_kind",
+    "zone_uuid",
+    "action"
+  ],
+  "constants": {
+    "event_type": "CONTENT_OPEN_REQUESTED",
+    "action": "OPEN_REQUESTED"
+  },
+  "double_fields": []
+}

@@ -1,0 +1,21 @@
+{
+  "event_type": "session_ended",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "end_reason",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "end_reason"
+  ],
+  "constants": {
+    "event_type": "SESSION_ENDED"
+  },
+  "double_fields": []
+}
