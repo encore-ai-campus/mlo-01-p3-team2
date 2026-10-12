@@ -4,7 +4,7 @@
 """
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from random import Random
 from unittest import mock
 

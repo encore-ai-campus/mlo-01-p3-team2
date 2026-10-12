@@ -11,7 +11,7 @@ from django.urls import reverse
 from campaigns import api as campaigns
 from foundation.api import errors
 from foundation.models import AuditLog
-from tests.factories import DAY, NOW, World, make_admin, make_advertiser, png_file
+from tests.factories import DAY, NOW, World, make_advertiser, png_file
 
 
 class MonitoringServiceTests(TestCase):
