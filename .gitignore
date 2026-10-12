@@ -1,8 +1,36 @@
-# 로컬 Python 가상환경
-.venv/
-
-# Python 실행 캐시와 컴파일 결과
+# Python and local virtual environments
 __pycache__/
 *.py[cod]
-requirements-test.txt
-requirements.txt
+.venv/
+venv/
+
+# Local credentials and settings
+.env
+.env.*
+*.env
+!.env.example
+!.env.sample
+!.env.template
+
+# Local database, logs, and collected static files
+db.sqlite3
+db.sqlite3-*
+*.log
+/staticfiles/
+/.lan-firewall-result.json
+/var/board-menu/
+/var/session-cleanup.json
+/var/session-cleanup.tmp
+
+# Development caches and personal editor settings
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
+.DS_Store
