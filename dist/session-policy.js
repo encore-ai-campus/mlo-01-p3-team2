@@ -49,7 +49,7 @@
     // The server has saved the final accepted position and invalidated the session already.
     // Never POST logout from an old tab: another tab may have just logged into a new session.
     const url=new URL(config.loginUrl,location.href);
-    if(['idle','maximum'].includes(reason))url.searchParams.set('expired',reason);
+    if(['idle','maximum','replaced'].includes(reason))url.searchParams.set('expired',reason);
     location.replace(url.href);
   }
   async function requestStatus(){

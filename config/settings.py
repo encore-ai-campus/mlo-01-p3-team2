@@ -23,6 +23,17 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Add the Quick Tunnel host after building the environment-based host list.
+PUBLIC_TUNNEL_HOST = "hosts-bicycle-reproductive-defines.trycloudflare.com"
+ALLOWED_HOSTS.append(PUBLIC_TUNNEL_HOST)
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CSRF_TRUSTED_ORIGINS.append(f"https://{PUBLIC_TUNNEL_HOST}")
+
 INSTALLED_APPS = [
     "daphne",
     "django.contrib.auth",

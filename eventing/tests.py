@@ -257,7 +257,7 @@ class HttpEventTests(TestCase):
         return getattr(self.client, method)(url, data=json.dumps(data) if data is not None else "", content_type="application/json")
 
     def test_accepted_content_request_logs_before_redirect_for_each_catalog_link(self):
-        for code in ("gomoku", "war", "dad-and-me", "minesweeper", "psych-test"):
+        for code in ("gomoku", "war", "dad-and-me", "minesweeper", "fruit-box", "bubble-shooter", "suika", "flashman", "psych-test"):
             content = ContentItem.objects.get(code=code)
             response = self.client.get(f"/content/{code}/open/")
             self.assertEqual(response.status_code, 302)
@@ -269,7 +269,7 @@ class HttpEventTests(TestCase):
             self.assertEqual(row.raw_data["domain"], content.category.domain)
             self.assertEqual(row.raw_data["zone_uuid"], str(content.zone_id))
             self.assertEqual(row.raw_data["action"], "OPEN_REQUESTED")
-        self.assertEqual(EventOutbox.objects.filter(event_type="content_open_requested").count(), 5)
+        self.assertEqual(EventOutbox.objects.filter(event_type="content_open_requested").count(), 9)
 
     def test_unauthenticated_hidden_and_unknown_links_do_not_make_usage_events(self):
         self.assertEqual(Client().get("/content/gomoku/open/").status_code, 401)

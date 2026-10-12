@@ -16,6 +16,7 @@ from accounts.models import get_avatar, get_nickname, needs_profile_setup
 from .menu_images import FILE_NAME, IMAGE_TYPES, latest_menu, storage_root
 from .positions import get_position
 from raffle.survey import survey_url
+from learning.assets import map_asset_urls
 
 
 def version_map_asset(match):
@@ -36,6 +37,9 @@ def map_view(request):
         return redirect("accounts:setup")
     response = render(request, "index.html")
     html = response.content.decode(response.charset)
+    html = html.replace('<!-- learning-panels -->', render_to_string('learning/map_panels.html'), 1)
+    html = html.replace('<!-- learning-assets -->', render_to_string('learning/map_assets.html',
+                        {'learning_assets': map_asset_urls()}), 1)
     # A changed script gets a fresh browser URL alongside the current HTML.
     html = re.sub(
         r'(?P<attribute>src|href)="(?P<asset>[\w.-]+\.(?:js|css))"',

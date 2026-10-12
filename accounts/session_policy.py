@@ -29,8 +29,8 @@ def start_login(session, user=None):
     session[STARTED] = session[ACTIVITY] = now.timestamp()
     session.set_expiry(now + timedelta(seconds=settings.CAMPUS_LOGIN_MAX_AGE_SECONDS))
     if user is not None:
-        from eventing.events import start_platform_session
-        start_platform_session(user, session, now=now)
+        from .single_login import replace_login
+        replace_login(session, user, now)
 
 
 def status(data, now, deadline=None):
@@ -48,7 +48,14 @@ def invalid_status(reason="signed_out"):
     return {"authenticated": False, "reason": reason, "serverNow": timezone.now().timestamp() * 1000}
 
 
-def expire_record(record, data, reason, *, now=None):
+def notify_expiry(key, reason):
+    layer = get_channel_layer()
+    if layer:
+        async_to_sync(layer.group_send)(session_registry.session_group(key),
+                                       {"type": "session.expired", "reason": reason})
+
+
+def expire_record(record, data, reason, *, now=None, notify=True):
     """Save the newest accepted position, delete exactly this revision, then notify sockets."""
     snapshot = session_registry.latest(record.session_key, data.get(SESSION_KEY))
     if snapshot:
@@ -69,10 +76,8 @@ def expire_record(record, data, reason, *, now=None):
                 end_platform_session(user, data, "SESSION_EXPIRED", now=now)
     if not deleted:
         return False  # A second tab updated activity; re-read instead of deleting a fresh session.
-    layer = get_channel_layer()
-    if layer:
-        async_to_sync(layer.group_send)(session_registry.session_group(record.session_key),
-                                       {"type": "session.expired", "reason": reason})
+    if notify:
+        notify_expiry(record.session_key, reason)
     return True
 
 
@@ -94,6 +99,10 @@ def check_session(key, *, touch=False, force=False, now=None):
         valid = all(type(data.get(field)) in (int, float) and math.isfinite(data[field])
                     and data[field] <= now + 60 for field in (STARTED, ACTIVITY))
         state = status(data, now, record.expire_date.timestamp()) if valid else invalid_status("invalid")
+        if state["authenticated"]:
+            from .single_login import session_is_current
+            if not session_is_current(key, data[SESSION_KEY]):
+                state = invalid_status("replaced")
         if not state["authenticated"]:
             if expire_record(record, data, state["reason"], now=datetime.fromtimestamp(now, datetime_timezone.utc)):
                 return state

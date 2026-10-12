@@ -327,7 +327,7 @@ class CampusSocketTests(TransactionTestCase):
     async def test_glass_door_state_reaches_both_players_and_later_connections(self):
         async with self.connections(self.a, self.b) as (a, b):
             first, second = await self.welcome_pair(a, b)
-            self.assertEqual(len(first["doors"]), 7)
+            self.assertEqual(len(first["doors"]), 8)
             self.assertTrue(all(value is False for value in first["doors"].values()))
             await a.send_json_to(self.movement(x=1649.25, y=533.5))
             await b.receive_json_from()
@@ -416,3 +416,39 @@ class CampusSocketTests(TransactionTestCase):
             self.assertEqual(await saved_session(), initial)
         self.assertEqual(await database_sync_to_async(PlatformSession.objects.count)(), 1)
         self.assertFalse(await database_sync_to_async(EventOutbox.objects.filter(event_type="session_ended").exists)())
+
+
+    async def test_storage_sliding_door_is_shared_with_current_and_later_players(self):
+        async with self.connections(self.a, self.b) as (a, b):
+            await self.welcome_pair(a, b)
+            await a.send_json_to(self.movement(x=2112.75, y=146))
+            await b.receive_json_from()
+            await a.send_json_to({"type": "door", "doorId": "door-storage", "open": True})
+            expected = {"type": "door_state", "doorId": "door-storage", "open": True}
+            self.assertEqual(await a.receive_json_from(), expected)
+            self.assertEqual(await b.receive_json_from(), expected)
+            later = self.socket(self.a)
+            try:
+                self.assertTrue((await later.connect())[0])
+                self.assertTrue((await later.receive_json_from())["doors"]["door-storage"])
+            finally:
+                await later.disconnect()
+
+    async def test_storage_sliding_door_cannot_close_over_another_player(self):
+        consumers.room.doors["door-storage"] = True
+        async with self.connections(self.a, self.b) as (a, b):
+            await self.welcome_pair(a, b)
+            await a.send_json_to(self.movement(x=2112.75, y=146))
+            await b.receive_json_from()
+            await b.send_json_to(self.movement(x=2112.75, y=126))
+            await a.receive_json_from()
+            await a.send_json_to({"type": "door", "doorId": "door-storage", "open": False})
+            self.assertEqual((await a.receive_json_from())["type"], "door_error")
+            self.assertTrue(consumers.room.doors["door-storage"])
+            await asyncio.sleep(0.06)
+            await b.send_json_to(self.movement(x=2112.75, y=100))
+            await a.receive_json_from()
+            await asyncio.sleep(0.16)
+            await a.send_json_to({"type": "door", "doorId": "door-storage", "open": False})
+            self.assertFalse((await a.receive_json_from())["open"])
+            self.assertFalse((await b.receive_json_from())["open"])

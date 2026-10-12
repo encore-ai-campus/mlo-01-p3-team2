@@ -17,7 +17,7 @@
     const r=door.room;
     return x>door.left&&x<door.right&&current.x>=r.x&&current.x<=r.x+r.w&&current.y<=r.y+r.h;
   }
-  function create({data,onOpen,onExit,getPlayer}) {
+  function create({data,onOpen,onExit,getPlayer,moveSpeed=125}) {
     const dialog=document.getElementById('classroomDialog'),pythonDoor=entrance(data);
     const sqlDoor=data.rooms.some(r=>r.id==='class2')?entrance(data,'class2'):null;
     let door=pythonDoor,subject='python',map=window.CampusClassroomMap;
@@ -27,6 +27,7 @@
     function open(){
       if(dialog.open)return;
       map=window.CampusClassroomMap.forSubject(subject);
+      const title=document.getElementById('classroom-title');if(title)title.textContent=map.data.name;
       canvas.setAttribute?.('aria-label',`${subject==='sql'?'SQL':'Python'} 학습교실. WASD와 방향키로 이동하고 학습 영역 안에서 E키를 누르세요.`);
       onOpen();keys.clear();
       actor={...getPlayer(),x:map.data.spawn[0],y:map.data.spawn[1],moving:false,walkTime:0,visualZ:0,dir:'up'};
@@ -64,7 +65,7 @@
           const horizontal=dx>0?'right':'left',vertical=dy>0?'down':'up';
           if(!dx)actor.dir=vertical;else if(!dy||!wasMoving||(actor.dir!==horizontal&&actor.dir!==vertical))actor.dir=horizontal;
           const length=Math.hypot(dx,dy),v=renderer.projection.inverseVector(dx/length,dy/length);
-          map.move(actor,v.x*125*Math.min(dt,.04),v.y*125*Math.min(dt,.04));
+          map.move(actor,v.x*moveSpeed*Math.min(dt,.04),v.y*moveSpeed*Math.min(dt,.04));
         }
       }
       actor.walkTime=actor.moving?(actor.walkTime||0)+dt:0;
@@ -80,7 +81,7 @@
       window.CampusClassroomAssets?.paintWallCorners(ctx,P);
       ctx.restore();
     }
-    return {open,focus,tick,get door(){return door;},get blocking(){return dialog.open;},shouldEnter:(a,b)=>{
+    return {open,focus,tick,get door(){return door;},get actor(){return actor;},get subject(){return subject;},get blocking(){return dialog.open;},shouldEnter:(a,b)=>{
       for(const [candidate,value] of [[pythonDoor,'python'],[sqlDoor,'sql']]){
         const gate=candidate&&data.objects.find(o=>o.id==='door-'+candidate.room.id);
         if(candidate&&(!gate||gate.open)&&crossedEntrance(a,b,candidate)){door=candidate;subject=value;return true;}
