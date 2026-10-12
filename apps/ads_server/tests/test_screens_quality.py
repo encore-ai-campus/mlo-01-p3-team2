@@ -1,5 +1,9 @@
 """Step 3-3 화면 전수 점검: 실제 데이터로 모든 화면을 그려 보안 헤더·CSP 위반·접근성 기본을 본다.
 
+- 범위: 광고주·운영 화면은 손으로 적은 목록이지만, 모든 경로를 실제 값으로 GET 해서 HTML 로 그려지는 화면이 목록에 없으면 실패한다(빠뜨림 방지).
+  관리자 사이트는 등록된 모든 모델의 목록·상세 화면과 비밀번호 변경·초기화를 등록에서 만든다. 정상 GET 으로는 나오지 않는 화면(키 발급·잠금·가입 제한·오류)은 따로 만든다.
+  접근성 기본은 콘솔·운영 화면만 본다 — Django admin 기본 화면의 마크업(예: 비밀번호 관리자를 위해 CSS 로 숨긴 아이디 칸)은 우리가 고치지 않는다.
+
 - 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·캐시 금지. GET 으로 그리는 화면과, POST 응답으로만 그려지는 화면(키 발급·로그인 잠금·가입 시도 제한).
 - CSP 위반이 될 마크업: 인라인 스크립트(데이터 블록 제외)·`style` 속성·`on…` 이벤트 속성. 브라우저가 막아 화면이 깨지거나 기능이 죽는다.
 - 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`), 비밀번호 칸의 `autocomplete`(현재·새 비밀번호), 겹치지 않는 id.
@@ -9,16 +13,24 @@ import re
 import uuid
 from html.parser import HTMLParser
 from pathlib import Path
+from random import Random
 from unittest import mock
 
 from django.conf import settings
+from axes.models import AccessFailureLog
+from django.contrib import admin
+from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
 from django.test import Client, TestCase, override_settings, tag
-from django.urls import reverse
+from django.urls import resolve, reverse
 
+from billing import api as billing
 from campaigns import api as campaigns
 from foundation.api import SignupRateLimited
-from tests.factories import PW, World, png_file
+from masters import api as masters
+from records import api as records
+from tests.factories import NOW, PW, SUBJECT, World, png_file
+from tests.test_access_sweep import _PARAM, every_route
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
 
@@ -98,6 +110,14 @@ class ScreenQualityTests(TestCase):
         campaigns.create_review_request(self.w.adv, self.suspended.campaign_id, "고쳤습니다")
         with override_settings(MAX_CREATIVES_PER_AD_GROUP=2):  # 소재마다 폼이 되풀이된다(V1 은 1개, 설정으로 늘린다)
             campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))
+        # 관리자 사이트의 모든 모델 상세 화면을 보려고 줄을 하나씩 둔다
+        Client().post(reverse("login"), {"username": "nobody", "password": "wrong-password-xyz"})  # 잠금 시도
+        Client().post(reverse("login"), {"username": self.w.admin.username, "password": PW})  # 접속 기록
+        AccessFailureLog.objects.create(username="nobody", ip_address="127.0.0.1", user_agent="test", path_info="/", locked_out=False)  # 설정이 꺼져 있어도 화면은 있다
+        Group.objects.create(name="점검")
+        masters.issue_media_key(self.w.admin, self.w.slot.media_id, "점검")
+        records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+        billing.charge_for_reaction(self.w.adv.pk, self.w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, f"{self.w.slot.media_id}:{uuid.uuid4()}", now=NOW)
 
     def pages(self):
         adv = [reverse(n, args=a) for n, a in (
@@ -105,14 +125,59 @@ class ScreenQualityTests(TestCase):
             ("campaign_detail", [self.suspended.campaign_id]), ("ad_group_detail", [self.w.group.ad_group_id]), ("ad_create", []),
             ("points", []), ("my_account", []),
         )] + [reverse("ad_create") + "?unit=IMPRESSION"]
-        admin = [reverse(n, args=a) for n, a in (
-            ("admin:index", []), ("operator:media_list", []), ("operator:media_detail", [self.w.slot.media_id]),
+        operator = [reverse(n, args=a) for n, a in (
+            ("operator:media_list", []), ("operator:media_detail", [self.w.slot.media_id]),
             ("operator:slot_policy", [self.w.slot.slot_id]), ("operator:policy_bulk", []), ("operator:campaign_monitor", []),
             ("operator:review_queue", []), ("operator:advertiser_list", []), ("operator:advertiser_detail", [self.w.adv.pk]),
-            ("admin:foundation_user_change", [self.w.adv.pk]), ("admin:foundation_auditlog_changelist", []),
         )]
         anonymous = [reverse("login"), reverse("signup")]
-        return [(self.w.adv, adv), (self.w.admin, admin), (None, anonymous)]
+        return [(self.w.adv, adv), (self.w.admin, operator + self.admin_site_pages()), (None, anonymous)]
+
+    def admin_site_pages(self):
+        """관리자 사이트에 등록된 **모든** 모델의 목록·상세 화면(등록이 늘면 함께 본다. 읽기 전용이라 추가·삭제 화면은 없다), 첫 화면, 본인 비밀번호 변경, 사용자 비밀번호 초기화."""
+        urls = [reverse("admin:index"), reverse("admin:password_change"), reverse("admin:password_change_done"),
+                reverse("admin:auth_user_password_change", args=[self.w.adv.pk])]  # UserAdmin 이 이 이름을 고정해 쓴다
+        missing = []
+        for model in admin.site._registry:
+            if model._meta.app_label == "tests_support":  # 시험 설정에만 있는 모델
+                continue
+            name = f"admin:{model._meta.app_label}_{model._meta.model_name}"
+            urls.append(reverse(f"{name}_changelist"))
+            row = model._default_manager.order_by("pk").first()
+            if row is None:
+                missing.append(name)
+                continue
+            urls.append(reverse(f"{name}_change", args=[row.pk]))
+        self.assertEqual(missing, [], "상세 화면을 볼 줄이 없다(준비 데이터에 더한다)")
+        return urls
+
+    def test_no_console_or_operator_screen_is_left_out(self):
+        """화면 목록은 손으로 적지만 빠뜨리면 실패한다: 광고주·운영 경로를 모두 실제 값으로 GET 해서, HTML 로 그려지는 화면은 위 목록에 있어야 한다.
+        POST 전용 동작은 405, 파일(이미지)은 HTML 이 아니다. 실제 값이 없는 경로는 404 라 여기서 실패한다(값을 더한다)."""
+        values = {
+            "campaign_id": self.w.campaign.campaign_id, "ad_group_id": self.w.group.ad_group_id, "creative_id": self.w.creative.creative_id,
+            "media_id": self.w.slot.media_id, "slot_id": self.w.slot.slot_id, "user_id": self.w.adv.pk, "name": self.w.creative.image_name,
+            "review_request_id": campaigns.get_campaign(self.w.adv, self.suspended.campaign_id).suspension.open_review_request_id,
+            "key_id": uuid.uuid4(),  # 폐기(POST 전용)에만 쓴다
+        }
+        audited = {resolve(url.split("?")[0]).view_name for _, urls in self.pages() for url in urls}
+        clients = {}
+        for prefix, user in (("advertiser/", self.w.adv), (settings.ADMIN_URL_PATH + "operator/", self.w.admin)):
+            clients[prefix] = Client()
+            clients[prefix].force_login(user)
+        screens = 0
+        for route in sorted(set(every_route())):
+            prefix = next((p for p in clients if route.startswith(p)), None)
+            if prefix is None:
+                continue
+            path = "/" + _PARAM.sub(lambda m: str(values[m.group(2)]), route)
+            r = clients[prefix].get(path)
+            if r.status_code == 405 or (r.status_code == 200 and not r["Content-Type"].startswith("text/html")):
+                continue
+            self.assertEqual(r.status_code, 200, path)
+            self.assertIn(resolve(path).view_name, audited, f"점검 목록에 없는 화면: {path}")
+            screens += 1
+        self.assertGreaterEqual(screens, 15)  # 공회전이 아니다
 
     def test_every_screen_has_the_security_headers_and_no_csp_violations(self):
         checked = 0
