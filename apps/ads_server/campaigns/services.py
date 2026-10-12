@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from assets.api import store, validate_image
 from engine.api import effect_of, is_expired
-from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_request_key, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
+from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, is_request_key, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
 from masters import api as masters
 
 from . import transitions as tr
@@ -39,9 +39,14 @@ def _problem(pointer, message):
 
 
 def _amount(value, pointer="/amount"):
-    if isinstance(value, bool) or not isinstance(value, int) or not (0 < value <= MAX_AMOUNT):
+    if not is_int(value) or not (0 < value <= MAX_AMOUNT):
         raise _problem(pointer, f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다.")
     return value
+
+
+def _check_ends_at(ends_at, starts_at, now):
+    if not (ends_at > starts_at and ends_at > now):
+        raise _problem("/ends_at", "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다.")
 
 
 def _utc_time(value, pointer):
@@ -178,8 +183,8 @@ def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None):
     starts_at = _utc_time(starts_at, "/starts_at")
     ends_at = None if ends_at is None else _utc_time(ends_at, "/ends_at")
     daily_budget = _amount(daily_budget, "/daily_budget")
-    if ends_at is not None and not (ends_at > starts_at and ends_at > now):
-        raise _problem("/ends_at", "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다.")
+    if ends_at is not None:
+        _check_ends_at(ends_at, starts_at, now)
     with transaction.atomic():
         _lock_quota(user)
         if Campaign.objects.filter(owner=user).count() >= settings.MAX_CAMPAIGNS_PER_ADVERTISER:
@@ -227,8 +232,7 @@ def update_campaign(user, campaign_id, changes, now=None, expected_updated_at=No
             _amount(changes["daily_budget"], "/daily_budget")
         if "ends_at" in changes and changes["ends_at"] is not None:
             ends_at = _utc_time(changes["ends_at"], "/ends_at")
-            if not (ends_at > now and ends_at > c.starts_at):
-                raise _problem("/ends_at", "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다.")
+            _check_ends_at(ends_at, c.starts_at, now)
             changes = {**changes, "ends_at": ends_at}
         if "status" in changes:
             if c.status == CampaignStatus.SUSPENDED:

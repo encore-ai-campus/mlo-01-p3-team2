@@ -9,7 +9,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_request_key, clean_text, create_advertiser, errors, parse_uuid, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, Role, clean_request_key, clean_text, create_advertiser, errors, is_int, parse_uuid, record_audit, require_admin
 
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
@@ -37,10 +37,6 @@ def _lock_wallet(owner_id):
         return Wallet.objects.select_for_update().get(owner_id=owner_id)
     except Wallet.DoesNotExist:
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
-
-
-def _is_int(value):
-    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _append(wallet, entry_type, amount, now, **extra):
@@ -73,7 +69,7 @@ def grant_signup(user, now=None):
     if user.role != Role.ADVERTISER:
         raise errors.Forbidden("광고주만 지갑을 가진다.")
     points = settings.SIGNUP_GRANT_POINTS
-    if not _is_int(points) or not 0 <= points <= MAX_AMOUNT:
+    if not is_int(points) or not 0 <= points <= MAX_AMOUNT:
         raise ImproperlyConfigured(f"SIGNUP_GRANT_POINTS 는 0 이상 {MAX_AMOUNT} 이하의 정수여야 한다: {points!r}")
     with transaction.atomic():
         wallet, _created = Wallet.objects.get_or_create(owner=user, defaults={"created_at": now})
@@ -98,7 +94,7 @@ def adjust(actor, user_id, amount, note, now=None, request_key=None):
     now = _now(now)
     require_admin(actor)
     note = clean_text(note, "사유", "/note", 200)
-    if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0 or abs(amount) > MAX_AMOUNT:
+    if not is_int(amount) or amount == 0 or abs(amount) > MAX_AMOUNT:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"0이 아닌 정수(절댓값 {MAX_AMOUNT} 이하)여야 합니다."}])
     request_key = clean_request_key(request_key)
     try:
@@ -127,10 +123,15 @@ def _adjust(actor, owner_id, amount, note, now, request_key):
     return _entry_view(entry)
 
 
+def _duplicate(entry):
+    """이미 과금된 반응: 처음 결과를 그대로 돌려준다."""
+    return ChargeResult(_entry_view(entry), charged=-entry.amount, shortfall=entry.shortfall, duplicate=True)
+
+
 def _charge(owner_id, campaign_id, amount, reaction_ref, policy_name, now):
     existing = LedgerEntry.objects.filter(reaction_ref=reaction_ref).first()
     if existing is not None:
-        return ChargeResult(_entry_view(existing), charged=-existing.amount, shortfall=existing.shortfall, duplicate=True)
+        return _duplicate(existing)
     wallet = _lock_wallet(owner_id)
     charged = min(amount, wallet.balance)  # 남은 잔액까지만. 0 밑으로 내리지 않는다
     entry = _append(
@@ -163,11 +164,11 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
     한 트랜잭션에서 ① 원장 `CHARGE` ② 지갑 잔액 ③ 그날 소진액을 함께 바꾼다.
     """
     now = _now(now)
-    if not _is_int(applied_amount) or not 1 <= applied_amount <= MAX_AMOUNT:  # 소수·bool·범위 밖은 원장·잔액·소진액 어디에도 닿기 전에 거절
+    if not is_int(applied_amount) or not 1 <= applied_amount <= MAX_AMOUNT:  # 소수·bool·범위 밖은 원장·잔액·소진액 어디에도 닿기 전에 거절
         raise errors.InvalidRequest(errors=[{"pointer": "/applied_amount", "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."}])
     policy = get_charge_policy(settings.BILLING_CHARGE_POLICY)
     amount = policy.amount_for(reaction_type, pricing_unit, applied_amount)
-    if not _is_int(amount) or not 0 <= amount <= MAX_AMOUNT:  # 정책이 잘못된 값을 돌려주는 것은 서버 쪽 결함이다
+    if not is_int(amount) or not 0 <= amount <= MAX_AMOUNT:  # 정책이 잘못된 값을 돌려주는 것은 서버 쪽 결함이다
         raise ValueError(f"과금 정책 {policy.name!r} 이(가) 올바르지 않은 과금액을 돌려줬다: {amount!r}")
     if amount == 0:
         return None
@@ -178,8 +179,16 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
         with transaction.atomic():
             return _charge(owner_id, campaign_id, amount, reaction_ref, policy.name, now)
     except IntegrityError:  # 동시에 같은 키가 들어온 경우의 안전망(유니크 제약): 먼저 들어간 결과를 돌려준다
-        existing = LedgerEntry.objects.get(reaction_ref=reaction_ref)
-        return ChargeResult(_entry_view(existing), charged=-existing.amount, shortfall=existing.shortfall, duplicate=True)
+        return _duplicate(LedgerEntry.objects.get(reaction_ref=reaction_ref))
+
+
+def _charged_on(day, **scope):
+    """원장의 CHARGE 줄로 센 그 예산 일의 받은 포인트. `scope` 는 지갑(`wallet=`)이나 캠페인(`campaign_id=`)."""
+    start = day_start(day)
+    total = LedgerEntry.objects.filter(
+        entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1), **scope,
+    ).aggregate(s=Sum("amount"))["s"] or 0
+    return -total
 
 
 def _wallet_view(owner_id, now):
@@ -188,17 +197,12 @@ def _wallet_view(owner_id, now):
     except Wallet.DoesNotExist:
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
     day = budget_day_of(now)
-    start = day_start(day)
-    spent = (
-        LedgerEntry.objects.filter(wallet=wallet, entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1))
-        .aggregate(s=Sum("amount"))["s"] or 0
-    )
-    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=-spent, budget_day=day, resets_at=next_reset(now))
+    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=_charged_on(day, wallet=wallet), budget_day=day, resets_at=next_reset(now))
 
 
 def _cursor(before):
     """목록 커서(지갑 안의 순번 `seq`). 주소에서 온 값은 ASCII 숫자 10자리까지만 읽고, 형식이 틀린 값은 첫 쪽으로 본다(`²`·`①`도 `isdigit()` 은 참이다)."""
-    if isinstance(before, int) and not isinstance(before, bool):
+    if is_int(before):
         return before
     if isinstance(before, str) and before.isascii() and before.isdigit() and len(before) <= 10:
         return int(before)
@@ -252,22 +256,22 @@ def spend_today(campaign_ids, now=None):
     return dict(CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day=day).values_list("campaign_id", "spent"))
 
 
-def spend_by_day(campaign_ids, start_day, end_day):
-    """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}` 를 **질의 한 번**으로. `start_day` 포함, `end_day` 미포함. 소진이 없는 날은 결과에 없다(0 으로 읽는다)."""
+def _spend_totals(campaign_ids, start_day, end_day, key):
     rows = (
         CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
-        .values("budget_day").annotate(total=Sum("spent")).values_list("budget_day", "total")
+        .values(key).annotate(total=Sum("spent")).values_list(key, "total")
     )
     return dict(rows)
+
+
+def spend_by_day(campaign_ids, start_day, end_day):
+    """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}` 를 **질의 한 번**으로. `start_day` 포함, `end_day` 미포함. 소진이 없는 날은 결과에 없다(0 으로 읽는다)."""
+    return _spend_totals(campaign_ids, start_day, end_day, "budget_day")
 
 
 def spend_by_campaign(campaign_ids, start_day, end_day):
     """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함) — **질의 한 번**. 소진이 없는 캠페인은 결과에 없다."""
-    rows = (
-        CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
-        .values("campaign_id").annotate(total=Sum("spent")).values_list("campaign_id", "total")
-    )
-    return dict(rows)
+    return _spend_totals(campaign_ids, start_day, end_day, "campaign_id")
 
 
 def charged_amounts(reaction_refs):
@@ -316,15 +320,6 @@ def _charge_entries(lookup, keys):
     return found
 
 
-def _ledger_spent(campaign_id, day):
-    """원장의 CHARGE 줄로 센 그 (캠페인, 예산 일)의 받은 포인트."""
-    start = day_start(day)
-    total = LedgerEntry.objects.filter(
-        entry_type=EntryType.CHARGE, campaign_id=campaign_id, created_at__gte=start, created_at__lt=start + timedelta(days=1),
-    ).aggregate(s=Sum("amount"))["s"] or 0
-    return -total
-
-
 def recompute_spend():
     """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수(받은 포인트가 있는 행)를 돌려준다.
 
@@ -346,7 +341,7 @@ def recompute_spend():
             # (예산 일 경계를 바꾸는 정상 절차에서도 이전 날짜 행을 두 재계산이 함께 만난다). 없으면 만들고, 그 행은 우리가 쥔다.
             spend, _ = CampaignSpend.objects.select_for_update().get_or_create(campaign_id=campaign_id, budget_day=day)
             # 잠근 **뒤에** 읽는다
-            total = _ledger_spent(campaign_id, day)
+            total = _charged_on(day, campaign_id=campaign_id)
             if total > 0:
                 CampaignSpend.objects.filter(pk=spend.pk).update(spent=total)
                 rows += 1
