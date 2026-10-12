@@ -188,6 +188,7 @@ erDiagram
     campaigns_ad_group ||--o{ campaigns_bid : "ad_group (버전)"
     billing_wallet ||--o{ billing_ledger_entry : "wallet"
     masters_media ||--o{ masters_media_key : "media"
+    masters_media ||--o{ masters_media_deactivation : "media (끈 기록)"
     campaigns_creative ||--o{ campaigns_creative_image : "creative (보유 파일)"
     foundation_user ||--o| campaigns_advertiser_quota : "owner (상한 잠금, 1:1)"
 
@@ -303,6 +304,11 @@ erDiagram
         datetime revoked_at
         string request_key "UK, 발급 요청 멱등 키"
     }
+    masters_media_deactivation {
+        uuid deactivation_id PK
+        uuid media_id FK
+        datetime deactivated_at "추가만"
+    }
     campaigns_creative_image {
         uuid creative_image_id PK
         uuid creative_id FK "UK(creative, image_name)"
@@ -334,6 +340,7 @@ erDiagram
 | M2 | 게재 위치 `masters_slot` | masters | 마스터 | 관리자 | 슬롯 등록 | [구현] |
 | M3 | 입찰 정책 `masters_bid_policy` | masters | 마스터(추가 전용 버전) | 관리자 | 정책 변경마다 | [구현] |
 | M4 | 매체 키 `masters_media_key` | masters | 보안 | 관리자(서버 명령) | 키 발급·교체 | [구현] 2-2 |
+| M5 | 매체 비활성화 기록 `masters_media_deactivation` | masters | 기록(추가 전용) | 관리자(매체 끄기) | 켜져 있던 매체를 끌 때마다 | [구현] 6-1a `42de743` |
 | O1 | 캠페인 `campaigns_campaign` | campaigns | 운영 | 광고주(상태는 관리자·시스템도) | 캠페인 생성 | [구현] |
 | O2 | 광고그룹 `campaigns_ad_group` | campaigns | 운영 | 광고주 | 광고그룹 생성 | [구현] |
 | O3 | 광고그룹-슬롯 `campaigns_ad_group_slot` | campaigns | 운영(연결) | 광고주 | 슬롯 선택·교체 | [구현] |
@@ -408,7 +415,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 |---|---|:---:|---|---|
 | `media_id` | UUID | N | PK | C1에서는 본문이 아니라 **매체 키로 식별**한다 |
 | `name` | 문자 100 | N | UNIQUE | |
-| `is_active` | 불리언 | N | | 꺼지면 그 매체의 슬롯도 쓸 수 없다 |
+| `is_active` | 불리언 | N | | 꺼지면 그 매체의 슬롯도 쓸 수 없다. 켜져 있던 매체를 끌 때마다 M5에 한 줄 남는다 — 그 전에 만든 결정의 반응은 다시 켠 뒤에 와도 인정되지 않는다(`media_deactivated`, 6-1b) |
 | `created_at` | 시각 | N | | |
 
 #### M2. 게재 위치(슬롯) `masters_slot` [구현]
@@ -457,6 +464,19 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `expires_at` | 시각 | Y | | 교체 유예가 끝나는 시각. NULL이면 계속 유효 |
 | `revoked_at` | 시각 | Y | | 즉시 폐기 |
 | `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 발급 요청의 멱등 키(화면 폼 하나 = 키 하나). 같은 요청 키로는 다시 발급하지 않고 409와 키 식별자를 돌려준다(평문은 다시 보일 수 없음) [구현 `1e72031`] |
+
+#### M5. 매체 비활성화 기록 `masters_media_deactivation` [구현, 6-1a `42de743`]
+
+매체를 끈 시각. 반응 판정의 규칙 `media-period`가 "결정 뒤·접수 전에 그 매체가 꺼진 적이 있나"를 이 기록으로 본다(설계서 §10 "반응의 401·403 뒤 재전송과 매체 비활성화"). **추가만** 하고, 다시 켜도 지우지 않는다. 관리자 화면은 읽기 전용이다. 마이그레이션 `masters/0004`.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `deactivation_id` | UUID | N | PK(UUIDv7) | |
+| `media_id` | UUID | N | FK→M1 `PROTECT`, 색인 `(media, deactivated_at)` | |
+| `deactivated_at` | 시각 | N | | 끈 시각(서버 시계) |
+
+- **쓰는 곳은 하나**: `set_media_active(False)`가 **켜져 있던 매체를 실제로 끌 때만** 같은 트랜잭션에서 한 줄 더한다. 조건부 UPDATE(`is_active=True`인 행만)라 두 관리자가 동시에 꺼도 한 줄이고, 이미 꺼진 매체를 다시 끄거나 켜면 기록하지 않는다.
+- **읽는 곳은 하나**: `masters.api.first_deactivation(매체, after, until)` = (after, until] 안의 가장 이른 비활성화 시각(없으면 `None`). 판정은 (결정 시각, 접수 시각]으로 부른다 — 결정과 같은 시각에 끈 것은 결정 전, 접수와 같은 시각에 끈 것은 접수 전으로 본다.
 
 #### O1. 캠페인 `campaigns_campaign` [구현]
 
@@ -637,7 +657,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
-| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 색인 `records_reaction_received_idx (received_at)`·`records_reaction_processed_idx (processed_at)` [구현 3-3e `6654077`, 외부 검토 00d3067 P3-3]: 구간 manifest가 접수 이벤트(수신 시각)와 판정·과금 이벤트(처리 시각)를 창마다 그 범위만 읽는다 — **반응 표의 색인이 둘 늘어 수신(INSERT)·처리(UPDATE) 쓰기 비용이 조금 는다**. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각, 결정 뒤·접수 전 매체 비활성화 시각(`media_deactivated_at`, 없으면 `null` — v3, 6-1b `a70d769`). `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 색인 `records_reaction_received_idx (received_at)`·`records_reaction_processed_idx (processed_at)` [구현 3-3e `6654077`, 외부 검토 00d3067 P3-3]: 구간 manifest가 접수 이벤트(수신 시각)와 판정·과금 이벤트(처리 시각)를 창마다 그 범위만 읽는다 — **반응 표의 색인이 둘 늘어 수신(INSERT)·처리(UPDATE) 쓰기 비용이 조금 는다**. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
 | P3 outbox `events_outbox` **[구현 4-1a]** | 아래 표 | 결정·접수·판정·과금과 **같은 트랜잭션**에 쓴다(트랜잭션 밖이면 거부). 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 "outbox 쓰기 규약" |
 
 **P3 `events_outbox` 컬럼** [구현 4-1a, 2026-10-10]. Debezium outbox 라우터의 기본 열과 대응을 적었다(확장 때 라우터 설정에서 매핑).
@@ -894,7 +914,7 @@ sequenceDiagram
         S-->>M: 503 + Retry-After (매체는 같은 reaction_id로 재시도)
     end
     P->>DB: RECEIVED 반응 읽기
-    P->>P: 규칙 체인 known-decision → same-media → ad-shown → click-source → subject → occurred-at → campaign-open → once-per-type → funnel-window → funnel-order
+    P->>P: 규칙 체인 known-decision → same-media → media-period → ad-shown → click-source → subject → occurred-at → campaign-open → once-per-type → funnel-window → funnel-order
     alt 앞 단계(노출·클릭)를 기다림
         P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초. 앞 단계가 끝나면 깨워 바로, 아니면 30초마다 다시 판정)
     else 거부
@@ -1082,6 +1102,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 |---|---|---|---|---|
 | 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화(관리자, 사유 필수·감사 로그. 비활성화하면 로그인·열린 세션·**광고 송출·공개 이미지**가 멈추고, 캠페인 상태는 그대로라 다시 활성화하면 그대로 다시 나간다 — 설계 §10 "광고주 비활성화는 송출도 멈춘다") | 없음(비활성화) | [열림] |
 | 매체·슬롯 | 관리자 | 이름·활성 | 없음 | 영구 |
+| 매체 비활성화 기록(M5) | 켜져 있던 매체를 끌 때 | **없음**(추가만) | 없음 | 영구(그 전 결정의 반응 판정에 필요) |
 | 입찰 정책·입찰 | 새 버전 행 | **없음** | 없음 | 영구(결정 해석에 필요) |
 | 캠페인·광고그룹·소재 | 광고주 | 허용 필드만, **`ENDED` 이후 없음** | 없음 | [열림] |
 | 소재 이미지 파일 | 업로드 | 없음(교체는 새 파일) | 없음 | [열림] — 참조하는 결정이 없어진 뒤 정리 |
@@ -1210,6 +1231,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.33 | 2026-10-12 | Step 6-1 서버 규칙(6-1a `42de743`·6-1b `a70d769`): M5 `masters_media_deactivation`(ERD·엔터티 목록·컬럼·수명주기), M1 `is_active` 설명, P2 `basis` v3 `media_deactivated_at`, §5.3 규칙 체인에 `media-period` |
 | 0.32 | 2026-10-12 | 매체 연동 검토(Step 6-1 결정 반영, C1 v1.2): `subject_id`는 매체가 만든 광고 전용 가명(결정 표·C1 입력·반응 입력·L2), D-5 해결(가명 ↔ 사용자 대응은 매체가 접근 통제 아래에서 내보냄) |
 | 0.31 | 2026-10-12 | 재검토(`5e8fa8c`) P2 `13f3bc2`: B2 `reaction_ref`는 표준 표기일 때만 그 반응의 키(다른 표기면 미해결 과금·백필 해석 불가) |
 | 0.30 | 2026-10-12 | 외부 검토(`e781f20`) P2 `5e8fa8c`: §5.6 원본 구간 `checkpoint.unresolved_charges`·`unresolved_charge_examples`(창에 놓을 수 없는 과금 원장 줄 — 생성 시각을 추정하지 않고 세어 내보내기·대조를 실패로), 입력 검증에 그 값 형식 |
