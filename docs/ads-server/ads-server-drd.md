@@ -1,0 +1,1154 @@
+# 광고 서버 데이터 요구사항 문서 (DRD)
+
+> Status: **정식 문서** (2026-10-08 `intake/`에서 `docs/ads-server/`로 승격). 광고 서버만 다룬다. `[제안]`·`[열림]` 항목은 확정되면 이 문서를 고친다.
+> 관련 문서: [ads-server-design.md](ads-server-design.md) (설계), [implementation-plan.md](implementation-plan.md) (구현 계획), [threat-model.md](threat-model.md) (위협 모델), [contracts/](contracts/) (OpenAPI 계약)
+> 기준일: 2026-10-08 · 기준 코드: Step 2 전체(C1 v1.1 포함, 2-11)까지 · 구현 위치: `apps/ads_server/`
+> **PK 규칙(§3 R-2, 2026-10-08)은 코드에 적용됐다**(2026-10-08, 모델·마이그레이션 재생성). 적용 전 모양과의 차이는 §4.8에 기록으로 남겼다.
+> 근거: 설계서 `docs/ads-server/ads-server-design.md`, 구현 계획 `implementation-plan.md`, 계약 `contracts/serving.openapi.yaml`(C1·C3), `contracts/console.openapi.yaml`(C6), 실제 모델 코드(`*/models.py`)
+> 표기: **[구현]** 코드에 있음 · **[계획]** 구현 계획에 있고 아직 코드 없음 · **[제안]** 이 문서가 처음 제안함(동의 필요) · **[열림]** 정하지 못함
+
+---
+
+## 0. 한눈에 보기
+
+| 항목 | 내용 |
+|---|---|
+| 목적 | 광고 서버가 **어떤 데이터를 어떤 모양으로 갖고, 바깥과 어떤 데이터를 주고받는지**를 한 문서로 고정한다. 구현·계약·파이프라인이 같은 기준을 쓰게 한다 |
+| 범위 | 광고 서버의 저장 데이터(DB·파일), 서버 간 계약(C1~C6)의 데이터 모양, 내부 처리 흐름, 수명주기, 보안 분류, 팀 DRD와의 대응 |
+| 범위 밖 | 매체 서버(메타버스)·데이터 파이프라인의 내부 데이터, 화면 설계, 인프라 구성 |
+| 저장소 | **MySQL 8.4**(업무 데이터) + **로컬 파일**(소재 이미지). Step 2까지는 SQLite였고 Step DB의 DB-1(2026-10-09)에서 MySQL로 옮겼다. **MongoDB 8.0**(이벤트 로그)은 DB-2에서 연결·`ad_events` 컬렉션·색인 준비를 마쳤고(로컬, 2026-10-10), outbox는 Step 4에서 MySQL에 둔다. 이벤트는 Step 4에서 MongoDB `ad_events`로. Kafka·Spark는 서버가 감당하지 못할 때의 확장(§2.1) |
+| 엔터티 | 구현 19개(계정·감사 3, 마스터 4, 운영 7, 지갑·원장·결정·반응 4, 파생 1), 계획 1개(outbox) |
+| 핵심 규칙 | **모든 PK는 UUIDv7, 자동 증가 없음** · 자연 키는 업무 규칙용 유일 제약 · 시각은 UTC · 금액은 **정수 포인트** · 이력은 **추가 전용**(입찰·정책·원장·결정·감사) · 삭제 없음 · 판정 규칙은 한 곳(`engine`) |
+| 먼저 볼 것 | §1.2 **광고 도메인은 이 문서가 팀 DRD보다 우선**. §10 열린 이슈, D-1~D-3(2-3)과 PK 규칙의 코드 적용(D-8)은 해결됨. 식별자 방식 차이(D-4)는 해결됨 |
+
+---
+
+## 1. 목적·범위·다른 문서와의 관계
+
+### 1.1 왜 따로 쓰나
+
+팀 DRD(`docs/requirements/data-requirements-document.md`)는 **플랫폼 전체의 표준 사전**(단어·용어·도메인)과 분석 계층(Bronze/Silver/Gold)의 엔터티를 정한다. 광고 서버는 설계 원칙상 **독립 서버이고 내부 모델 이름을 팀 DRD에 맞추지 않는다**(설계서 §3 독립성 규칙). 이름 대응은 **나가는 경계(C2 이벤트)에서만** 한다.
+
+그래서 이 문서는 두 가지를 한다.
+
+1. 광고 서버 **안쪽** 데이터의 실제 모양을 적는다(팀 DRD에는 없는 지갑·원장·감사·재검토 요청·결정 근거 등 포함).
+2. 광고 서버가 **바깥과 주고받는** 데이터의 모양을 적고, 팀 DRD 이름과의 대응을 §9에 정리한다.
+
+### 1.2 문서 우선순위
+
+| 순위 | 문서 | 이 문서와 다를 때 |
+|---:|---|---|
+| 1 | 계약 파일(`contracts/*.openapi.yaml`) | **계약이 맞다.** 이 문서를 고친다. 단 계약과 구현이 어긋난 곳은 §10에 적고 결정한다 |
+| 2 | 설계서(`ads-server-design.md`) | 설계서가 맞다. 이 문서는 설계를 데이터 관점으로 옮긴 것이다 |
+| 3 | 코드(`apps/ads_server/*/models.py`) | 저장 모양의 **현재 사실**. 설계와 다르면 §10에 적는다 |
+| 4 | 이 문서 | 위 셋에 없는 것(이벤트 페이로드 제안, 보존·분류, 대응표)의 원본 |
+
+**팀 DRD와의 우선순위 [확정, 2026-10-07]**: 광고 도메인 데이터는 **이 문서가 팀 DRD보다 우선**한다. 팀 DRD의 광고 영역(E15–E17, E20–E25)은 광고 서버 설계가 나오기 전의 가정으로 작성된 Draft라서, 둘이 다르면 팀 DRD를 이 문서에 맞춰 고친다(§9.1). 단 이름 짓는 규칙(표준 단어·용어)은 팀 DRD의 것을 따르고, 내부 이름과의 변환은 C2 경계에서 한다.
+
+---
+
+## 2. 데이터 배치 개요
+
+### 2.1 누가 무엇을 주고받나 (단계별)
+
+단계마다 표를 따로 둔다. 뒤 단계의 행은 **계획이나 조건부 확장**이며 지금 확정된 구조가 아니다.
+
+**V1 (지금 · MySQL 8.4 단일 노드. Step 2까지는 SQLite였음)**
+
+| 계약 | 방향 | 상대 | 방식 | 상태 |
+|---|---|---|---|---|
+| C1 광고 요청·반응 보고 | 들어옴 | 매체 서버 | HTTPS `/api/media/v1`, `X-Media-Key` | [구현], v1.1 진행 중 |
+| C3 이미지 | 나감 | 학습자 브라우저 | `GET /assets/{sha256}.{ext}` | [구현] |
+| 클릭 관측 | 들어옴 | 학습자 브라우저 | `GET /c/{token}` → 302 | [구현] 2-8 |
+| 퍼널 집계·분석 | 내부 | 광고주 콘솔 | `records.api`가 조회할 때 계산 | [구현] 2-10 |
+| C6 콘솔 | 들어옴 | 광고주·관리자 브라우저 | 세션, 템플릿 | Step 3 |
+| C2 이벤트 내보내기 | — | — | **없음** | V1 범위 밖 |
+
+**DB 전환 (Step DB: DB-1 MySQL 완료, DB-2 MongoDB 연결 로컬 완료) → Step 4**
+
+| 계약 | 방향 | 상대 | 방식 | 상태 |
+|---|---|---|---|---|
+| C1·C3·클릭 | (V1과 같음) | | | 변경 없음 |
+| 업무 데이터 | 내부 | — | MySQL(업무 데이터 + outbox, 한 트랜잭션) | [구현] DB-1(업무 데이터), outbox는 [계획] Step 4 |
+| C2 이벤트 | 나감 | 파이프라인 쪽(읽기) | outbox → 중계 → MongoDB `ad_events`(멱등). 이 컬렉션과 이벤트 스키마(§5.6)가 계약 면이고 MySQL 테이블은 읽게 하지 않는다 | [계획] Step 4 |
+| 검증·백필 | 내부 | 운영자 | NDJSON + manifest(checksum) | [계획] Step 4 |
+| 퍼널 집계 | 내부 | 콘솔 | `records.api`(MySQL 조회) | 변경 없음 |
+
+**확장 (서버가 감당하지 못할 때 · 판단 지표: 조회 시간·부하, 수치는 나중에)**
+
+| 계약 | 방향 | 상대 | 방식 | 상태 |
+|---|---|---|---|---|
+| C2 이벤트 | 나감 | 파이프라인 쪽 | Debezium(outbox 라우터) → Kafka, 스키마 저장소 | 예정 |
+| 분석 계층 | 파이프라인 | — | Spark → Delta Bronze/Silver/Gold(§2.3 대응 그대로) | 예정 |
+| C4 Insight | 들어옴 | 파이프라인 쪽 | 집계 결과를 광고 서버로(`records.api` 안쪽 교체) | 예정, 방식 미정 |
+
+**V1 내부 흐름**
+
+```mermaid
+flowchart LR
+    subgraph EXT[바깥]
+        MEDIA[매체 서버<br/>메타버스 백엔드]
+        USER[최종 사용자 브라우저<br/>학습자]
+        ADV[광고주 브라우저]
+        ADMIN[관리자 브라우저]
+    end
+
+    subgraph ADS[광고 서버 apps/ads_server]
+        SAPI[serving_api<br/>C1·클릭 관측]
+        CON[console<br/>템플릿 화면]
+        DJA[Django admin]
+        REC[records<br/>결정·반응]
+        CAM[campaigns]
+        BIL[billing]
+        MAS[masters]
+        ENG[engine<br/>순수 판정]
+        AST[assets]
+        FND[foundation<br/>계정·감사]
+    end
+
+    subgraph STORE[저장소]
+        DB[(MySQL 8.4<br/>InnoDB·READ COMMITTED)]
+        FILES[(MEDIA_ROOT<br/>소재 이미지)]
+    end
+
+    MEDIA -- "C1 POST /decisions<br/>PUT .../reactions/{id}" --> SAPI
+    USER -- "GET /c/{token} (클릭)" --> SAPI
+    USER -- "C3 GET /assets/{sha256}.{ext}" --> AST
+    ADV -- "세션 쿠키·CSRF 폼" --> CON
+    ADMIN -- "세션 쿠키" --> DJA
+    MEDIA -. "C5 포인트 충전(예약)" .-> ADS
+
+    SAPI --> REC
+    CON --> CAM & BIL & MAS & FND
+    REC --> ENG & CAM & BIL & MAS
+    CAM --> AST & ENG
+    ADS --- DB
+    AST --- FILES
+```
+
+### 2.2 저장소
+
+| 저장소 | 담는 것 | 형식 | 상태 |
+|---|---|---|---|
+| 로컬 디렉터리(`MEDIA_ROOT`) | 소재 이미지(재인코딩된 바이트) | `<해시 앞 2자>/<sha256>.<jpg\|png>`, 임시 파일 → `os.replace`로 원자적 확정, 권한 0640 | [구현] |
+| 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
+| MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, Step 4) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 [계획] Step 4. Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
+| MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인, 2026-10-10) · [계획] Step 4(쓰기) |
+| NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나, manifest에 SHA-256·행 수·`schema_version`·`source_kind`·checkpoint | [계획] Step 4 |
+| Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
+
+**저장소를 고르는 기준 [확정, 2026-10-08, MySQL 전환 2026-10-09]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 썼고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
+
+### 2.3 분석 계층 대응 [확정, 2026-10-08]
+
+분석은 지금 광고 서버가 한다(설계서 §10 "분석 주체"). Bronze/Silver/Gold를 물리적으로 나누지 않고 **대응만** 둔다. Kafka·Spark가 붙으면 이 대응 그대로 Delta 메달리온으로 옮긴다.
+
+| 계층 | 광고 서버에서 해당하는 것 |
+|---|---|
+| Bronze(원문) | MongoDB `ad_events`, 반응 원문(`records_reaction.raw`) |
+| Silver(검증·판정 끝남) | MySQL의 결정, 판정된 반응(`ACCEPTED`/`REJECTED`), 원장 |
+| Gold(집계) | `records.api` 퍼널 집계(조회 시점 계산) |
+
+---
+
+## 3. 공통 데이터 규칙
+
+| # | 규칙 | 근거·강제 수단 |
+|---|---|---|
+| R-1 | **식별자는 UUID**(소문자 하이픈 표기). 모든 행은 UUID로 식별되고, 계약·이벤트·다른 모듈은 UUID로만 가리킨다 | 설계서 §4 [확정]. 형식이 틀린 ID는 "없는 것"과 같게 404(`foundation.parse_uuid`, `owned_or_404`) |
+| R-2 | **PK 규칙** [확정, 2026-10-08]: ① **모든 테이블의 PK는 UUIDv7** ② **자동 증가 열은 두지 않는다** ③ 자연 키((광고그룹, `bid_version`), (슬롯, `policy_version`), (매체, 슬롯 이름) 등)는 식별자가 아니라 **업무 규칙을 지키는 유일 제약**으로 유지 ④ 확실한 순서가 필요한 곳은 **원장 하나**이고 `(지갑, seq)` 유일 제약으로 둔다(지갑 잠금 안에서 +1) ⑤ 그 밖의 정렬은 시각 열 | 자동 증가가 꼭 필요한 곳이 없다(정수 `id` 순서에 기대던 곳은 원장 점검·원장 커서·관리자 정렬뿐). 정수 PK는 DB 이관·병합 때 번호 충돌과 키 이중화(정수·UUID)를 만든다. MongoDB는 자동 증가가 없고 `_id`에 UUID를 쓴다. MySQL(InnoDB)은 PK가 데이터 정렬 기준이라 무작위 v4 대신 **시각이 앞에 오는 v7**(Python 3.14 `uuid.uuid7`, 같은 밀리초 안에서도 단조 증가)이 새 행을 뒤에 붙인다. 상세는 설계서 §10 "PK 규칙" |
+| R-3 | **시각은 UTC**로 저장·계산·전송한다. 계약은 RFC 3339 `…Z`만 허용. KST는 화면 표시에서만 | 설계서 §3 [확정]. 서비스는 시간대 없는 값(naive)을 거부, `engine`은 UTC가 아니면 생성 단계에서 거부 |
+| R-4 | **금액은 정수 포인트**, 0 이상, 최대 `2^53 − 1`(JSON 정수로 정확히 표현되는 한계) | 설계서 §10 [확정]. DB `CHECK` + 서비스 검증. 팀 DRD의 `DECIMAL(18,2)`와 다르다(§9) |
+| R-5 | **추가 전용(append-only)**: 입찰 정책, 입찰, 원장, 결정, 감사 로그. INSERT만 허용하고 수정·삭제·같은 PK로 덮어쓰기·upsert를 막는다 | `foundation.AppendOnlyModel`(저장은 항상 `force_insert`, `update`·`delete`·`bulk_create(update_conflicts)` 거부). 정정은 반대 부호의 새 행 |
+| R-6 | **삭제 기능이 없다.** 캠페인·광고그룹·소재는 끄기(`status`·`enabled`)로 처리한다 | 결정·원장이 참조하는 이력을 지키기 위해. 앱 사이 FK는 `PROTECT` |
+| R-7 | **문자열 입력**: 앞뒤 공백 제거·NFC 정규화, 제어·서식 문자(제로폭 공백 등) 금지, 길이 1~상한 | `foundation.clean_text`. 상한: 이름 100, 제목 200, 사유·메모 500 |
+| R-8 | **코드 값은 대문자**(예 `ACTIVE`, `IMPRESSION`) | DB `choices` + 서비스 검증. 계약의 enum과 같은 값 |
+| R-9 | **소유권**: 광고주 데이터는 소유자 기준으로만 조회한다. 남의 것·없는 것·형식이 틀린 ID는 모두 404 | `owned_or_404`. 위협 모델 T4 |
+| R-10 | **판정 규칙은 한 곳**: 적용 금액·하한·종료 판정은 `engine` 순수 함수(`effect_of`, `is_expired`)에만 있다. 다른 곳은 값을 공급만 한다 | 소스 검사 테스트가 강제(`test_pricing_and_expiry_rules_are_defined_only_in_engine`) |
+| R-11 | **감사는 변경과 같은 트랜잭션**에 남긴다. 비밀 키 이름(`password`, `token`, `key` 등)은 기록 전에 제거 | `record_audit`. "감사 없는 변경"이 남지 않게 |
+| R-12 | **외부 JSON 입력 제한**: 본문 16 KiB(C1), 매체 `context` 직렬화 4 KiB·깊이 4, 직접 식별자 키 금지 | 계약 C1, `foundation.parse_json` |
+
+---
+
+## 4. 데이터 구조
+
+### 4.1 ERD
+
+```mermaid
+erDiagram
+    foundation_user ||--o| billing_wallet : "owner (1:1)"
+    foundation_user ||--o{ campaigns_campaign : "owner"
+    masters_media ||--o{ masters_slot : "media"
+    masters_slot ||--o{ masters_bid_policy : "slot (버전)"
+    masters_slot ||--o{ campaigns_ad_group_slot : "slot"
+    campaigns_campaign ||--o{ campaigns_ad_group : "campaign"
+    campaigns_campaign ||--o{ campaigns_review_request : "campaign"
+    campaigns_ad_group ||--o{ campaigns_ad_group_slot : "ad_group"
+    campaigns_ad_group ||--o{ campaigns_creative : "ad_group"
+    campaigns_ad_group ||--o{ campaigns_bid : "ad_group (버전)"
+    billing_wallet ||--o{ billing_ledger_entry : "wallet"
+    masters_media ||--o{ masters_media_key : "media"
+    campaigns_creative ||--o{ campaigns_creative_image : "creative (보유 파일)"
+
+    foundation_user {
+        uuid id PK
+        string username UK
+        string role "admin|advertiser"
+        string nickname
+        string class_label "반"
+        string password "Argon2 해시"
+        bool is_active
+        datetime created_at
+    }
+    masters_media {
+        uuid media_id PK
+        string name UK
+        bool is_active
+    }
+    masters_slot {
+        uuid slot_id PK
+        uuid media_id FK
+        string name "매체 안에서 유일"
+        string pricing_unit "변경 불가"
+        string audience "individual·shared, 변경 불가"
+        bool is_active
+    }
+    masters_bid_policy {
+        uuid bid_policy_id PK
+        uuid slot_id FK
+        int policy_version "UK(slot, version)"
+        int floor_amount
+        int base_amount
+        int cap_amount
+        uuid changed_by
+        string reason
+    }
+    campaigns_campaign {
+        uuid campaign_id PK
+        uuid owner_id FK
+        string name
+        datetime starts_at
+        datetime ends_at "NULL=무기한"
+        int daily_budget
+        string status
+        string ended_from
+    }
+    campaigns_ad_group {
+        uuid ad_group_id PK
+        uuid campaign_id FK
+        string pricing_unit "변경 불가"
+        bool enabled
+    }
+    campaigns_ad_group_slot {
+        uuid ad_group_slot_id PK
+        uuid ad_group_id FK
+        uuid slot_id FK "UK(ad_group, slot)"
+    }
+    campaigns_creative {
+        uuid creative_id PK
+        uuid ad_group_id FK
+        string title
+        string redirect_url "https만"
+        string image_name "sha256.ext"
+        bool enabled
+    }
+    campaigns_bid {
+        uuid bid_id PK
+        uuid ad_group_id FK
+        int bid_version "UK(ad_group, version)"
+        int amount
+    }
+    campaigns_review_request {
+        uuid review_request_id PK
+        uuid campaign_id FK
+        string status "OPEN은 캠페인당 1개"
+    }
+    billing_wallet {
+        uuid wallet_id PK
+        uuid owner_id FK "UK"
+        int balance "0 이상"
+    }
+    billing_ledger_entry {
+        uuid entry_id PK
+        uuid wallet_id FK
+        int seq "UK(wallet, seq) 지갑 안 순서"
+        string entry_type
+        int amount "부호 있음"
+        int balance_after
+        string reaction_ref "UK, 과금 멱등 키"
+    }
+    billing_campaign_spend {
+        uuid spend_id PK
+        uuid campaign_id "UK(campaign, day)"
+        date budget_day
+        int spent "파생값"
+    }
+    records_decision {
+        uuid decision_id PK
+        uuid media_id
+        uuid slot_id
+        string audience "슬롯 성격 스냅샷"
+        uuid campaign_id "스냅샷"
+        uuid bid_id "선택된 입찰 버전 행"
+        uuid bid_policy_id "판정에 쓴 정책 버전 행"
+        int applied_amount "스냅샷"
+    }
+    masters_media_key {
+        uuid key_id PK
+        uuid media_id FK
+        string secret_hash "SHA-256, 평문 없음"
+        datetime expires_at
+        datetime revoked_at
+    }
+    campaigns_creative_image {
+        uuid creative_image_id PK
+        uuid creative_id FK "UK(creative, image_name)"
+        string image_name
+        int image_bytes
+    }
+    foundation_audit_log {
+        uuid log_id PK
+        uuid actor_id
+        string action
+        json detail
+    }
+```
+
+`records_decision`·`billing_campaign_spend`·`billing_ledger_entry.campaign_id`는 **다른 모듈의 행을 FK가 아닌 UUID 값으로** 가리킨다(점선 관계, 그림에서 생략). 결정은 과거 사실이라 가리키는 대상이 바뀌거나 사라져도 그대로여야 하고, `billing`은 `campaigns`를 import하지 않는다(설계서 §6 R1).
+
+### 4.2 엔터티 목록
+
+| # | 엔터티(테이블) | 모듈 | 구분 | 쓰는 주체 | 행이 늘어나는 때 | 상태 |
+|---|---|---|---|---|---|---|
+| A1 | 사용자 `foundation_user` | foundation | 계정 | 가입(광고주), 서버 명령(관리자) | 가입 | [구현] |
+| A2 | 가입 시도 `foundation_signup_attempt` | foundation | 보안 기록 | 가입 화면 | 가입 시도마다 | [구현] |
+| A3 | 감사 로그 `foundation_audit_log` | foundation | 감사(추가 전용) | 모든 서비스 | 변경·인증 사건마다 | [구현] |
+| M1 | 매체 `masters_media` | masters | 마스터 | 관리자 | 매체 등록 | [구현] |
+| M2 | 게재 위치 `masters_slot` | masters | 마스터 | 관리자 | 슬롯 등록 | [구현] |
+| M3 | 입찰 정책 `masters_bid_policy` | masters | 마스터(추가 전용 버전) | 관리자 | 정책 변경마다 | [구현] |
+| M4 | 매체 키 `masters_media_key` | masters | 보안 | 관리자(서버 명령) | 키 발급·교체 | [구현] 2-2 |
+| O1 | 캠페인 `campaigns_campaign` | campaigns | 운영 | 광고주(상태는 관리자·시스템도) | 캠페인 생성 | [구현] |
+| O2 | 광고그룹 `campaigns_ad_group` | campaigns | 운영 | 광고주 | 광고그룹 생성 | [구현] |
+| O3 | 광고그룹-슬롯 `campaigns_ad_group_slot` | campaigns | 운영(연결) | 광고주 | 슬롯 선택·교체 | [구현] |
+| O4 | 소재 `campaigns_creative` | campaigns | 운영 | 광고주 | 소재 등록 | [구현] |
+| O5 | 입찰 `campaigns_bid` | campaigns | 운영(추가 전용 버전) | 광고주 | 입찰 변경마다 | [구현] |
+| O6 | 재검토 요청 `campaigns_review_request` | campaigns | 운영 | 광고주(생성), 관리자·시스템(닫기) | 요청마다 | [구현] |
+| O7 | 소재 이미지 보유 `campaigns_creative_image` | campaigns | 운영(추가 전용) | 소재 등록·이미지 교체 | 이미지가 바뀔 때마다 | [구현] |
+| B1 | 지갑 `billing_wallet` | billing | 운영 | 가입 흐름 | 광고주 가입 | [구현] |
+| B2 | 원장 `billing_ledger_entry` | billing | 기록(추가 전용) | 가입 지급·과금·관리자 조정 | 포인트가 움직일 때마다 | [구현] |
+| B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] |
+| R1 | 결정 `records_decision` | records | 기록(추가 전용 스냅샷) | 광고 요청 | **광고 요청마다**(광고 없음 포함) | [구현] |
+| P2 | 반응 | records | 기록(inbox, 수신 후 상태만 바뀜) | 매체 보고·처리 작업 | **반응 보고마다** | [구현] 수신(2-4), 처리 [계획] 2-5 |
+| P3 | 이벤트 outbox | events | 전달 대기열 | 결정·반응·과금과 같은 트랜잭션 | 이벤트마다 | [계획] Step 4 |
+| — | 세션·로그인 잠금 | Django·django-axes | 프레임워크 | 로그인 | 로그인·실패마다 | [구현] 라이브러리 관리 |
+
+### 4.3 엔터티별 컬럼
+
+표기: **N** = NOT NULL, **Y** = NULL 허용. 타입은 Django 필드 기준(DB 저장 형태는 괄호).
+
+#### A1. 사용자 `foundation_user` [구현]
+
+> 아래 모든 표에서 PK 열은 **UUIDv7**이다(R-2). 코드도 같다(§4.8).
+
+광고주와 관리자가 쓰는 계정 하나. 역할로 화면이 나뉜다. 이메일·실명·전화는 받지 않는다(설계서 §5.1).
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `id` | UUID | N | PK | |
+| `username` | 문자 30 | N | UNIQUE | 로그인 아이디. `[a-z0-9_]{4,20}` |
+| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다 |
+| `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다 |
+| `nickname` | 문자 20 | N | | 2~20자 |
+| `class_label` | 문자 30 | N | | "반". 표시용 자유 입력, 로직에 쓰지 않는다 |
+| `is_active` | 불리언 | N | | 관리자가 비활성화할 수 있다 |
+| `is_superuser` | 불리언 | N | | 관리자만 참 |
+| `last_login` | 시각 | Y | | Django 기본 |
+| `created_at` | 시각 | N | | |
+
+#### A2. 가입 시도 `foundation_signup_attempt` [구현]
+
+IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 센다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `attempt_id` | UUID | N | PK | |
+| `ip` | 문자 45 | N | 인덱스(ip, created_at) | IPv6 최대 길이. 신뢰 프록시 수 설정에 따라 판정 |
+| `created_at` | 시각 | N | 인덱스 | 오래된 행은 가입 처리 중 정리 |
+
+#### A3. 감사 로그 `foundation_audit_log` [구현, 추가 전용]
+
+누가·언제·무엇을. 관리자 행위와 광고주의 주요 변경, 인증 사건을 남긴다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `log_id` | UUID | N | PK | 시각 순서(v7) |
+| `actor_id` | UUID | Y | 인덱스 | **FK 아님**(사용자가 바뀌어도 기록은 그대로). 시스템 작업은 NULL |
+| `actor_username` | 문자 30 | N | | 그 시점의 아이디 |
+| `action` | 문자 64 | N | 인덱스 | 예: `account.signup`, `auth.login_failed`, `masters.policy_added`, `campaign.suspended`, `bid.added`, `billing.adjusted`, `campaign.expired` |
+| `target_type`, `target_id` | 문자 64 | N | | 대상(예 `campaigns.campaign` + UUID) |
+| `detail` | JSON | N | | **비밀 키 이름은 제거**, 문자열 500자, 전체 4,000자 초과 시 `{"truncated": true}` |
+| `ip` | 문자 45 | N | | 요청이 없는 서비스 호출이면 빈 값 |
+| `request_id` | 문자 36 | N | | 요청 ID(요청 없이 호출돼도 로깅 컨텍스트에서 채움) |
+| `created_at` | 시각 | N | 인덱스 | |
+
+#### M1. 매체 `masters_media` [구현]
+
+광고를 내보내는 서비스(예: 메타버스). 광고 서버는 매체의 내부(사용자·강의실)를 모른다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `media_id` | UUID | N | PK | C1에서는 본문이 아니라 **매체 키로 식별**한다 |
+| `name` | 문자 100 | N | UNIQUE | |
+| `is_active` | 불리언 | N | | 꺼지면 그 매체의 슬롯도 쓸 수 없다 |
+| `created_at` | 시각 | N | | |
+
+#### M2. 게재 위치(슬롯) `masters_slot` [구현]
+
+광고가 놓이는 자리. **과금 단위(방식)를 하나 갖고 바꿀 수 없다**(V1. 한 슬롯 여러 단위는 V2 이후).
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `slot_id` | UUID | N | PK | C1 요청은 이 값으로 슬롯을 지정한다 |
+| `media_id` | UUID | N | FK→M1 `PROTECT` | |
+| `name` | 문자 100 | N | UNIQUE(media, name) | 사람용 이름. **식별에 쓰지 않는다** |
+| `pricing_unit` | 코드 | N | `IMPRESSION`·`CLICK`·`CONVERSION`, 변경 시 거부 | |
+| `audience` | 코드 | N | `individual`·`shared`, **변경 시 거부**, 기본값 없음(만드는 쪽이 정한다) | 슬롯 성격 [구현 2-7]. `individual` = 결정 하나를 한 사람이 본다, `shared` = 여러 사람이 같은 광고를 본다. 타기팅이 아니다 |
+| `is_active` | 불리언 | N | | |
+| `created_at` | 시각 | N | | |
+
+슬롯은 **항상 현재 정책을 가진다**: `create_slot`이 슬롯과 정책 버전 1을 한 트랜잭션에 만든다.
+
+#### M3. 입찰 정책 `masters_bid_policy` [구현, 추가 전용 버전]
+
+슬롯별 노출 범위. 현재 정책 = 슬롯의 최대 `policy_version`.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `bid_policy_id` | UUID | N | PK | 버전 행 하나의 식별자. 결정·이벤트가 이것으로 가리킨다 |
+| `slot_id` | UUID | N | FK→M2 `PROTECT`, UNIQUE(slot, policy_version) | |
+| `policy_version` | 정수 | N | 슬롯별 1부터 | 변경은 새 행. `expected_version`이 틀리면 거절(낙관적 잠금) |
+| `floor_amount` | 정수 | N | `CHECK 0 < floor ≤ base ≤ cap ≤ 2^53−1` | 하한. 미만이면 노출 안 됨 |
+| `base_amount` | 정수 | N | 〃 | 기준가. 입찰 화면 기본값(V1 선택 알고리즘은 쓰지 않음) |
+| `cap_amount` | 정수 | N | 〃 | 상한. 초과 입찰은 상한으로 적용 |
+| `changed_by` | UUID | N | FK 아님 | 바꾼 관리자 |
+| `changed_at` | 시각 | N | | |
+| `reason` | 문자 200 | N | | 사유 필수 |
+
+#### M4. 매체 키 `masters_media_key` [구현, 2-2]
+
+매체 서버가 `X-Media-Key`로 보내는 키. **평문은 저장하지 않는다** — 발급할 때 한 번만 돌려준다. 키 형식은 `<key_id 32자 16진>.<token_urlsafe(32)>`이고, `key_id`로 행을 찾아 비밀의 SHA-256을 상수 시간으로 비교한다(비밀이 256비트 무작위라 느린 해시가 필요 없다).
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `key_id` | UUID | N | PK | 공개 식별자(키 문자열의 앞부분) |
+| `media_id` | UUID | N | FK→M1 `PROTECT` | 매체마다 여러 키가 동시에 유효할 수 있다(교체 유예) |
+| `secret_hash` | 문자 64 | N | | 비밀의 SHA-256(16진) |
+| `label` | 문자 100 | N | | 사람용 메모 |
+| `created_at` | 시각 | N | | |
+| `expires_at` | 시각 | Y | | 교체 유예가 끝나는 시각. NULL이면 계속 유효 |
+| `revoked_at` | 시각 | Y | | 즉시 폐기 |
+
+#### O1. 캠페인 `campaigns_campaign` [구현]
+
+광고주가 성과를 묶어 보는 단위. 기간·일예산·상태를 가진다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `campaign_id` | UUID | N | PK | |
+| `owner_id` | UUID | N | FK→A1 `PROTECT` | 광고주 |
+| `name` | 문자 100 | N | | |
+| `starts_at` | 시각 | N | | |
+| `ends_at` | 시각 | Y | `CHECK ends_at IS NULL OR ends_at ≥ starts_at` | **종료 시각(미포함)**. NULL이면 무기한. 조기 종료 시 현재로 확정 |
+| `daily_budget` | 정수 | N | `CHECK 0 < x ≤ 2^53−1` | 일예산(소프트 한도) |
+| `status` | 코드 | N | `ACTIVE`·`PAUSED`·`SUSPENDED`·`ENDED`, 인덱스(status, ends_at) | **쓰는 곳은 `transitions.py` 뿐**(§4.5) |
+| `ended_from` | 코드 | Y | | `ENDED` 직전 상태(중단된 채 끝났는지 알 수 있다) |
+| `suspended_reason` | 문자 500 | N | | 관리자 중단 사유 |
+| `suspended_at` | 시각 | Y | | |
+| `created_at`, `updated_at` | 시각 | N | | |
+
+#### O2. 광고그룹 `campaigns_ad_group` [구현]
+
+입찰·게재 위치·과금 단위를 묶는 단위.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `ad_group_id` | UUID | N | PK | |
+| `campaign_id` | UUID | N | FK→O1 `PROTECT` | |
+| `name` | 문자 100 | N | | |
+| `pricing_unit` | 코드 | N | 변경 시 거부 | 고른 슬롯은 모두 같은 단위여야 한다 |
+| `enabled` | 불리언 | N | | 광고주가 켜고 끈다 |
+| `created_at` | 시각 | N | | |
+
+#### O3. 광고그룹-슬롯 `campaigns_ad_group_slot` [구현]
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `ad_group_slot_id` | UUID | N | PK | |
+| `ad_group_id` | UUID | N | FK→O2 `CASCADE`, UNIQUE(ad_group, slot) | |
+| `slot_id` | UUID | N | FK→M2 `PROTECT` | 활성 슬롯·활성 매체이고 단위가 같을 때만 저장 |
+
+슬롯 목록을 바꾸면 이 연결 행이 교체된다(이력 없음). 과거 어느 슬롯에 나갔는지는 **결정(R1)의 `slot_id`가 기록**한다.
+
+#### O4. 소재 `campaigns_creative` [구현]
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `creative_id` | UUID | N | PK | C1 응답의 `creative_id` |
+| `ad_group_id` | UUID | N | FK→O2 `PROTECT` | 광고그룹당 개수는 설정(V1 = 1) |
+| `title` | 문자 200 | N | | **신뢰할 수 없는 값**(매체가 이스케이프) |
+| `redirect_url` | 문자 2048 | N | | `https`만, 사용자 정보(`user:pw@`)·공백 금지 |
+| `image_name` | 문자 80 | N | 인덱스 | `<sha256>.<jpg\|png>`. 파일은 §4.6 |
+| `image_bytes` | 정수 | N | | 업로드 총량 쿼터 계산용 |
+| `enabled` | 불리언 | N | | |
+| `created_at`, `updated_at` | 시각 | N | | |
+
+이미지를 교체하면 `image_name`이 바뀌고 **이전 파일은 지우지 않는다**(과거 결정이 가리킬 수 있다).
+
+#### O5. 입찰 `campaigns_bid` [구현, 추가 전용 버전]
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `bid_id` | UUID | N | PK | 버전 행 하나의 식별자. 결정·이벤트가 이것으로 가리킨다 |
+| `ad_group_id` | UUID | N | FK→O2 `PROTECT`, UNIQUE(ad_group, bid_version) | |
+| `bid_version` | 정수 | N | 광고그룹별 1부터 | 현재 입찰 = 최대 버전. `expected_version`(첫 입찰은 null)이 틀리면 거절 |
+| `amount` | 정수 | N | `CHECK 0 < x ≤ 2^53−1` | **하한 미만·상한 초과도 저장**한다. 적용 금액은 선택 시점에 계산 |
+| `created_by` | UUID | N | FK 아님 | |
+| `created_at` | 시각 | N | | 기록용. 현재 입찰의 기준이 아니다 |
+
+#### O6. 재검토 요청 `campaigns_review_request` [구현]
+
+관리자가 중단한 캠페인을 광고주가 고친 뒤 다시 봐 달라는 요청.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `review_request_id` | UUID | N | PK | |
+| `campaign_id` | UUID | N | FK→O1 `PROTECT`, **부분 UNIQUE(campaign) WHERE status='OPEN'** | 캠페인당 대기 요청은 하나 |
+| `message` | 문자 500 | N | | 광고주 메모(선택, 빈 값 가능) |
+| `status` | 코드 | N | `OPEN`·`RELEASED`·`REJECTED`·`CLOSED_ENDED` | §4.5 |
+| `response_note` | 문자 500 | N | | 반려 사유 등 |
+| `created_at` | 시각 | N | | |
+| `closed_at` | 시각 | Y | | |
+
+#### O7. 소재 이미지 보유 `campaigns_creative_image` [구현, 추가 전용]
+
+소재가 **지금까지 보유한 이미지 파일**(현재 + 교체된 과거분). 이미지를 교체해도 이전 파일은 지우지 않으므로(과거 결정이 URL을 가리킴) 이 관계로 ① 광고주별 **보유 총량 쿼터**(교체를 반복해 쿼터를 우회하지 못하게) ② **C3 서빙 가능 여부**(교체 후에도 과거 결정의 이미지가 열림)를 판단한다. `campaigns_creative.image_name`은 그중 현재 것을 가리킨다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `creative_image_id` | UUID | N | PK | |
+| `creative_id` | UUID | N | FK→O4 `PROTECT`, UNIQUE(creative, image_name) | |
+| `image_name` | 문자 80 | N | 인덱스 | `<sha256>.<ext>` |
+| `image_bytes` | 정수 | N | | 쿼터 계산용 |
+| `created_at` | 시각 | N | | |
+
+#### B1. 지갑 `billing_wallet` [구현]
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `wallet_id` | UUID | N | PK | |
+| `owner_id` | UUID | N | FK→A1 `PROTECT`, UNIQUE | 광고주당 하나 |
+| `balance` | 정수 | N | `CHECK 0 ≤ x ≤ 2^53−1` | **원장 합계와 항상 같다**(`check_ledger`로 확인) |
+| `created_at` | 시각 | N | | |
+
+#### B2. 원장 `billing_ledger_entry` [구현, 추가 전용]
+
+포인트가 움직인 모든 기록. 잔액은 이것의 합계다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `entry_id` | UUID | N | PK | |
+| `wallet_id` | UUID | N | FK→B1 `PROTECT` | |
+| `seq` | 정수 | N | **UNIQUE(wallet, seq)**, 1부터 | **지갑 안의 순서.** 과금·조정·지급이 이미 잡는 지갑 잠금 안에서 +1. `balance_after` 연속성 점검과 원장 목록 커서의 기준 |
+| `entry_type` | 코드 | N | `SIGNUP_GRANT`·`CHARGE`·`ADMIN_ADJUST`·`TOPUP`(예약) | |
+| `amount` | 정수(부호) | N | 유형별 부호 `CHECK`(아래) | |
+| `balance_after` | 정수 | N | ≥ 0 | 이 줄을 반영한 뒤의 잔액 |
+| `campaign_id` | UUID | Y | FK 아님 | 과금일 때 |
+| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키. 형식 제안: `<media_id>:<reaction_id>` |
+| `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
+| `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
+| `note` | 문자 200 | N | | 조정 사유 등 |
+| `created_at` | 시각 | N | 인덱스 | |
+
+유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(부분 UNIQUE).
+
+#### B3. 캠페인 일 소진액 `billing_campaign_spend` [구현, 파생값]
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `spend_id` | UUID | N | PK | |
+| `campaign_id` | UUID | N | UNIQUE(campaign, budget_day) | FK 아님 |
+| `budget_day` | 날짜 | N | | 예산 일 경계 함수의 결과(§4.7) |
+| `spent` | 정수 | N | ≥ 0 | 실제 차감액 합(부족분 제외) |
+
+**원장에서 다시 만들 수 있다**(`recompute_spend`). 예산 일 경계 설정을 바꾸면 재계산한다.
+
+#### R1. 결정 `records_decision` [구현, 추가 전용 스냅샷]
+
+광고 요청 한 번의 결과. **선택 당시의 값을 복사해 둔다** — 입찰·정책·소재를 나중에 고쳐도 이 행은 바뀌지 않는다. 반응의 과금액은 이 행의 `applied_amount`다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `decision_id` | UUID | N | PK | C1 응답·반응 경로의 식별자 |
+| `media_id` | UUID | N | 인덱스(media, decided_at) | 요청한 매체(키로 인증된 값). 조회는 이 매체만 |
+| `slot_id` | UUID | N | | |
+| `subject_id` | 문자 200 | Y | `CHECK`: `audience`가 `individual`이면 NOT NULL, `shared`이면 NULL | 노출 대상 **가명 UUID**. 수집만 하고 해석하지 않는다. 일괄 슬롯의 결정에는 없다 |
+| `audience` | 코드 | N | `individual`·`shared`(슬롯이 같은 값을 갖는다) | 슬롯 성격 **스냅샷** [구현 2-7]. 이벤트·집계가 슬롯을 다시 조회하지 않아도 되게 결정이 자기 사실을 들고 있다 |
+| `context` | JSON | N | 기본 `{}` | 매체 부가 정보. **저장만 하고 해석하지 않는다**(선택에 쓰지 않음). 경계에서 속성 50개·4 KiB·깊이 4·직접 식별자 키 금지를 검사한다 |
+| `decided_at` | 시각 | N | 인덱스 | |
+| `owner_id` | UUID | Y | 아래 묶음 | 과금할 지갑 주인 |
+| `campaign_id`, `ad_group_id`, `creative_id` | UUID | Y | 〃 | 선택된 광고 |
+| `pricing_unit` | 코드 | Y | 〃 | |
+| `bid_amount` | 정수 | Y | 〃 | 입찰 원금액 |
+| `applied_amount` | 정수 | Y | 〃 | 적용 금액(상한 적용 후). **과금액의 근거, 다시 계산하지 않는다** |
+| `bid_version`, `policy_version` | 정수 | Y | 〃 | 어느 입찰·정책으로 판정했나(자연 키) |
+| `bid_id`, `bid_policy_id` | UUID | Y | 〃 | 같은 버전 행의 UUID(FK 아님: 결정은 과거 사실). 팀 DRD의 `selected_bid_id`·`selected_bid_policy_id` |
+| `snapshot` | JSON | Y | 〃 | `{title, redirect_url, image_name}` 그 시점 값 |
+| `selection_policy` | 문자 64 | N | | 알고리즘 이름(예 `highest-bid/v1`) |
+| `trace` | JSON | N | | 알고리즘별 판단 근거(예: 최대 적용 금액, 동점 후보, 뽑힌 값) |
+| `candidate_count` | 정수 | N | | 들어온 후보 수 |
+| `rejected_counts` | JSON | N | | 필터 거절 사유별 개수(예 `{"below_floor": 2}`) |
+
+**묶음 제약**(DB `CHECK`): 선택된 광고 열(`owner_id`~`snapshot`)은 **모두 값이 있거나 모두 NULL**이다. 모두 NULL = 광고 없음이고, 이것도 한 건으로 기록한다.
+
+#### P2·P3. P2 반응 [구현 2-4] · P3 outbox [계획]
+
+| 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
+|---|---|---|---|
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
+| P3 outbox | 이벤트 ID(UUIDv7, PK), 이벤트 이름·버전, 페이로드 JSON, 생성 시각, **전달 시각(`sent_at`)** | 결정·반응·과금과 **같은 트랜잭션**에 쓴다. 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 PK 규칙 |
+
+### 4.4 무결성 규칙 — 어디서 지키나
+
+| 규칙 | DB 제약 | 서비스 규칙 | 테스트(대표) |
+|---|---|---|---|
+| 정책 `0 < 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증 | `test_policy_check_constraint_in_db` |
+| 입찰·정책·원장·결정·감사는 추가만 | — | `AppendOnlyModel` | `test_*_is_append_only*` |
+| 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
+| 과금 단위 불변(슬롯·광고그룹) | — | 모델 `save()` 거부, `unit_immutable` | `test_*_pricing_unit_immutable` |
+| 광고그룹의 슬롯은 같은 단위·활성 | — | `unit_mismatch` | `test_ad_group_unit_must_match_slots` |
+| 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
+| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs` |
+| 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
+| 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
+| 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
+| 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
+| `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
+| 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `test_chosen_columns_are_all_or_none_in_db` |
+| 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `test_decision_not_saved_when_storage_fails` |
+
+### 4.5 상태 전이
+
+**캠페인** (`campaigns/transitions.py` 한 파일, 상태를 쓰는 유일한 곳)
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE : 생성(승인 없음)
+    ACTIVE --> PAUSED : pause (광고주)
+    PAUSED --> ACTIVE : resume (광고주)
+    ACTIVE --> SUSPENDED : suspend (관리자, 사유 필수)
+    PAUSED --> SUSPENDED : suspend (관리자)
+    SUSPENDED --> ACTIVE : release (관리자)
+    ACTIVE --> ENDED : end (광고주, ends_at=지금)
+    PAUSED --> ENDED : end (광고주)
+    ACTIVE --> ENDED : expire (시스템, ends_at ≤ now)
+    PAUSED --> ENDED : expire (시스템)
+    SUSPENDED --> ENDED : expire (시스템)
+    ENDED --> [*]
+```
+
+- **보이는 상태와 저장된 상태**: 기간이 지났지만 전환 작업이 아직 돌지 않았으면 저장된 상태는 `ACTIVE`일 수 있다. 화면·API에 보이는 상태(`CampaignView.status`)와 모든 쓰기 가드는 기간(`is_expired`)으로 판정하므로 **이미 `ENDED`로 취급**한다.
+- 예산 소진·잔액 부족은 상태가 아니다. 선택 시점에 계산되는 조건이다.
+
+**재검토 요청**
+
+```mermaid
+stateDiagram-v2
+    [*] --> OPEN : 광고주 요청(캠페인이 SUSPENDED일 때만)
+    OPEN --> RELEASED : 관리자 해제(캠페인 → ACTIVE)
+    OPEN --> REJECTED : 관리자 반려(사유 필수, 정지 유지)
+    OPEN --> CLOSED_ENDED : 캠페인 종료
+```
+
+**반응** [계획 Step 2]
+
+```mermaid
+stateDiagram-v2
+    [*] --> RECEIVED : PUT 접수(원문 저장 후 2xx)
+    RECEIVED --> ACCEPTED : 규칙 통과(필요하면 과금)
+    RECEIVED --> REJECTED : unknown_decision / media_mismatch / duplicate_type
+```
+
+### 4.6 파일 데이터: 소재 이미지 [구현]
+
+| 항목 | 규칙 |
+|---|---|
+| 받는 형식 | **내용으로 판별**한 JPEG·PNG만(확장자·`Content-Type`은 믿지 않음). SVG·GIF·WebP·애니메이션 거부 |
+| 크기 | 업로드 최대 2 MB(`ASSET_MAX_BYTES`), 픽셀 수 최대 1,600만(압축 폭탄 방어). 선언된 요청 길이가 상한 + 64 KiB를 넘으면 본문을 읽기 전에 413 |
+| 처리 | ① 내장 ICC로 **sRGB 변환** ② JPEG 회전 정보를 픽셀에 반영 ③ **픽셀만 새 이미지로 옮겨** 다시 인코딩 → ICC·EXIF·XMP·텍스트·dpi 제거, 투명도 보존 ④ 형식은 유지(JPEG → JPEG, PNG → PNG) |
+| 이름 | 재인코딩한 바이트의 **SHA-256 + 확장자**. 같은 내용은 같은 파일(중복 제거). 사용자 입력 이름은 쓰지 않는다 |
+| 경로 | `MEDIA_ROOT/<이름 앞 2자>/<이름>`. 이름 형식(`[0-9a-f]{64}\.(jpg|png)`)이 아니면 경로가 되지 않는다 |
+| 쓰기 | 임시 파일 → `os.replace`(반쯤 쓴 파일이 보이지 않음) |
+| 삭제 | 하지 않는다(과거 결정이 참조). 소재가 보유한 파일은 O7에 남는다 |
+| 내보내기 | §5.4 (C3) |
+
+### 4.7 저장하지 않는 값과 계산 규칙
+
+| 값 | 계산 | 저장 여부 | 원본 |
+|---|---|---|---|
+| 적용 금액·노출 자격 | `입찰 < 하한` 제외 / `하한 ≤ 입찰 ≤ 상한` 그대로 / `입찰 > 상한` 상한 | **선택 시점 계산**. 결정에는 그 결과(`applied_amount`)를 스냅샷으로 남긴다 | `engine.effect_of` |
+| 종료 여부 | `ends_at IS NOT NULL AND ends_at ≤ now` | 계산. 전환 작업이 `status`에 옮겨 둔다 | `engine.is_expired` |
+| 예산 일(budget day) | `(시각 + BUDGET_DAY_OFFSET_HOURS).date()`. 기본 0 = UTC 자정(KST 09:00 리셋) | 계산 | `billing.budget_day_of` |
+| 다음 리셋 시각 | 다음 예산 일의 시작 | 계산(화면 표시) | `billing.next_reset` |
+| 오늘 남은 예산 | `max(0, 일예산 − 오늘 소진액)` | 계산 | `records.assemble` |
+| 오늘 소진액(캠페인) | 그날 `CHARGE` 실제 차감액 합 | **저장(B3, 파생값)** — 원장에서 재계산 가능 | `billing` |
+| 오늘 소진액(지갑) | 그날 원장 `CHARGE` 합 | 계산 | `billing.get_wallet` |
+| 잔액 | 원장 합계 | **저장(B1)** — 성능 때문, `check_ledger`로 일치 확인 | `billing` |
+
+### 4.8 PK 규칙 적용 기록 (2026-10-08 적용 완료)
+
+| 테이블 | 적용 전 PK | 적용 후(R-2) | 정수 `id`에 기대던 코드(적용으로 바뀐 곳) |
+|---|---|---|---|
+| `foundation_signup_attempt` | 정수 자동 증가 | `attempt_id` UUIDv7 | 없음 |
+| `foundation_audit_log` | 정수 자동 증가 | `log_id` UUIDv7 | 테스트 도우미의 정렬(시각 순으로 대체) |
+| `masters_media_key` | 정수 + `key_id` UNIQUE | `key_id` PK | 없음(`key_id`로 찾는다) |
+| `masters_bid_policy` | 정수 + `bid_policy_id` UNIQUE | `bid_policy_id` PK | 없음 |
+| `campaigns_ad_group_slot` | 정수 | `ad_group_slot_id` UUIDv7 | 없음 |
+| `campaigns_creative_image` | 정수 | `creative_image_id` UUIDv7 | 없음 |
+| `campaigns_bid` | 정수 + `bid_id` UNIQUE | `bid_id` PK | 없음 |
+| `billing_wallet` | 정수 | `wallet_id` UUIDv7 | 원장의 FK가 정수 |
+| `billing_ledger_entry` | 정수 + `entry_id` UNIQUE, `seq` 없음 | `entry_id` PK + `(wallet, seq)` | **원장 정합성 점검·원장 목록 커서**(`id` 순서) |
+| `billing_campaign_spend` | 정수 | `spend_id` UUIDv7 | 없음 |
+| `records_decision` | 정수 + `decision_id` UNIQUE | `decision_id` PK | 관리자 화면 정렬(`-decided_at`으로 대체) |
+
+이미 UUID PK인 테이블(사용자·매체·슬롯·캠페인·광고그룹·소재·재검토 요청)은 기본값만 `uuid4` → `uuid7`로 바꾼다(기존 값은 그대로 유효).
+
+---
+
+## 5. 서버 간 데이터 상호작용
+
+### 5.1 계약 목록
+
+| # | 계약 | 방향 | 상대 | 전송·인증 | 데이터 형식 | 상태 |
+|---|---|---|---|---|---|---|
+| C1 | Serving API | 들어옴 | 매체 서버 | HTTPS, `/api/media/v1`, 헤더 `X-Media-Key` | JSON(UTF-8), 오류는 `application/problem+json` | 계약 확정(2-1), 매체 인증·요청 제한 [구현] 2-2, 결정 엔드포인트 [구현] 2-3, 반응 접수·조회 [구현] 2-4, 반응 처리 [구현] 2-5 |
+| C2 | 이벤트 | 나감 | 데이터 파이프라인 | Step 4: MongoDB `ad_events`(계약 면). 확장: Kafka | JSON 이벤트(§5.6 [제안]) | [계획] Step 4, 확장 |
+| C3 | 이미지 URL | 나감 | 매체·최종 사용자 브라우저 | HTTPS GET, 인증 없음 | JPEG·PNG | [구현] |
+| C4 | Insight 입력 | 들어옴 | 데이터 파이프라인 | [열림] HTTP·Kafka·파일 | JSON 메시지(§5.7 [제안]) | 예약(확장) |
+| C5 | 포인트 충전 | 들어옴 | 매체 서버 | [열림] | JSON(§5.8 [제안]) | 예약 |
+| C6 | 콘솔 API | 들어옴 | 분리된 광고주 프론트 | 세션 | JSON | 계약 초안만. V1은 템플릿 |
+| — | 콘솔 화면 | 들어옴 | 광고주·관리자 브라우저 | 세션 쿠키 `ads_sessionid`(HttpOnly, SameSite=Lax), CSRF. 경로: `/accounts/signup/`·`/accounts/login/`(공개), `/accounts/logout/`(로그인 필요), `/advertiser/`(광고주), 관리자 경로(`ADMIN_URL_PATH`). **`/`는 `/accounts/login/`으로 임시 이동(302)하는 공개 주소**(내용 없음, 쿼리는 넘기지 않음, `7fd1fa8`) | HTML 폼(multipart 업로드 포함) | [구현] 가입·로그인, 나머지 Step 3 |
+
+### 5.2 C1 광고 요청 → 결정
+
+**요청** (`POST /api/media/v1/decisions`)
+
+```json
+{
+  "slot_id": "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "subject_id": "0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0",
+  "context": {"scene": "lobby"}
+}
+```
+
+| 필드 | 필수 | 규칙 |
+|---|:---:|---|
+| `slot_id` | O | UUID. 그 매체의 슬롯이어야 한다 |
+| `subject_id` | 슬롯에 따라 | **가명 UUID**. 직접 식별자 금지. 수집만 하고 선택에 쓰지 않는다. **개인(`individual`) 슬롯은 필수, 일괄(`shared`) 슬롯은 보내지 않는다**(어기면 400 — 슬롯을 확인한 뒤에 검사하므로 404·403이 먼저) [구현 2-7] |
+| `context` | | 불투명 JSON, 4 KiB·깊이 4·속성 50개 이하, 직접 식별자 키 금지 |
+
+**응답** (`201 Created`, `Location: /api/media/v1/decisions/{decision_id}`)
+
+```json
+{
+  "decision_id": "3c2b1a00-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+  "slot_id": "6b1f2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "slot_name": "로비 상단 배너",
+  "audience": "individual",
+  "decided_at": "2026-10-07T12:00:00Z",
+  "ad": {
+    "creative_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "title": "파이썬 입문 강의",
+    "image_url": "https://ads.example.com/assets/<sha256>.png",
+    "redirect_url": "https://example.com/landing",
+    "click_url": "https://ads.example.com/c/<서명 토큰>"
+  }
+}
+```
+
+- `audience`(슬롯 성격, [구현 2-7])와 `ad.click_url`([구현 2-8])은 v1.1에서 더해졌다. **클릭은 매체가 보고하지 않고 `click_url`로 이동시키면 광고 서버가 관측한다**(`GET /c/{token}` → 302 → `redirect_url`). 일괄 슬롯의 `click_url`은 끝에 `?s={subject_id}` 자리가 있고 매체가 클릭한 사람의 값으로 바꿔 넣는다.
+
+- 광고가 없으면 `"ad": null`이고 그래도 **201**이다(결정은 기록됨).
+- 응답에는 **입찰·금액·정책 정보가 없다**(매체가 알 필요 없는 내부 정보).
+
+**서버 안에서 일어나는 일** — 읽기 4번(모듈마다 1번, 후보 수와 무관), 쓰기 1번
+
+```mermaid
+sequenceDiagram
+    participant M as 매체 서버
+    participant S as serving_api (계획)
+    participant R as records
+    participant MA as masters
+    participant C as campaigns
+    participant B as billing
+    participant E as engine
+    participant DB as MySQL
+
+    M->>S: POST /decisions (X-Media-Key)
+    S->>S: 키 → media_id (P1), 본문 검증
+    S->>R: decide(media_id, slot_id, subject_id)
+    R->>MA: get_slot (슬롯·매체 활성, 현재 정책)
+    MA->>DB: SELECT 1회
+    R->>C: candidate_facts_for_slot (캠페인·광고그룹·소재·최신 입찰)
+    C->>DB: SELECT 1회 (구조적 소속만)
+    R->>B: balances(광고주들), spend_today(캠페인들)
+    B->>DB: SELECT 2회
+    R->>E: decide(Candidate[], AdRequest(now), rng)
+    E-->>R: 적용 금액 계산 → 필터 → 선택 + trace
+    R->>DB: INSERT records_decision (스냅샷) — 커밋
+    R-->>S: DecisionView
+    S-->>M: 201 + decision_id (저장 뒤에만)
+```
+
+`engine`에 들어가는 후보(`Candidate`)의 필드는 설계서 §4.3 표와 같다: 식별(캠페인·광고그룹·소재·슬롯), 과금 단위, 입찰(금액·버전·생성 시각), 정책 스냅샷(하한·기준가·상한·버전), 자격 판정용 사실(캠페인 상태, 광고그룹 켜짐, 기간 시작·끝, 지갑 잔액, 오늘 남은 예산).
+
+### 5.3 C1 반응 보고 → 접수 [구현 2-4] → 처리 → 과금 [구현 2-5]
+
+**요청** (`PUT /api/media/v1/decisions/{decision_id}/reactions/{reaction_id}`)
+
+```json
+{"type": "IMPRESSION", "occurred_at": "2026-10-07T12:00:03Z", "subject_id": "0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0"}
+```
+
+`type`은 노출(`IMPRESSION`)·전환(`CONVERSION`)이다(매체가 보낸 `CLICK`은 접수만 하고 거부). `subject_id`는 일괄 슬롯에서 필수, 개인 슬롯에서는 선택이며 보내면 결정의 사람과 같아야 한다 [구현 2-9].
+
+**응답** — 처음 접수 **201**, 같은 내용 재전송 **200**, 같은 ID 다른 내용 **409**
+
+```json
+{
+  "reaction_id": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
+  "decision_id": "3c2b1a00-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+  "subject_id": "0f8b2c1d-3e44-4a55-8f66-7a77b88c99d0",
+  "type": "IMPRESSION",
+  "occurred_at": "2026-10-07T12:00:03Z",
+  "received_at": "2026-10-07T12:00:03.214Z",
+  "status": "RECEIVED",
+  "reason_code": null
+}
+```
+
+```mermaid
+sequenceDiagram
+    participant M as 매체 서버
+    participant S as serving_api
+    participant DB as MySQL
+    participant P as 반응 처리(process_reactions)
+    participant B as billing
+
+    M->>S: PUT .../reactions/{reaction_id}
+    S->>DB: BEGIN IMMEDIATE / INSERT 반응(원문, RECEIVED) [+ outbox] / COMMIT
+    alt 저장 성공
+        S-->>M: 201 (처음) 또는 200 (같은 내용 재전송)
+    else DB 바쁨·실패
+        S-->>M: 503 + Retry-After (매체는 같은 reaction_id로 재시도)
+    end
+    P->>DB: RECEIVED 반응 읽기
+    P->>P: 규칙 체인 known-decision → same-media → ad-shown → click-source → subject → occurred-at → campaign-open → once-per-type → funnel-window → funnel-order
+    alt 앞 단계(노출·클릭)를 기다림
+        P->>DB: RECEIVED 유지 + checked_at (보류, 최대 300초. 앞 단계가 끝나면 깨워 바로, 아니면 30초마다 다시 판정)
+    else 거부
+        P->>DB: REJECTED + reason_code (지우지 않음)
+    else 인정
+        P->>B: charge_for_reaction(결정의 owner·campaign·applied_amount, reaction_ref)
+        B->>DB: 원장 CHARGE + 잔액 + 일 소진액 (한 트랜잭션, 멱등)
+        P->>DB: ACCEPTED
+    end
+    M->>S: GET .../reactions/{reaction_id} (결과 확인)
+```
+
+| 데이터 | 멱등 키 | 지켜지는 것 |
+|---|---|---|
+| 반응 접수 | (매체, `reaction_id`) UNIQUE | 몇 번을 보내도 한 행. 최소 한 번 전달 + 중복 제거 = 유실 0 |
+| 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
+| 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
+| 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
+| 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
+| 클릭 | 결정적 `reaction_id`(서버 비밀 HMAC)로 (매체, `reaction_id`) UNIQUE | 같은 사람의 클릭은 한 건, 매체가 미리 선점할 수 없음 [구현 2-8] |
+
+판정 단위는 개인 슬롯이면 결정, 일괄 슬롯이면 (결정, 사람)이다. 순서(노출 → 클릭 → 전환)·기간·보류는 설계 §10 "반응 판정 세부", 매체용 요약은 [contracts/README.md](contracts/README.md).
+
+### 5.4 C3 이미지 전달 [구현]
+
+`GET /assets/<sha256>.<jpg|png>` — 학습자 브라우저가 매체 화면에서 직접 받는다.
+
+| 응답 | 조건 |
+|---|---|
+| 200 + 이미지 | 그 파일을 **보유한**(현재 또는 교체된 과거분, O7) 소재가 하나라도 있고, 그 캠페인이 `ACTIVE`·`PAUSED`이며 기간이 끝나지 않았다. 같은 내용의 파일은 같은 주소라 여러 캠페인이 공유할 수 있다 |
+| 304 | `If-None-Match`가 `ETag`(해시)와 같고 위 조건이 참 |
+| 404 | 등록되지 않은 이름, 형식이 틀린 이름, 그 파일을 보유한 캠페인이 **모두** 중단(`SUSPENDED`)·종료(`ENDED`) |
+
+헤더: 고정 `Content-Type`, `Cache-Control: no-cache`(사본은 쓰기 전에 서버에 확인 → 중단이 즉시 반영), `ETag`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Resource-Policy: cross-origin`. **쿠키를 만들지 않는다.**
+
+### 5.5 콘솔 데이터 흐름 [구현 일부, 화면은 Step 3]
+
+| 사건 | 한 트랜잭션에서 쓰는 것 | 감사 로그 |
+|---|---|---|
+| 광고주 가입 | A2 가입 시도 → A1 사용자 + B1 지갑 + B2 `SIGNUP_GRANT`(기본 50,000) | `account.signup`, `billing.signup_grant` |
+| 로그인 성공·실패·잠금·로그아웃 | 세션, axes 기록 | `auth.*` |
+| 캠페인 생성 | O1 | `campaign.created` |
+| 광고그룹 생성(입찰 포함) | O2 + O3 + O5(버전 1) | `ad_group.created` |
+| 소재 등록 | 파일 저장 + O4 | `creative.created` |
+| 입찰 변경 | O5 새 버전 | `bid.added` |
+| 관리자 정책 변경 | M3 새 버전 | `masters.policy_added`(이전 값 포함) |
+| 관리자 중단·해제·반려 | O1 상태, O6 상태 | `campaign.suspended`·`released`·`review_rejected` |
+| 관리자 포인트 조정 | B2 `ADMIN_ADJUST` + B1 | `billing.adjusted` |
+
+C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘솔이 조합한다: 입찰 `effects`·`bid-preview`(`masters` 정책 + `engine.effect_of`), 캠페인 `today`(`billing.spend_today` + `next_reset`). 대조표는 구현 계획 §6.8.1.
+
+### 5.6 C2 이벤트 [제안, Step 4~5에서 확정]
+
+설계서는 이벤트 이름(`ad.decision.v1`, `ad.reaction.v1`, `ad.charge.v1`)만 정했다. 아래는 지금 저장된 데이터에서 만들 수 있는 **페이로드 제안**이다. 팀 DRD 이름과의 대응은 §9.
+
+**공통 봉투**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `event_id` | UUID | 이벤트 고유 ID. **재전송해도 같은 값**(소비자가 중복 제거) |
+| `event_name` | 문자 | 예 `ad.decision` |
+| `schema_version` | 정수 | `1` |
+| `produced_at` | 시각(UTC) | outbox에 쓴 시각 |
+| `payload` | 객체 | 아래 |
+
+**전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`** 를 제안한다(팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5). **순서는 보장한다고 가정하지 않는다**: Kafka의 순서 보장은 같은 토픽·같은 파티션 안뿐이라 결정·반응·과금이 서로 다른 토픽이면 사이의 순서가 없고, 최소 한 번 전달의 재전송도 순서를 흐트러뜨린다. 소비자는 반응이 결정보다 먼저 보일 수 있다고 보고 `decision_id`로 다시 맞춘다. 같은 토픽·파티션과 발행 순서로 순서를 보장할지는 Step 4 확정 조건이다.
+
+**`ad.decision.v1`** — 결정을 저장할 때 한 건
+
+| 필드 | 원본 | 비고 |
+|---|---|---|
+| `decision_id`, `media_id`, `slot_id`, `decided_at` | R1 | |
+| `audience` | R1 | 슬롯 성격 스냅샷(`individual`·`shared`) |
+| `subject_id` | R1 | 가명 UUID. 분석 계층 접근 권한 분리 필요(§7). **일괄 슬롯 결정은 `null`** — 사람별 퍼널은 반응 이벤트의 사람 필드로 복구한다 |
+| `selected` | R1 선택 열 | 광고 없음이면 `null`. 아니면 `campaign_id`·`ad_group_id`·`creative_id`·`pricing_unit`·`bid_id`·`bid_version`·`bid_policy_id`·`policy_version`·`bid_amount`·`applied_amount` |
+| `selection_policy`, `candidate_count`, `rejected_counts` | R1 | `trace`는 크기 때문에 제외를 제안(필요하면 별도 이벤트) |
+
+반응은 **접수와 판정을 두 이벤트로 나눈다** [확정 2026-10-09, 설계서 §10 "C2 반응 이벤트"]. 두 이벤트의 `event_id`는 **수신함 ID(`inbox_id`)와 이벤트 종류에서 결정적으로** 만들어 재처리·재전송에도 같은 값이다.
+
+**`ad.reaction_received.v1`** — 접수할 때 한 건(접수 트랜잭션의 outbox. 서버가 관측한 클릭은 클릭 기록 트랜잭션). 보류·`stuck` 중인 반응도 이 이벤트로 바로 보인다(Bronze 입력). **보고된 사실만** 담는다 — 접수는 결정의 존재·소유를 이유로 거절하지 않고(없는 결정도 받는다) 사람을 정하는 판정도 하지 않으므로 판정 단위의 사람·슬롯 성격은 싣지 않는다(접수가 하는 결정 조회는 잠글지 정하는 **소유 확인**뿐이고, 소유 매체의 접수가 결정 행을 잠그는 것은 순서를 정하기 위해서다 — 판정이 아니다)
+
+| 필드 | 원본 | 비고 |
+|---|---|---|
+| `inbox_id`, `reaction_id`, `media_id`, `decision_id` | P2 | 매체 범위 ID는 (`media_id`, `reaction_id`)로만 유일 — 전역 식별은 `event_id`(§9) |
+| `type`, `occurred_at`, `received_at` | P2 | |
+| `subject_id` | P2 | 보고에 실린 값(없으면 `null`) |
+| `source` | P2 | `media`(PUT 보고)·`server`(클릭 관측) |
+| `raw` | P2 | 받은 원문 그대로 |
+
+**`ad.reaction.v1`** — 판정(`ACCEPTED`/`REJECTED`)이 정해질 때 한 건(판정 트랜잭션의 outbox, Silver 입력)
+
+| 필드 | 원본 | 비고 |
+|---|---|---|
+| `inbox_id`, `reaction_id`, `media_id`, `decision_id` | P2 | 접수 이벤트와 같은 값으로 잇는다 |
+| `type`, `occurred_at`, `received_at` | P2 | 분석 기준 시각은 `received_at` |
+| `subject_id`, `person_id`, `source`, `audience` | P2 / R1 | 보고된 사람, **판정 단위의 사람**(개인 슬롯 = 결정의 사람, 일괄 슬롯 = 보고된 사람), 출처, 슬롯 성격 스냅샷 |
+| `status`, `reason_code`, `applied_rule` | P2 | 거부된 반응도 보낸다(분석에서 걸러낼 수 있게) |
+| `basis` | P2 | 판정에 쓴 사실(설계서 §10 "판정 근거 기록") 그대로. 열은 [구현 2-13], 이벤트는 Step 4 |
+
+**`null` 규칙**: `unknown_decision`이면 `person_id`·`audience` 모두 `null`. 결정은 있으나 사람을 정할 수 없는 거부(일괄 슬롯 `subject_required`)이면 `person_id`만 `null`. 그 밖에는 둘 다 채운다. 이 이벤트의 `person_id`·`audience`는 **`basis.person`·`basis.audience`에서 읽고**(같은 `null` 규칙), 보고된 사람은 `basis.reaction.reported_subject_id`(=접수 이벤트의 `subject_id`)에만 있다. 반응 행의 `person_id`는 인정된 행에만 채워져 거부 행의 원본으로 쓰지 않는다. 판정에 쓰는 반응은 **결정 소유 매체가 보낸 것만**이다(설계서 §10 "판정 사실의 범위").
+
+**`ad.charge.v1`** — 원장 `CHARGE` 한 줄마다
+
+| 필드 | 원본 | 비고 |
+|---|---|---|
+| `entry_id`, `campaign_id`, `charge_policy`, `created_at` | B2 | |
+| `reaction_ref`, `decision_id` | B2 / P2 | **현재 원장에는 `decision_id`가 없다** → 반응에서 찾거나 원장에 열을 추가(§10 D-6) |
+| `requested_amount`, `charged_amount`, `shortfall` | B2 | `charged = -amount`, `requested = charged + shortfall` |
+| `budget_day` | 계산 | 그 시점의 경계 설정으로 |
+
+지갑 잔액·광고주 계정 정보는 이벤트에 넣지 않는 것을 제안한다(파이프라인에 필요하지 않고 개인 연결 위험만 늘어남).
+
+### 5.7 C4 Insight 입력 [예약, 제안]
+
+파이프라인이 만든 결과가 광고 서버로 들어오는 길. **자문 값이지 명령이 아니다** — 입찰 정책을 자동으로 바꾸지 않고, 서빙 경로는 이 값을 실시간으로 기다리지 않는다(설계서 §3).
+
+| 필드 | 설명 |
+|---|---|
+| `insight_id` | UUID, 멱등 키 |
+| `kind` | `slot_performance`(슬롯·캠페인별 노출·클릭·전환 집계) · `bid_recommendation` · `subject_signal`(이후) |
+| `source`, `model_version` | 만든 쪽과 버전 |
+| `generated_at`, `valid_from`, `valid_until` | 유효 기간 |
+| `payload` | 종류별 내용(예: `slot_id`, `budget_day`, `impressions`, `clicks`, `conversions`) |
+
+저장은 별도 테이블(출처·버전·유효기간과 함께)에 한다. 전달 방식은 [열림] (설계서 §7-6). **성과 집계(`slot_performance`)는 지금 광고 서버가 직접 계산한다**(2-10). C4는 그 집계를 파이프라인 결과로 바꿀 때의 입구다.
+
+### 5.8 C5 포인트 충전 [예약, 제안]
+
+| 필드 | 설명 |
+|---|---|
+| `external_transaction_id` | 매체 쪽 거래 ID. **멱등 키**(같은 거래는 한 번만 반영) |
+| `external_ref` | 광고주 계정과 연결하는 불투명 값(연결 방법은 [열림] 설계서 §7-7) |
+| `amount` | 정수 포인트, 0 초과 |
+| `occurred_at` | 매체에서 포인트가 생긴 시각 |
+
+반영은 원장 `TOPUP` 한 줄로만 한다. 멱등 키를 담을 열(예: `external_ref` 유일 열)이 원장에 아직 없다(§10 D-7).
+
+### 5.9 시스템 작업
+
+| 작업 | 읽는 것 | 쓰는 것 | 멱등 | 실행 |
+|---|---|---|---|---|
+| `end_expired_campaigns` | O1(`ends_at ≤ now`, 아직 `ENDED` 아님) | O1 `ENDED`·`ended_from`, O6 `CLOSED_ENDED`, A3 | 예(조건부 UPDATE) | 관리 명령. 주기 실행 방식 [열림 §7-9] |
+| `process_reactions` | P2 `RECEIVED` | P2 상태, B1·B2·B3 | 예(`reaction_ref`) | [구현] 2-5 |
+| `recompute_spend` | B2 `CHARGE` | B3 전체 재작성 | 예 | 예산 경계 설정을 바꾼 뒤 |
+| `check_ledger` | B1, B2 | 없음(불일치 목록) | 읽기 전용 | 수시. 불일치 시 비정상 종료 |
+
+---
+
+## 6. 데이터 수명주기
+
+| 엔터티 | 생성 | 변경 | 삭제 | 보존 |
+|---|---|---|---|---|
+| 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화 | 없음(비활성화) | [열림] |
+| 매체·슬롯 | 관리자 | 이름·활성 | 없음 | 영구 |
+| 입찰 정책·입찰 | 새 버전 행 | **없음** | 없음 | 영구(결정 해석에 필요) |
+| 캠페인·광고그룹·소재 | 광고주 | 허용 필드만, **`ENDED` 이후 없음** | 없음 | [열림] |
+| 소재 이미지 파일 | 업로드 | 없음(교체는 새 파일) | 없음 | [열림] — 참조하는 결정이 없어진 뒤 정리 |
+| 재검토 요청 | 광고주 | 상태·답변만 닫힘 | 없음 | [열림] |
+| 지갑 | 가입 | 잔액(원장과 함께) | 없음 | 영구 |
+| 원장 | 지급·과금·조정 | **없음** | **삭제하지 않는다** | 영구 [확정] |
+| 결정 | 광고 요청 | **없음** | 보존 기간 후 [열림] | 설정값 [열림 §7-8] |
+| 반응(원문 포함) | 매체 보고 | 상태만 | 보존 기간 후 [열림] | 설정값 [열림 §7-8] |
+| 감사 로그 | 모든 변경 | **없음** | [열림] | [열림] |
+| 가입 시도 | 가입 시도 | 없음 | 1시간이 지난 행은 정리 | 1시간 |
+| MongoDB 이벤트 로그 | outbox 중계 | 없음(추가만) | 보존 기간 후 | 설정값 [열림 §7-8] |
+| NDJSON manifest | 점검·백필 도구 | 없음 | 보존 기간 후 | 설정값 [열림 §7-8] |
+
+---
+
+## 7. 보안·개인정보 분류
+
+팀 DRD 6.5의 등급(L1 일반 · L2 가명/행동 연결 · L3 제한)을 따른다.
+
+| 등급 | 데이터 | 규칙 |
+|---|---|---|
+| **L3** | 비밀번호 해시, 로그인 아이디(`username`), 매체 키(원문은 발급 시 한 번만 보여 주고 해시만 저장 [계획]), `SECRET_KEY` | 이벤트·로그·감사 상세에 넣지 않는다. 로그·감사는 비밀 키 이름을 자동 제거 |
+| **L2** | `subject_id`(노출 대상 가명), 매체 `context`, IP 주소(가입 시도·감사), 광고주 `nickname`·`class_label`, `actor_username` | `subject_id`는 **수집만 하고 해석·응답하지 않는다**. 광고주·관리자 화면과 API 응답에 되돌려주지 않는다(설계서 §3 [제안]). 이벤트로 내보낼 때는 분석 계층 접근 권한을 분리 |
+| **L1** | 매체·슬롯·정책, 캠페인·광고그룹·소재·입찰, 결정의 광고 선택, 원장 금액 | 광고주는 자기 것만(R-9). 소재 제목·이동 주소는 **신뢰할 수 없는 값**으로 표시(매체가 이스케이프) |
+
+추가 규칙:
+
+- 이미지는 재인코딩으로 **위치·기기 정보(EXIF)와 ICC를 제거**한 뒤에만 저장·제공한다.
+- 직접 식별자(`login_id`, `username`, `password`, `password_hash`, `nickname`, `email`)는 C1 `context` 어느 깊이에도 들어올 수 없다(400 `forbidden_context_key`).
+- 요청 본문·비밀번호·세션 키·매체 키는 로그에 남기지 않는다(로그 필터). 요청 ID(`X-Request-ID`)로 로그와 감사를 잇는다.
+
+---
+
+## 8. 규모와 성능 가정
+
+| 항목 | 값·식 | 근거 |
+|---|---|---|
+| 동시 사용자 | 최대 150명 | 설계서 §2 [확정] |
+| 동시 반응 보고 | 최대 150건이 한꺼번에, **유실 0** | 설계서 §6.5 |
+| 결정 행 수 | 광고 요청 수와 같다(광고 없음 포함) | R1 |
+| 반응 행 수 | 결정당 유형별 최대 1건 인정(최대 3) + 거부된 보고 | `once-per-type` |
+| 원장 `CHARGE` 행 수 | 인정된 반응 중 과금 단위가 맞는 것 | `by-unit/v1` |
+| 결정 한 건의 DB 작업 | 읽기 4번(후보 수와 무관) + 쓰기 1번 | `test_assemble_query_count_independent_of_candidates` |
+| 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(`trace`의 동점 후보 목록이 가장 큼) | 추정. 부하 테스트(2-6)에서 확인 |
+| 저장소 한계 | MySQL 단일 노드. 요청마다 연결을 닫아 연결 수 = 동시 요청 수 — 서버 `max_connections`(기본 151)에 닿으면 넘친 요청은 503 + 재시도(150 동시에서 발생, 처리는 올바름) | 설계서 §6.5-7, [load-test.md](load-test.md) §2·§4·§7. 영속 연결·풀은 배포 구성이 정해진 뒤 |
+| PK 쓰기 위치 | UUIDv7은 시각이 앞이라 새 행이 인덱스 뒤에 붙는다 | MySQL(InnoDB) 전환 대비. UUID 저장 형식(32자 문자 vs 16바이트 이진)은 전환 시점에 데이터량을 보고 정한다 |
+
+---
+
+## 9. 팀 DRD와의 대응
+
+광고 서버 내부 이름은 팀 DRD에 맞추지 않는다. **C2 이벤트를 만들 때 아래로 바꾼다.** 팀 DRD 7.1의 대조표를 실제 구현 기준으로 다시 확인한 것이다.
+
+| 광고 서버(구현) | 팀 DRD | 차이·처리 |
+|---|---|---|
+| `masters_slot.slot_id`, `name`, `is_active` | `ad_slot.slot_id`, `slot_name`, `active_flag` | 같은 뜻. 슬롯명은 매체 안에서만 유일(팀 DRD D-25와 일치) |
+| `masters_media` | 없음 | 팀 DRD는 매체를 하나로 본다(7.1 미반영) |
+| `masters_bid_policy.bid_policy_id`, `policy_version` | `ad_bid_policy.bid_policy_id`, `bid_policy_version` | 같다(D-4 해결). 자연 키도 유지 |
+| `floor_amount`·`base_amount`·`cap_amount`(정수) | 같은 이름, `amount_decimal`(DECIMAL 18,2) | 정수 포인트 vs 소수. 이벤트에서는 정수로 보내고 팀 DRD가 받아들이는지 확인 |
+| `pricing_unit` | `charge_unit_code` | 값은 같다(`IMPRESSION`·`CLICK`·`CONVERSION`) |
+| `campaigns_campaign.campaign_id`, `name`, `status` | `ad_campaign.campaign_id`, `campaign_name`, `campaign_status_code` | 상태 값 같음 |
+| `starts_at`, `ends_at` | `started_at`, `ended_at` | 이름만 다름. 서버의 `ends_at`은 **미포함 종료 시각** |
+| `owner_id`(광고주 계정 UUID) | `advertiser_name`(문자) | 팀 DRD는 광고주 이름 문자열만 둔다(A-07). 내보낼 값 [열림] |
+| `daily_budget` | 없음 | 팀 DRD 미반영(A-18) |
+| `campaigns_ad_group.enabled` | `ad_group.active_flag` | |
+| `campaigns_ad_group_slot` | `ad_group_slot`(PK UUID) | 서버도 UUID PK(`ad_group_slot_id`) + UNIQUE(그룹, 슬롯) |
+| `campaigns_creative.creative_id`, `title`, `redirect_url`, `enabled` | `ad_item.ad_id`, `ad_title`, `redirect_url`, `active_flag` | 서버의 "소재" = 팀 DRD의 "광고" |
+| `campaigns_bid.bid_id`, `bid_version`, `amount` | `ad_bid.bid_id`, `bid_version`, `bid_amount`, `currency_code` | 같다(D-4 해결). 통화는 항상 `POINT` |
+| `records_decision.decision_id`, `decided_at`, `slot_id` | `ad_decision.decision_id`, `decision_at`, `slot_id` | `decided_at` → `decision_at` |
+| 결정의 `creative_id` | `selected_ad_id` | |
+| 결정의 `bid_id` | `selected_bid_id` | 이름만 다름 |
+| 결정의 `bid_policy_id` | `selected_bid_policy_id` | 이름만 다름 |
+| 결정의 `applied_amount`·`bid_amount` 스냅샷 | 저장 안 함(계산, 팀 DRD 6.10) | 서버는 과금 근거라 **저장한다**. 팀 DRD D-22가 "서버가 복사해 두는 것은 막지 않는다"고 명시 |
+| 반응 `type`, `occurred_at`, `received_at` / 이벤트 `event_id` / 반응 `media_id`·`reaction_id` | `ad_reaction_type_code`, `occurred_at`, `collected_at` / `bronze_ad_reaction_log.log_id` / (원본 식별 필드로 따로 유지) | `reaction_id`는 **매체 안에서만** 유일해(C1의 유일성은 (`media_id`, `reaction_id`)) 전역 PK인 `log_id`로 옮기면 다른 매체의 같은 ID와 충돌한다. `log_id`에는 이벤트의 `event_id`(MongoDB `_id`와 같음)를 쓰고 `media_id`·`reaction_id`는 별도 필드로 남긴다 |
+| 반응의 `subject_id` | `user_id`·`session_id`·`classroom_id`(NOT NULL) | **광고 서버는 사용자·세션·강의실을 모른다** → §10 D-5 |
+| 지갑·원장·일 소진액·재검토 요청·감사 | 없음 | 서버 내부(팀 DRD 7.1 미반영) |
+| `campaigns_ad_group_slot.ad_group_slot_id` | `ad_group_slot.ad_group_slot_id` | 같다(PK 규칙 적용 후) |
+
+### 9.1 팀 DRD에 반영할 것 (이 문서가 우선, §1.2)
+
+| 팀 DRD | 이 문서 기준으로 바꿀 내용 |
+|---|---|
+| `amount_decimal`(DECIMAL 18,2) — 입찰·정책 금액 | **정수 포인트**(0 이상, 최대 `2^53 − 1`) |
+| E15 `advertiser_name`(문자) | 광고주 식별은 광고주 계정 UUID. 이름 문자열을 내보낼지는 [열림] |
+| E15 일예산 없음 | 캠페인 `daily_budget`(정수 포인트) 추가 검토 |
+| E20 `user_id`·`session_id`·`classroom_id` 필수 | 광고 서버는 `subject_id`(가명)만 안다. 필수 해제 또는 파이프라인 조인으로 채우는 방식(§10 D-5) |
+| E20 반응 처리 결과 미반영 | `status`(`ACCEPTED`·`REJECTED`)·`reason_code` 추가 검토(거부된 반응도 이벤트로 나간다) |
+| 매체 마스터 없음 | 매체가 늘면 매체 마스터 신설(서버는 이미 `media_id`를 가진다) |
+| 6.9 Kafka 메시지 키 `user_id` | 광고 이벤트는 `decision_id`를 키로 제안(§5.6) |
+| 6.2 "모든 ID는 UUIDv4" | 광고 영역은 **UUIDv7**(시각 순서, MySQL 쓰기 효율). 형식(36자 소문자 하이픈)은 같아 저장·전송 규칙은 그대로 |
+
+---
+
+## 10. 열린 이슈
+
+### 10.1 이 문서를 쓰며 찾은 어긋남
+
+| # | 내용 | 영향 | 제안 |
+|---|---|---|---|
+| ~~D-1~~ | **비활성 슬롯 처리가 계약과 구현이 달랐다** — **해결(2-3, 2026-10-08)** | 계약 C1과 `records.decide`가 같아졌다 | 활성 매체의 비활성 슬롯은 후보 없이 **광고 없음(201, `ad: null`)으로 기록**(trace에 `slot_inactive`), 없는·다른 매체의 슬롯은 404, 비활성 매체는 403(결정 없음). 테스트 `test_inactive_slot_of_an_active_media_is_201_null_ad_and_recorded`, `test_missing_and_other_media_slots_are_404_and_look_identical`, `test_inactive_media_is_403_and_nothing_is_recorded` |
+| ~~D-2~~ | **매체 `context`를 저장하지 않았다** — **해결(2-3, 2026-10-08)** | 받은 값을 버리지 않는다 | `records_decision.context`(JSON, 기본 `{}`) 추가. 경계(`serving_api/requests.py`)가 계약대로 검증한다: 속성 50개·직렬화 4 KiB(UTF-8 바이트)·깊이 4(`context` 자신이 1)·직접 식별자 키 금지(대소문자 무시, 어느 깊이든, 400 `forbidden_context_key`). 선택에는 쓰지 않는다. 테스트 `DecisionContextTests` |
+| ~~D-3~~ | **결정 응답의 `slot_name`이 없었다** — **해결(2-3, 2026-10-08)** | 계약 필수 필드를 채운다 | 서빙 계층이 응답을 만들 때 `masters.slot_names`로 붙인다(결정에 저장하지 않는다. 슬롯 이름이 바뀌면 조회 응답에 새 이름이 나간다). 테스트 `test_slot_name_is_looked_up_at_response_time_and_not_stored` |
+| ~~D-4~~ | **입찰·정책 행의 식별 방식** — **해결(2026-10-07)**: ② 서버 두 테이블에 UUID 열을 추가하는 안으로 결정 | C2 이벤트와 분석 조인 | `campaigns_bid.bid_id`, `masters_bid_policy.bid_policy_id`(UNIQUE) 추가, 결정이 `bid_id`·`bid_policy_id`를 함께 기록. 2026-10-08의 PK 규칙 적용으로 이 UUID가 PK가 되었다(D-8) |
+| **D-5** | **반응을 사용자·세션·강의실과 잇는 방법**: 팀 DRD의 반응 로그는 `user_id`·`session_id`·`classroom_id`가 필수인데 광고 서버는 `subject_id`(가명)만 안다(팀 DRD A-19) | 분석 계층 조인. Kafka 메시지 키 | 매체가 `subject_id`와 내부 사용자의 대응을 자기 쪽 이벤트로 내보내고 파이프라인이 조인하는 안. 광고 서버는 독립성 원칙상 사용자 모델을 알지 않는다 |
+| **D-6** | **원장 `CHARGE`에 `decision_id`가 없다** | `ad.charge.v1`이 결정과 바로 이어지지 않음 | Step 2-5에서 원장에 `decision_id`(UUID, FK 아님) 열 추가를 제안. `reaction_ref`로도 찾을 수 있으나 조인이 한 번 늘어난다 |
+| **D-7** | **충전(C5) 멱등 키를 담을 열이 없다** | C5 구현 시 | 원장에 외부 거래 ID 열(부분 UNIQUE, `TOPUP`만) 추가. C5 구현 때 |
+| ~~D-8~~ | **PK 규칙의 코드 적용** — **해결(2026-10-08)**: 모든 모델의 PK가 UUIDv7(`uuid.uuid7`)이고 자동 증가 열이 없다 | 문서와 코드가 같아졌다 | 각 앱 마이그레이션을 새 `0001`로 다시 만들었다(운영 데이터 없음. 옛 마이그레이션의 데이터 복구 단계와 그 테스트는 함께 없어졌다. `billing`·`campaigns`는 앱 사이 순환 때문에 `0001`·`0002`로 나뉜다). 원장에 `seq`와 `UNIQUE(wallet, seq)`가 들어가고 원장 점검·목록 커서는 `seq`, 관리자 정렬은 시각 열을 쓴다 |
+
+### 10.2 설계서에서 이어지는 열린 결정 (데이터 관점)
+
+| 설계서 | 데이터에 미치는 영향 |
+|---|---|
+| §7-1 예산 일 경계 | `budget_day` 값과 B3 재계산. 경계를 바꾸면 `recompute_spend` |
+| §7-3 전환의 정의 | `CONVERSION` 반응의 의미와 분석 해석 |
+| §7-6 C4 전달 방식 | Insight 저장 테이블 모양 |
+| §7-7 C5 계정 연결 | 사용자 테이블의 외부 연결 열(`external_ref`) |
+| §7-8 보존 기간 | §6의 [열림] 칸 전부 |
+| §7-9 주기 작업 실행 | `end_expired_campaigns`·`process_reactions` 지연 → 표시 상태와 저장 상태가 다른 구간의 길이 |
+| §7-10 DB 전환 | ~~SQLite 고유 동작(쓰기 직렬, 부분 인덱스)에 기대는 곳 재확인~~ **해결(DB-1, 2026-10-09)**: 조건부 유일 제약 3곳·반응 인정 키를 조건 없는 유일 제약 + NULL 키로, 재계산·접수 순서는 행 잠금 규약으로 |
+
+---
+
+## 11. 문서 이력
+
+| 버전 | 날짜 | 내용 |
+|---|---|---|
+| 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.18 | 2026-10-10 | 콘솔 화면 행에 경로와 루트 주소 `/`(로그인 화면으로 임시 이동하는 공개 주소)를 추가 |
+| 0.17 | 2026-10-10 | DB-2(MongoDB 연결) 반영: 저장소 요약·`ad_events` 행을 연결·컬렉션·색인 준비 완료로(이벤트 쓰기는 Step 4). 반응 처리 순서도의 보류 재판정을 깨우기 + 30초 안전망으로(DB-1d) |
+| 0.16 | 2026-10-09 | MySQL 전환 반영(DB-1a~1e): 저장소·현재 단계 표·구성도·순서도의 SQLite를 MySQL 8.4로, 저장소 한계는 연결 한도·단일 노드로. 이력 행은 그대로 |
+| 0.15 | 2026-10-09 | 접수 서술 정정(외부 검토 `974c28b`): "짧은 INSERT 한 번" → 소유 매체의 접수는 결정 행 잠금 + INSERT, "결정을 조회하지 않는다" → 결정의 존재·소유를 이유로 거절하지 않으며 결정 조회는 잠글지 정하는 소유 확인뿐(구현 `974c28b`·`a139e39`). 접수 이벤트에 판정된 사람·슬롯 성격을 싣지 않는 계약은 그대로 |
+| 0.14 | 2026-10-09 | 2-13 보완(`3cc540f`) 반영: `basis.person`은 확인한 사람만(없는 결정이면 `null`), 앞 단계는 인정 근거(최대 1개, 항상 저장)와 처리 전 후보(상한)로 분리, C2 판정 이벤트의 사람·슬롯 성격은 `basis`에서 읽음 |
+| 0.13 | 2026-10-09 | 외부 검토(`65331e8`) 반영: 접수 이벤트는 보고된 사실만(사람·슬롯 성격 없음), 판정 이벤트에 `basis`와 `null` 규칙, `records_reaction.basis` [구현 2-13], 판정 사실은 결정 소유 매체의 반응으로 한정 [구현 2-13] |
+| 0.12 | 2026-10-09 | 외부 검토 반영: C2 반응 이벤트를 접수(`ad.reaction_received.v1`)·판정(`ad.reaction.v1`) 둘로 나누고 사람·출처·슬롯 성격 필드 추가, 결정 이벤트에 `audience`. `log_id` = `event_id`(매체 범위 `reaction_id`와 분리), Kafka 순서는 가정하지 않음, 깨진 링크 정리 |
+| 0.11 | 2026-10-08 | 데이터 흐름 단계화: §2.1을 V1·DB 전환·확장 표로 나눔(파이프라인 연결은 확정 구조가 아님을 명시), 저장소 분담(MySQL 업무 + outbox / MongoDB 이벤트 로그), C2 경계 = MongoDB `ad_events`, JSONL 통로 삭제·NDJSON은 manifest·검증 전용, §2.3 분석 계층 대응, C4는 집계 교체의 입구 |
+| 0.10 | 2026-10-08 | 2-9(반응 판정 확장) 반영: `records_reaction.person_id`·`checked_at`, 유일 제약 (결정, 사람, 유형), 결정 인덱스 `(slot_id, subject_id, decided_at)`, 새 규칙 |
+| 0.9 | 2026-10-08 | 2-7(슬롯 `audience`·결정 스냅샷)·2-8(클릭 관측: `records_reaction.source`·`subject_id`) 반영 |
+| 0.8 | 2026-10-08 | 2-5(반응 처리) 반영: 규칙 `ad-shown` 추가, `records_reaction`에 `applied_rule`·`processed_at`·`attempts`와 부분 UNIQUE, `process_reactions` [구현] |
+| 0.7 | 2026-10-08 | 2-4(반응 수신) 반영: `records_reaction`(수신함) [구현], 접수 규칙(201/200/409, 커밋 뒤 2xx) |
+| 0.6 | 2026-10-08 | 2-3(결정 API) 구현 반영: D-1~D-3 해결, `records_decision.context` 열, C1 결정 엔드포인트 [구현] |
+| 0.5 | 2026-10-08 | PK 규칙을 코드에 적용(D-8 해결): 표기를 목표 모양에서 현재 모양으로, §4.8은 적용 기록으로 |
+| 0.4 | 2026-10-08 | `intake/`에서 정식 위치 `docs/ads-server/`로 승격 |
+| 0.3 | 2026-10-08 | PK 규칙 확정(모든 PK UUIDv7, 자동 증가 없음, 자연 키는 유일 제약, 원장만 `(wallet, seq)`)을 반영해 ERD·컬럼 표를 목표 모양으로 바꿈, 현재 코드와의 차이(§4.8, D-8). 저장소 단계(V1 SQLite → 운영 수준 테스트 때 MySQL·MongoDB). 2-1·2-2 반영: 매체 키(M4)·소재 이미지 보유(O7) 추가, C3 공유 파일 서빙 규칙, D-1 계약 확정 |
+| 0.2 | 2026-10-07 | D-4 해결: 입찰·정책 버전 행에 UUID(`bid_id`·`bid_policy_id`) 추가, 결정이 함께 기록(코드 반영). 광고 도메인은 이 문서가 팀 DRD보다 우선한다는 규칙과 팀 DRD 반영 목록(§9.1) 추가 |
+| 0.1 | 2026-10-07 | 첫 작성. Step 1 완료(`2a68729`) 기준의 실제 모델과 계약 C1·C3·C6, 설계서 §3·§4·§6을 데이터 관점으로 정리. C2 이벤트·C4·C5 페이로드 제안, 팀 DRD 대응표, 어긋남 D-1~D-7 기록 |
