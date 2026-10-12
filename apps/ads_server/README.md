@@ -17,7 +17,7 @@ python manage.py runserver 127.0.0.1:8001
 
 - **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
-- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod. 단 지금은 `.env`에 `DJANGO_SETTINGS_MODULE`이 있으면 `wsgi/asgi`도 그 값을 따른다(아래 "운영 배포").
+- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 `.env`의 설정 모듈을 따르지 않고 실제 환경변수가 없으면 prod다(아래 "운영 배포").
 - prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`이 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
 - dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
@@ -83,9 +83,11 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 ## 운영 배포
 
-- **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 기본 prod지만 지금은 `.env`에 `DJANGO_SETTINGS_MODULE`이 있으면 그 값을 따르므로, `.env.example`을 복사했다면 그 줄(dev)을 지운다(웹 진입점이 `.env`의 값을 무시하게 바꾸는 것은 Step 6-3a).
+- **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 **`.env`의 설정 모듈을 따르지 않는다** — 실제 환경변수에 있으면 그 값, 없으면 prod다(`.env`의 다른 값은 그대로 읽는다, Step 6-3a). 그래서 `.env`에 dev가 남아 있어도 웹은 dev로 뜨지 않는다.
 - **배포 순서**: `migrate` → `ensure_event_store` → 상시 프로세스(아래). 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
 - **배포 점검 — 리버스 프록시 뒤면 `TRUSTED_PROXY_COUNT`(신뢰할 프록시 수)를 설정한다.** 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다. 그러면 가입 제한(IP당 시간당 5회)이 서비스 전체에서 시간당 5회가 되고, 로그인 잠금(아이디 + IP 기준)은 아이디만 보는 것과 같아져 남이 계정을 잠글 수 있으며, 감사 로그의 IP는 모두 프록시 IP가 된다.
+- **단체 가입**(같은 교실·같은 NAT)이 6번째부터 막히면 그때만 `SIGNUP_MAX_PER_IP_PER_HOUR`(1 이상, 기본 5)를 잠시 올렸다가 내린다. 바꾸면 재시작해야 한다. 임시방편이다 — 올린 만큼 여러 계정으로 지급 포인트를 모으기 쉬워진다(설계 §10 "가입 시도 제한"). 프록시 뒤라면 `TRUSTED_PROXY_COUNT`부터 확인한다.
+- **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
 
 ## 상시·주기 작업
 
@@ -93,8 +95,9 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 | 작업 | 언제 | 하지 않으면 |
 |---|---|---|
-| `process_reactions` | 상시 | 반응이 `RECEIVED`로 남는다(판정·과금이 멈춘다) |
+| `process_reactions` | 상시 | 반응이 `RECEIVED`로 남는다(판정·과금이 멈춘다). 한가할 때도 시작 직후·stuck 건수가 바뀔 때·60초마다 `idle {현황}` 줄을 찍으므로 **출력이 끊기면 멈춘 것**이다 |
 | `relay_events` | 상시 | 이벤트가 outbox에 쌓인다 |
+| `process_reactions --status` | 감시 | 처리하지 않고 현황만 본다: 대기(`received`, 아래 둘 포함)·보류(`held`)·`stuck`·가장 오래된 대기(`oldest_age_seconds`, 초, stuck 제외). `stuck`이 0보다 크면 과금되지 않은 반응이 있다(같은 결정의 뒤 반응도 그것을 기다리며 묶일 수 있다 → 원인을 고친 뒤 `--retry-stuck`). 대기 시간이 계속 늘면 처리기가 멈춘 것이다 |
 | `relay_events --status` | 감시 | 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB가 끊긴 것 |
 | `purge_sent_events` | 매일 | 보낸 outbox 행이 쌓인다(보낸 지 7일 지난 것만 지운다, `EVENTS_OUTBOX_RETENTION_DAYS`) |
 | `clearsessions` | 매일 | 만료된 로그인 세션 행이 DB에 쌓인다(세션은 DB에 저장되고 지우는 곳이 따로 없다) |
@@ -107,7 +110,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 | `recompute_spend` | 예산 일 경계(`BUDGET_DAY_OFFSET_HOURS`)를 바꾼 뒤 | 일 소진액이 옛 경계 기준으로 남는다 |
 | `backfill_events` | 필요할 때(아래 "백필") | 이벤트가 빠진 원본 행이 그대로 남는다 |
 
-두 상시 프로세스는 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다.
+두 상시 프로세스는 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다. 예외: 중계는 **MongoDB 설정(`MONGO_HOSTS`)이 없으면 다시 시도하지 않고 바로 멈춘다**(종료 코드 1, "이벤트 저장소 설정이 없어 중계를 멈춥니다"). 보낼 이벤트가 있을 때 드러나므로, 재시작해도 밀린 이벤트 때문에 바로 다시 멈춘다(재시작 반복으로 보인다). 웹은 MongoDB를 쓰지 않아 웹 노드에는 설정이 없어도 된다.
 
 ```bash
 python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함)
