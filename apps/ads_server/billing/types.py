@@ -32,3 +32,15 @@ class ChargeResult:
     charged: int  # 실제로 차감한 금액(남은 잔액까지만)
     shortfall: int  # 모자라서 못 받은 금액
     duplicate: bool  # 같은 reaction_ref 의 재호출이라 처음 결과를 그대로 돌려줌
+
+
+@dataclass(frozen=True)
+class ChargeEntryView:
+    """원장 `CHARGE` 한 줄(이벤트 백필용 읽기). `charged` 는 실제로 받은 포인트(양수), `shortfall` 은 못 받은 포인트."""
+    entry_id: uuid.UUID
+    campaign_id: uuid.UUID | None
+    charge_policy: str
+    reaction_ref: str
+    charged: int
+    shortfall: int
+    created_at: datetime

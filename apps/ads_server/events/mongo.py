@@ -13,6 +13,11 @@ class NotConfigured(Exception):
     pass
 
 
+def error_text(error):
+    """MongoDB(또는 그 설정) 오류를 알리는 한 조각 `<오류 종류>: <메시지 앞 200자>`. 명령의 오류 문구와 상태 확인 결과가 같이 쓴다."""
+    return f"{type(error).__name__}: {str(error)[:200]}"
+
+
 def config():
     """`settings.EVENT_STORE`. 없으면(설정 안 됨) 무엇이 없는지 말하고 멈춘다."""
     cfg = getattr(settings, "EVENT_STORE", None)

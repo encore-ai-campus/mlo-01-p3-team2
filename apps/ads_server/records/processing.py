@@ -7,6 +7,7 @@
 - 여러 프로세스가 동시에 돌려도 안전하다(행을 `RECEIVED` 일 때만 집고, 상태는 조건부 UPDATE 로 바꾼다). 단일 관리 프로세스가 기본 운영 방식이다.
 """
 import logging
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -15,6 +16,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from billing import api as billing
+from events import api as events
 from foundation.api import is_transient_lock_error
 
 from . import basis as judgment_basis
@@ -37,6 +39,15 @@ def reaction_ref(media_id, reaction_id):
     return f"{media_id}:{reaction_id}"
 
 
+def parse_reaction_ref(ref):
+    """`reaction_ref` 의 반대: `(media_id, reaction_id)`. 이 형식이 아니면 `None`(해석하지 못한 키로 반응을 추측하지 않는다)."""
+    try:
+        media_id, reaction_id = ref.split(":")
+        return uuid.UUID(media_id), uuid.UUID(reaction_id)
+    except (ValueError, AttributeError):
+        return None
+
+
 def _finish(row, status, now, basis, reason=None, rule=None, person=None):
     """상태를 바꾸는 **유일한 곳**. 아직 `RECEIVED` 인 행만 바꾼다(끝난 반응은 다시 바뀌지 않는다). 인정할 때는 판정 단위의 사람도 함께 확정한다.
 
@@ -52,6 +63,16 @@ def _finish(row, status, now, basis, reason=None, rule=None, person=None):
     )
     if changed != 1:
         raise RuntimeError(f"이미 처리된 반응의 상태를 바꾸려 했다: {row.pk}")
+    judged_event(row, status, reason, rule, basis, now)  # 판정 이벤트(`ad.reaction`): 상태를 바꾼 같은 트랜잭션에서. 판정은 됐는데 이벤트가 없는 상태가 생기지 않는다
+
+
+def judged_event(row, status, reason, rule, basis, now):
+    """판정 이벤트를 outbox 에 쓴다. 라이브 판정(`_finish`)과 이벤트 백필(`backfill`)이 **같은 코드**를 쓴다 — 백필한 이벤트가 라이브로 만들었을 이벤트와 같게."""
+    events.record_reaction(
+        now=now, inbox_id=row.inbox_id, reaction_id=row.reaction_id, media_id=row.media_id, decision_id=row.decision_id, type=row.type,
+        occurred_at=row.occurred_at, received_at=row.received_at, subject_id=row.subject_id, source=row.source, status=status,
+        reason_code=reason, applied_rule=rule, basis=basis,
+    )
 
 
 def _hold(row, now):
@@ -79,12 +100,33 @@ def _process(inbox_id, now):
         basis = judgment_basis.build(facts, rule=verdict[0], reason=verdict[1], person=person, judged_at=now)
         _finish(row, ReactionStatus.REJECTED, now, basis, reason=verdict[1], rule=verdict[0])
         return ReactionStatus.REJECTED
-    billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
+    charge = billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
         decision.owner_id, decision.campaign_id, row.type, decision.pricing_unit, decision.applied_amount,
         reaction_ref(row.media_id, row.reaction_id), now=row.received_at,
     )
+    if charge is not None:
+        _record_charge_event(charge, row, now)
     _finish(row, ReactionStatus.ACCEPTED, now, judgment_basis.build(facts, rule=None, reason=None, person=person, judged_at=now), person=person)
     return ReactionStatus.ACCEPTED
+
+
+def _record_charge_event(charge, row, now):
+    """과금 이벤트(`ad.charge`): 원장 `CHARGE` 한 줄마다 한 건, 과금과 **같은 트랜잭션**에서. 과금은 이 파일에서만 일어나므로(경계 검사) 원장에 이벤트 없는 `CHARGE` 가 생기지 않는다.
+    결정 ID 는 원장에 열을 더하지 않고 이 반응의 결정에서 가져온다(원장은 추가 전용이고 결정은 반응이 알고 있다). 이미 과금된 반응을 다시 처리한 경우(`duplicate`)에도
+    같은 이벤트 ID 라 한 줄만 남는다."""
+    entry = charge.entry
+    charge_event(
+        entry_id=entry.entry_id, campaign_id=entry.campaign_id, charge_policy=entry.charge_policy, created_at=entry.created_at,
+        reaction_ref=reaction_ref(row.media_id, row.reaction_id), decision_id=row.decision_id, charged=charge.charged, shortfall=charge.shortfall, now=now,
+    )
+
+
+def charge_event(*, entry_id, campaign_id, charge_policy, created_at, reaction_ref, decision_id, charged, shortfall, now):
+    """과금 이벤트를 outbox 에 쓴다. 라이브 과금과 이벤트 백필이 **같은 코드**를 쓴다."""
+    events.record_charge(
+        now=now, entry_id=entry_id, campaign_id=campaign_id, charge_policy=charge_policy, created_at=created_at, reaction_ref=reaction_ref,
+        decision_id=decision_id, requested_amount=charged + shortfall, charged_amount=charged, shortfall=shortfall, budget_day=billing.budget_day_of(created_at),
+    )
 
 
 def _note_failure(inbox_id):

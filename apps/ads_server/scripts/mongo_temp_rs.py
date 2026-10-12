@@ -9,17 +9,18 @@
 """
 import secrets
 import socket
-import subprocess
 import sys
 import time
 import uuid
+from functools import partial
+
+import docker_cli
 
 IMAGE = "db-standalone/mongodb:8.0-ubuntu24.04"
 REPLICA_SET = "rs0"
 
 
-def docker(*args, check=True, timeout=120):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, check=check, timeout=timeout)
+docker = partial(docker_cli.docker, timeout=120)  # 이 스크립트의 시간 제한(R5)
 
 
 def start():
@@ -30,7 +31,8 @@ def start():
         port = probe.getsockname()[1]
     name, password = f"ads-mongo-rs-{uuid.uuid4().hex[:10]}", secrets.token_urlsafe(24)
     # 컨테이너 안 포트도 같은 값으로 맞춘다 — 레플리카셋 구성원 주소가 호스트에서도 그대로 닿아야 한다.
-    script = (f"openssl rand -base64 48 > /tmp/keyfile && chmod 400 /tmp/keyfile && "
+    script = (f"rm -f /tmp/keyfile && openssl rand -base64 48 > /tmp/keyfile && chmod 400 /tmp/keyfile && "  # 재시작 때 읽기 전용 키 파일 위에 다시 쓰지 못해 죽지 않게 먼저 지운다
+              
               f"exec mongod --dbpath /data/db --bind_ip_all --port {port} --replSet {REPLICA_SET} --keyFile /tmp/keyfile")
     docker("run", "-d", "--name", name, "-p", f"127.0.0.1:{port}:{port}", "--entrypoint", "sh", IMAGE, "-c", script)
     try:
@@ -54,6 +56,18 @@ def start():
         docker("rm", "-f", name, check=False)
         raise
     return name, port, password
+
+
+def restart(name, port, timeout=120):
+    """컨테이너를 재시작하고 레플리카셋 primary 가 다시 설 때까지 기다린다(장애 시험의 '계획된 재시작')."""
+    docker("restart", "-t", "20", name)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        probe = docker("exec", name, "mongosh", "--quiet", "--port", str(port), "--eval", "db.hello().isWritablePrimary", check=False)
+        if probe.stdout.strip() == "true":
+            return
+        time.sleep(1)
+    raise SystemExit(f"{name} 의 primary 가 {timeout}초 안에 서지 않았다")
 
 
 def stop(name):

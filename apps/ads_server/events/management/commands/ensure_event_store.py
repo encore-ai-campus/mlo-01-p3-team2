@@ -12,7 +12,7 @@ class Command(BaseCommand):
         try:
             done = store.ensure()
         except (mongo.NotConfigured, PyMongoError, RuntimeError) as exc:
-            raise CommandError(f"{type(exc).__name__}: {str(exc)[:300]}")
+            raise CommandError(mongo.error_text(exc))
         finally:
             mongo.close()
         for line in done:

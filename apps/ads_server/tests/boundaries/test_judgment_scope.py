@@ -39,6 +39,54 @@ def callers_of(tree, target):
     return names
 
 
+WRITES_WITH_KEYWORD = {"update", "create", "get_or_create", "update_or_create", "bulk_create"}  # `basis=`(또는 `**{"basis": …}`)를 받으면 쓰기
+# 아래 두 표의 위치 인덱스는 Django `QuerySet` 시그니처의 순서다(self 제외) — 키워드로 넘기든 위치로 넘기든 같은 인자를 본다
+WRITES_WITH_DEFAULTS = {"get_or_create": (("defaults", 0),), "update_or_create": (("defaults", 0), ("create_defaults", 1))}  # 이 dict 에 "basis" 키가 있으면 쓰기
+WRITES_WITH_FIELDS = {"bulk_update": ("fields", 1), "bulk_create": ("update_fields", 4)}  # 이 필드 목록에 "basis" 가 있으면 쓰기
+
+
+def _argument(call, name, index):
+    """호출에서 이름 `name`(위치 `index`)으로 넘긴 인자. 없으면 `None`."""
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return call.args[index] if len(call.args) > index else None
+
+
+def _has_basis_key(node):
+    return isinstance(node, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "basis" for k in node.keys)
+
+
+def _sets_basis(call):
+    return any(k.arg == "basis" or (k.arg is None and _has_basis_key(k.value)) for k in call.keywords)
+
+
+def basis_writes(tree):
+    """판정 근거를 쓰는 꼴(계획 4-4b, 외부 검토 Step 4-4 보완). 줄 번호 목록을 돌려준다.
+
+    - `basis=`·`**{"basis": …}` 를 받는 `update`·`create`·`get_or_create`·`update_or_create`·`bulk_create`, `Reaction(basis=…)` 생성
+    - `get_or_create`·`update_or_create` 의 `defaults`·`create_defaults` dict 의 `"basis"` 키
+    - `bulk_update` 의 `fields`, `bulk_create` 의 `update_fields` 목록의 `"basis"`(키워드든 위치 인자든)
+    - `.basis =`·`.basis +=` 대입
+
+    쿼리셋이 `Reaction` 인지는 정적으로 가리지 않는다 — 이 꼴의 쓰기가 있는 파일 자체를 제한한다. 읽은 값을 다른 함수에 키워드로 넘기는 것은 쓰기가 아니다.
+    정적 검사라 값으로 만든 인자(`update(**fields)`)까지는 보지 못한다."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "basis" and isinstance(node.ctx, ast.Store):
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Reaction" and _sets_basis(node):
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            method = node.func.attr
+            defaults = [_argument(node, name, index) for name, index in WRITES_WITH_DEFAULTS.get(method, ())]
+            fields = _argument(node, *WRITES_WITH_FIELDS[method]) if method in WRITES_WITH_FIELDS else None
+            if ((method in WRITES_WITH_KEYWORD and _sets_basis(node)) or any(_has_basis_key(d) for d in defaults)
+                    or (fields is not None and any(isinstance(c, ast.Constant) and c.value == "basis" for c in ast.walk(fields)))):
+                lines.append(node.lineno)
+    return lines
+
+
 @tag("security")
 class JudgmentFactsScopeTests(SimpleTestCase):
     def tree(self):
@@ -63,7 +111,56 @@ class JudgmentFactsScopeTests(SimpleTestCase):
         self.assertNotIn("connection", source)  # 원시 SQL 우회
 
     def test_the_basis_is_written_only_by_the_processor(self):
-        """판정 근거(`basis`)를 쓰는 곳은 `processing._finish` 하나다(모델 정의 제외). 다른 곳이 쓰면 '한 번 쓰고 바꾸지 않는다'가 깨진다."""
-        write = re.compile(r"\bbasis\s*=(?!=)")
-        sites = {path.name for path in project_files("records") if "migrations" not in path.parts and write.search(path.read_text(encoding="utf-8"))}
-        self.assertEqual(sites, {"models.py", "processing.py"})
+        """판정 근거(`basis`)를 쓰는 곳은 `processing._finish` 하나다. 다른 곳이 쓰면 '한 번 쓰고 바꾸지 않는다'가 깨진다.
+        글자(`basis=`)가 아니라 실제 쓰기의 꼴을 본다(`basis_writes`) — 읽은 값을 키워드 인자로 넘기는 것은 쓰기가 아니다. 모델 정의는 쓰기 꼴이 아니므로 저절로 빠지고, 마이그레이션은 보지 않는다."""
+        sites = {path.name for path in project_files("records") if "migrations" not in path.parts and basis_writes(ast.parse(path.read_text(encoding="utf-8")))}
+        self.assertEqual(sites, {"processing.py"})  # 검사가 공회전이 아니다: 실제로 쓰는 곳 하나를 찾는다
+
+
+class BasisWriteFormsTests(SimpleTestCase):
+    """`basis_writes` 가 무엇을 쓰기로 보는지(외부 검토 Step 4-4 P2: `bulk_create` 의 위치 인자 `update_fields` 를 놓쳤다). 소스 조각을 직접 넣어 본다."""
+
+    WRITES = [
+        'Reaction.objects.filter(pk=1).update(basis={})',
+        'Reaction.objects.create(basis={})',
+        'Reaction.objects.get_or_create(pk=1, basis={})',
+        'Reaction.objects.update_or_create(pk=1, basis={})',
+        'Reaction.objects.update_or_create(pk=1, defaults={"basis": {}})',
+        'Reaction.objects.update_or_create(pk=1, create_defaults={"basis": {}})',
+        'Reaction.objects.update_or_create({"basis": {}}, pk=1)',  # 위치 인자 defaults
+        'Reaction.objects.update_or_create(None, {"basis": {}}, pk=1)',  # 위치 인자 create_defaults
+        'Reaction.objects.get_or_create({"basis": {}}, pk=1)',
+        'Reaction.objects.filter(pk=1).update(**{"basis": {}})',
+        'Reaction.objects.bulk_create([row], basis={})',
+        'Reaction.objects.bulk_create([row], update_conflicts=True, update_fields=["basis"])',
+        'Reaction.objects.bulk_create([row], None, False, True, ["basis"])',  # 위치 인자: update_fields 는 다섯 번째
+        'Reaction.objects.bulk_update([row], ["basis"])',
+        'Reaction.objects.bulk_update([row], fields=("status", "basis"))',
+        'Reaction(pk=1, basis={})',
+        'row.basis = {}',
+        'row.status, row.basis = 1, {}',
+        'row.basis += {}',
+    ]
+    READS = [
+        'events.record_reaction(basis=row.basis)',
+        'Reaction.objects.filter(basis=x).count()',
+        'Reaction.objects.values("basis")',
+        'x = row.basis',
+        'Reaction.objects.bulk_create([row], 500)',  # 두 번째 위치 인자는 batch_size
+        'Reaction.objects.bulk_create([row], None, False, True, ["status"])',
+        'Reaction.objects.bulk_update([row], ["status"], 500)',
+        'Reaction.objects.update_or_create(pk=1, defaults={"status": 1})',
+        'dict(basis=row.basis)',
+        'Reaction.objects.get_or_create({"status": 1}, pk=1)',
+        'Reaction.objects.bulk_update([row], fields=["status"])',
+    ]
+
+    def test_each_write_form_is_found(self):
+        for source in self.WRITES:
+            with self.subTest(source):
+                self.assertTrue(basis_writes(ast.parse(source)))
+
+    def test_reads_and_other_fields_are_not_writes(self):
+        for source in self.READS:
+            with self.subTest(source):
+                self.assertEqual(basis_writes(ast.parse(source)), [])

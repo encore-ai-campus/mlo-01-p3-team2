@@ -3,13 +3,13 @@ from .budget_day import budget_day_of, day_start, next_reset
 from .models import EntryType
 from .policies import UnknownChargePolicy, register_charge_policy, unregister_charge_policy
 from .services import (
-    ConsistentReadUnavailable, adjust, balances, charge_for_reaction, charged_amounts, check_ledger, get_wallet, grant_signup, list_ledger, recompute_spend, spend_by_day,
+    ConsistentReadUnavailable, adjust, consistent_read, balances, charge_entries, charge_entry_ids, charge_for_reaction, charged_amounts, check_ledger, get_wallet, grant_signup, list_ledger, recompute_spend, spend_by_day,
     spend_today,
 )
-from .types import ChargeResult, LedgerEntryView, WalletView
+from .types import ChargeEntryView, ChargeResult, LedgerEntryView, WalletView
 
 __all__ = [
-    "EntryType", "ChargeResult", "LedgerEntryView", "WalletView", "UnknownChargePolicy", "grant_signup", "adjust",
-    "charge_for_reaction", "get_wallet", "list_ledger", "balances", "spend_today", "budget_day_of", "next_reset",
-    "recompute_spend", "check_ledger", "ConsistentReadUnavailable", "day_start", "spend_by_day", "charged_amounts", "register_charge_policy", "unregister_charge_policy",
+    "EntryType", "ChargeEntryView", "ChargeResult", "LedgerEntryView", "WalletView", "UnknownChargePolicy", "grant_signup", "adjust",
+    "charge_entries", "charge_entry_ids", "charge_for_reaction", "get_wallet", "list_ledger", "balances", "spend_today", "budget_day_of", "next_reset",
+    "recompute_spend", "check_ledger", "ConsistentReadUnavailable", "consistent_read", "day_start", "spend_by_day", "charged_amounts", "register_charge_policy", "unregister_charge_policy",
 ]

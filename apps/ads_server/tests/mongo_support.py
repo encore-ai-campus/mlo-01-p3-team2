@@ -9,8 +9,11 @@ from events import mongo
 PREFIX = "ads_events_test_"
 
 
-class EventStoreTestCase(SimpleTestCase):
+class MongoDatabaseMixin:
+    """시험용 MongoDB 데이터베이스(무작위 이름)를 시험마다 쓰고 끝나면 지운다. 어떤 TestCase 와도 섞어 쓴다."""
+
     def setUp(self):
+        super().setUp()
         self.db_name = f"{PREFIX}{uuid.uuid4().hex}"
         override = override_settings(EVENT_STORE={**settings.EVENT_STORE, "NAME": self.db_name})
         override.enable()
@@ -24,3 +27,7 @@ class EventStoreTestCase(SimpleTestCase):
             mongo.client().drop_database(self.db_name)
         finally:
             mongo.close()
+
+
+class EventStoreTestCase(MongoDatabaseMixin, SimpleTestCase):
+    pass

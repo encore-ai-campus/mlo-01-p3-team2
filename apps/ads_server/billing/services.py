@@ -1,6 +1,7 @@
 """billing 의 규칙. 잔액은 원장 합계이고, 0 밑으로 내려가지 않으며, 같은 반응은 한 번만 과금한다(설계 §4.4-8~11)."""
 from contextlib import contextmanager
 from datetime import timedelta
+from itertools import batched
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -13,7 +14,7 @@ from foundation.api import MAX_AMOUNT, Role, clean_text, errors, parse_uuid, rec
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
 from .policies import get_charge_policy
-from .types import ChargeResult, LedgerEntryView, WalletView
+from .types import ChargeEntryView, ChargeResult, LedgerEntryView, WalletView
 
 
 def _now(now=None):
@@ -198,11 +199,27 @@ def charged_amounts(reaction_refs):
 
     광고그룹처럼 소진액이 따로 쌓이지 않는 범위의 소진을 원장에서 읽을 때 쓴다. 한 번에 많은 키를 `IN` 에 넣지 않도록 나눠 조회한다.
     """
-    refs, found = list(reaction_refs), {}
-    for start in range(0, len(refs), 500):
-        chunk = refs[start:start + 500]
+    found = {}
+    for chunk in batched(reaction_refs, 500):
         for ref, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, reaction_ref__in=chunk).values_list("reaction_ref", "amount"):
             found[ref] = -amount  # 원장의 과금은 음수다
+    return found
+
+
+def charge_entry_ids():
+    """원장 `CHARGE` 항목 ID 를 훑는다(이벤트 누락 점검용 읽기). 큰 표를 한꺼번에 메모리에 올리지 않는다."""
+    return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE).values_list("entry_id", flat=True).iterator(chunk_size=2000)
+
+
+def charge_entries(entry_ids):
+    """원장 `CHARGE` 항목을 ID 로 읽는다(없는 ID 는 결과에 없다). 이벤트 백필이 원본 행에서 과금 이벤트를 다시 만들 때 쓴다."""
+    found = []
+    for chunk in batched(entry_ids, 500):
+        for e in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, entry_id__in=chunk):
+            found.append(ChargeEntryView(
+                entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, reaction_ref=e.reaction_ref, charged=-e.amount,
+                shortfall=e.shortfall, created_at=e.created_at,
+            ))
     return found
 
 

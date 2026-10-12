@@ -1,7 +1,8 @@
-"""`ad_events` 컬렉션의 생성·색인·상태 확인 (계획 DB-2). 이벤트는 아직 쓰지 않는다(Step 4).
+"""`ad_events` 컬렉션의 생성·색인·상태 확인 (계획 DB-2). 이벤트는 중계(`relay.py`, Step 4)가 쓴다.
 
-컬렉션과 이벤트 스키마가 C2 계약 면이다(설계 §6.3). 아래 봉투 검증과 색인은 DRD §5.6 의 공통 봉투 제안에서 왔고 Step 4 에서 스키마와 함께 확정한다.
+컬렉션과 이벤트 스키마가 C2 계약 면이다(설계 §6.3). 아래 봉투 검증과 색인은 DRD §5.6 의 공통 봉투에서 왔다(내용 필드는 `schemas.py`).
 """
+import datetime
 import uuid
 from dataclasses import dataclass
 
@@ -43,8 +44,10 @@ class Check:
     detail: str
 
 
-def _collection(name=COLLECTION):
-    return mongo.database().get_collection(name, codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD))
+def collection(name=COLLECTION):
+    """계약 컬렉션 핸들. UUID 는 표준 표현, 시각은 UTC 시각 인식(tz_aware)으로 읽는다 — 중계의 중복 비교가 같은 형식끼리 이뤄지게."""
+    options = CodecOptions(uuid_representation=UuidRepresentation.STANDARD, tz_aware=True, tzinfo=datetime.timezone.utc)
+    return mongo.database().get_collection(name, codec_options=options)
 
 
 def ensure():
@@ -57,10 +60,11 @@ def ensure():
     elif _validator() != VALIDATOR:
         db.command("collMod", COLLECTION, validator=VALIDATOR, validationAction="error", validationLevel="strict")
         done.append(f"컬렉션 {COLLECTION} 봉투 검증 갱신")
-    existing = {name: info for name, info in _collection().index_information().items()}
+    events = collection()
+    existing = events.index_information()
     for name, keys in INDEXES.items():
         if name not in existing:
-            _collection().create_index(keys, name=name)
+            events.create_index(keys, name=name)
             done.append(f"색인 {name} 생성")
         elif existing[name]["key"] != keys:
             raise RuntimeError(f"색인 {name} 이(가) 다른 키로 이미 있습니다: {existing[name]['key']} (자동으로 지우지 않습니다)")
@@ -83,7 +87,7 @@ def check():
         hello = mongo.client().admin.command("hello")
         version = mongo.client().server_info()["version"]
     except PyMongoError as exc:
-        return [Check("연결", False, f"{type(exc).__name__}: {str(exc)[:200]}")]
+        return [Check("연결", False, mongo.error_text(exc))]
     results.append(Check("연결", True, f"서버 {version}"))
     if int(version.split(".")[0]) < MIN_SERVER_MAJOR:
         results.append(Check("서버 버전", False, f"{MIN_SERVER_MAJOR}.x 이상이 필요합니다(지금 {version})"))
@@ -92,23 +96,24 @@ def check():
     else:
         results.append(Check("접속 방식", True, "단일 서버(레플리카셋 이름 없음)" if not hello.get("setName") else f"서버는 레플리카셋 {hello['setName']} 의 구성원이다 — MONGO_REPLICA_SET 을 설정해야 failover 를 따라간다"))
     try:
-        probe = _collection(PROBE_COLLECTION)
+        probe = collection(PROBE_COLLECTION)
         probe_id = uuid.uuid4()
         probe.insert_one({"_id": probe_id})
         probe.delete_one({"_id": probe_id})
         results.append(Check("쓰기 권한", True, f"{PROBE_COLLECTION} 에 쓰기·삭제 확인(과반 확인)"))
     except PyMongoError as exc:
-        results.append(Check("쓰기 권한", False, f"{type(exc).__name__}: {str(exc)[:200]}"))
+        results.append(Check("쓰기 권한", False, mongo.error_text(exc)))
     try:
         db = mongo.database()
         if COLLECTION not in db.list_collection_names():
             results.append(Check("컬렉션", False, f"{COLLECTION} 이(가) 없습니다 — manage.py ensure_event_store"))
             return results
-        results.append(Check("봉투 검증", _validator() == VALIDATOR, "일치" if _validator() == VALIDATOR else "다릅니다 — manage.py ensure_event_store"))
-        existing = _collection().index_information()
+        validator_ok = _validator() == VALIDATOR
+        results.append(Check("봉투 검증", validator_ok, "일치" if validator_ok else "다릅니다 — manage.py ensure_event_store"))
+        existing = collection().index_information()
         for name, keys in INDEXES.items():
             ok = name in existing and existing[name]["key"] == keys
             results.append(Check(f"색인 {name}", ok, "일치" if ok else "없거나 키가 다릅니다 — manage.py ensure_event_store"))
     except PyMongoError as exc:
-        results.append(Check("컬렉션", False, f"{type(exc).__name__}: {str(exc)[:200]}"))
+        results.append(Check("컬렉션", False, mongo.error_text(exc)))
     return results
