@@ -5,6 +5,7 @@ import uuid
 from django.db import connection
 from django.http import Http404
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
+from django.test.utils import CaptureQueriesContext
 
 from assets.api import ImageRejected, asset_exists
 from campaigns import api
@@ -13,6 +14,8 @@ from foundation.models import AuditLog
 from masters import api as masters
 from tests import image_factory
 from tests.factories import DAY, NOW, SUBJECT, World, make_advertiser, make_slot, png_file
+
+SEC = DAY / 86400
 
 
 class CampaignServiceTests(TestCase):
@@ -84,6 +87,22 @@ class CampaignServiceTests(TestCase):
         with self.assertRaises(InvalidRequest):
             api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "g", "IMPRESSION", [s], bid_amount=0, now=NOW)
         self.assertEqual(len(api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id)), 1)  # 실패한 시도는 남지 않는다
+
+    def test_list_ad_groups_reads_a_fixed_number_of_queries(self):
+        """계획 3-4g ④: 질의 수가 광고그룹 수와 무관하다(전에는 그룹마다 현재 입찰·게재 위치를 따로 읽어 2 + 2N). 결과는 하나씩 읽은 것과 같다."""
+        cid = self.w.campaign.campaign_id
+        with CaptureQueriesContext(connection) as one:
+            api.list_ad_groups(self.w.adv, cid)
+        other = make_slot(self.w.admin)
+        api.create_ad_group(self.w.adv, cid, "둘째", "IMPRESSION", [other.slot_id, self.w.slot.slot_id], now=NOW + 60 * SEC)  # 입찰 없음
+        third = api.create_ad_group(self.w.adv, cid, "셋째", "IMPRESSION", [other.slot_id], bid_amount=40, now=NOW + 120 * SEC)
+        api.add_bid(self.w.adv, third.ad_group_id, 45, expected_version=1, now=NOW + 120 * SEC)
+        with CaptureQueriesContext(connection) as three:
+            groups = api.list_ad_groups(self.w.adv, cid)
+        self.assertEqual(len(one), len(three))
+        self.assertEqual([(g.name, g.current_bid and (g.current_bid.bid_version, g.current_bid.amount)) for g in groups],
+                         [("그룹", (1, 30)), ("둘째", None), ("셋째", (2, 45))])
+        self.assertEqual(groups, [api.get_ad_group(self.w.adv, g.ad_group_id) for g in groups])  # 게재 위치 순서·입찰 값까지 하나씩 읽은 것과 같다
 
     def test_pricing_unit_immutable(self):
         for unit in ("IMPRESSION", "CLICK"):  # 같은 값이어도 항상 거절

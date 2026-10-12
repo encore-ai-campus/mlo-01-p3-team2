@@ -13,6 +13,7 @@ from django.test import TestCase, tag
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
+from billing import api as billing
 from campaigns import api as campaigns
 from campaigns.models import Campaign
 from records import api as records
@@ -48,6 +49,13 @@ class DashboardTests(TestCase):
 
     def dates(self, html):
         return re.findall(r"<td>(\d{4}-\d{2}-\d{2})", html)
+
+    def test_the_page_reads_the_wallet_and_the_campaign_list_once(self):
+        """계획 3-4g B1: 포인트 위젯과 잔액 알림, 상위 캠페인 표와 알림이 같은 읽기를 본다(전에는 지갑·캠페인 목록을 두 번씩 읽었다)."""
+        with mock.patch.object(billing, "get_wallet", wraps=billing.get_wallet) as wallet, \
+                mock.patch.object(campaigns, "list_campaigns", wraps=campaigns.list_campaigns) as listed:
+            self.page()
+        self.assertEqual((wallet.call_count, listed.call_count), (1, 1))
 
     def test_default_is_the_last_seven_days_including_today_and_today_is_marked(self):
         html = self.page()

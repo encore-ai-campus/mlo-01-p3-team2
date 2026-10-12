@@ -32,7 +32,8 @@ class AlertTests(TestCase):
         self.cid = self.w.campaign.campaign_id
 
     def alerts(self, at=NOW):
-        return alerts_for(self.w.adv, at)
+        """화면처럼 캠페인 목록과 지갑을 읽어 넘긴다."""
+        return alerts_for(self.w.adv, at, campaigns.list_campaigns(self.w.adv, now=at), billing.get_wallet(self.w.adv, now=at))
 
     def test_a_healthy_account_has_no_alerts(self):
         self.assertEqual(self.alerts(), [])

@@ -8,6 +8,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from billing import api as billing
+from campaigns import api as campaigns
 from foundation.api import errors
 from records import api as records
 
@@ -33,8 +34,9 @@ def advertiser_home(request):
         wallet = billing.get_wallet(request.user, now=now)
     except errors.NotFound:  # 가입 절차를 거치지 않은 옛 계정
         wallet = None
+    camps = campaigns.list_campaigns(request.user, now=now)  # 지갑과 함께 상위 캠페인 표·알림이 같은 읽기를 본다
     return render(request, "console/advertiser_home.html", {
         "form": form, "days": chosen["days"], "metric": chosen["metric"], "metric_label": dict(METRICS)[chosen["metric"]],
-        "metrics": METRICS, "report": report, "today": today, "wallet": wallet, "top": top_campaigns(request.user, start, end), "top_limit": TOP,
-        "alerts": alerts_for(request.user, now),
+        "metrics": METRICS, "report": report, "today": today, "wallet": wallet, "top": top_campaigns(request.user, start, end, camps), "top_limit": TOP,
+        "alerts": alerts_for(request.user, now, camps, wallet),
     })

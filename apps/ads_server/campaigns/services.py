@@ -146,8 +146,9 @@ def _current_bid(ad_group):
     return Bid.objects.filter(ad_group=ad_group).order_by("-bid_version").first()
 
 
-def _ad_group_view(g, bid=None):
-    slot_ids = tuple(sorted(g.slot_links.values_list("slot_id", flat=True), key=str))
+def _ad_group_view(g, bid=None, slot_ids=None):
+    """`slot_ids`: 이미 읽은 게재 위치(목록이 한 번에 읽는다). 없으면 그 그룹의 것을 읽는다."""
+    slot_ids = tuple(sorted(g.slot_links.values_list("slot_id", flat=True) if slot_ids is None else slot_ids, key=str))
     return AdGroupView(
         ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, pricing_unit=g.pricing_unit, enabled=g.enabled,
         slot_ids=slot_ids, current_bid=_bid_view(bid) if bid else None, created_at=g.created_at, updated_at=g.updated_at,
@@ -489,8 +490,15 @@ def get_ad_group(user, ad_group_id):
 
 
 def list_ad_groups(user, campaign_id):
+    """캠페인의 광고그룹(만든 순서)과 현재 입찰. 질의 수는 광고그룹 수와 무관하다(캠페인·그룹·게재 위치·입찰 한 번씩)."""
     c = _campaign(user, campaign_id)
-    return [_ad_group_view(g, _current_bid(g)) for g in AdGroup.objects.filter(campaign=c).order_by("created_at")]
+    latest = Bid.objects.filter(ad_group=OuterRef("pk")).order_by("-bid_version").values("bid_id")[:1]
+    groups = list(AdGroup.objects.filter(campaign=c).annotate(current_bid_id=Subquery(latest)).order_by("created_at"))
+    slots = {}
+    for group_id, slot_id in AdGroupSlot.objects.filter(ad_group__in=groups).values_list("ad_group_id", "slot_id"):
+        slots.setdefault(group_id, []).append(slot_id)
+    bids = Bid.objects.in_bulk([g.current_bid_id for g in groups if g.current_bid_id is not None])
+    return [_ad_group_view(g, bids.get(g.current_bid_id), slots.get(g.pk, ())) for g in groups]
 
 
 AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit"}
@@ -703,12 +711,14 @@ def _created_by_key(user, request_key):
     return CreatedAd(_campaign_view(c, _now()), _ad_group_view(g, _current_bid(g)), _creative_view(cr), duplicate=True)
 
 
-def bid_effects(amount, slot_ids):
+def bid_effects(amount, slot_ids, slots=None):
     """입찰 금액 하나가 고른 게재 위치마다 어떻게 취급되는지(광고 만들기의 '미리보기', C6 `effects`). 적용 금액은 engine 한 곳(`_effect`). 질의 한 번.
-    형식이 틀린 위치 ID 는 `no_policy` 로 보인다(입력은 막지 않는다 — 저장은 `create_ad` 가 다시 검증한다)."""
+    형식이 틀린 위치 ID 는 `no_policy` 로 보인다(입력은 막지 않는다 — 저장은 `create_ad` 가 다시 검증한다).
+    `slots`: 호출한 쪽이 이미 읽은 `masters.get_slots_with_policy` 결과 — 주면 다시 읽지 않는다(광고그룹 상세: 위치 정보와 결과가 같은 읽기를 본다)."""
     _amount(amount, "/bid_amount")
     parsed = [(raw, _maybe_uuid(raw)) for raw in slot_ids]
-    slots = masters.get_slots_with_policy([u for _, u in parsed if u is not None])
+    if slots is None:
+        slots = masters.get_slots_with_policy([u for _, u in parsed if u is not None])
     return tuple(_effect(amount, u or raw, slots.get(u)) for raw, u in parsed)
 
 

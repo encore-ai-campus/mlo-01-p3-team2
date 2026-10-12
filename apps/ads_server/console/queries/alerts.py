@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import errors
 
 ENDED_RECENTLY = timedelta(days=7)  # 끝난 상태는 풀리지 않으므로 끝난 뒤 7일 동안만 알린다
 _SEVERITY = {"critical": 0, "warning": 1, "info": 2}
@@ -27,9 +26,9 @@ class Alert:
     since: datetime
 
 
-def alerts_for(user, now):
-    """광고주의 알림(심각한 것 → 최근 것 순). 질의 수는 캠페인·광고그룹 수와 무관하다."""
-    camps = campaigns.list_campaigns(user, now=now)
+def alerts_for(user, now, camps, wallet):
+    """광고주의 알림(심각한 것 → 최근 것 순). `camps`·`wallet` 은 화면이 읽은 캠페인 목록(`now` 기준)과 지갑(없으면 `None`) — 화면의 다른 칸과
+    같은 읽기를 본다. 질의 수는 캠페인·광고그룹 수와 무관하다."""
     active = {c.campaign_id: c for c in camps if c.status == "ACTIVE"}
     groups = [g for g in campaigns.ad_group_effects(user) if g.enabled and g.campaign_id in active]
     applied_by_campaign = {}
@@ -38,7 +37,7 @@ def alerts_for(user, now):
     alerts = _campaign_alerts(camps, campaigns.latest_review_requests(user), now)
     alerts += _budget_alerts(active, applied_by_campaign, now)
     alerts += _bid_alerts(groups)
-    alerts += _balance_alerts(user, [a for amounts in applied_by_campaign.values() for a in amounts], now)
+    alerts += _balance_alerts(user, wallet, [a for amounts in applied_by_campaign.values() for a in amounts], now)
     return sorted(alerts, key=lambda a: (_SEVERITY[a.severity], -a.since.timestamp()))
 
 
@@ -87,12 +86,8 @@ def _bid_alerts(groups):
     return alerts
 
 
-def _balance_alerts(user, applied, now):
-    if not applied:
-        return []
-    try:
-        wallet = billing.get_wallet(user, now=now)
-    except errors.NotFound:
+def _balance_alerts(user, wallet, applied, now):
+    if not applied or wallet is None:
         return []
     if wallet.balance < min(applied):
         return [Alert("balance_insufficient", "critical", "wallet", user.pk,

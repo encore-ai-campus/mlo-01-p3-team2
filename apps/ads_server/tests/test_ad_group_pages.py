@@ -4,6 +4,7 @@
 World: 노출 단위 슬롯(하한 10·기준 20·상한 50), 입찰 30.
 """
 import re
+from unittest import mock
 
 from django.test import Client, TestCase, override_settings, tag
 from django.urls import reverse
@@ -60,6 +61,12 @@ class DetailTests(AdGroupPageBase):
         self.assertIn(reverse("creative_image_file", args=[self.crid]), html)
         self.assertIn("<strong>example.com</strong>", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}" checked')
+
+    def test_the_page_reads_slot_policies_once(self):
+        """계획 3-4g B1: 위치 정보와 위치별 결과가 같은 읽기를 본다(전에는 슬롯 정책을 두 번 읽었다)."""
+        with mock.patch.object(masters, "get_slots_with_policy", wraps=masters.get_slots_with_policy) as read:
+            self.html()
+        self.assertEqual(read.call_count, 1)
 
     def test_user_text_is_escaped(self):
         campaigns.update_ad_group(self.w.adv, self.gid, {"name": "<b>그룹</b>"})

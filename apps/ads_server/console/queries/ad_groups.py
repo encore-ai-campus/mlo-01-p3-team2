@@ -25,9 +25,10 @@ class AdGroupPage:
 def ad_group_page(user, ad_group_id):
     """남의 광고그룹은 서비스가 404."""
     group = campaigns.get_ad_group(user, ad_group_id)
-    effects = campaigns.bid_effects(group.current_bid.amount, list(group.slot_ids)) if group.current_bid else ()
+    linked = masters.get_slots_with_policy(group.slot_ids)
+    effects = campaigns.bid_effects(group.current_bid.amount, list(group.slot_ids), slots=linked) if group.current_bid else ()  # 위치 정보와 같은 읽기
     return AdGroupPage(
         group=group, campaign=campaigns.get_campaign(user, group.campaign_id), bids=campaigns.list_bids(user, group.ad_group_id),
-        creatives=campaigns.list_creatives(user, group.ad_group_id), linked=masters.get_slots_with_policy(group.slot_ids),
+        creatives=campaigns.list_creatives(user, group.ad_group_id), linked=linked,
         choices=[s for s in masters.list_slots(active_only=True) if s.pricing_unit == group.pricing_unit], effects=effects,
     )
