@@ -1,0 +1,37 @@
+{
+  "event_type": "point_granted",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "ledger_uuid",
+      "nullable": false
+    },
+    {
+      "name": "attempt_uuid",
+      "nullable": false
+    },
+    {
+      "name": "delta",
+      "nullable": false
+    },
+    {
+      "name": "balance_after",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "ledger_uuid",
+    "attempt_uuid",
+    "delta",
+    "balance_after"
+  ],
+  "constants": {
+    "event_type": "POINT_GRANTED",
+    "action": "GRANTED"
+  },
+  "double_fields": []
+}

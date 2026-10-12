@@ -1,0 +1,27 @@
+.venv/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.DS_Store
+artifacts/
+*.log
+
+# Local Docker infrastructure is not part of the service source publication.
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+docker-compose*.yaml
+compose*.yml
+compose*.yaml
+
+# Local test and dummy tools are kept in the workspace only.
+/tests/
+/fixtures/
+/test_flow.py
+/generate_dummy_raw.py
+/publish_dummy_raw.py
+/TEST_RESULTS.md
+/sinker/dummy.py
