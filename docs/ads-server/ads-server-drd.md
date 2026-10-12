@@ -364,7 +364,7 @@ erDiagram
 |---|---|:---:|---|---|
 | `id` | UUID | N | PK | |
 | `username` | 문자 30 | N | UNIQUE | 로그인 아이디. `[a-z0-9_]{4,20}` |
-| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다. 원문 길이 **10~128자** — 최소·최대 모두 비밀번호 검증기(최대는 `MaximumLengthValidator`, `1930fd7`)가 서비스·서버 명령까지 지키며, C6 `SignupRequest.password`·`PasswordChange.new_password`의 `minLength`·`maxLength`와 같다 |
+| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다. 원문 길이 **10~128자** — 최소·최대 모두 비밀번호 검증기(최대는 `MaximumLengthValidator`, `1930fd7`)가 서비스와 `changepassword` 명령까지 지키며(비대화형 `createsuperuser`는 Django가 검증기를 돌리지 않는다 — 운영자 전용 경로), C6 `SignupRequest.password`·`PasswordChange.new_password`의 `minLength`·`maxLength`와 같다 |
 | `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다. 사용자 관리 화면에서도 추가·변경할 수 없다 |
 | `nickname` | 문자 20 | N | | 2~20자 |
 | `class_label` | 문자 30 | N | | "반". 표시용 자유 입력, 로직에 쓰지 않는다 |

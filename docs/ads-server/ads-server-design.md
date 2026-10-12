@@ -734,7 +734,7 @@ Step 0에서 **하지 않는 것**: 관리자 2FA, TLS·WAF(`platform/` 소관),
 | 예산 일 경계 | **열어 둔다.** 기본 UTC 자정, 설정값·재계산 명령으로 나중에 변경 가능. 화면에 리셋 시각 표시 [확정: 열어 둠] |
 | 가입 지급 포인트 | 설정값 `SIGNUP_GRANT_POINTS`, **기본 50,000 포인트**(정수). 값은 환경별로 바꿀 수 있다 [확정] |
 | 이미지 용량 상한 | 업로드 **기본 2MB**(설정값 `ASSET_MAX_BYTES`, 1~2MB 범위에서 조정 가능). 픽셀 수 상한 1,600만(압축 폭탄 방어)은 규격 제한과 별개 [확정: Step 0-5] |
-| 비밀번호 | **10~128자**(설정값), Argon2, 흔한 비밀번호·숫자만·아이디 유사 금지 [확정: Step 0-2]. **최대 길이도 서비스의 비밀번호 검증기**가 지킨다(`foundation.validators.MaximumLengthValidator`, `PASSWORD_MAX_LENGTH = 128`) — 화면 폼의 `max_length`만 있어 서비스·서버 명령은 더 긴 비밀번호를 받았다(3-3 종료 점검의 C6 대조, `1930fd7`). C6 `SignupRequest.password`·`PasswordChange.new_password`와 같다 |
+| 비밀번호 | **10~128자**(설정값), Argon2, 흔한 비밀번호·숫자만·아이디 유사 금지 [확정: Step 0-2]. **최대 길이도 서비스의 비밀번호 검증기**가 지킨다(`foundation.validators.MaximumLengthValidator`, `PASSWORD_MAX_LENGTH = 128`) — 화면 폼의 `max_length`만 있어 서비스·서버 명령은 더 긴 비밀번호를 받았다(3-3 종료 점검의 C6 대조, `1930fd7`). 검증기는 가입·비밀번호 변경·관리자 초기화·`changepassword` 명령에서 돈다. **비대화형 `createsuperuser`(`DJANGO_SUPERUSER_PASSWORD`)는 Django가 검증기를 돌리지 않아** 최소·최대 길이 모두 지켜지지 않는다 — 서버에 접근하는 운영자만 쓰는 경로라 **코드로 막지 않고 이 한계를 문서에 남긴다** [결정 2026-10-12, 사용자]. C6 `SignupRequest.password`·`PasswordChange.new_password`와 같다 |
 | 가입 시도 제한 | **IP당 시간당 5회**(설정값 `SIGNUP_MAX_PER_IP_PER_HOUR`), 성공·실패 모두 센다 [확정: Step 0-2] |
 | 업로드 전체 크기 가드 | 선언된 요청 길이가 상한을 크게 넘으면 **본문을 읽기 전에 413**(`RequestBodyLimitMiddleware`, CSRF보다 앞) [확정: Step 0-5, 보완 2026-10-07: 업로드 핸들러에서 예외를 던지면 Django가 500으로 처리해 미들웨어로 옮김]. 응답은 다른 오류와 같은 규약이다 — **화면 경로는 HTML 오류 화면**(올릴 수 있는 이미지 크기 안내), **API 경로는 problem+json** [3-2c `f10f1c4`: 전에는 화면 경로도 JSON이라 광고 만들기에서 큰 이미지를 고르면 JSON이 보였다] |
 | 매체 인증 | **공유 키 헤더.** 필요해지면 HMAC 서명으로 교체 [확정] |
