@@ -364,7 +364,7 @@ erDiagram
 |---|---|:---:|---|---|
 | `id` | UUID | N | PK | |
 | `username` | 문자 30 | N | UNIQUE | 로그인 아이디. `[a-z0-9_]{4,20}` |
-| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다 |
+| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다. 원문 길이 **10~128자** — 최소·최대 모두 비밀번호 검증기(최대는 `MaximumLengthValidator`, `1930fd7`)가 서비스·서버 명령까지 지키며, C6 `SignupRequest.password`·`PasswordChange.new_password`의 `minLength`·`maxLength`와 같다 |
 | `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다. 사용자 관리 화면에서도 추가·변경할 수 없다 |
 | `nickname` | 문자 20 | N | | 2~20자 |
 | `class_label` | 문자 30 | N | | "반". 표시용 자유 입력, 로직에 쓰지 않는다 |
@@ -637,7 +637,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
-| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 색인 `records_reaction_received_idx (received_at)`·`records_reaction_processed_idx (processed_at)` [구현 3-3e `449bb68`, 외부 검토 7936ac7 P3-3]: 구간 manifest가 접수 이벤트(수신 시각)와 판정·과금 이벤트(처리 시각)를 창마다 그 범위만 읽는다 — **반응 표의 색인이 둘 늘어 수신(INSERT)·처리(UPDATE) 쓰기 비용이 조금 는다**. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
 | P3 outbox `events_outbox` **[구현 4-1a]** | 아래 표 | 결정·접수·판정·과금과 **같은 트랜잭션**에 쓴다(트랜잭션 밖이면 거부). 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 "outbox 쓰기 규약" |
 
 **P3 `events_outbox` 컬럼** [구현 4-1a, 2026-10-10]. Debezium outbox 라우터의 기본 열과 대응을 적었다(확장 때 라우터 설정에서 매핑).
@@ -645,14 +645,14 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|---|---|---|
 | `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). Debezium `id` |
-| `event_name` | 문자 64 | N | | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
+| `event_name` | 문자 64 | N | 색인(아래) | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
 | `schema_version` | 작은 정수 | N | | 지금 `1`. 페이로드 모양이 바뀌면 올린다 |
 | `aggregate_id` | UUID | N | | 메시지 키 = `decision_id`(모든 이벤트). Debezium `aggregateid` |
 | `payload` | JSON | N | | §5.6의 필드. 이름·형식은 `events/schemas.py` 한 곳 |
 | `created_at` | 시각 | N | 색인(아래) | 이벤트의 `produced_at`: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각). MongoDB에는 밀리초로 잘라 넣는다 |
 | `sent_at` | 시각 | Y | 색인(아래) | MongoDB에 저장한 시각. **비어 있으면 미전송** |
 
-색인 `events_outbox_pending_idx (sent_at, created_at)`: 중계가 미전송 행을 오래된 것부터 집고, 보존 정리가 오래전에 보낸 행을 찾는다. FK는 없다(원천 행과 같은 트랜잭션에 쓰는 대기열). 집계 종류(Debezium `aggregatetype`) 열은 두지 않았다 — 모든 이벤트의 집계가 결정이다. 보낸 행은 7일 뒤 지운다(§6).
+색인 `events_outbox_pending_idx (sent_at, created_at)`: 중계가 미전송 행을 오래된 것부터 집고, 보존 정리가 오래전에 보낸 행을 찾는다(구간 manifest의 미전송 건수도 이것으로 미전송 행만 읽는다). `events_outbox_name_created_idx (event_name, created_at)` [구현 3-3e `449bb68`]: 구간 manifest가 이벤트 종류·창마다 그 범위만 읽는다. FK는 없다(원천 행과 같은 트랜잭션에 쓰는 대기열). 집계 종류(Debezium `aggregatetype`) 열은 두지 않았다 — 모든 이벤트의 집계가 결정이다. 보낸 행은 7일 뒤 지운다(§6).
 
 ### 4.4 무결성 규칙 — 어디서 지키나
 
@@ -1028,7 +1028,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `ids_sha256` | 이벤트 ID 문자열을 오름차순 정렬해 `\n`으로 이은(끝 줄바꿈 없음) UTF-8 바이트의 SHA-256 |
 | `content_sha256` | 정규화 문서를 JCS로 만든 문자열을 이벤트 ID 순으로 `\n`으로 이은 UTF-8 바이트의 SHA-256 |
 | 파일과 세대 | 실행마다 구간 하나가 NDJSON 파일 하나(닫힌 창 전부)이고, 게시는 기존 규약(불변 데이터 파일 + manifest 포인터)이다. 세대는 파일 게시본 단위이고 manifest에 직전 manifest의 `previous_sha256`을 싣는다. 각 세대 manifest의 불변 사본(내용 해시 이름)으로 사슬을 거슬러 확인한다. 최신 manifest의 SHA-256은 감사 로그 `events.hop_manifests_exported`에도 남는다. **내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지)이 폴더 단위 잠금(`flock`, 출력 폴더의 `.run.lock`)으로 직렬화된다** — 겹친 실행이 최신 감사 고정점과 최종 포인터를 서로 엇갈리게 하지 않는다. 그 안에서 manifest마다 직전 세대를 읽을 때부터 포인터를 교체할 때까지도 잠그므로, 성공한 모든 세대가 사슬에 이어진다. 원본·outbox·MongoDB를 읽는 단계는 이 잠금 밖이라, 겹친 실행은 각자 읽은 값으로 차례로 세대를 낸다 [보완 2026-10-10, 외부 재검토 `f52d1df`]. 감사 로그의 고정점은 포인터를 다시 읽은 값이 아니라 **이 실행이 게시한 manifest의 해시**다(다시 읽는 사이 다른 실행이 포인터를 바꿨을 수 있다). **한계**: 파일 잠금은 한 호스트의 로컬 파일시스템을 전제로 한다. 출력 폴더를 네트워크 파일시스템에 두거나 여러 호스트가 같은 폴더에 게시하면 직렬화가 보장되지 않는다 |
-| `checkpoint` | 범위 서술(재개 위치 아님): `scope`(원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖), `hop`, `window`(`utc-day`·`utc-hour`), `grace_seconds`, `started_at`, `open_windows`(줄에 넣지 않은 열린 창), `not_comparable_windows`(outbox를 대조하지 않는 창), `retention_cutoff`(보존 기준 시각, outbox 구간) |
+| `checkpoint` | 범위 서술(재개 위치 아님): `scope`(원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖), `hop`, `window`(`utc-day`·`utc-hour`), `grace_seconds`, `started_at`, `open_windows`(줄에 넣지 않은 열린 창), `scanned_events`(**범위 안** — `--since` 이후의 닫힌 창에서 읽은 이벤트 수. 3-3e `449bb68` 전에는 열린 창과 `--since` 앞까지 포함한 전체 수), `not_comparable_windows`(outbox를 대조하지 않는 창), `retention_cutoff`(보존 기준 시각, outbox 구간) |
 | outbox 대조 범위 | **시작이 보존 기준 시각(지금 − 보존 일수, `checkpoint.retention_cutoff`) 이후인 창**이다. 보존 정리는 보낸 지 보존 일수가 지난 행을 지우고 생성 시각 ≤ 전송 시각이므로, 그런 창의 행은 하나도 지워지지 않았다. 기준 시각이 창 한가운데에 걸리면 앞부분이 지워졌을 수 있으므로 창 전체를 뺀다(일·시간 창 모두). 판정은 "행이 남아 있는가"가 아니라 보존 범위와 창 경계로 하고, 어느 구간에든 있는 닫힌 창이 대상이다 — 오래된 창의 outbox 행이 모두 지워져도 "대조 제외" 정보가 사라지지 않는다 |
 | 입력 검증 | 대조 전에 각 manifest가 계약을 지키는지 확인하고, 하나라도 어기면 그 입력으로 판정하지 않고 비정상 종료한다: 구간 종류(`source_kind`가 `hop_source`·`hop_outbox`·`hop_mongo`·`hop_pipeline` 중 하나이고 기대한 자리와 같음), 계약 버전(`schema_version` = 1), 창 크기 선언(`checkpoint.window` = `utc-day`·`utc-hour`, `checkpoint.hop`이 있으면 `source_kind`와 같음), 줄마다 필수 필드·창 끝 − 시작 = 선언한 크기·시작이 UTC 경계(자정·정시)에 맞음·`event_name`은 빈 문자열이 아님·`count`는 0 이상의 정수(불리언 아님)·두 해시는 소문자 16진 64자, (창, 이벤트 이름) 중복은 거부(마지막 줄로 덮어쓰지 않음). 창 크기가 다른 manifest(일별과 시간별)는 대조하지 않는다. 파일 checksum이 맞는 것과 집계 범위가 같은 것은 별개라서다 |
 | 대조 결과 분류 | `match`(세 값이 같음) / `mismatch`(확정 불일치, 다른 필드를 적음) / `relay_lag_candidate`(하류가 상류보다 적고 **그 부족분이 그 (창, 이벤트 이름)의 미전송 건수로 설명될 때(부족분 ≤ 미전송)**. 미전송이 하나 있다고 이미 보낸 이벤트의 유실을 가리면 안 되므로, 설명할 수 없는 부족분은 확정 불일치다 — 실패가 아니라 다시 낸 manifest로 확인) / `open_window` / `not_comparable`. 원본 → outbox는 같은 스냅샷이라 지연으로 보지 않는다. 결과 파일은 `hop_report` |
@@ -1210,6 +1210,8 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.29 | 2026-10-12 | 3-3 종료 점검(`1930fd7`): A1 `password` 원문 길이 10~128자(최대는 서비스의 비밀번호 검증기), C6 `SignupRequest`·`PasswordChange`와 같음 |
+| 0.28 | 2026-10-12 | 3-3e(`449bb68`, 외부 검토 7936ac7 P3-3): 색인 `records_reaction_received_idx`·`records_reaction_processed_idx`(반응 표 쓰기 비용이 조금 늚)·`events_outbox_name_created_idx`, §5.6 `checkpoint.scanned_events`는 범위 안에서 읽은 수 |
 | 0.27 | 2026-10-11 | 외부 검토(56c66cf) 보완 `f6d4cdf`: O8 `campaigns_advertiser_quota`(광고주 상한 잠금 행, 값 없음, 처음 쓸 때 만듦)와 ER, O2 `updated_at`, §5 불변식 표(상한은 동시 쓰기에도 넘지 않음) |
 | 0.26 | 2026-10-11 | 3-2c 광고 만들기(`f10f1c4`): O1 `request_key`(광고 만들기 요청의 멱등 키, UNIQUE·NULL 허용)와 ER, §5 불변식·멱등 키 표 |
 | 0.25 | 2026-10-11 | 광고주 비활성화의 효과(사용자 결정, 구현 3-1d `f9a7a2e`): §6 수명주기와 `is_active` 설명에 로그인·세션·광고 송출·공개 이미지가 멈추고 다시 활성화하면 그대로 다시 나간다는 점. 외부 검토 3-1d 보완(`b4faf8a`): A1 `session_epoch`, B2 `adjust_key`, `role`·`is_superuser`는 사용자 관리 화면에서도 바꿀 수 없음(`002f90b` 포함), §5 멱등 키·불변식 표와 §5.5 감사 로그(`account.admin_created`가 더 이상 생기지 않음). M4 `request_key`(`4450a59`, 발급 요청의 멱등 키) |
