@@ -103,10 +103,14 @@ class ReviewClosingTests(TestCase):
         campaigns.release_campaign(self.w.admin, self.cid, now=NOW + DAY)
         self.assertEqual(self.closed(), ("RELEASED", NOW + DAY, ""))
 
-    def test_ending_a_suspended_campaign_closes_the_open_review_at_that_moment(self):
+    def test_ending_a_suspended_campaign_closes_only_the_open_review_at_that_moment(self):
+        (rejected,) = campaigns.list_review_requests(self.w.adv, self.cid)
+        campaigns.reject_review_request(self.w.admin, rejected.review_request_id, "아직 아닙니다", now=NOW)
+        campaigns.create_review_request(self.w.adv, self.cid, "다시 확인 부탁", now=NOW + timedelta(hours=1))
         with transaction.atomic():
             tr.apply(Campaign.objects.select_for_update().get(pk=self.cid), "expire", tr.SYSTEM, NOW + DAY)
-        self.assertEqual(self.closed(), ("CLOSED_ENDED", NOW + DAY, ""))
+        reviews = [(r.status, r.closed_at, r.response_note) for r in campaigns.list_review_requests(self.w.adv, self.cid)]
+        self.assertEqual(reviews, [("CLOSED_ENDED", NOW + DAY, ""), ("REJECTED", NOW, "아직 아닙니다")])  # 이미 닫힌 요청은 그대로
 
 
 class AdGroupCreatedSlotsTests(TestCase):

@@ -485,7 +485,7 @@ def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=
         AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=group, slot_id=s) for s in ids])
         bid = Bid.objects.create(ad_group=group, bid_version=1, amount=bid_amount, created_by=user.pk, created_at=now) if bid_amount is not None else None
         _audit(user, "ad_group.created", ("campaigns.ad_group", group.ad_group_id), {"name": name, "pricing_unit": pricing_unit, "slots": len(ids)})
-    return _ad_group_view(group, bid)
+    return _ad_group_view(group, bid, ids)  # 방금 넣은 게재 위치(검증한 ID, 중복 없음)를 다시 읽지 않는다
 
 
 def get_ad_group(user, ad_group_id):
