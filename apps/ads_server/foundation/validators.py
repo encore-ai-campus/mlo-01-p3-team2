@@ -11,6 +11,11 @@ USERNAME_RE = re.compile(r"[a-z0-9_]{4,20}")
 MAX_AMOUNT = 2**53 - 1  # 포인트 금액의 최대값. JSON(JavaScript) 정수로 정확히 표현되는 한계(계약 `Money`와 같다)
 
 
+def is_int(value):
+    """정수인가. **bool 은 아니다**(파이썬에서는 `True`·`False` 도 `int` 라서 `isinstance` 만으로는 1·0 으로 통과한다)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def validate_username(value):
     if not USERNAME_RE.fullmatch(value or ""):
         raise ValidationError("아이디는 영문 소문자·숫자·밑줄(_) 4~20자여야 합니다.", code="invalid_username")
