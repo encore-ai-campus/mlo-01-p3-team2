@@ -18,6 +18,8 @@ from .cohorts import allowed_avatars
 from .forms import LoginForm, NicknameForm, ProfileSetupForm, SignUpForm
 from .models import Profile, needs_profile_setup
 from campus.positions import save_position
+from .session_policy import start_login
+from eventing.events import end_platform_session
 
 
 class CampusLogoutView(LogoutView):
@@ -31,6 +33,8 @@ class CampusLogoutView(LogoutView):
                 pass
             except DatabaseError:
                 logging.getLogger(__name__).exception("Could not save the logout position")
+        if request.user.is_authenticated:
+            end_platform_session(request.user, request.session, "LOGOUT")
         return super().post(request, *args, **kwargs)
 
 
@@ -38,6 +42,19 @@ class CampusLoginView(LoginView):
     template_name = "accounts/login.html"
     authentication_form = LoginForm
     redirect_authenticated_user = True
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        start_login(self.request.session, self.request.user)
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["session_expired_message"] = {
+            "idle": "활동이 없어 자동 로그아웃됐습니다. 다시 로그인해 주세요.",
+            "maximum": "로그인 유지 시간이 끝났습니다. 다시 로그인해 주세요.",
+        }.get(self.request.GET.get("expired"), "")
+        return context
 
     def get_success_url(self):
         return reverse("accounts:setup") if needs_profile_setup(self.request.user) else super().get_success_url()
@@ -60,6 +77,7 @@ class SignUpView(FormView):
         with transaction.atomic():
             user = form.save()
         login(self.request, user)
+        start_login(self.request.session, user)
         return super().form_valid(form)
 
 

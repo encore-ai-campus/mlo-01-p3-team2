@@ -6,8 +6,8 @@
     const get=id=>panel.querySelector('#'+id),title=get('boothTitle'),intro=get('boothIntro'),status=get('boothStatus'),pipButton=get('boothPiP'),returnButton=get('boothReturn');
     const supported=window.isSecureContext&&typeof window.documentPictureInPicture?.requestWindow==='function';
     const names={youtube:'YouTube 부스',psych:'심리 테스트 존',game:'게임 부스'};
-    const games={gomoku:{name:'오목',url:'https://vidkidz.tistory.com/192'},war:{name:'전쟁시대',url:'https://vidkidz.tistory.com/51'}};
-    const psychUrl='https://simsimtest.com/';
+    const games={gomoku:{name:'오목',url:'/content/gomoku/open/'},war:{name:'전쟁시대',url:'/content/war/open/'},'dad-and-me':{name:'아빠와 나',url:'/content/dad-and-me/open/'},minesweeper:{name:'지뢰찾기',url:'/content/minesweeper/open/'}};
+    const psychUrl='/content/psych-test/open/';
     const card=panel.querySelector('.booth-service-card'),choices=get('boothGameChoices'),launcher=get('boothEmbeddedSection'),externalLink=get('boothExternalLink');
     let pipWindow=null,contentWindow=null,pending=false,closed=false,restoreModal=false;
     function updateWindowButtons(){
@@ -30,7 +30,7 @@
     }
     function selectGame(id){
       if(panel.dataset.platform!=='game'||!Object.hasOwn(games,id))return;
-      launchContent(games[id].url+'#waflashContainer');
+      launchContent(new URL(games[id].url,document.baseURI).href);
     }
     function showModal(){if(!dialog.open)dialog.showModal();}
     function restorePanel(){

@@ -7,6 +7,7 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
   const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
+  const raffleStates = [], raffleEntries = [], raffleErrors = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
     if (!elements.has(id)) elements.set(id, {
@@ -40,13 +41,14 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   const presence = context.window.CampusPresence.create({player, width: 1632, height: 820, floors, onAuthExpired() {expired++;},
     onRestore(position) {restores.push(position);if(restore)Object.assign(player,position);},
     onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);},
-    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);}});
+    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);},
+    onRaffle(state) {raffleStates.push(state);}, onRaffleEntry(message) {raffleEntries.push(message);}, onRaffleError(message) {raffleErrors.push(message);}});
   const peer = (changes = {}) => ({id: 'peer', nickname: '조원 이름', avatar: 'female-2', x: 1200, y: 437,
     dir: 'down', color: '#4e9b91', moving: false, ...changes});
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors, raffleStates, raffleEntries, raffleErrors,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
@@ -165,4 +167,21 @@ assert.equal(doors.doorChanges.length,1);
 doors.sockets[0].receive({type:'door_error',message:'캐릭터가 문에 있어요.'});assert.equal(doors.doorErrors.length,1);
 doors.player.floor='rooftop';assert.equal(doors.presence.requestDoor('door-class1',true),false);
 doors.presence.close();assert.equal(doors.presence.requestDoor('door-class1',true),false);
-console.log('PASS: standalone preview, nickname roster, movement, chat, door state snapshots and requests, reconnect, logout, expired session, WSS');
+const eventLive=app({floors:{campus:{width:2448,height:1230},rooftop:{width:2448,height:1800}}});
+const eventSocket=eventLive.sockets[0],eventState={revision:1,event:{id:'raffle-event',status:'open'},participants:[]};
+eventSocket.receive({type:'welcome',selfId:'self',players:[eventLive.peer({id:'self'})],raffle:eventState});
+assert.equal(eventLive.raffleStates.length,1);
+assert.equal(eventLive.presence.joinRaffle('raffle-event'),false,'Entries require the rooftop');
+Object.assign(eventLive.player,{floor:'rooftop',x:2170,y:1004});
+assert.equal(eventLive.presence.joinRaffle('raffle-event'),true);
+assert.equal(eventSocket.sent.at(-2).type,'move');
+assert.equal(eventSocket.sent.at(-2).floor,'rooftop');
+assert.deepEqual(eventSocket.sent.at(-1),{type:'raffle_enter',eventId:'raffle-event'});
+eventSocket.receive({type:'raffle_state',state:{...eventState,revision:2}});
+eventSocket.receive({type:'raffle_entry',entryId:'entry-1',created:true,state:eventState});
+eventSocket.receive({type:'raffle_error',message:'이미 마감됐어요.'});
+assert.equal(eventLive.raffleStates.length,2);assert.equal(eventLive.raffleEntries.length,1);assert.equal(eventLive.raffleErrors.length,1);
+Object.assign(eventLive.player,{floor:'campus'});
+assert.equal(eventLive.presence.joinRaffle('raffle-event',{resume:true}),true,'An already requested survey can reopen after switching floors');
+eventLive.presence.close();assert.equal(eventLive.presence.joinRaffle('raffle-event'),false);
+console.log('PASS: standalone preview, nickname roster, movement, chat, doors, rooftop raffle packets, reconnect, logout, expired session, WSS');

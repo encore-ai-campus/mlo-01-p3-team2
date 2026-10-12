@@ -1,4 +1,6 @@
 from django.conf import settings
+import uuid
+
 from django.db import models
 
 from .avatars import AVATAR_CHOICES, AVATAR_IDS, DEFAULT_AVATAR
@@ -6,6 +8,7 @@ from .cohorts import COHORT_CHOICES, course_for_cohort
 
 
 class Profile(models.Model):
+    user_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="campus_profile"
     )

@@ -19,6 +19,8 @@ db.sqlite3-*
 /staticfiles/
 /.lan-firewall-result.json
 /var/board-menu/
+/var/session-cleanup.json
+/var/session-cleanup.tmp
 
 # Development caches and personal editor settings
 .pytest_cache/

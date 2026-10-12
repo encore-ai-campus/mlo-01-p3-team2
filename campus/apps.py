@@ -14,3 +14,7 @@ class CampusConfig(AppConfig):
             if os.environ.get("RUN_MAIN") == "true" or "--noreload" in sys.argv[2:]:
                 from .menu_updater import start_menu_updater
                 start_menu_updater()
+                from accounts.session_cleanup import start_session_cleanup
+                start_session_cleanup()
+                from eventing.publisher import start_outbox_publisher
+                start_outbox_publisher()

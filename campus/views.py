@@ -15,6 +15,7 @@ from django.views.decorators.http import require_safe
 from accounts.models import get_avatar, get_nickname, needs_profile_setup
 from .menu_images import FILE_NAME, IMAGE_TYPES, latest_menu, storage_root
 from .positions import get_position
+from raffle.survey import survey_url
 
 
 def version_map_asset(match):
@@ -54,7 +55,7 @@ def map_view(request):
     account_controls = render_to_string("accounts/map_account.html", {
         "nickname": nickname,
         "view_config": {"canZoom": request.user.is_staff},
-        "presence_config": {"socketPath": "/ws/campus/", "loginUrl": reverse("accounts:login"), "avatar": get_avatar(request.user), "preferencesKey": f"campus-display-v1:{request.user.pk}", "position": get_position(request.user)},
+        "presence_config": {"socketPath": "/ws/campus/", "loginUrl": reverse("accounts:login"), "avatar": get_avatar(request.user), "preferencesKey": f"campus-display-v1:{request.user.pk}", "position": get_position(request.user), "raffleSurveyUrl": survey_url()},
     }, request=request)
     html = html.replace('<div class="top-actions">', f'<div class="top-actions">{account_controls}', 1)
     account_settings = render_to_string("accounts/map_settings.html", {"nickname": nickname}, request=request)
