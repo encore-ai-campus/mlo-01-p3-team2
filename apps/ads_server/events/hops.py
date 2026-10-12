@@ -140,7 +140,7 @@ def summarize(documents, now, grace_seconds, since=None, size=DAY):
     return lines, sorted(open_windows)
 
 
-# ---------------------------------------------------------------- 창 단위 읽기 (외부 검토 7936ac7 P3-3)
+# ---------------------------------------------------------------- 창 단위 읽기 (외부 검토 00d3067 P3-3)
 
 def summarize_windows(streams, now, grace_seconds, since=None, size=DAY):
     """`summarize` 와 같은 결과를 **닫힌 창 하나·흐름 하나씩** 읽어 만든다 — 전체 이력을 메모리에 두지 않고, 열린 창과 `since` 앞은 읽지 않는다.

@@ -42,12 +42,12 @@ class Command(BaseCommand):
             raise CommandError("--as-of 는 ISO 8601 시각이어야 합니다.")
         grace = settings.EVENTS_HOP_GRACE_SECONDS
         try:
-            # 구간마다 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 열린 창과 --since 앞은 읽지 않는다(외부 검토 7936ac7 P3-3)
+            # 구간마다 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 열린 창과 --since 앞은 읽지 않는다(외부 검토 00d3067 P3-3)
             with consistent_read():  # 원본(①)과 outbox(②)는 같은 스냅샷을 본다
                 results = {"hop_source": events.summarize_windows(source_streams(), now, grace, since, size),
                            "hop_outbox": events.summarize_windows(events.outbox_streams(), now, grace, since, size)}
                 unsent = events.unsent_counts(size)
-                unresolved, examples = unresolved_charges()  # 창에 놓을 수 없는 과금 원장 줄 — 원본 구간에서 빠지므로 따로 센다(외부 검토 4bd3ce8 P2)
+                unresolved, examples = unresolved_charges()  # 창에 놓을 수 없는 과금 원장 줄 — 원본 구간에서 빠지므로 따로 센다(외부 검토 e781f20 P2)
             results["hop_mongo"] = events.summarize_windows(events.mongo_streams(), now, grace, since, size)  # ③ 은 스냅샷 밖이다 — 중계가 진행 중이면 그 창이 잠시 어긋날 수 있다(verify_hops 가 구분한다)
         except (PyMongoError, events.NotConfigured) as error:
             raise CommandError(f"MongoDB 를 읽지 못했습니다: {events.mongo_error_text(error)}")

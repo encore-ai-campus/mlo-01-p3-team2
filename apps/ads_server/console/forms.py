@@ -79,7 +79,7 @@ class KstDateTimeField(forms.DateTimeField):
             result = super().to_python(value)
         try:
             return result.astimezone(dt_timezone.utc) if result else result
-        except (OverflowError, ValueError):  # 0001-01-01T00:00 KST 는 UTC 로 표현할 수 없다(외부 검토 56c66cf — 500 이었다)
+        except (OverflowError, ValueError):  # 0001-01-01T00:00 KST 는 UTC 로 표현할 수 없다(외부 검토 41d2288 — 500 이었다)
             raise forms.ValidationError("표현할 수 없는 시각입니다.", code="invalid")
 
     def prepare_value(self, value):

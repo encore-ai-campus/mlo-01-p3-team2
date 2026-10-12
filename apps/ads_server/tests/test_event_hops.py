@@ -114,7 +114,7 @@ class SummaryTests(SimpleTestCase):
 
 @tag("security")
 class WindowedSummaryTests(TestCase):
-    """외부 검토(7936ac7) P3-3: 내보내기는 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 결과는 전부 읽어 한 번에 요약한 것과 같다."""
+    """외부 검토(00d3067) P3-3: 내보내기는 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 결과는 전부 읽어 한 번에 요약한 것과 같다."""
 
     AS_OF = NOW + 3 * DAY  # 2026-10-10 12:00 — 10-09 까지의 창은 닫혔고 10-10 은 열려 있다
     SINCE = datetime(2026, 10, 7, tzinfo=UTC)
@@ -171,7 +171,7 @@ class WindowedSummaryTests(TestCase):
         self.assertEqual(records.unresolved_charges(examples=2)[1], examples[:2])
 
     def test_the_reaction_lookup_reads_only_the_charged_pairs(self):
-        """재검토(f6a2a1b) P3: 반응 조회가 매체 집합 × 반응 ID 집합의 교차 조합을 읽었다(키 B개에 최대 B²행). 정확한 (매체, 반응) 쌍만 읽는다.
+        """재검토(5e8fa8c) P3: 반응 조회가 매체 집합 × 반응 ID 집합의 교차 조합을 읽었다(키 B개에 최대 B²행). 정확한 (매체, 반응) 쌍만 읽는다.
         매체 넷이 같은 반응 ID 넷을 모두 판정했고 과금은 대각선 넷뿐 — 한 묶음(4)의 조회가 4행을 넘지 않는다."""
         ids, worlds = [uuid.uuid4() for _ in range(4)], [World(ends_in=None) for _ in range(4)]
         for i, w in enumerate(worlds):
@@ -257,7 +257,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertRegex(text, r"peak_rss=\d+(\.\d)?MiB")
 
     def test_a_charge_that_cannot_be_placed_in_a_window_fails_the_export_and_the_check(self):
-        """외부 검토(4bd3ce8) P2 재현: 반응이 없는 과금 원장 줄(잔액·원장은 서로 맞음, 이벤트 없음)이 원본 구간에서 조용히 빠져 내보내기·대조가 '일치'로 끝났다.
+        """외부 검토(e781f20) P2 재현: 반응이 없는 과금 원장 줄(잔액·원장은 서로 맞음, 이벤트 없음)이 원본 구간에서 조용히 빠져 내보내기·대조가 '일치'로 끝났다.
         생성 시각을 정할 수 없으니 추정하지 않고 미해결로 남긴다 — 내보내기는 게시한 뒤 실패로 끝나고 verify_hops 도 실패한다. 정상 이벤트의 대조는 그대로 한다."""
         relay_batch()
         w = World()
@@ -276,7 +276,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
     def test_a_charge_key_that_only_looks_like_a_judged_reactions_key_is_unresolved(self):
-        """재검토(f6a2a1b) P2 재현: 판정한 반응의 키를 다른 UUID 표기(대문자·하이픈 없음·중괄호)로 바꾼 과금 세 건이 원본 구간의 문자열 조회에도,
+        """재검토(5e8fa8c) P2 재현: 판정한 반응의 키를 다른 UUID 표기(대문자·하이픈 없음·중괄호)로 바꾼 과금 세 건이 원본 구간의 문자열 조회에도,
         UUID 로 해석하는 미해결 검사에도 걸리지 않아 '일치'로 끝났다. 키는 반응에서 만든 표준 문자열과 정확히 같아야 그 반응의 과금이다."""
         relay_batch()
         r = Reaction.objects.get()

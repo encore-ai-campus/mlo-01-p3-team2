@@ -33,7 +33,7 @@ def expected_events():
 
 
 def source_streams():
-    """① 구간을 창으로 읽는 흐름(`events.summarize_windows` 용, 외부 검토 7936ac7 P3-3). `expected_events` 와 같은 매핑을 창 하나·종류 하나씩 적용한다:
+    """① 구간을 창으로 읽는 흐름(`events.summarize_windows` 용, 외부 검토 00d3067 P3-3). `expected_events` 와 같은 매핑을 창 하나·종류 하나씩 적용한다:
     결정(결정 시각) / 접수(수신 시각) / 판정과 그 과금(처리 시각). 호출한 쪽의 읽기 스냅샷 안에서 쓴다."""
     return [
         events.table_stream(Decision.objects.all(), "decided_at", lambda rows: [_document(_decision_event(d)) for d in rows]),
@@ -56,7 +56,7 @@ def _judged_documents(rows):
 def unresolved_charges(batch=2000, examples=10):
     """창에 놓을 수 없는 과금 원장 줄 — 멱등 키(`reaction_ref`)로 **판정한 반응**을 찾지 못한 `CHARGE` 항목(반응이 없음·판정 전·표준 표기가 아닌 키).
     과금 이벤트의 생성 시각은 그 반응의 처리 시각이라 이런 줄은 원본 구간의 어느 창에도 넣을 수 없고, `source_streams` 는 반응에서 과금을 찾으므로 조용히 빠진다.
-    원장 시각으로 추정하지 않고 따로 센다(외부 검토 4bd3ce8 P2). 원장을 ID 순으로 이어 읽어 메모리는 한 묶음만 쓴다. 반환: (건수, 예시 entry_id 최대 `examples`개)."""
+    원장 시각으로 추정하지 않고 따로 센다(외부 검토 e781f20 P2). 원장을 ID 순으로 이어 읽어 메모리는 한 묶음만 쓴다. 반환: (건수, 예시 entry_id 최대 `examples`개)."""
     count, sample, after = 0, [], None
     while rows := billing.charge_refs_after(after, batch):
         after = rows[-1][0]

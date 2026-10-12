@@ -208,7 +208,7 @@ class RecomputeVersusChargeTests(TransactionTestCase):
 
 @tag("security")
 class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
-    """검토 DB-1c(c90ebc5) P2 두 건: ① 정합성 검사가 검사 도중 커밋된 정상 과금을 불일치로 오인 ② 재계산 둘이 겹치면 한쪽이 행 삭제 뒤 `DoesNotExist` 로 중단."""
+    """검토 DB-1c(7aac929) P2 두 건: ① 정합성 검사가 검사 도중 커밋된 정상 과금을 불일치로 오인 ② 재계산 둘이 겹치면 한쪽이 행 삭제 뒤 `DoesNotExist` 로 중단."""
 
     def setUp(self):
         self.adv = make_advertiser()
@@ -261,7 +261,7 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         return result
 
     def test_inside_an_existing_read_committed_transaction_the_check_refuses_instead_of_guessing(self):
-        """검토 c90ebc5→54363b2: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
+        """검토 7aac929→54363b2: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
         from django.db import transaction
 
         self.charge(10, "m:r1")
@@ -271,7 +271,7 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         self.assertIn("quiescent=True", str(caught.exception))
 
     def test_a_session_default_of_repeatable_read_does_not_vouch_for_the_current_transaction(self):
-        """검토 f095d64: 세션 기본값이 `REPEATABLE READ` 여도 `SET TRANSACTION` 으로 **다음 트랜잭션 하나만** `READ COMMITTED` 로 시작할 수 있고,
+        """검토 f2e930b: 세션 기본값이 `REPEATABLE READ` 여도 `SET TRANSACTION` 으로 **다음 트랜잭션 하나만** `READ COMMITTED` 로 시작할 수 있고,
         `@@transaction_isolation`(세션 값)은 그것을 알려 주지 않는다. 현재 트랜잭션의 읽기 보장을 확인할 수 없으므로 기존 트랜잭션 안의 호출은 거절한다."""
         from django.db import transaction
 

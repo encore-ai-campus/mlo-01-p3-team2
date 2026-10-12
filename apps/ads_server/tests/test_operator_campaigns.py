@@ -51,7 +51,7 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual([c.creative_id for c in item.creatives], expected)
 
     def test_a_page_reads_only_its_own_campaigns(self):
-        """P3-4 2단계(외부 검토 7936ac7): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
+        """P3-4 2단계(외부 검토 00d3067): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
         쪽 하나는 질의 네 번(개수·그 쪽 캠페인·그 소재·그 요청) — 캠페인이 늘어도 같다."""
         for _ in range(4):
             World()
@@ -81,7 +81,7 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual(everything[1:], sorted(everything[1:], reverse=True))  # '나중 캠페인' 다음은 같은 시각 — ID 역순
 
     def test_the_review_queue_reads_only_the_waiting_campaigns_creatives(self):
-        """외부 검토(7936ac7) P3: 재검토 화면이 전체 모니터링 목록(모든 캠페인의 소재)을 만들었다. 대기 중인 캠페인의 소재만 읽는다."""
+        """외부 검토(00d3067) P3: 재검토 화면이 전체 모니터링 목록(모든 캠페인의 소재)을 만들었다. 대기 중인 캠페인의 소재만 읽는다."""
         for _ in range(5):
             World()  # 소재가 있는 다른 캠페인들
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW)

@@ -202,7 +202,7 @@ class IsolationTests(AdGroupPageBase):
 
 
 class StaleSameFieldTests(AdGroupPageBase):
-    """외부 검토(56c66cf) P3: 작은 폼은 다른 칸을 덮지 않지만, 열어 둔 폼이 **같은 칸**의 최신 변경을 덮었다(S1 → S1+S2 뒤 옛 폼의 S1 이 S2 를 지움).
+    """외부 검토(41d2288) P3: 작은 폼은 다른 칸을 덮지 않지만, 열어 둔 폼이 **같은 칸**의 최신 변경을 덮었다(S1 → S1+S2 뒤 옛 폼의 S1 이 S2 를 지움).
     이름·게재 위치·이미지 교체도 화면이 본 변경 시각과 잠금 안에서 대조한다."""
 
     def test_a_stale_slots_form_does_not_remove_a_slot_added_elsewhere(self):

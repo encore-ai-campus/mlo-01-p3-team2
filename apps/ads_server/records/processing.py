@@ -41,7 +41,7 @@ def reaction_ref(media_id, reaction_id):
 
 def parse_reaction_ref(ref):
     """`reaction_ref` 의 반대: `(media_id, reaction_id)`. **`reaction_ref` 가 만드는 바로 그 문자열**일 때만 — `uuid.UUID` 는 대문자·하이픈 없음·중괄호 표기도
-    같은 UUID 로 받지만, 원장은 표준 문자열로 찾으므로 다른 표기의 키는 그 반응의 키가 아니다(재검토 f6a2a1b P2). 아니면 `None`(해석하지 못한 키로 반응을 추측하지 않는다)."""
+    같은 UUID 로 받지만, 원장은 표준 문자열로 찾으므로 다른 표기의 키는 그 반응의 키가 아니다(재검토 5e8fa8c P2). 아니면 `None`(해석하지 못한 키로 반응을 추측하지 않는다)."""
     try:
         media_id, reaction_id = ref.split(":")
         parsed = uuid.UUID(media_id), uuid.UUID(reaction_id)

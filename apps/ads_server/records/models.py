@@ -147,7 +147,7 @@ class Reaction(models.Model):
             models.Index(fields=["status", "received_at"], name="records_reaction_pending_idx"),
             # 판정이 하는 거의 모든 조회가 결정으로 반응을 찾는다(인정된 유형·앞 단계·먼저 접수된 같은 유형·표시 교체 신호·보류 깨우기). 이것이 없으면 매체 접두만 쓰는 훑기가 된다
             models.Index(fields=["decision_id", "type", "status"], name="records_reaction_decision_idx"),
-            # 구간 manifest 가 창마다 그 범위만 읽는다(외부 검토 7936ac7 P3-3): 접수 이벤트는 수신 시각, 판정·과금 이벤트는 처리 시각
+            # 구간 manifest 가 창마다 그 범위만 읽는다(외부 검토 00d3067 P3-3): 접수 이벤트는 수신 시각, 판정·과금 이벤트는 처리 시각
             models.Index(fields=["received_at"], name="records_reaction_received_idx"),
             models.Index(fields=["processed_at"], name="records_reaction_processed_idx"),
         ]

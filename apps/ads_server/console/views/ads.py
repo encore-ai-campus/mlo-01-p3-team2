@@ -48,7 +48,7 @@ def ad_create(request):
         return redirect("ad_create")
     action = request.POST.get("action")
     if action not in ("unit", "preview"):
-        # 이미 성공한 제출의 다시 보냄은 폼 검증보다 먼저 처음 결과로 보낸다 — 그 사이 위치가 꺼지거나 상한에 닿아도(외부 검토 56c66cf)
+        # 이미 성공한 제출의 다시 보냄은 폼 검증보다 먼저 처음 결과로 보낸다 — 그 사이 위치가 꺼지거나 상한에 닿아도(외부 검토 41d2288)
         try:
             done = campaigns.ad_created_by_key(request.user, request.POST["request_key"])
         except HANDLED as e:

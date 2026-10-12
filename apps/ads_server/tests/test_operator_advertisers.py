@@ -300,7 +300,7 @@ class UserAdminActiveFlagTests(TestCase):
 
     def test_the_reset_form_writes_only_the_password(self):
         """심층 방어: 초기화는 대상을 잠근 뒤 읽지만, 폼이 오래된 사용자 객체를 받더라도 비밀번호 열만 써서 그 사이의 비활성화를 되돌리지 않는다
-        (외부 검토 3-1d c029e35 — 잠금이 대상을 놓쳤을 때 이 보호가 없어 비활성화가 되돌려졌다)."""
+        (외부 검토 3-1d d44b36a — 잠금이 대상을 놓쳤을 때 이 보호가 없어 비활성화가 되돌려졌다)."""
         adv = make_advertiser()
         stale = User.objects.get(pk=adv.pk)
         set_advertiser_active(self.root, adv.pk, False, "스팸 소재")
@@ -489,7 +489,7 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         self.reset_racing_a_deactivation(lambda pk: pk)
 
     def test_the_same_holds_for_another_spelling_of_the_target_id(self):
-        """외부 검토(3-1d c029e35) P2: Django 화면은 경로를 `unquote` 한 뒤 대상을 찾아 `urn:uuid:…` 표기도 같은 사용자다. 잠금이 원문을 따로 해석해
+        """외부 검토(3-1d d44b36a) P2: Django 화면은 경로를 `unquote` 한 뒤 대상을 찾아 `urn:uuid:…` 표기도 같은 사용자다. 잠금이 원문을 따로 해석해
         대상을 빼먹으면 비활성화가 되돌려졌다. 잠금도 화면과 같은 해석을 쓴다."""
         self.reset_racing_a_deactivation(lambda pk: quote(f"urn:uuid:{pk}"))
 
@@ -601,17 +601,17 @@ class EmergencyPasswordResetTests(TransactionTestCase):
 
 @tag("security")
 class MutualResetTests(TransactionTestCase):
-    """외부 검토(3-1d 38aafb9) P2: 두 관리자가 서로의 비밀번호를 동시에 초기화하면, 요청자 행을 먼저 잠그고 대상 행은 저장할 때 잠가 순서가 엇갈렸다 —
+    """외부 검토(3-1d 3eb5f77) P2: 두 관리자가 서로의 비밀번호를 동시에 초기화하면, 요청자 행을 먼저 잠그고 대상 행은 저장할 때 잠가 순서가 엇갈렸다 —
     교착(MySQL 1213)으로 한 요청이 500. 요청자와 대상을 ID 순서로 함께 잠그면 줄을 서고, 뒤의 요청은 앞의 초기화로 바뀐 자기 인증 근거 때문에 403 이다."""
 
     def test_two_admins_resetting_each_other_queue_up_without_a_deadlock(self):
         self.mutual_reset(lambda pk: pk)
 
     def test_the_same_holds_for_another_spelling_of_the_target_id(self):
-        self.mutual_reset(lambda pk: quote(f"urn:uuid:{pk}"))  # 외부 검토(3-1d c029e35): 다른 표기로 대상이 잠금에서 빠지면 교착이 다시 났다
+        self.mutual_reset(lambda pk: quote(f"urn:uuid:{pk}"))  # 외부 검토(3-1d d44b36a): 다른 표기로 대상이 잠금에서 빠지면 교착이 다시 났다
 
     def test_an_unreadable_target_is_404_before_anything_is_locked_or_run(self):
-        """이름이 주장하는 것까지 본다(외부 검토 7936ac7 P3): 404 일 뿐 아니라 행 잠금 SQL 이 나가지 않고 Django 의 초기화 화면도 실행되지 않는다."""
+        """이름이 주장하는 것까지 본다(외부 검토 00d3067 P3): 404 일 뿐 아니라 행 잠금 SQL 이 나가지 않고 Django 의 초기화 화면도 실행되지 않는다."""
         client = Client()
         client.force_login(make_admin())
         with CaptureQueriesContext(connection) as queries, mock.patch.object(BaseUserAdmin, "user_change_password", return_value=HttpResponseNotFound()) as parent:
@@ -654,7 +654,7 @@ class MutualResetTests(TransactionTestCase):
 
 @tag("security")
 class PasswordAuditAtomicityTests(TransactionTestCase):
-    """외부 검토(7936ac7) P2: 비밀번호 변경·초기화의 성공 감사 기록을 변경이 커밋된 **뒤에** 써서, 기록이 실패하면 응답은 500 인데 비밀번호는 바뀌고
+    """외부 검토(00d3067) P2: 비밀번호 변경·초기화의 성공 감사 기록을 변경이 커밋된 **뒤에** 써서, 기록이 실패하면 응답은 500 인데 비밀번호는 바뀌고
     기록은 0 건이었다. 기록은 변경과 같은 트랜잭션이라 실패하면 비밀번호도 되돌려진다."""
 
     def setUp(self):
@@ -691,7 +691,7 @@ class PasswordAuditAtomicityTests(TransactionTestCase):
 
 @tag("security")
 class TransientLockOnAdminWriteTests(TransactionTestCase):
-    """외부 검토(7936ac7) P3: 관리자 쓰기에서 잠금 대기 초과가 500(Retry-After 없음)으로 나갔다. 서버가 되돌린 일시 오류는 503 + Retry-After 다."""
+    """외부 검토(00d3067) P3: 관리자 쓰기에서 잠금 대기 초과가 500(Retry-After 없음)으로 나갔다. 서버가 되돌린 일시 오류는 503 + Retry-After 다."""
 
     def test_a_lock_wait_timeout_is_503_with_retry_after_and_nothing_changes(self):
         admin, adv = make_admin(), make_advertiser()

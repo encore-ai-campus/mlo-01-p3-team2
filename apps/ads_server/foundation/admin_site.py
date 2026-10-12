@@ -51,7 +51,7 @@ def current_login_only(view, *others, audit=None):
     바뀐 자기 인증 근거 때문에 403 이다(요청자부터 잠그면 순서가 엇갈려 교착·500).
 
     `audit(request)`: 성공(리다이렉트)했을 때 남길 감사 기록. **변경과 같은 트랜잭션**에서 쓴다 — 기록이 실패하면 비밀번호도 되돌려진다
-    (커밋 뒤에 쓰면 응답은 500 인데 비밀번호는 바뀌고 기록은 없었다, 외부 검토 7936ac7)."""
+    (커밋 뒤에 쓰면 응답은 500 인데 비밀번호는 바뀌고 기록은 없었다, 외부 검토 00d3067)."""
     @wraps(view)
     def guarded(request, *args, **kwargs):
         if request.method != "POST":

@@ -105,7 +105,7 @@ def _locked_group(user, ad_group_id):
 
 def _lock_quota(user):
     """광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)의 잠금 행. 만들기·이미지 교체가 **가장 먼저** 잡고(그다음 캠페인 → 광고그룹·소재),
-    잠금 안에서 상한을 다시 센다 — 서로 다른 캠페인의 동시 쓰기도 줄을 선다(외부 검토 56c66cf). 처음 쓸 때 만든다. 트랜잭션 안에서만."""
+    잠금 안에서 상한을 다시 센다 — 서로 다른 캠페인의 동시 쓰기도 줄을 선다(외부 검토 41d2288). 처음 쓸 때 만든다. 트랜잭션 안에서만."""
     AdvertiserQuota.objects.get_or_create(owner_id=user.pk)  # 동시에 처음 만들면 한쪽은 유일 제약에서 기다렸다가 있는 행을 읽는다
     return AdvertiserQuota.objects.select_for_update().get(owner_id=user.pk)
 
@@ -376,7 +376,7 @@ def reject_review_request(actor, review_request_id, note, now=None):
 
 def monitoring_list(actor, now=None):
     """모든 광고주의 캠페인과 소재. **마지막 변경**(캠페인·소재 중 늦은 쪽)이 최근인 순 — 소재의 이동 주소만 바꿔도 위로 올라온다(피싱 주소 바꿔치기를 놓치지 않게).
-    중단·종료 캠페인도 포함한다. 정렬·쪽 나누기는 DB 에서 하고(P3-4 2단계, 외부 검토 7936ac7) 돌려준 줄 묶음을 `Paginator` 에 넘기면 그 쪽만 읽는다."""
+    중단·종료 캠페인도 포함한다. 정렬·쪽 나누기는 DB 에서 하고(P3-4 2단계, 외부 검토 00d3067) 돌려준 줄 묶음을 `Paginator` 에 넘기면 그 쪽만 읽는다."""
     require_admin(actor)
     return _MonitoringRows(_now(now))
 
@@ -433,7 +433,7 @@ def advertiser_usage(actor, owner_ids):
 
 def open_review_queue(actor, now=None):
     """열린 재검토 요청(오래된 것부터)과 그 캠페인·소재. 관리자가 해제(`release_campaign`)하거나 반려(`reject_review_request`)한다.
-    소재는 **대기 중인 캠페인의 것만** 읽는다(질의 두 번 — 전체 모니터링 목록을 만들지 않는다, 외부 검토 7936ac7)."""
+    소재는 **대기 중인 캠페인의 것만** 읽는다(질의 두 번 — 전체 모니터링 목록을 만들지 않는다, 외부 검토 00d3067)."""
     require_admin(actor)
     now = _now(now)
     rows = list(ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at"))
@@ -506,7 +506,7 @@ AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit"}
 
 def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=None):
     """이름·켜기/끄기·게재 위치. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 잠금 안에서 대조해 다르면 409 — 옛 폼이 같은 칸의 최신 변경을
-    덮지 않게(외부 검토 56c66cf P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
+    덮지 않게(외부 검토 41d2288 P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - AD_GROUP_FIELDS
@@ -690,7 +690,7 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
 
 def ad_created_by_key(user, request_key):
     """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
-    이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 56c66cf). 남의 키면 409."""
+    이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 41d2288). 남의 키면 409."""
     require_advertiser(user)
     if not is_request_key(request_key):
         return None

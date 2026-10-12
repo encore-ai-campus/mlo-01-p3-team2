@@ -128,7 +128,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertFalse(self.created().exists())
 
     def test_a_resubmission_after_the_slot_was_turned_off_still_finds_the_first_ad(self):
-        """외부 검토(56c66cf) P2: 폼 검증(지금 켜진 위치 목록)이 먼저 돌아 400 이 됐다. 이미 성공한 제출의 다시 보냄은 검증보다 먼저 처음 결과로 간다."""
+        """외부 검토(41d2288) P2: 폼 검증(지금 켜진 위치 목록)이 먼저 돌아 400 이 됐다. 이미 성공한 제출의 다시 보냄은 검증보다 먼저 처음 결과로 간다."""
         data = self.fields()
         first = self.client.post(URL, data)
         masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
@@ -138,7 +138,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertEqual(self.created().count(), 1)
 
     def test_a_time_kst_cannot_express_is_a_field_error_not_a_500(self):
-        """외부 검토(56c66cf) P2: 0001-01-01T00:00 KST 는 UTC 로 바꿀 수 없어 500 이었다."""
+        """외부 검토(41d2288) P2: 0001-01-01T00:00 KST 는 UTC 로 바꿀 수 없어 500 이었다."""
         r = self.client.post(URL, self.fields(starts_at="0001-01-01T00:00"))
         self.assertContains(r, 'id="id_starts_at_error"', status_code=400)
         self.assertFalse(self.created().exists())

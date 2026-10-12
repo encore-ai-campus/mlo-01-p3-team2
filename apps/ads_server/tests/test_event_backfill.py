@@ -317,7 +317,7 @@ class ReactionRefFormatTests(SimpleTestCase):
             self.assertIsNone(parse_reaction_ref(ref), ref)
 
     def test_only_the_exact_form_reaction_ref_makes_parses(self):
-        """재검토(f6a2a1b) P2: `uuid.UUID` 는 대문자·하이픈 없음·중괄호도 같은 UUID 로 받는다 — 원본 구간은 표준 문자열로 원장을 찾으므로, 다른 표기의 키는 그 반응의 키가 아니다."""
+        """재검토(5e8fa8c) P2: `uuid.UUID` 는 대문자·하이픈 없음·중괄호도 같은 UUID 로 받는다 — 원본 구간은 표준 문자열로 원장을 찾으므로, 다른 표기의 키는 그 반응의 키가 아니다."""
         media_id, reaction_id = uuid.uuid4(), uuid.uuid4()
         for ref in (f"{str(media_id).upper()}:{reaction_id}", f"{media_id}:{str(reaction_id).upper()}", f"{media_id.hex}:{reaction_id}",
                     f"{{{media_id}}}:{reaction_id}", f" {media_id}:{reaction_id}", f"{media_id}:{reaction_id}\n"):

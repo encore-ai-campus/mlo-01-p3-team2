@@ -108,7 +108,7 @@ class EditTests(CampaignPagesBase):
         self.assertIsNone(self.view().ends_at)
 
     def test_time_edges_are_field_errors_not_500(self):
-        """외부 검토(56c66cf) P2: KST 로 읽은 0001-01-01T00:00 은 UTC 로 표현할 수 없어 500 이었다. 위쪽 끝은 정상 값이다."""
+        """외부 검토(41d2288) P2: KST 로 읽은 0001-01-01T00:00 은 UTC 로 표현할 수 없어 500 이었다. 위쪽 끝은 정상 값이다."""
         self.assertContains(self.client.post(self.detail, self.edit_fields(ends_at="0001-01-01T00:00")), 'id="id_ends_at_error"', status_code=400)
         self.assertIsNone(self.view().ends_at)
         self.assertRedirects(self.client.post(self.detail, self.edit_fields(ends_at="9999-12-31T23:59")), self.detail)
