@@ -173,6 +173,34 @@ def claim_due_impression(*, now: datetime, lease_seconds: float = 60) -> StoredI
         # 경합에서 졌으면 트랜잭션을 끝낸 뒤 최신 상태에서 다른 작업을 찾는다.
 
 
+def claim_blocked_401_impression(
+    reaction_id: str | UUID, *, now: datetime, lease_seconds: float = 60,
+) -> StoredImpression | None:
+    """명시한 401 차단 기록만 기존 요청 내용 그대로 새 전송 임대로 확보한다."""
+    from django.db import transaction
+    from django.db.models import F, Q
+
+    from ..models import Impression
+
+    reaction_uuid = _uuid(reaction_id)
+    current_time = _aware_time(now, "now")
+    expires = _lease_end(current_time, lease_seconds)
+    # 조건을 UPDATE에 함께 적용해 다른 작업자의 임대나 뒤늦은 접수 확인을 덮지 않는다.
+    with transaction.atomic(durable=True):
+        claimed = Impression.objects.filter(
+            Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=current_time),
+            reaction_id=reaction_uuid, delivery_state="BLOCKED",
+            last_http_status=401, status__isnull=True,
+        ).update(
+            delivery_state="SENDING", attempts=F("attempts") + 1,
+            next_attempt_at=None, lease_token=uuid4(), lease_expires_at=expires,
+        )
+        if not claimed:
+            return None
+        # 반응 ID·결정 ID·가명·발생 시각은 변경하지 않고 커밋 후 전송할 스냅샷만 반환한다.
+        return _snapshot(Impression.objects.get(reaction_id=reaction_uuid))
+
+
 def finish_impression(
     reaction_id: str | UUID,
     *,

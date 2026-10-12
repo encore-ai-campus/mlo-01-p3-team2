@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import UUID, uuid4
 
 from django.db import connection, transaction
@@ -10,7 +10,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.models.query import QuerySet
 from django.test import TestCase, TransactionTestCase
 
-from ad_bridge.impressions.store import claim_due_impression, finish_impression, reserve_impression
+from ad_bridge.impressions.store import (
+    claim_blocked_401_impression, claim_due_impression, finish_impression, reserve_impression,
+)
+from ad_bridge.impressions import store as impression_store
+from ad_bridge.api.errors import AdsHTTPError
+from ad_bridge.delivery.policy import RetryPolicy
+from ad_bridge.delivery.sender import send_once
+from ad_bridge.delivery.worker import dispatch_due_impressions
+from test.support.impression_fakes import received_reaction
 from ad_bridge.models import Impression, IssuedDecision
 
 
@@ -257,6 +265,170 @@ class RetryStorageTests(TestCase):
                     first.reaction_id, delivery_state="UNCONFIRMED", lease_token=first.lease_token, **fields,
                 )
         self.assertEqual(Impression.objects.get().delivery_state, "SENDING")
+
+
+class Blocked401RecoveryTests(TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+        self.decision = IssuedDecision.objects.create(
+            decision_id=uuid4(), owner_id=uuid4(), subject_id=uuid4(), slot_id=uuid4(),
+            decided_at=self.now, has_ad=True,
+        )
+        self.row = Impression.objects.create(
+            decision=self.decision, subject_id=self.decision.subject_id,
+            occurred_at="2026-10-11T12:00:00.123000Z", delivery_state="BLOCKED",
+            attempts=2, last_error="ads_http_error", last_http_status=401,
+            request_id="previous-401", next_attempt_at=self.now + timedelta(seconds=10),
+        )
+
+    def claim(self, **options):
+        return claim_blocked_401_impression(self.row.pk, now=self.now, **options)
+
+    def test_claim_changes_only_delivery_lease_fields(self):
+        before = Impression.objects.values().get(pk=self.row.pk)
+        decision_before = IssuedDecision.objects.values().get(pk=self.decision.pk)
+        claimed = self.claim(lease_seconds=90)
+        after = Impression.objects.values().get(pk=self.row.pk)
+        self.assertEqual(claimed.delivery_state, "SENDING")
+        self.assertEqual(claimed.attempts, 3)
+        self.assertIsNone(claimed.next_attempt_at)
+        self.assertEqual(UUID(claimed.lease_token).version, 4)
+        self.assertEqual(claimed.lease_expires_at, self.now + timedelta(seconds=90))
+        # 요청 본문과 이전 오류 메타데이터를 포함해 전송 임대 외의 모든 필드를 보존한다.
+        changed = {"delivery_state", "attempts", "next_attempt_at", "lease_token", "lease_expires_at"}
+        for field in before.keys() - changed:
+            self.assertEqual(after[field], before[field])
+        self.assertEqual(IssuedDecision.objects.values().get(pk=self.decision.pk), decision_before)
+        self.assertEqual(Impression.objects.count(), 1)
+
+    def test_non_401_and_acknowledged_or_judged_records_are_excluded(self):
+        for state, http_status, status in (
+            ("BLOCKED", 403, None), ("BLOCKED", 400, None), ("BLOCKED", None, None),
+            ("ACKNOWLEDGED", 401, None), ("UNCONFIRMED", 401, None), ("SENDING", 401, None),
+            ("BLOCKED", 401, "RECEIVED"), ("BLOCKED", 401, "ACCEPTED"),
+            ("BLOCKED", 401, "REJECTED"),
+        ):
+            with self.subTest(state=state, http_status=http_status, status=status):
+                Impression.objects.filter(pk=self.row.pk).update(
+                    delivery_state=state, last_http_status=http_status, status=status,
+                )
+                before = Impression.objects.values().get(pk=self.row.pk)
+                self.assertIsNone(self.claim())
+                self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
+
+    def test_unknown_reaction_does_not_claim_another_record(self):
+        before = Impression.objects.values().get(pk=self.row.pk)
+        self.assertIsNone(claim_blocked_401_impression(uuid4(), now=self.now))
+        self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
+
+    def test_active_lease_is_rejected_and_expired_lease_can_be_replaced(self):
+        old_token = uuid4()
+        Impression.objects.filter(pk=self.row.pk).update(
+            lease_token=old_token, lease_expires_at=self.now + timedelta(seconds=1),
+        )
+        before = Impression.objects.values().get(pk=self.row.pk)
+        self.assertIsNone(self.claim())
+        self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
+        Impression.objects.filter(pk=self.row.pk).update(lease_expires_at=self.now)
+        claimed = self.claim()
+        self.assertNotEqual(claimed.lease_token, str(old_token))
+        self.assertEqual(claimed.lease_expires_at, self.now + timedelta(seconds=60))
+
+    def test_second_claim_does_not_take_an_existing_lease(self):
+        first = self.claim()
+        self.assertIsNone(self.claim())
+        self.assertIsNone(claim_due_impression(now=self.now))
+        self.row.refresh_from_db()
+        self.assertEqual(str(self.row.lease_token), first.lease_token)
+        self.assertEqual(self.row.attempts, first.attempts)
+
+    def test_rival_claim_and_late_receipt_are_not_overwritten(self):
+        original_update = QuerySet.update
+        for rival_state in ("SENDING", "ACKNOWLEDGED"):
+            with self.subTest(rival_state=rival_state):
+                Impression.objects.filter(pk=self.row.pk).update(
+                    delivery_state="BLOCKED", last_http_status=401, status=None,
+                    attempts=2, lease_token=None, lease_expires_at=None,
+                )
+                raced = False
+                rival_token = uuid4()
+
+                def competing_update(queryset, **values):
+                    nonlocal raced
+                    if queryset.model is Impression and "attempts" in values and not raced:
+                        raced = True
+                        # 조건부 UPDATE 직전에 경쟁 임대 또는 뒤늦은 접수 확인을 반영한다.
+                        original_update(Impression.objects.filter(pk=self.row.pk),
+                            delivery_state=rival_state, attempts=3, lease_token=rival_token,
+                            lease_expires_at=self.now + timedelta(seconds=60))
+                    return original_update(queryset, **values)
+
+                with patch.object(QuerySet, "update", competing_update):
+                    self.assertIsNone(self.claim())
+                self.assertTrue(raced)
+                self.row.refresh_from_db()
+                self.assertEqual(self.row.delivery_state, rival_state)
+                self.assertEqual(self.row.lease_token, rival_token)
+                self.assertEqual(self.row.attempts, 3)
+
+    def test_again_401_blocks_without_automatic_retry_or_new_request(self):
+        claimed = self.claim()
+        client = Mock()
+        client.report_impression.side_effect = AdsHTTPError(401)
+        result = send_once(client=client, store=impression_store, record=claimed,
+            policy=RetryPolicy(), now=lambda: self.now)
+        self.assertEqual(result.record.delivery_state, "BLOCKED")
+        self.assertEqual(result.record.last_http_status, 401)
+        self.assertIsNone(result.record.lease_token)
+        self.assertIsNone(result.record.next_attempt_at)
+        counts = dispatch_due_impressions(client=client, store=impression_store,
+            now=lambda: self.now + timedelta(days=1))
+        self.assertEqual(counts["attempted"], 0)
+        client.report_impression.assert_called_once_with(
+            decision_id=str(self.decision.pk), reaction_id=str(self.row.pk),
+            subject_id=str(self.row.subject_id), occurred_at=self.row.occurred_at,
+        )
+        self.assertEqual(Impression.objects.count(), 1)
+
+    def test_success_reuses_the_same_request_and_acknowledges_it(self):
+        claimed = self.claim()
+        client = Mock()
+        client.report_impression.side_effect = received_reaction
+        result = send_once(client=client, store=impression_store, record=claimed,
+            policy=RetryPolicy(), now=lambda: self.now)
+        self.assertEqual(result.record.delivery_state, "ACKNOWLEDGED")
+        self.assertEqual(result.record.status, "RECEIVED")
+        self.assertEqual(result.record.reaction_id, str(self.row.pk))
+        self.assertEqual(result.record.subject_id, str(self.row.subject_id))
+        self.assertEqual(result.record.occurred_at, self.row.occurred_at)
+        self.assertNotIn("owner_id", client.report_impression.call_args.kwargs)
+        self.assertIsNone(self.claim())
+
+    def test_snapshot_failure_rolls_back_claim(self):
+        before = Impression.objects.values().get(pk=self.row.pk)
+        with patch("ad_bridge.impressions.store._snapshot", side_effect=RuntimeError("rollback")):
+            with self.assertRaisesRegex(RuntimeError, "rollback"):
+                self.claim()
+        self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
+
+    def test_outer_transaction_is_rejected_before_claim(self):
+        before = Impression.objects.values().get(pk=self.row.pk)
+        with self.assertRaisesRegex(RuntimeError, "durable atomic"), transaction.atomic():
+            self.claim()
+        self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
+
+    def test_invalid_inputs_are_rejected_without_mutation(self):
+        before = Impression.objects.values().get(pk=self.row.pk)
+        for reaction_id in ("invalid-uuid", None, 123):
+            with self.subTest(reaction_id=reaction_id), self.assertRaises(ValueError):
+                claim_blocked_401_impression(reaction_id, now=self.now)
+        for now in (datetime(2026, 10, 12), None, "invalid-time"):
+            with self.subTest(now=now), self.assertRaises(ValueError):
+                claim_blocked_401_impression(self.row.pk, now=now)
+        for seconds in (True, 0, -1, float("nan"), float("inf")):
+            with self.subTest(seconds=seconds), self.assertRaises(ValueError):
+                self.claim(lease_seconds=seconds)
+        self.assertEqual(Impression.objects.values().get(pk=self.row.pk), before)
 
 
 class RetryMigrationTests(TransactionTestCase):
