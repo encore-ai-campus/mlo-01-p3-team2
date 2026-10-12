@@ -189,6 +189,7 @@ erDiagram
     billing_wallet ||--o{ billing_ledger_entry : "wallet"
     masters_media ||--o{ masters_media_key : "media"
     campaigns_creative ||--o{ campaigns_creative_image : "creative (보유 파일)"
+    foundation_user ||--o| campaigns_advertiser_quota : "owner (상한 잠금, 1:1)"
 
     foundation_user {
         uuid id PK
@@ -232,6 +233,7 @@ erDiagram
         int daily_budget
         string status
         string ended_from
+        string request_key "UK, 광고 만들기 요청 멱등 키"
     }
     campaigns_ad_group {
         uuid ad_group_id PK
@@ -299,12 +301,17 @@ erDiagram
         string secret_hash "SHA-256, 평문 없음"
         datetime expires_at
         datetime revoked_at
+        string request_key "UK, 발급 요청 멱등 키"
     }
     campaigns_creative_image {
         uuid creative_image_id PK
         uuid creative_id FK "UK(creative, image_name)"
         string image_name
         int image_bytes
+    }
+    campaigns_advertiser_quota {
+        uuid quota_id PK
+        uuid owner_id FK "UK, 잠금 전용"
     }
     foundation_audit_log {
         uuid log_id PK
@@ -334,6 +341,7 @@ erDiagram
 | O5 | 입찰 `campaigns_bid` | campaigns | 운영(추가 전용 버전) | 광고주 | 입찰 변경마다 | [구현] |
 | O6 | 재검토 요청 `campaigns_review_request` | campaigns | 운영 | 광고주(생성), 관리자·시스템(닫기) | 요청마다 | [구현] |
 | O7 | 소재 이미지 보유 `campaigns_creative_image` | campaigns | 운영(추가 전용) | 소재 등록·이미지 교체 | 이미지가 바뀔 때마다 | [구현] |
+| O8 | 광고주 상한 잠금 `campaigns_advertiser_quota` | campaigns | 잠금 전용(값 없음) | 만들기·이미지 교체 | 광고주가 처음 만들 때 | [구현] `7fdc76f` |
 | B1 | 지갑 `billing_wallet` | billing | 운영 | 가입 흐름 | 광고주 가입 | [구현] |
 | B2 | 원장 `billing_ledger_entry` | billing | 기록(추가 전용) | 가입 지급·과금·관리자 조정 | 포인트가 움직일 때마다 | [구현] |
 | B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] |
@@ -356,12 +364,13 @@ erDiagram
 |---|---|:---:|---|---|
 | `id` | UUID | N | PK | |
 | `username` | 문자 30 | N | UNIQUE | 로그인 아이디. `[a-z0-9_]{4,20}` |
-| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다 |
-| `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다 |
+| `password` | 문자 | N | | **Argon2 해시만**. 원문은 어디에도 저장·기록하지 않는다. 원문 길이 **10~128자** — 최소·최대 모두 비밀번호 검증기(최대는 `MaximumLengthValidator`, `89c8a38`)가 서비스와 `changepassword` 명령까지 지키며(비대화형 `createsuperuser`는 Django가 검증기를 돌리지 않는다 — 운영자 전용 경로), C6 `SignupRequest.password`·`PasswordChange.new_password`의 `minLength`·`maxLength`와 같다 |
+| `role` | 문자 20 | N | `admin`·`advertiser` | 가입은 항상 `advertiser`. 관리자는 서버 명령으로만 만든다. 사용자 관리 화면에서도 추가·변경할 수 없다 |
 | `nickname` | 문자 20 | N | | 2~20자 |
 | `class_label` | 문자 30 | N | | "반". 표시용 자유 입력, 로직에 쓰지 않는다 |
-| `is_active` | 불리언 | N | | 관리자가 비활성화할 수 있다 |
-| `is_superuser` | 불리언 | N | | 관리자만 참 |
+| `is_active` | 불리언 | N | | 관리자가 비활성화할 수 있다(사유 필수). 거짓이면 로그인·세션·광고 송출·공개 이미지가 멈춘다(§6) |
+| `is_superuser` | 불리언 | N | | 관리자만 참. 계정을 만드는 곳(매니저)이 역할과 함께 정하고 사용자 관리 화면에서 바꿀 수 없다 [구현 `ab5bc59`] |
+| `session_epoch` | 양의 정수 | N | 기본 0 | **세션 폐기 버전.** 비활성화할 때 올라가고 세션 검증 값에 들어가, 그 전의 로그인 세션은 다시 활성화해도 돌아오지 않는다 [구현 `ab7a607`] |
 | `last_login` | 시각 | Y | | Django 기본 |
 | `created_at` | 시각 | N | | |
 
@@ -447,6 +456,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `created_at` | 시각 | N | | |
 | `expires_at` | 시각 | Y | | 교체 유예가 끝나는 시각. NULL이면 계속 유효 |
 | `revoked_at` | 시각 | Y | | 즉시 폐기 |
+| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 발급 요청의 멱등 키(화면 폼 하나 = 키 하나). 같은 요청 키로는 다시 발급하지 않고 409와 키 식별자를 돌려준다(평문은 다시 보일 수 없음) [구현 `1e72031`] |
 
 #### O1. 캠페인 `campaigns_campaign` [구현]
 
@@ -464,6 +474,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `ended_from` | 코드 | Y | | `ENDED` 직전 상태(중단된 채 끝났는지 알 수 있다) |
 | `suspended_reason` | 문자 500 | N | | 관리자 중단 사유 |
 | `suspended_at` | 시각 | Y | | |
+| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 광고 만들기의 멱등 키(화면 폼 하나 = 캠페인 하나). 같은 키로는 다시 만들지 않고 처음 만든 광고를 돌려준다. 키 없이 만든 캠페인은 NULL [구현 `b61112a`] |
 | `created_at`, `updated_at` | 시각 | N | | |
 
 #### O2. 광고그룹 `campaigns_ad_group` [구현]
@@ -478,6 +489,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `pricing_unit` | 코드 | N | 변경 시 거부 | 고른 슬롯은 모두 같은 단위여야 한다 |
 | `enabled` | 불리언 | N | | 광고주가 켜고 끈다 |
 | `created_at` | 시각 | N | | |
+| `updated_at` | 시각 | N | | 마지막 변경(이름·게재 위치·켜기/끄기). 화면이 본 값과 대조해 옛 폼이 그 사이의 변경을 덮지 않게(`expected_updated_at`) [구현 `7fdc76f`] |
 
 #### O3. 광고그룹-슬롯 `campaigns_ad_group_slot` [구현]
 
@@ -541,6 +553,16 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `image_bytes` | 정수 | N | | 쿼터 계산용 |
 | `created_at` | 시각 | N | | |
 
+#### O8. 광고주 상한 잠금 `campaigns_advertiser_quota` [구현 `7fdc76f`, 잠금 전용]
+
+광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)을 지키는 **잠금 행**. **값을 담지 않는다** — 수는 이 행을 잠근 안에서 센다. 캠페인·광고그룹·소재 만들기와 이미지 교체가 **가장 먼저** 잠근다(그다음 캠페인 → 광고그룹·소재, 설계 §10 "캠페인 행 잠금 규약"). **처음 쓸 때 만든다**(동시에 처음 만들면 한쪽은 유일 제약에서 기다렸다가 있는 행을 읽는다). 사용자 행 대신 따로 두는 것은 인증·계정 경로와 잠금 순서를 섞지 않기 위해서다.
+
+| 컬럼 | 타입 | NULL | 키·제약 | 설명 |
+|---|---|:---:|---|---|
+| `quota_id` | UUID | N | PK | |
+| `owner_id` | UUID | N | FK→A1 `PROTECT`, UNIQUE | 광고주 하나에 행 하나 |
+| `created_at` | 시각 | N | | |
+
 #### B1. 지갑 `billing_wallet` [구현]
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
@@ -563,10 +585,11 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | `amount` | 정수(부호) | N | 유형별 부호 `CHECK`(아래) | |
 | `balance_after` | 정수 | N | ≥ 0 | 이 줄을 반영한 뒤의 잔액 |
 | `campaign_id` | UUID | Y | FK 아님 | 과금일 때 |
-| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키. 형식 제안: `<media_id>:<reaction_id>` |
+| `reaction_ref` | 문자 100 | Y | **부분 UNIQUE**(NULL 제외), `CHARGE`만 허용 | 과금 멱등 키 `<media_id>:<reaction_id>` — `records.processing.reaction_ref`가 만드는 **표준 표기(UUID 소문자, 하이픈 있음)일 때만 그 반응의 키**다(`parse_reaction_ref`). 같은 UUID라도 대문자·하이픈 없음·중괄호 같은 다른 표기면 원본 구간에 놓을 수 없는 과금으로 세고(§5.6 `checkpoint.unresolved_charges`), 백필도 해석 불가로 남긴다 [`13f3bc2`] |
 | `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
 | `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
 | `note` | 문자 200 | N | | 조정 사유 등 |
+| `adjust_key` | 문자 64 | Y | **UNIQUE**(NULL 제외), `ADMIN_ADJUST`만 허용(`CHECK`) | 관리자 조정의 멱등 키(화면 폼 하나 = 조정 하나). 같은 키는 한 번만 반영하고 다른 내용이면 거절 [구현 `ab7a607`] |
 | `created_at` | 시각 | N | 인덱스 | |
 
 유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(부분 UNIQUE).
@@ -614,7 +637,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 
 | 엔터티 | 컬럼(계획) | 핵심 제약 | 출처 |
 |---|---|---|---|
-| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
+| P2 반응 `records_reaction` **[구현, 수신 2-4]** | `inbox_id`(UUIDv7, PK), `media_id`, `reaction_id`(매체가 만든 UUID), `decision_id`(FK 아님), `type`(`IMPRESSION`·`CLICK`·`CONVERSION`), `occurred_at`(매체 감지 시각, 참고), `received_at`(서버 수신 시각, 기준), `raw`(받은 본문 JSON), `source`(`media` 매체가 보고 / `server` 광고 서버가 관측한 클릭, 기본 `media`) [2-8], `subject_id`(**보고된** 사람, 소문자: 매체 보고의 선택 필드·서버 관측 클릭의 사람) [2-8·2-9], `person_id`(**판정 단위의 사람**: 인정할 때 확정해 저장 — 개인 슬롯은 결정의 사람, 일괄 슬롯은 보고된 사람) [2-9], `accepted_key`(`<결정>:<사람>:<유형>`, **인정된 행에만**, 그 밖에는 NULL) [2-9], `checked_at`(앞 단계 반응을 기다리며 보류한 마지막 판정 시각) [2-9], `basis`(JSON, **판정에 쓴 사실**: 규칙·사유, 판정 단위의 사람, 슬롯 성격, 결정 시각, 사용한 수치, 인정 근거가 된 앞 단계 반응(같은 결정·사람·유형에 최대 1개라 항상 저장)·처리 전 후보(상한 + 총 개수)·표시 교체 신호의 `inbox_id`, 캠페인 종료 시각. `person`은 확인한 사람만(없는 결정이면 `null`). 판정과 같은 트랜잭션에서 한 번 쓰고 바꾸지 않음, 보류에는 없음, DB `CHECK`: 판정한 행 ⇔ 근거 있음, 2-13 이전 판정 행은 `v: 0` "기록 이전") [구현 2-13, 마이그레이션 0009], `status`(`RECEIVED`·`ACCEPTED`·`REJECTED`, 처음은 `RECEIVED`), `reason_code`(`REJECTED`일 때만). `applied_rule`(거부한 규칙 이름), `processed_at`(처리 시각), `attempts`(처리 실패 횟수) | **UNIQUE(media_id, reaction_id)**, `type`·`status`·`source` 값 `CHECK`, `reason_code`는 거부일 때만 `CHECK`, 상태와 `processed_at`·`applied_rule`의 짝 `CHECK`, **같은 (결정, 사람, 유형)의 `ACCEPTED`는 하나뿐**(`accepted_key`의 조건 없는 UNIQUE — 개인 슬롯은 결정당, 일괄 슬롯은 사람마다, MySQL에서도 성립), 인정 ⇔ 키 있음(`CHECK`). 수신은 짧은 트랜잭션 하나다: 먼저 일반 조회로 결정의 소유 매체를 확인하고, 보고 매체가 **소유한** 결정이면 그 결정 행을 잠근 뒤 수신 시각을 정해 INSERT하고(같은 결정의 접수 순서 — 설계서 §10 "반응 판정 세부" ⑪), 없는 결정·남의 결정이면 잠금 없이 INSERT한다(재전송은 쓰기 없이 조회만). 처리는 별도 트랜잭션. 거부돼도 지우지 않는다. 색인 `records_reaction_received_idx (received_at)`·`records_reaction_processed_idx (processed_at)` [구현 3-3e `6654077`, 외부 검토 00d3067 P3-3]: 구간 manifest가 접수 이벤트(수신 시각)와 판정·과금 이벤트(처리 시각)를 창마다 그 범위만 읽는다 — **반응 표의 색인이 둘 늘어 수신(INSERT)·처리(UPDATE) 쓰기 비용이 조금 는다**. **결정의 존재·소유를 이유로 수신을 거절하지 않는다**(응답이 존재를 알리지 않는다) | 2-4·2-5 [구현] |
 | P3 outbox `events_outbox` **[구현 4-1a]** | 아래 표 | 결정·접수·판정·과금과 **같은 트랜잭션**에 쓴다(트랜잭션 밖이면 거부). 중계는 "마지막으로 보낸 번호 이후"가 아니라 **`sent_at`이 비어 있는 행**을 보낸다(번호 방식은 늦게 커밋된 행을 건너뛸 수 있다) | 설계서 §6.3, §10 "outbox 쓰기 규약" |
 
 **P3 `events_outbox` 컬럼** [구현 4-1a, 2026-10-10]. Debezium outbox 라우터의 기본 열과 대응을 적었다(확장 때 라우터 설정에서 매핑).
@@ -622,14 +645,14 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|---|---|---|
 | `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). Debezium `id` |
-| `event_name` | 문자 64 | N | | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
+| `event_name` | 문자 64 | N | 색인(아래) | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
 | `schema_version` | 작은 정수 | N | | 지금 `1`. 페이로드 모양이 바뀌면 올린다 |
 | `aggregate_id` | UUID | N | | 메시지 키 = `decision_id`(모든 이벤트). Debezium `aggregateid` |
 | `payload` | JSON | N | | §5.6의 필드. 이름·형식은 `events/schemas.py` 한 곳 |
 | `created_at` | 시각 | N | 색인(아래) | 이벤트의 `produced_at`: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각). MongoDB에는 밀리초로 잘라 넣는다 |
 | `sent_at` | 시각 | Y | 색인(아래) | MongoDB에 저장한 시각. **비어 있으면 미전송** |
 
-색인 `events_outbox_pending_idx (sent_at, created_at)`: 중계가 미전송 행을 오래된 것부터 집고, 보존 정리가 오래전에 보낸 행을 찾는다. FK는 없다(원천 행과 같은 트랜잭션에 쓰는 대기열). 집계 종류(Debezium `aggregatetype`) 열은 두지 않았다 — 모든 이벤트의 집계가 결정이다. 보낸 행은 7일 뒤 지운다(§6).
+색인 `events_outbox_pending_idx (sent_at, created_at)`: 중계가 미전송 행을 오래된 것부터 집고, 보존 정리가 오래전에 보낸 행을 찾는다(구간 manifest의 미전송 건수도 이것으로 미전송 행만 읽는다). `events_outbox_name_created_idx (event_name, created_at)` [구현 3-3e `6654077`]: 구간 manifest가 이벤트 종류·창마다 그 범위만 읽는다. FK는 없다(원천 행과 같은 트랜잭션에 쓰는 대기열). 집계 종류(Debezium `aggregatetype`) 열은 두지 않았다 — 모든 이벤트의 집계가 결정이다. 보낸 행은 7일 뒤 지운다(§6).
 
 ### 4.4 무결성 규칙 — 어디서 지키나
 
@@ -644,6 +667,10 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs` |
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | 부분 UNIQUE(`reaction_ref`) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
+| 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
+| 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
+| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
+| 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | 부분 UNIQUE | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | 부분 UNIQUE | `review_pending` | `test_only_one_open_review_request_per_campaign` |
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
@@ -884,6 +911,9 @@ sequenceDiagram
 |---|---|---|
 | 반응 접수 | (매체, `reaction_id`) UNIQUE | 몇 번을 보내도 한 행. 최소 한 번 전달 + 중복 제거 = 유실 0 |
 | 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
+| 매체 키 발급·교체 | `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 키는 하나(두 번째는 409 + 키 식별자) |
+| 관리자 조정 | `adjust_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 조정은 한 번 |
+| 광고 만들기 | O1 `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도·상한에서 다시 보냄도 광고는 하나 |
 | 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
 | 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
 | 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
@@ -915,7 +945,9 @@ sequenceDiagram
 | 입찰 변경 | O5 새 버전 | `bid.added` |
 | 관리자 정책 변경 | M3 새 버전 | `masters.policy_added`(이전 값 포함) |
 | 관리자 중단·해제·반려 | O1 상태, O6 상태 | `campaign.suspended`·`released`·`review_rejected` |
-| 관리자 포인트 조정 | B2 `ADMIN_ADJUST` + B1 | `billing.adjusted` |
+| 관리자 포인트 조정 | B2 `ADMIN_ADJUST`(`adjust_key` 포함) + B1 | `billing.adjusted` |
+| 관리자 광고주 비활성화·다시 활성화 | A1 `is_active`·`session_epoch`(비활성화 때 +1) | `account.deactivated`·`account.reactivated`(사유) |
+| 계정 수정(사용자 관리 화면: 프로필·비밀번호 초기화만) | A1 | `account.admin_updated`·`account.password_reset_by_admin`. 계정 추가가 없어져 `account.admin_created`는 더 이상 생기지 않고(`ab7a607`), 역할·활성 여부·슈퍼유저 여부는 어떤 계정도 이 화면에서 바꾸지 않고 계정 삭제도 없다(사용자 결정 2026-10-11, `3eb5f77`) |
 | 이벤트 백필(`--apply`, 청크마다) | P3 | `events.backfilled`(입력 manifest SHA-256·건수) |
 | 구간별 정합 manifest 게시 | — | `events.hop_manifests_exported`(세 구간 최신 manifest의 SHA-256 — 고정점) |
 
@@ -996,9 +1028,9 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `ids_sha256` | 이벤트 ID 문자열을 오름차순 정렬해 `\n`으로 이은(끝 줄바꿈 없음) UTF-8 바이트의 SHA-256 |
 | `content_sha256` | 정규화 문서를 JCS로 만든 문자열을 이벤트 ID 순으로 `\n`으로 이은 UTF-8 바이트의 SHA-256 |
 | 파일과 세대 | 실행마다 구간 하나가 NDJSON 파일 하나(닫힌 창 전부)이고, 게시는 기존 규약(불변 데이터 파일 + manifest 포인터)이다. 세대는 파일 게시본 단위이고 manifest에 직전 manifest의 `previous_sha256`을 싣는다. 각 세대 manifest의 불변 사본(내용 해시 이름)으로 사슬을 거슬러 확인한다. 최신 manifest의 SHA-256은 감사 로그 `events.hop_manifests_exported`에도 남는다. **내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지)이 폴더 단위 잠금(`flock`, 출력 폴더의 `.run.lock`)으로 직렬화된다** — 겹친 실행이 최신 감사 고정점과 최종 포인터를 서로 엇갈리게 하지 않는다. 그 안에서 manifest마다 직전 세대를 읽을 때부터 포인터를 교체할 때까지도 잠그므로, 성공한 모든 세대가 사슬에 이어진다. 원본·outbox·MongoDB를 읽는 단계는 이 잠금 밖이라, 겹친 실행은 각자 읽은 값으로 차례로 세대를 낸다 [보완 2026-10-10, 외부 재검토 `f52d1df`]. 감사 로그의 고정점은 포인터를 다시 읽은 값이 아니라 **이 실행이 게시한 manifest의 해시**다(다시 읽는 사이 다른 실행이 포인터를 바꿨을 수 있다). **한계**: 파일 잠금은 한 호스트의 로컬 파일시스템을 전제로 한다. 출력 폴더를 네트워크 파일시스템에 두거나 여러 호스트가 같은 폴더에 게시하면 직렬화가 보장되지 않는다 |
-| `checkpoint` | 범위 서술(재개 위치 아님): `scope`(원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖), `hop`, `window`(`utc-day`·`utc-hour`), `grace_seconds`, `started_at`, `open_windows`(줄에 넣지 않은 열린 창), `not_comparable_windows`(outbox를 대조하지 않는 창), `retention_cutoff`(보존 기준 시각, outbox 구간) |
+| `checkpoint` | 범위 서술(재개 위치 아님): `scope`(원본·outbox는 한 MySQL 읽기 스냅샷, MongoDB는 스냅샷 밖), `hop`, `window`(`utc-day`·`utc-hour`), `grace_seconds`, `started_at`, `open_windows`(줄에 넣지 않은 열린 창), `scanned_events`(**범위 안** — `--since` 이후의 닫힌 창에서 읽은 이벤트 수. 3-3e `6654077` 전에는 열린 창과 `--since` 앞까지 포함한 전체 수), `not_comparable_windows`(outbox를 대조하지 않는 창), `retention_cutoff`(보존 기준 시각, outbox 구간), `unresolved_charges`(원본 구간: **창에 놓을 수 없는 과금 원장 줄 수**, 0 이상의 정수 — 판정한 반응을 멱등 키로 찾지 못한 `CHARGE` 항목, 생성 시각을 추정하지 않는다. 0보다 크면 내보내기는 게시한 뒤 실패하고 `verify_hops`도 실패)·`unresolved_charge_examples`(그 원장 ID, 최대 10개) [`5e8fa8c`] |
 | outbox 대조 범위 | **시작이 보존 기준 시각(지금 − 보존 일수, `checkpoint.retention_cutoff`) 이후인 창**이다. 보존 정리는 보낸 지 보존 일수가 지난 행을 지우고 생성 시각 ≤ 전송 시각이므로, 그런 창의 행은 하나도 지워지지 않았다. 기준 시각이 창 한가운데에 걸리면 앞부분이 지워졌을 수 있으므로 창 전체를 뺀다(일·시간 창 모두). 판정은 "행이 남아 있는가"가 아니라 보존 범위와 창 경계로 하고, 어느 구간에든 있는 닫힌 창이 대상이다 — 오래된 창의 outbox 행이 모두 지워져도 "대조 제외" 정보가 사라지지 않는다 |
-| 입력 검증 | 대조 전에 각 manifest가 계약을 지키는지 확인하고, 하나라도 어기면 그 입력으로 판정하지 않고 비정상 종료한다: 구간 종류(`source_kind`가 `hop_source`·`hop_outbox`·`hop_mongo`·`hop_pipeline` 중 하나이고 기대한 자리와 같음), 계약 버전(`schema_version` = 1), 창 크기 선언(`checkpoint.window` = `utc-day`·`utc-hour`, `checkpoint.hop`이 있으면 `source_kind`와 같음), 줄마다 필수 필드·창 끝 − 시작 = 선언한 크기·시작이 UTC 경계(자정·정시)에 맞음·`event_name`은 빈 문자열이 아님·`count`는 0 이상의 정수(불리언 아님)·두 해시는 소문자 16진 64자, (창, 이벤트 이름) 중복은 거부(마지막 줄로 덮어쓰지 않음). 창 크기가 다른 manifest(일별과 시간별)는 대조하지 않는다. 파일 checksum이 맞는 것과 집계 범위가 같은 것은 별개라서다 |
+| 입력 검증 | 대조 전에 각 manifest가 계약을 지키는지 확인하고, 하나라도 어기면 그 입력으로 판정하지 않고 비정상 종료한다: 구간 종류(`source_kind`가 `hop_source`·`hop_outbox`·`hop_mongo`·`hop_pipeline` 중 하나이고 기대한 자리와 같음), 계약 버전(`schema_version` = 1), 창 크기 선언(`checkpoint.window` = `utc-day`·`utc-hour`, `checkpoint.hop`이 있으면 `source_kind`와 같음), 줄마다 필수 필드·창 끝 − 시작 = 선언한 크기·시작이 UTC 경계(자정·정시)에 맞음·`event_name`은 빈 문자열이 아님·`count`는 0 이상의 정수(불리언 아님)·두 해시는 소문자 16진 64자, (창, 이벤트 이름) 중복은 거부(마지막 줄로 덮어쓰지 않음). 창 크기가 다른 manifest(일별과 시간별)는 대조하지 않는다. 파일 checksum이 맞는 것과 집계 범위가 같은 것은 별개라서다. `checkpoint.unresolved_charges`는 0 이상의 정수(불리언 아님)여야 한다 [`5e8fa8c`] |
 | 대조 결과 분류 | `match`(세 값이 같음) / `mismatch`(확정 불일치, 다른 필드를 적음) / `relay_lag_candidate`(하류가 상류보다 적고 **그 부족분이 그 (창, 이벤트 이름)의 미전송 건수로 설명될 때(부족분 ≤ 미전송)**. 미전송이 하나 있다고 이미 보낸 이벤트의 유실을 가리면 안 되므로, 설명할 수 없는 부족분은 확정 불일치다 — 실패가 아니라 다시 낸 manifest로 확인) / `open_window` / `not_comparable`. 원본 → outbox는 같은 스냅샷이라 지연으로 보지 않는다. 결과 파일은 `hop_report` |
 
 ### 5.7 C4 Insight 입력 [예약, 제안]
@@ -1048,7 +1080,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 | 엔터티 | 생성 | 변경 | 삭제 | 보존 |
 |---|---|---|---|---|
-| 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화 | 없음(비활성화) | [열림] |
+| 사용자 | 가입·서버 명령 | 프로필·비밀번호·비활성화(관리자, 사유 필수·감사 로그. 비활성화하면 로그인·열린 세션·**광고 송출·공개 이미지**가 멈추고, 캠페인 상태는 그대로라 다시 활성화하면 그대로 다시 나간다 — 설계 §10 "광고주 비활성화는 송출도 멈춘다") | 없음(비활성화) | [열림] |
 | 매체·슬롯 | 관리자 | 이름·활성 | 없음 | 영구 |
 | 입찰 정책·입찰 | 새 버전 행 | **없음** | 없음 | 영구(결정 해석에 필요) |
 | 캠페인·광고그룹·소재 | 광고주 | 허용 필드만, **`ENDED` 이후 없음** | 없음 | [열림] |
@@ -1178,6 +1210,13 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.31 | 2026-10-12 | 재검토(`5e8fa8c`) P2 `13f3bc2`: B2 `reaction_ref`는 표준 표기일 때만 그 반응의 키(다른 표기면 미해결 과금·백필 해석 불가) |
+| 0.30 | 2026-10-12 | 외부 검토(`e781f20`) P2 `5e8fa8c`: §5.6 원본 구간 `checkpoint.unresolved_charges`·`unresolved_charge_examples`(창에 놓을 수 없는 과금 원장 줄 — 생성 시각을 추정하지 않고 세어 내보내기·대조를 실패로), 입력 검증에 그 값 형식 |
+| 0.29 | 2026-10-12 | 3-3 종료 점검(`89c8a38`): A1 `password` 원문 길이 10~128자(최대는 서비스의 비밀번호 검증기), C6 `SignupRequest`·`PasswordChange`와 같음 |
+| 0.28 | 2026-10-12 | 3-3e(`6654077`, 외부 검토 00d3067 P3-3): 색인 `records_reaction_received_idx`·`records_reaction_processed_idx`(반응 표 쓰기 비용이 조금 늚)·`events_outbox_name_created_idx`, §5.6 `checkpoint.scanned_events`는 범위 안에서 읽은 수 |
+| 0.27 | 2026-10-11 | 외부 검토(41d2288) 보완 `7fdc76f`: O8 `campaigns_advertiser_quota`(광고주 상한 잠금 행, 값 없음, 처음 쓸 때 만듦)와 ER, O2 `updated_at`, §5 불변식 표(상한은 동시 쓰기에도 넘지 않음) |
+| 0.26 | 2026-10-11 | 3-2c 광고 만들기(`b61112a`): O1 `request_key`(광고 만들기 요청의 멱등 키, UNIQUE·NULL 허용)와 ER, §5 불변식·멱등 키 표 |
+| 0.25 | 2026-10-11 | 광고주 비활성화의 효과(사용자 결정, 구현 3-1d `749148a`): §6 수명주기와 `is_active` 설명에 로그인·세션·광고 송출·공개 이미지가 멈추고 다시 활성화하면 그대로 다시 나간다는 점. 외부 검토 3-1d 보완(`ab7a607`): A1 `session_epoch`, B2 `adjust_key`, `role`·`is_superuser`는 사용자 관리 화면에서도 바꿀 수 없음(`ab5bc59` 포함), §5 멱등 키·불변식 표와 §5.5 감사 로그(`account.admin_created`가 더 이상 생기지 않음). M4 `request_key`(`1e72031`, 발급 요청의 멱등 키) |
 | 0.24 | 2026-10-10 | 외부 재검토(`f52d1df`) 보완 반영: 구간 manifest 게시의 직렬화 단위를 "파일별"에서 "내보내기 한 번(세 manifest 게시부터 감사 고정점 커밋까지), 폴더 단위 잠금"으로 고침(로컬 파일시스템 전제 유지) |
 | 0.23 | 2026-10-10 | 외부 검토(`b481024`) 보완 반영: 구간 manifest 계약에 중계 지연 후보의 좁힌 정의(부족분 ≤ 미전송), outbox 대조 범위(보존 기준 시각 `retention_cutoff` 이후 시작한 창), 입력 검증 규칙, 게시 직렬화(`flock`)와 고정점(이 실행이 게시한 manifest 해시)·한계 |
 | 0.22 | 2026-10-10 | Step 4-3 구현 반영: §5.6 구간별 manifest 계약을 실제 규칙으로(정규화 문서의 키·`event_id`·`produced_at` 형식, JCS와 숫자 표기의 한계, 줄 필드와 `unsent`, 파일·세대, `checkpoint` 필드, 대조 분류), §5.9의 4-3 작업을 [구현]으로, 감사 행동 `events.backfilled`·`events.hop_manifests_exported`, NDJSON 파일 종류 |
