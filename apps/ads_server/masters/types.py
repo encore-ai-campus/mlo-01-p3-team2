@@ -29,7 +29,6 @@ class IssuedKey:
     media_id: uuid.UUID
     key: str
     created_at: datetime
-    expires_at: datetime | None
 
 
 @dataclass(frozen=True)

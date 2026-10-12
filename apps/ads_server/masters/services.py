@@ -10,7 +10,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, parse_uuid, parse_uuids, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, parse_uuid, parse_uuids, record_audit, require_admin
 
 from .models import Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
@@ -19,7 +19,7 @@ from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView
 def _validate_policy(floor, base, cap):
     problems = []
     for pointer, value in (("/floor", floor), ("/base", base), ("/cap", cap)):
-        if isinstance(value, bool) or not isinstance(value, int) or not (0 < value <= MAX_AMOUNT):
+        if not is_int(value) or not (0 < value <= MAX_AMOUNT):
             problems.append({"pointer": pointer, "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."})
     if problems:
         raise errors.InvalidRequest(errors=problems)
@@ -49,6 +49,10 @@ def _audit(actor, action, target, detail=None):
     record_audit(None, action, target=target, actor=actor, detail=detail)
 
 
+def _now(now=None):
+    return now if now is not None else timezone.now()
+
+
 def _current_policies():
     """슬롯마다 최대 버전 행 하나. 질의 한 번으로 슬롯·매체까지 가져온다."""
     latest = BidPolicy.objects.filter(slot=OuterRef("slot")).order_by("-policy_version").values("policy_version")[:1]
@@ -60,6 +64,13 @@ def _get_slot(slot_id):
         return Slot.objects.select_related("media").get(pk=parse_uuid(slot_id, "게재 위치"))
     except Slot.DoesNotExist:
         raise errors.NotFound("게재 위치를 찾을 수 없습니다.")
+
+
+def _get_media(media_id, rows=Media.objects):
+    try:
+        return rows.get(pk=parse_uuid(media_id, "매체"))
+    except Media.DoesNotExist:
+        raise errors.NotFound("매체를 찾을 수 없습니다.")
 
 
 def create_media(actor, name):
@@ -82,10 +93,7 @@ def list_media(actor):
 
 def get_media(actor, media_id):
     require_admin(actor)
-    try:
-        return _media_view(Media.objects.get(pk=parse_uuid(media_id, "매체")))
-    except Media.DoesNotExist:
-        raise errors.NotFound("매체를 찾을 수 없습니다.")
+    return _media_view(_get_media(media_id))
 
 
 def set_media_active(actor, media_id, active, now=None):
@@ -138,7 +146,7 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
     _validate_policy(floor, base, cap)
     try:
         with transaction.atomic():
-            media = Media.objects.get(pk=parse_uuid(media_id, "매체"))
+            media = _get_media(media_id)
             slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit, audience=audience)
             policy = BidPolicy.objects.create(
                 slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap,
@@ -146,8 +154,6 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
             )
             _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
                    {"name": name, "pricing_unit": pricing_unit, "audience": audience, "floor": floor, "base": base, "cap": cap, "reason": reason})
-    except Media.DoesNotExist:
-        raise errors.NotFound("매체를 찾을 수 없습니다.")
     except IntegrityError:
         raise errors.Conflict("이 매체에 같은 이름의 게재 위치가 이미 있습니다.")
     slot.media = media
@@ -247,19 +253,19 @@ MAX_GRACE = timedelta(days=30)
 _DUMMY_HASH = hashlib.sha256(b"no such key").hexdigest()  # 없는 키도 같은 비교를 하게 해 응답 시간으로 존재 여부를 알 수 없게 한다
 
 
-def _now(now=None):
-    return now if now is not None else timezone.now()
-
-
 def _hash_secret(secret):
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
+def _key_active(k, now):
+    """폐기되지 않았고 만료 시각 전이다(만료 시각에 닿으면 무효). 목록 표시와 인증이 같은 판정을 쓴다."""
+    return k.revoked_at is None and (k.expires_at is None or k.expires_at > now)
+
+
 def _key_view(k, now):
-    active = k.revoked_at is None and (k.expires_at is None or k.expires_at > now)
     return MediaKeyView(
         key_id=k.key_id, media_id=k.media_id, label=k.label, created_at=k.created_at, expires_at=k.expires_at,
-        revoked_at=k.revoked_at, active=active,
+        revoked_at=k.revoked_at, active=_key_active(k, now),
     )
 
 
@@ -268,15 +274,12 @@ def _issue(actor, media, label, now, action, extra=None, request_key=None):
     row = MediaKey.objects.create(media=media, secret_hash=_hash_secret(secret), label=label, created_at=now, request_key=request_key)
     # 감사 로그에는 키 식별자만 남긴다. 키(평문)·해시는 기록하지 않는다
     _audit(actor, action, ("masters.media_key", row.key_id), {"media_id": str(media.media_id), "label": label, **(extra or {})})
-    return IssuedKey(key_id=row.key_id, media_id=media.media_id, key=f"{row.key_id.hex}.{secret}", created_at=now, expires_at=None)
+    return IssuedKey(key_id=row.key_id, media_id=media.media_id, key=f"{row.key_id.hex}.{secret}", created_at=now)
 
 
 def _media_for_key_admin(media_id):
     """키를 바꾸는 동작(발급·교체)은 **매체 행을 잠근다** — 같은 매체의 교체가 줄을 서서, 뒤의 교체가 앞의 교체가 만든 키까지 보고 만료시킨다(외부 검토 3-1d)."""
-    try:
-        return Media.objects.select_for_update().get(pk=parse_uuid(media_id, "매체"))
-    except Media.DoesNotExist:
-        raise errors.NotFound("매체를 찾을 수 없습니다.")
+    return _get_media(media_id, Media.objects.select_for_update())
 
 
 def _issue_once(request_key, work):
@@ -312,7 +315,7 @@ def rotate_media_key(actor, media_id, grace_seconds, label="", now=None, request
     """
     require_admin(actor)
     now = _now(now)
-    if isinstance(grace_seconds, bool) or not isinstance(grace_seconds, int) or not 0 <= grace_seconds <= MAX_GRACE.total_seconds():
+    if not is_int(grace_seconds) or not 0 <= grace_seconds <= MAX_GRACE.total_seconds():
         raise errors.InvalidRequest(errors=[{"pointer": "/grace_seconds", "message": "0 이상 30일(초) 이하의 정수여야 합니다."}])
     label = clean_text(label, "라벨", "/label") if label else ""
     request_key = clean_request_key(request_key)
@@ -364,6 +367,6 @@ def authenticate_media_key(raw_key, now=None):
     matches = hmac.compare_digest(_hash_secret(secret), expected)
     if row is None or not matches:
         return None
-    if row.revoked_at is not None or (row.expires_at is not None and row.expires_at <= now):
+    if not _key_active(row, now):
         return None
     return MediaIdentity(media_id=row.media_id, key_id=row.key_id, media_is_active=row.media.is_active)
