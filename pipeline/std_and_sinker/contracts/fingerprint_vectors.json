@@ -1,0 +1,46 @@
+[
+  {
+    "data": {},
+    "canonical_json": "{}",
+    "xxh3_64": "1349cde127705c16"
+  },
+  {
+    "data": {
+      "b": 2,
+      "a": 1
+    },
+    "canonical_json": "{\"a\":1,\"b\":2}",
+    "xxh3_64": "3ff4022eda96ecf8"
+  },
+  {
+    "data": {
+      "text": "한글",
+      "null": null,
+      "enabled": true
+    },
+    "canonical_json": "{\"enabled\":true,\"null\":null,\"text\":\"한글\"}",
+    "xxh3_64": "319116d65096d368"
+  },
+  {
+    "data": {
+      "n": 1
+    },
+    "canonical_json": "{\"n\":1}",
+    "xxh3_64": "b574ab104d6c3b07"
+  },
+  {
+    "data": {
+      "n": 1.0
+    },
+    "canonical_json": "{\"n\":1.0}",
+    "xxh3_64": "29fe405829304b09"
+  },
+  {
+    "data": {
+      "x": -0.0,
+      "occurred_at": "2026-10-11T03:00:00.000Z"
+    },
+    "canonical_json": "{\"occurred_at\":\"2026-10-11T03:00:00.000Z\",\"x\":-0.0}",
+    "xxh3_64": "75e75e71f605d40f"
+  }
+]

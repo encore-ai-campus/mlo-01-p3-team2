@@ -1,0 +1,32 @@
+{
+  "event_type": "post_deleted",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "post_uuid",
+      "nullable": false
+    },
+    {
+      "name": "revision",
+      "nullable": false
+    },
+    {
+      "name": "zone_uuid",
+      "nullable": true
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "post_uuid",
+    "revision",
+    "zone_uuid"
+  ],
+  "constants": {
+    "event_type": "POST_DELETED",
+    "action": "DELETE"
+  },
+  "double_fields": []
+}

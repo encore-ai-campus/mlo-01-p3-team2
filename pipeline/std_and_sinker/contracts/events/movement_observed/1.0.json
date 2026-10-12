@@ -1,0 +1,44 @@
+{
+  "event_type": "movement_observed",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "floor_uuid",
+      "nullable": false
+    },
+    {
+      "name": "zone_uuid",
+      "nullable": true
+    },
+    {
+      "name": "x",
+      "nullable": false
+    },
+    {
+      "name": "y",
+      "nullable": false
+    },
+    {
+      "name": "input_kind",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "floor_uuid",
+    "zone_uuid",
+    "x",
+    "y",
+    "input_kind"
+  ],
+  "constants": {
+    "event_type": "MOVEMENT_OBSERVED"
+  },
+  "double_fields": [
+    "x",
+    "y"
+  ]
+}

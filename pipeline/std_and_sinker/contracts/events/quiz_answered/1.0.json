@@ -1,0 +1,41 @@
+{
+  "event_type": "quiz_answered",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "attempt_uuid",
+      "nullable": false
+    },
+    {
+      "name": "question_uuid",
+      "nullable": false
+    },
+    {
+      "name": "content_uuid",
+      "nullable": false
+    },
+    {
+      "name": "choice_uuid",
+      "nullable": false
+    },
+    {
+      "name": "is_correct",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "attempt_uuid",
+    "question_uuid",
+    "content_uuid",
+    "choice_uuid",
+    "is_correct"
+  ],
+  "constants": {
+    "event_type": "QUIZ_ANSWERED"
+  },
+  "double_fields": []
+}
