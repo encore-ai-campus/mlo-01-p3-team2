@@ -9,7 +9,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from foundation.api import MAX_AMOUNT, Role, clean_text, create_advertiser, errors, parse_uuid, record_audit, require_admin
+from foundation.api import MAX_AMOUNT, Role, clean_request_key, clean_text, create_advertiser, errors, parse_uuid, record_audit, require_admin
 
 from .budget_day import budget_day_of, day_start, next_reset
 from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
@@ -85,6 +85,9 @@ def grant_signup(user, now=None):
     return _entry_view(existing) if existing else None
 
 
+_ADJUST_KEY_REUSED = "이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요."
+
+
 def adjust(actor, user_id, amount, note, now=None, request_key=None):
     """관리자 조정(부호 있는 정수). 잔액을 0 밑으로 내리는 음수 조정은 거부한다. 사유는 필수.
 
@@ -97,14 +100,13 @@ def adjust(actor, user_id, amount, note, now=None, request_key=None):
     note = clean_text(note, "사유", "/note", 200)
     if isinstance(amount, bool) or not isinstance(amount, int) or amount == 0 or abs(amount) > MAX_AMOUNT:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"0이 아닌 정수(절댓값 {MAX_AMOUNT} 이하)여야 합니다."}])
-    if request_key is not None and not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
-        raise errors.InvalidRequest(errors=[{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}])
+    request_key = clean_request_key(request_key)
     try:
         with transaction.atomic():
             return _adjust(actor, parse_uuid(user_id, "지갑"), amount, note, now, request_key)
     except IntegrityError:  # 다른 지갑에 같은 키(위조한 폼)만 여기에 온다 — 같은 지갑은 지갑 잠금이 줄 세운다
         if request_key is not None and LedgerEntry.objects.filter(adjust_key=request_key).exists():
-            raise errors.Conflict("이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요.")
+            raise errors.Conflict(_ADJUST_KEY_REUSED)
         raise
 
 
@@ -114,7 +116,7 @@ def _adjust(actor, owner_id, amount, note, now, request_key):
         done = LedgerEntry.objects.filter(adjust_key=request_key).first()
         if done is not None:
             if (done.wallet_id, done.amount, done.note) != (wallet.pk, amount, note):
-                raise errors.Conflict("이 조정 폼은 이미 다른 내용으로 처리됐습니다. 새로 불러와 다시 조정하세요.")
+                raise errors.Conflict(_ADJUST_KEY_REUSED)
             return _entry_view(done)
     if wallet.balance + amount < 0:
         raise errors.InvalidRequest(errors=[{"pointer": "/amount", "message": f"잔액({wallet.balance})보다 많이 차감할 수 없습니다."}])

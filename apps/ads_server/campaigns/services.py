@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from assets.api import store, validate_image
 from engine.api import effect_of, is_expired
-from foundation.api import MAX_AMOUNT, clean_text, errors, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
+from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_request_key, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
 from masters import api as masters
 
 from . import transitions as tr
@@ -53,6 +53,18 @@ def _utc_time(value, pointer):
         raise _problem(pointer, "표현할 수 없는 시각입니다.")
 
 
+def _flag(value):
+    if not isinstance(value, bool):
+        raise _problem("/enabled", "true 또는 false 여야 합니다.")
+    return value
+
+
+def _assert_seen(expected_updated_at, current, again="수정하세요"):
+    """화면이 본 마지막 변경 시각을 잠금 안에서 지금과 대조한다(`None` 이면 대조하지 않음). 다르면 409."""
+    if expected_updated_at is not None and expected_updated_at != current:
+        raise errors.StaleVersion(f"다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 {again}.")
+
+
 # ---------------------------------------------------------------- 조회 도우미
 
 def _campaign(user, campaign_id, lock=False):
@@ -60,6 +72,14 @@ def _campaign(user, campaign_id, lock=False):
     같은 잠금으로 순서를 정해, 읽은 값이 저장할 때까지 유효하다(안 그러면 이미 끝난 캠페인을 전체 행 저장이 되살린다). 트랜잭션 안에서만 쓴다."""
     queryset = Campaign.objects.select_for_update() if lock else Campaign.objects.all()
     return owned_or_404(queryset, user, campaign_id=campaign_id)
+
+
+def _admin_campaign(campaign_id):
+    """관리자 동작(중단·해제)용: 누구의 캠페인이든 행 잠금으로 읽는다. 없으면 404. 트랜잭션 안에서만."""
+    c = Campaign.objects.select_for_update().filter(pk=parse_uuid(campaign_id, "캠페인")).first()
+    if c is None:
+        raise errors.NotFound("캠페인을 찾을 수 없습니다.")
+    return c
 
 
 def _ad_group(user, ad_group_id):
@@ -195,8 +215,7 @@ def update_campaign(user, campaign_id, changes, now=None, expected_updated_at=No
     with transaction.atomic():
         c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)  # 종료된 캠페인(상태 갱신 전 포함)은 어떤 값도 못 바꾼다
-        if expected_updated_at is not None and expected_updated_at != c.updated_at:
-            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
+        _assert_seen(expected_updated_at, c.updated_at)
         if "status" in changes:
             target = changes["status"]
             if target not in (CampaignStatus.ACTIVE, CampaignStatus.PAUSED):
@@ -267,9 +286,7 @@ def suspend_campaign(actor, campaign_id, reason, now=None):
     now = _now(now)
     reason = clean_text(reason, "중단 사유", "/reason", 500)
     with transaction.atomic():
-        c = Campaign.objects.select_for_update().filter(pk=parse_uuid(campaign_id, "캠페인")).first()
-        if c is None:
-            raise errors.NotFound("캠페인을 찾을 수 없습니다.")
+        c = _admin_campaign(campaign_id)
         previous = tr.apply(c, "suspend", tr.ADMIN, now, reason=reason)
         _audit(actor, "campaign.suspended", ("campaigns.campaign", c.campaign_id), {"from": previous, "reason": reason})
     return _campaign_view(c, now, _open_review_id(c))
@@ -284,9 +301,7 @@ def release_campaign(actor, campaign_id, now=None, expected_suspended_at=None, r
     require_admin(actor)
     now = _now(now)
     with transaction.atomic():
-        c = Campaign.objects.select_for_update().filter(pk=parse_uuid(campaign_id, "캠페인")).first()
-        if c is None:
-            raise errors.NotFound("캠페인을 찾을 수 없습니다.")
+        c = _admin_campaign(campaign_id)
         tr.assert_open(c, now)
         if c.status != CampaignStatus.SUSPENDED:
             raise NotSuspended("중단된 캠페인이 아닙니다.")
@@ -384,11 +399,17 @@ class _MonitoringRows:
         rows = list(self.campaigns[window])
         ids = [c.campaign_id for c in rows]
         open_reviews = dict(ReviewRequest.objects.filter(status=ReviewStatus.OPEN, campaign_id__in=ids).values_list("campaign_id", "review_request_id"))
-        creatives = {}
-        for creative in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=ids).order_by("created_at"):
-            creatives.setdefault(creative.ad_group.campaign_id, []).append(_creative_view(creative))
+        creatives = _creatives_by_campaign(ids)
         return [MonitoredCampaign(_campaign_view(c, self.now, open_reviews.get(c.campaign_id)), tuple(creatives.get(c.campaign_id, ())), c.last_changed_at)
                 for c in rows]
+
+
+def _creatives_by_campaign(campaign_ids):
+    """캠페인별 소재 `{campaign_id: [CreativeView]}`(만든 순서). 질의 한 번."""
+    found = {}
+    for creative in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=campaign_ids).order_by("created_at"):
+        found.setdefault(creative.ad_group.campaign_id, []).append(_creative_view(creative))
+    return found
 
 
 def advertiser_usage(actor, owner_ids):
@@ -415,9 +436,7 @@ def open_review_queue(actor, now=None):
     require_admin(actor)
     now = _now(now)
     rows = list(ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at"))
-    creatives = {}
-    for c in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=[r.campaign_id for r in rows]).order_by("created_at"):
-        creatives.setdefault(c.ad_group.campaign_id, []).append(_creative_view(c))
+    creatives = _creatives_by_campaign([r.campaign_id for r in rows])
     return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id), tuple(creatives.get(r.campaign_id, ()))) for r in rows]
 
 
@@ -490,14 +509,11 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
     with transaction.atomic():
         g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
-        if expected_updated_at is not None and expected_updated_at != g.updated_at:
-            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
+        _assert_seen(expected_updated_at, g.updated_at)
         if "name" in changes:
             g.name = clean_text(changes["name"], "광고그룹 이름", "/name")
         if "enabled" in changes:
-            if not isinstance(changes["enabled"], bool):
-                raise _problem("/enabled", "true 또는 false 여야 합니다.")
-            g.enabled = changes["enabled"]
+            g.enabled = _flag(changes["enabled"])
         if "slot_ids" in changes:
             ids = _validated_slots(changes["slot_ids"], g.pricing_unit)
             g.slot_links.exclude(slot_id__in=ids).delete()
@@ -641,8 +657,7 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
     `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키로는 한 번만** 만든다: 키는 캠페인 행에 같은 트랜잭션으로 저장되고(유일 제약), 두 번 누름·
     동시 제출·응답이 실패한 뒤 재시도는 처음 만든 것을 `duplicate=True` 로 돌려준다(세션 토큰은 이 경우들을 막지 못했다 — 3-1d 외부 검토)."""
     now = _now(now)
-    if request_key is not None and not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
-        raise _problem("/request_key", "1~64자 문자열이어야 합니다.")
+    request_key = clean_request_key(request_key)
     done = _created_by_key(user, request_key)
     if done is not None:
         return done
@@ -669,7 +684,7 @@ def ad_created_by_key(user, request_key):
     """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
     이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 56c66cf). 남의 키면 409."""
     require_advertiser(user)
-    if not (isinstance(request_key, str) and 1 <= len(request_key) <= 64):
+    if not is_request_key(request_key):
         return None
     return _created_by_key(user, request_key)
 
@@ -724,16 +739,13 @@ def update_creative(user, creative_id, changes, now=None, expected_updated_at=No
     with transaction.atomic():
         c = _locked_creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
-        if expected_updated_at is not None and expected_updated_at != c.updated_at:
-            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 수정하세요.")
+        _assert_seen(expected_updated_at, c.updated_at)
         if "title" in changes:
             c.title = clean_text(changes["title"], "제목", "/title", 200)
         if "redirect_url" in changes:
             c.redirect_url = _redirect_url(changes["redirect_url"])
         if "enabled" in changes:
-            if not isinstance(changes["enabled"], bool):
-                raise _problem("/enabled", "true 또는 false 여야 합니다.")
-            c.enabled = changes["enabled"]
+            c.enabled = _flag(changes["enabled"])
         c.updated_at = now
         c.save()
         _audit(user, "creative.updated", ("campaigns.creative", c.creative_id), {"changed": sorted(changes)})
@@ -750,8 +762,7 @@ def replace_creative_image(user, creative_id, image_file, now=None, expected_upd
         _lock_quota(user)
         c = _locked_creative(user, creative_id)
         tr.assert_open(c.ad_group.campaign, now)
-        if expected_updated_at is not None and expected_updated_at != c.updated_at:
-            raise errors.StaleVersion("다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 바꾸세요.")
+        _assert_seen(expected_updated_at, c.updated_at, again="바꾸세요")
         _check_image_quota(user, image)
         c.image_name, c.image_bytes, c.updated_at = store(image), len(image.data), now
         c.save()
