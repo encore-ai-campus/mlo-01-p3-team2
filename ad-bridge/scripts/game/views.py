@@ -136,10 +136,10 @@ def report_impression(request, decision_id):
         }, status=503)
 
     record = outcome.record
+    # 브라우저에는 전송·접수 정보만 공개하고 판정과 사유는 서버에 보관한다.
     payload = {
         "decision_id": record.decision_id, "reaction_id": record.reaction_id,
         "occurred_at": record.occurred_at, "delivery_state": record.delivery_state,
-        "status": record.status, "reason_code": record.reason_code,
         "request_id": record.request_id, "duplicate": not outcome.created,
     }
     if outcome.error:
@@ -187,10 +187,10 @@ def _subject_id(user_uuid: UUID, *, subject_secret: str) -> UUID:
 
 
 def _result_payload(record):
+    # 서버 내부 조회 결과에서도 브라우저에 공개할 필드만 고른다.
     return {
         "decision_id": record.decision_id, "reaction_id": record.reaction_id,
-        "delivery_state": record.delivery_state, "status": record.status,
-        "reason_code": record.reason_code, "request_id": record.request_id,
+        "delivery_state": record.delivery_state, "request_id": record.request_id,
         "attempts": record.attempts, "last_error": record.last_error,
     }
 
@@ -222,10 +222,10 @@ def reaction_result(request, decision_id):
     except ValueError:
         return JsonResponse({"error": "ads_invalid_config", "message": "광고 연결 설정을 확인해 주세요."}, status=503)
     except AdsHTTPError as error:
-        response = JsonResponse({"error": "ads_http_error", "message": f"판정 조회 HTTP {error.status}",
+        response = JsonResponse({"error": "ads_http_error", "message": f"광고 상태 조회 HTTP {error.status}",
                                  "upstream_status": error.status, "retry_after": error.retry_after}, status=502)
         if error.retry_after is not None:
             response["Retry-After"] = str(error.retry_after)
         return response
     except (AdsTransportError, AdsResponseError):
-        return JsonResponse({"error": "ads_lookup_failed", "message": "판정 조회 실패. 기존 노출은 유지됩니다."}, status=502)
+        return JsonResponse({"error": "ads_lookup_failed", "message": "광고 상태 조회 실패. 기존 노출은 유지됩니다."}, status=502)

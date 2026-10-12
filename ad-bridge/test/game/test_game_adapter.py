@@ -19,6 +19,7 @@ from ad_bridge import AdsConfig
 from ad_bridge.game.views import request_decision, report_impression, reaction_result, _subject_id, _owner_id
 from ad_bridge.api.errors import AdsHTTPError, AdsResponseError, AdsTransportError
 from ad_bridge.api.types import Ad, Decision
+from ad_bridge.impressions import store as impression_store
 
 
 SLOT_ID = "aabbccdd-1234-4234-8234-123456789abc"
@@ -312,3 +313,55 @@ class GameAdapterTests(SimpleTestCase):
             response = reaction_result(self.request(), DECISION_ID)
         self.assertEqual(response.status_code, 200)
         lookup.assert_called_once_with(decision_id=DECISION_ID, owner_id=SUBJECT_ID)
+
+    def test_result_response_hides_both_saved_and_refreshed_judgments(self):
+        # 내부 판정 조회는 유지하되, 저장값과 새 조회값 모두 같은 공개 응답을 만든다.
+        public_payloads = []
+        for status in (None, "RECEIVED", "ACCEPTED", "REJECTED"):
+            with self.subTest(status=status):
+                record = SimpleNamespace(
+                    decision_id=DECISION_ID, reaction_id="reaction",
+                    delivery_state="ACKNOWLEDGED", status=status,
+                    reason_code="private-reason" if status == "REJECTED" else None,
+                    request_id="request", attempts=1, last_error=None,
+                )
+                with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record), patch(
+                    "ad_bridge.game.views.refresh_result", return_value=record,
+                ) as refresh, patch("ad_bridge.game.views.AdsClient") as client_class:
+                    response = reaction_result(self.request(), DECISION_ID)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(json.loads(response.content), {
+                    "decision_id": DECISION_ID, "reaction_id": "reaction",
+                    "delivery_state": "ACKNOWLEDGED", "request_id": "request",
+                    "attempts": 1, "last_error": None,
+                })
+                public_payloads.append(response.content)
+                if status in ("ACCEPTED", "REJECTED"):
+                    refresh.assert_not_called()
+                else:
+                    refresh.assert_called_once_with(
+                        client=client_class.return_value,
+                        store=impression_store,
+                        decision_id=DECISION_ID, owner_id=SUBJECT_ID,
+                    )
+                self.assertEqual(record.status, status)
+        self.assertTrue(all(payload == public_payloads[0] for payload in public_payloads))
+
+    def test_result_pending_delivery_returns_local_state_without_upstream_lookup(self):
+        for state in ("SENDING", "UNCONFIRMED", "BLOCKED"):
+            with self.subTest(state=state):
+                record = SimpleNamespace(
+                    decision_id=DECISION_ID, reaction_id="reaction", delivery_state=state,
+                    status=None, reason_code=None, request_id=None, attempts=1,
+                    last_error="ads_http_error" if state == "BLOCKED" else None,
+                )
+                with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record), patch(
+                    "ad_bridge.game.views.refresh_result",
+                ) as refresh:
+                    response = reaction_result(self.request(), DECISION_ID)
+                self.assertEqual(response.status_code, 202)
+                payload = json.loads(response.content)
+                self.assertEqual(payload["delivery_state"], state)
+                self.assertNotIn("status", payload)
+                self.assertNotIn("reason_code", payload)
+                refresh.assert_not_called()

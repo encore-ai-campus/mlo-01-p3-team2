@@ -1,5 +1,6 @@
 """게임 요청부터 실제 노출 서비스까지 검사하고 DB·HTTP 경계만 대체한다."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 from types import SimpleNamespace
@@ -73,7 +74,8 @@ class GameImpressionTests(SimpleTestCase):
             occurred_at="2026-10-11T12:00:00.123456Z",
         )
         self.assertEqual(payload["reaction_id"], REACTION_ID)
-        self.assertEqual(payload["status"], "RECEIVED")
+        self.assertNotIn("status", payload)
+        self.assertNotIn("reason_code", payload)
         self.assertEqual(payload["delivery_state"], "ACKNOWLEDGED")
         self.assertFalse(payload["duplicate"])
         self.assertNotIn("subject_id", payload)
@@ -90,9 +92,34 @@ class GameImpressionTests(SimpleTestCase):
         self.assertEqual(second.status_code, 200)
         first_payload, second_payload = json.loads(first.content), json.loads(second.content)
         self.assertTrue(second_payload["duplicate"])
-        for name in ("decision_id", "reaction_id", "occurred_at", "status"):
+        for name in ("decision_id", "reaction_id", "occurred_at", "delivery_state"):
             self.assertEqual(first_payload[name], second_payload[name])
         self.client.report_impression.assert_called_once()
+
+    def test_report_and_duplicate_hide_judgment_but_keep_it_in_storage(self):
+        # 첫 응답과 중복 응답 모두 판정별로 공개 내용이 달라지지 않아야 한다.
+        public_payloads = []
+        for status, reason in (("RECEIVED", None), ("ACCEPTED", None), ("REJECTED", "private-reason")):
+            with self.subTest(status=status):
+                self.store.record = None
+                self.client.report_impression.side_effect = lambda **payload: replace(
+                    received_reaction(**payload), status=status, reason_code=reason,
+                )
+                first, duplicate = self.report(), self.report()
+                self.assertEqual(first.status_code, 201)
+                self.assertEqual(duplicate.status_code, 200)
+                for response in (first, duplicate):
+                    payload = json.loads(response.content)
+                    self.assertEqual(set(payload), {
+                        "decision_id", "reaction_id", "occurred_at", "delivery_state",
+                        "request_id", "duplicate",
+                    })
+                    self.assertNotIn(status, response.content.decode())
+                    self.assertNotIn("private-reason", response.content.decode())
+                public_payloads.append((first.content, duplicate.content))
+                self.assertEqual(self.store.record.status, status)
+                self.assertEqual(self.store.record.reason_code, reason)
+        self.assertTrue(all(payloads == public_payloads[0] for payloads in public_payloads))
 
     def test_secret_rotation_keeps_the_decision_subject(self):
         # 발급 뒤 비밀을 바꿔도 노출에는 저장소의 발급 당시 가명이 사용되어야 한다.
@@ -217,7 +244,8 @@ class GameImpressionTests(SimpleTestCase):
         payload = json.loads(response.content)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(payload["delivery_state"], "ACKNOWLEDGED")
-        self.assertIsNone(payload["status"])
+        self.assertNotIn("status", payload)
+        self.assertNotIn("reason_code", payload)
         self.assertEqual(payload["error"], "ads_invalid_response")
         self.assertNotIn(PRIVATE_KEY, response.content.decode())
         self.assertNotIn(SUBJECT_SECRET, response.content.decode())

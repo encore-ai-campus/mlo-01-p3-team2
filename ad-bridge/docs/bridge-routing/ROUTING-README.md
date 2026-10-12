@@ -36,7 +36,7 @@
 | 최초 전송과 재전송의 공통 처리 | [전송 함수](scripts/ad_bridge/delivery/sender.py.md) |
 | 재시도 대기 규칙과 처리 대상 선택 | [대기 정책](scripts/ad_bridge/delivery/policy.py.md), [작업자](scripts/ad_bridge/delivery/worker.py.md) |
 | 로그인·CSRF·광고 전용 가명 생성·게임 HTTP 응답 | [게임 연결](scripts/ad_bridge/game/views.py.md) |
-| 재전송 명령 실행 | [관리 명령](scripts/ad_bridge/management/commands/dispatch_ad_reactions.py.md) |
+| 자동 재전송·지정한 401 차단 노출의 단일 복구 실행 | [관리 명령](scripts/ad_bridge/management/commands/dispatch_ad_reactions.py.md) |
 | DB 모델과 버전 변경 | [모델](scripts/ad_bridge/models.py.md), [최초 마이그레이션](scripts/ad_bridge/migrations/0001_initial.py.md), [재전송 마이그레이션](scripts/ad_bridge/migrations/0002_impression_retry.py.md), [내부 소유자 추가](scripts/ad_bridge/migrations/0003_decision_owner.py.md) |
 | 판정 조회·저장 | [결과 서비스](scripts/ad_bridge/results/service.py.md) |
 | Canvas 광고 표시·최초 관측 | [광고 표시](scripts/ad_bridge/static/ad_bridge/display.js.md), [노출 감지](scripts/ad_bridge/static/ad_bridge/impression.js.md) |
@@ -71,7 +71,7 @@
 | [ad-bridge/scripts/impressions/store.py](../../scripts/impressions/store.py) | [파일 문서](scripts/ad_bridge/impressions/store.py.md) | 내부 소유권 확인·발급 당시 가명 보존·반응 ID와 요청 시각 고정·지정한 401 차단 기록의 복구 임대 확보 |
 | [scripts/ad_bridge/management/__init__.py](../../scripts/ad_bridge/management/__init__.py) | [파일 문서](scripts/ad_bridge/management/__init__.py.md) | 게임 서버에서 실행하는 광고 연동 관리 명령. |
 | [scripts/ad_bridge/management/commands/__init__.py](../../scripts/ad_bridge/management/commands/__init__.py) | [파일 문서](scripts/ad_bridge/management/commands/__init__.py.md) | Django가 광고 관리 명령을 찾는 패키지. |
-| [scripts/ad_bridge/management/commands/dispatch_ad_reactions.py](../../scripts/ad_bridge/management/commands/dispatch_ad_reactions.py) | [파일 문서](scripts/ad_bridge/management/commands/dispatch_ad_reactions.py.md) | 미접수 노출을 처리할 시각에 재전송하는 게임 서버 명령. |
+| [ad-bridge/scripts/management/commands/dispatch_ad_reactions.py](../../scripts/management/commands/dispatch_ad_reactions.py) | [파일 문서](scripts/ad_bridge/management/commands/dispatch_ad_reactions.py.md) | 미접수 노출의 자동 재전송과 --recover-401로 지정한 차단 노출의 단일 복구 실행 |
 | [scripts/ad_bridge/migrations/0001_initial.py](../../scripts/ad_bridge/migrations/0001_initial.py) | [파일 문서](scripts/ad_bridge/migrations/0001_initial.py.md) | 광고 발급·노출 기록의 최초 스키마 |
 | [scripts/ad_bridge/migrations/0002_impression_retry.py](../../scripts/ad_bridge/migrations/0002_impression_retry.py) | [파일 문서](scripts/ad_bridge/migrations/0002_impression_retry.py.md) | 재전송 필드·인덱스 추가와 기존 미접수 기록 복구 |
 | [ad-bridge/scripts/migrations/0003_decision_owner.py](../../scripts/migrations/0003_decision_owner.py) | [파일 문서](scripts/ad_bridge/migrations/0003_decision_owner.py.md) | 내부 owner_id 추가. 기존 결정·노출 요청 내용과 광고 가명 보존 |
@@ -107,3 +107,5 @@ JavaScript 두 파일은 광고 표시와 최초 노출 관측 클래스를 구�
 2026-10-12 후속 반영: 내부 owner_id와 발급 당시 광고 subject_id를 분리해 저장한다. 노출·판정 조회는 owner_id로 권한을 확인하고, 최초 노출·재전송에는 저장된 subject_id를 유지한다. 0003_decision_owner 원본과 파일별 문서를 추가했다. 기존 owner_id 없는 기록은 자동 연결하지 않으며, 기존 요청 내용은 덮어쓰지 않는다. 변경한 구현 문서만 AST 결과와 대조하고 테스트 코드는 문서화 대상에서 제외했다.
 
 2026-10-12 401 복구 저장소 반영: claim_blocked_401_impression이 지정한 BLOCKED·HTTP 401·status 없는 기록만 유효한 임대가 없을 때 조건부 UPDATE로 확보한다. 기존 요청 내용과 자동 작업자의 BLOCKED 제외 규칙은 유지한다. 관리 명령 연결은 아직 구현하지 않았다. 관련 저장소 문서만 새 AST 선언에 맞춰 갱신했다.
+
+2026-10-12 401 복구 관리 명령 반영: dispatch_ad_reactions의 --recover-401 REACTION_UUID 옵션이 저장소의 복구 임대 확보와 send_once를 연결한다. 지정한 기록을 한 번 처리하고 접수 확인 시 성공 종료하며, 대상 제외·접수 미확인·복구 DB 작업 오류 시 실패 종료한다. 비밀값 없는 실행 결과와 공통 종료 정리를 검사했다. 관련 관리 명령·저장소 문서만 갱신했다.

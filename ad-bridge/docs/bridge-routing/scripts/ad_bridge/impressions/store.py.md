@@ -4,7 +4,7 @@
 
 노출 예약·재전송 일정·임대를 보관한다. reserve_impression은 IssuedDecision.owner_id로 내부 소유권을 확인한 뒤 발급 당시 subject_id를 노출에 복사한다. get_impression도 내부 소유권과 결정·노출 간 가명 일치를 확인한다. 비밀 교체 뒤에도 저장된 가명으로 노출·재전송을 처리한다. update_result는 접수 완료 기록의 status·reason_code·request_id만 조건부 갱신하며 확정 판정과 전송 정보를 보존한다. owner_id가 없는 이전 기록은 사용자 경로에서 조회·예약하지 않는다.
 
-claim_blocked_401_impression은 명시한 401 차단 기록만 수동 복구용 임대로 확보한다. 자동 작업자의 claim_due_impression은 BLOCKED 기록을 선택하지 않는 기존 규칙을 유지한다. 복구용 관리 명령과 브라우저 경로는 아직 연결하지 않았다.
+claim_blocked_401_impression은 명시한 401 차단 기록만 수동 복구용 임대로 확보한다. 자동 작업자의 claim_due_impression은 BLOCKED 기록을 선택하지 않는 기존 규칙을 유지한다. dispatch_ad_reactions의 --recover-401 옵션에서 호출하며 브라우저 경로는 제공하지 않는다.
 
 ## 직접 선언
 
@@ -78,7 +78,7 @@ transaction.atomic(durable=True) 안에서 복구 조건을 포함한 UPDATE를 
 
 decision_id·reaction_id·subject_id·occurred_at과 이전 오류 메타데이터는 변경하지 않으며 새 노출 기록도 만들지 않는다. 함수는 HTTP를 호출하지 않는다. 반환 후 기존 send_once로 전송할 수 있으며, 다시 401이면 기존 전송 규칙에 따라 BLOCKED로 남아 자동 작업자에게 선택되지 않는다.
 
-선언·시그니처는 routing-doc-sync AST 결과와 대조했다. 복구 대상 제외·임대 경합 재현·요청 내용 보존·롤백·성공 접수·재차 401 차단은 임시 메모리 DB에서 검사했다. 실제 운영 DB와 관리 명령은 이번 검증 범위에 포함하지 않는다.
+선언·시그니처는 routing-doc-sync AST 결과와 대조했다. 복구 대상 제외·임대 경합 재현·요청 내용 보존·롤백·성공 접수·재차 401 차단은 임시 메모리 DB에서 검사했다. 관리 명령의 연결·종료 기준은 해당 명령 문서에서 설명한다. 실제 운영 DB는 검증 범위에 포함하지 않는다.
 
 ### finish_impression
 
