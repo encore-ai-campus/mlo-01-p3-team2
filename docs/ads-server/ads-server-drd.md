@@ -721,7 +721,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
-| 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
+| 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
 | 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O2 `request_key`, 6-9d 전에는 O1) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
 | 같은 캠페인 만들기 폼은 캠페인 하나(6-9d) | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 캠페인, 동시 제출은 광고주 잠금 안에서 다시 봄, 남의 캠페인에 붙은 키면 409 | `test_the_same_campaign_form_twice_creates_once`, `test_an_overlapping_resubmission_of_the_same_campaign_form_creates_once` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
@@ -1266,6 +1266,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.49 | 2026-10-14 | Step 6-13d(구현 계획 §8.4.14): 광고주 상한의 동시 쓰기 행 — 인용 시험 이름 정정(캠페인을 만드는 시험이 "ads"라는 이름이었다 → `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`)과 서로 다른 캠페인에 광고를 겹쳐 만드는 시험 `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit` 추가. 데이터 모양은 그대로 |
 | 0.48 | 2026-10-13 | Step 6-10f 정합: ERD 관계 줄을 6-9c 소재 목록에 맞춤 — 소재는 광고주 소유이고 광고그룹과는 연결 표(O9)로 잇고, 광고그룹은 그중 하나를 선택한다(엔터티 블록은 6-9c에 이미 고쳐져 있었고 관계 줄 "광고그룹 → 소재"가 남아 있었다) |
 | 0.47 | 2026-10-13 | Step 6-10d 과금 단위 제거(구현 계획 §8.4.11): M2 슬롯·O2 광고그룹의 `pricing_unit` 열 삭제(마이그레이션 `masters/0007`·`campaigns/0008`, 빈 DB 전제), ERD, 무결성 표(슬롯 성격 불변·광고그룹 슬롯 활성), §9 대응. 광고그룹은 아무 슬롯이나 함께 고른다 |
 | 0.46 | 2026-10-13 | Step 6-10c 과금 전환(구현 계획 §8.4.11, 설계서 §10 "구성별 반응 비율 과금"): R1 결정에 `impression_share`·`click_share`·`conversion_share`(`CHECK` 각각 1~98·합 100, 광고 없음이면 NULL) — `pricing_unit` 열 삭제(마이그레이션 `records/0012`, 빈 DB 전제), M3 `CHECK floor ≥ 100`(`masters/0006`), B2 `charge_policy` = `share/v1`, 과금 규칙(인정된 모든 유형, 내림(적용 금액 × 비율 ÷ 100)), P3·§5.6 `schema_version` 종류별(`ad.decision` 2 — `selected.charge_shares`), ERD·무결성 표·멱등 표·§8·§9 대응 |
