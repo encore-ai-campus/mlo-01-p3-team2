@@ -154,16 +154,12 @@ def problem_response(request, error):
     return response
 
 
-def _html_error(status, title, message):
-    html = render_to_string("foundation/error.html", {"status": status, "title": title, "message": message})
-    return HttpResponse(html, status=status)
-
-
 def error_response(request, error, message):
     """API 경로는 problem+json, 화면 경로는 HTML 오류 화면."""
     if request.path.startswith(API_PREFIX):
         return problem_response(request, error)
-    return _html_error(error.status, error.title, message)
+    html = render_to_string("foundation/error.html", {"status": error.status, "title": error.title, "message": message})
+    return HttpResponse(html, status=error.status)
 
 
 def bad_request(request, exception=None):

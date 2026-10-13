@@ -64,7 +64,7 @@ class Slot(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        """슬롯 성격은 만든 뒤 바꿀 수 없다(집계 기준의 의미가 섞이지 않게, 설계 §10 "일괄 슬롯"). 과금 단위는 6-10d 에 없어졌다."""
+        """슬롯 성격은 만든 뒤 바꿀 수 없다(집계 기준의 의미가 섞이지 않게, 설계 §10 "일괄 슬롯")."""
         if not self._state.adding:
             current = type(self).objects.filter(pk=self.pk).values("audience").first()
             if current is not None and current["audience"] != self.audience:

@@ -137,11 +137,6 @@ def media_active_for_share(media_id):
     return None if row is None else bool(row[0])
 
 
-def _validate_audience(audience):
-    if audience not in Audience.values:
-        raise errors.InvalidRequest(errors=[{"pointer": "/audience", "message": f"{', '.join(Audience.values)} 중 하나여야 합니다."}])
-
-
 def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audience.INDIVIDUAL, *, impression_share, click_share, conversion_share):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
     정책에는 반응 유형별 과금 비율(노출·클릭·전환 %)이 들어간다(6-10b).
@@ -154,7 +149,8 @@ def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audien
     if reason is None or isinstance(reason, str) and not reason.strip():
         reason = "없음"
     reason = clean_text(reason, "사유", "/reason", 200)
-    _validate_audience(audience)
+    if audience not in Audience.values:
+        raise errors.InvalidRequest(errors=[{"pointer": "/audience", "message": f"{', '.join(Audience.values)} 중 하나여야 합니다."}])
     shares = _shares(impression_share, click_share, conversion_share)
     _validate_policy(floor, base, cap, shares)
     try:
@@ -169,7 +165,6 @@ def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audien
                    {"name": name, "audience": audience, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason})
     except IntegrityError:
         raise errors.Conflict("이 매체에 같은 이름의 구성이 이미 있습니다.")
-    slot.media = media
     return _slot_view(slot, policy)
 
 

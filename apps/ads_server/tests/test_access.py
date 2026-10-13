@@ -8,7 +8,7 @@ from django.urls import URLResolver, get_resolver, reverse
 from django.urls.resolvers import RoutePattern
 
 from config.access_map import validate_admin_path
-from foundation.api import owned_or_404, owned_queryset
+from foundation.api import owned_or_404
 from foundation.models import User
 from tests.factories import PW, make_admin, make_advertiser
 from tests.helpers import PROD_ENV, run_python
@@ -166,9 +166,6 @@ class OwnershipTests(TestCase):
         for bad in (uuid.uuid4(), "not-a-uuid", "", "1; DROP TABLE"):
             with self.assertRaises(Http404, msg=str(bad)):
                 owned_or_404(OwnedThing.objects.all(), self.a, id=bad)
-
-    def test_owned_queryset_contains_only_own_objects(self):
-        self.assertEqual(list(owned_queryset(OwnedThing.objects.all(), self.a)), [self.thing_a])
 
 
 class RootRedirectTests(TestCase):

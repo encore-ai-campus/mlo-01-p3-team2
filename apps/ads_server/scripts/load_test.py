@@ -34,6 +34,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
@@ -92,9 +93,7 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append(f"수신 확인한 반응 {retyped}건의 유형이 확인한 것과 다르다")
 
     accepted = [r for r in reactions if r.status == "ACCEPTED"]
-    seen = {}
-    for r in accepted:
-        seen[(r.decision_id, r.person_id, r.type)] = seen.get((r.decision_id, r.person_id, r.type), 0) + 1
+    seen = Counter((r.decision_id, r.person_id, r.type) for r in accepted)
     if any(count > 1 for count in seen.values()):
         problems.append("같은 결정·사람·유형이 두 번 이상 인정됐다")
     # 퍼널: 인정된 클릭은 서버가 관측한 것이고, **도착 시각**으로 앞 단계가 맞아야 한다 — 클릭은 같은 사람의 인정된 노출이 클릭 접수 + 보류 기한 안에,
@@ -165,10 +164,9 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append(f"인정되지 않은 반응에 대한 과금 {len(orphans)}건")
 
     problems += billing.check_ledger(quiescent=quiescent)  # 잔액 = 원장 합계, balance_after·seq 연속
-    per_day = {}
+    per_day = Counter()
     for c in charges:
-        key = (c.campaign_id, budget_day_of(c.created_at))
-        per_day[key] = per_day.get(key, 0) - c.amount
+        per_day[(c.campaign_id, budget_day_of(c.created_at))] -= c.amount
     spend = {(s.campaign_id, s.budget_day): s.spent for s in CampaignSpend.objects.all()}
     if {k: v for k, v in per_day.items() if v} != {k: v for k, v in spend.items() if v}:
         problems.append("일 소진액이 원장의 그날 과금 합과 다르다")
@@ -337,13 +335,9 @@ def percentile(values, p):
 
 
 def summarize(name, outcomes, wall):
-    statuses = {}
-    for o in outcomes:
-        statuses[o.status] = statuses.get(o.status, 0) + 1
+    statuses = dict(Counter(o.status for o in outcomes))
     retried = sum(1 for o in outcomes if len(o.attempts) > 1)
-    first_try = {}
-    for o in outcomes:
-        first_try[o.attempts[0]] = first_try.get(o.attempts[0], 0) + 1
+    first_try = dict(Counter(o.attempts[0] for o in outcomes))
     lat = [o.latency * 1000 for o in outcomes]
     total = [o.total * 1000 for o in outcomes]
     return {
@@ -367,7 +361,7 @@ class QuietHandler(WSGIRequestHandler):
 
 
 def seed(advertisers=5, premade=0):
-    """관리자·매체·슬롯·광고주(지갑·캠페인·광고그룹 입찰 30·소재)를 만든다. 모든 시각은 실제 현재 시각 기준이다."""
+    """관리자·매체·슬롯·광고주(지갑·캠페인·광고그룹 입찰 300(일괄 슬롯은 400)·소재)를 만든다. 모든 시각은 실제 현재 시각 기준이다."""
     import io
 
     from PIL import Image
@@ -593,9 +587,7 @@ class Harness:
         rids = [o.body["reaction_id"] for o in outcomes]  # 인덱스 순서(완료 순서가 아니다)
         reads, wall = run_concurrent(self.n, lambda i: self.get_reaction(self.decision_ids[i], rids[i]))
         self.phase("B' 동시 조회", reads, wall)
-        states = {}
-        for o in reads:
-            states[o.body["status"]] = states.get(o.body["status"], 0) + 1
+        states = dict(Counter(o.body["status"] for o in reads))
         self.check("모든 반응이 인정됐고 과금됐다", states == {"ACCEPTED": self.n}, str(states))
         self.verify("반응 직후")
 
@@ -610,9 +602,7 @@ class Harness:
 
         self.drain_until(lambda: not Reaction.objects.filter(decision_id=decision, status="RECEIVED").exists(), "같은 유형 동시 노출")
 
-        states = {}
-        for r in Reaction.objects.filter(decision_id=decision):
-            states[r.status] = states.get(r.status, 0) + 1
+        states = dict(Counter(r.status for r in Reaction.objects.filter(decision_id=decision)))
         self.check("정확히 하나만 인정, 나머지는 duplicate_type", states == {"ACCEPTED": 1, "REJECTED": self.n - 1}, str(states))
         three = max(3, self.n // 3 * 3)
         (decision2,) = make_decisions(self.ctx, 1)
@@ -768,7 +758,7 @@ class Harness:
                     first_use = cursor[0] < len(pool)
                     decision = pool[cursor[0]] if first_use else random.choice(pool)
                     cursor[0] += 1
-                # 처음 쓰는 결정에는 과금 대상인 노출, 그 뒤에는 아무 결정에 아무 유형(중복 거부·유형별 인정이 섞인다)
+                # 처음 쓰는 결정에는 노출(뒤의 클릭·전환의 전제), 그 뒤에는 아무 결정에 아무 유형(중복 거부·유형별 인정이 섞인다)
                 mine.append(self.put_reaction(decision, "IMPRESSION" if first_use else random.choice(["IMPRESSION", "CLICK", "CONVERSION"])))
             return mine
 
@@ -855,10 +845,7 @@ class Harness:
             buckets.reset()
             with CaptureQueriesContext(connection) as queries:
                 assert post().status_code == 201
-            kinds = {}
-            for q in queries.captured_queries:
-                kind = q["sql"].split(None, 1)[0].upper()
-                kinds[kind] = kinds.get(kind, 0) + 1
+            kinds = dict(Counter(q["sql"].split(None, 1)[0].upper() for q in queries.captured_queries))
             samples_ms = {}
             for label, patch in (("with_slot_name", None), ("without_slot_name", lambda ids: {})):
                 times = []
@@ -993,20 +980,10 @@ def run(args, count, tmp, db_name, res):
     lag = LagSampler()
     lag.start()  # 이벤트가 생성 시각으로부터 얼마 뒤에 보이는지 처음부터 끝까지 잰다
     try:
-        harness.decisions()
-        harness.rest()
-        harness.reactions()
-        harness.rest()
-        harness.duplicate_types()
-        harness.rest()
-        harness.resend_storm()
-        harness.rest()
-        harness.click_funnel()
-        harness.rest()
-        harness.shared_slot_funnel()
-        harness.rest()
-        harness.hold_resolution()
-        harness.rest()
+        for step in (harness.decisions, harness.reactions, harness.duplicate_types, harness.resend_storm, harness.click_funnel, harness.shared_slot_funnel,
+                     harness.hold_resolution):
+            step()
+            harness.rest()
         harness.sigterm_under_inflow(inflow_seconds=3.0 if args.small else 6.0)
         harness.rest(4)
         harness.rate_limit_burst()

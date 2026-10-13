@@ -225,6 +225,9 @@ class ScreenQualityTests(TestCase):
         for label, (r, status) in screens.items():
             self.assertEqual(r.status_code, status, label)
             self.assertEqual(self.assert_headers(r, label).report(), [], label)
+        error_page = screens["오류 화면"][0].content.decode()
+        self.assertIn("<title>찾을 수 없습니다</title>", error_page)  # 제목은 오류 종류(`NotFound.title`), 본문은 화면이 정한 문구
+        self.assertIn("<p>요청한 페이지를 찾을 수 없습니다.</p>", error_page)
 
     def test_console_screens_meet_the_accessibility_basics(self):
         """콘솔(광고주·로그인·가입) 화면. 관리자 화면의 틀은 Django admin 의 것이라 그 위에 얹은 운영 화면만 같은 기준으로 본다."""

@@ -150,7 +150,7 @@ def run_scenario(name, db, mongo_container, log):
         result["checks"].append({"check": label, "ok": bool(ok), "detail": detail})
         log(f"  {'OK  ' if ok else 'FAIL'} {label} {detail}")
 
-    processors, relays, server = [], [], None
+    processors, relays, server, lag = [], [], None, None
     try:
         call_command("migrate", verbosity=0)
         store.ensure()
@@ -320,10 +320,8 @@ def run_scenario(name, db, mongo_container, log):
         check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음·이벤트=원본 행(일대일)·MongoDB=outbox", not problems, "; ".join(problems[:3]))
         result.update(requests=len(outcomes), attempts=len(statuses), unavailable=unavailable, acked_decisions=len(harness.acked_decisions), acked_reactions=len(harness.acked_reactions))
     finally:
-        try:
+        if lag is not None:
             lag.stop()
-        except NameError:
-            pass
         for proc in processors + relays:
             if proc.poll() is None:
                 proc.kill()
@@ -363,10 +361,7 @@ def main(argv=None):
         raise SystemExit(f"이미지 {IMAGE} 가 없다. intake/db-standalone 에서 `docker compose build mysql` 로 만든다.")
 
     results, mongo_name = [], None
-    if args.mysql == "cluster":
-        db = mysql_cluster.Cluster()
-    else:
-        db = DbContainer()
+    db = mysql_cluster.Cluster() if args.mysql == "cluster" else DbContainer()
     try:
         if args.mysql == "cluster":
             print(f"임시 InnoDB Cluster {db.id} (노드 {len(db.nodes)}개 + Router, 포트 {db.port}) 기동…")
