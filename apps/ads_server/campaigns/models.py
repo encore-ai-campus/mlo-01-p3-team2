@@ -76,14 +76,15 @@ class AdGroupSlot(models.Model):
 
 class Creative(models.Model):
     """광고주 소유의 소재 목록(6-9c, 설계 §10 "소재 목록"). 광고그룹에는 `AdGroupCreative` 로 연결하고, 광고그룹이 그중 하나를 선택한다.
-    화면의 "삭제"는 보관(`archived_at`)이다 — 행은 남는다(감사 기록·연결 기록이 참조). 끝나지 않은 캠페인의 광고그룹에 연결돼 있으면 보관하지 못한다."""
+    화면의 "삭제"는 보관(`archived_at`)이다 — 행은 남는다(감사 기록·연결 기록이 참조). 끝나지 않은 캠페인의 광고그룹에 연결돼 있으면 보관하지 못한다.
+    소재 끄기는 없다 — 광고를 멈추는 것은 광고그룹 ON/OFF 하나다(6-9b)."""
 
     creative_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="creatives")
     title = models.CharField(max_length=200)
     redirect_url = models.CharField(max_length=2048)
     image_name = models.CharField(max_length=80, db_index=True)  # assets 의 `<sha256>.<ext>`
-    image_bytes = models.PositiveIntegerField()  # 소재 끄기는 없다 — 광고를 멈추는 것은 광고그룹 ON/OFF 하나(6-9b, 설계 §10 "소재 목록")
+    image_bytes = models.PositiveIntegerField()
     archived_at = models.DateTimeField(null=True, blank=True)  # 보관(화면의 "삭제"). 보관한 소재는 개수 상한에서 빠지고 이미지 보유량에는 남는다
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)

@@ -58,12 +58,6 @@ def _utc_time(value, pointer):
         raise _problem(pointer, "표현할 수 없는 시각입니다.")
 
 
-def _flag(value):
-    if not isinstance(value, bool):
-        raise _problem("/enabled", "true 또는 false 여야 합니다.")
-    return value
-
-
 def _assert_seen(expected_updated_at, current, again="수정하세요"):
     """화면이 본 마지막 변경 시각을 잠금 안에서 지금과 대조한다(`None` 이면 대조하지 않음). 다르면 409."""
     if expected_updated_at is not None and expected_updated_at != current:
@@ -97,13 +91,15 @@ def _creative(user, creative_id, archived=False):
     return owned_or_404(queryset, user, creative_id=creative_id)
 
 
-def _locked_group(user, ad_group_id):
+def _locked_group(user, ad_group_id, now):
     """광고그룹을 바꾸는 동작용: 소유를 확인한 뒤 **캠페인 행을 먼저 잠그고**(캠페인 행 잠금 규약 — 종료·기간 종료·중단과 줄을 선다) 광고그룹 행을
-    잠가 다시 읽는다. 잠그지 않고 읽은 객체를 통째로 저장하면 그 사이의 다른 변경을 되돌리고, 끝난 캠페인에도 쓸 수 있었다(Step 3-2d). 트랜잭션 안에서만."""
+    잠가 다시 읽고, 끝난 캠페인(상태 갱신 전 기간 지남 포함)이면 거절한다. 잠그지 않고 읽은 객체를 통째로 저장하면 그 사이의 다른 변경을 되돌리고,
+    끝난 캠페인에도 쓸 수 있었다(Step 3-2d). 트랜잭션 안에서만."""
     found = _ad_group(user, ad_group_id)
     campaign = Campaign.objects.select_for_update().get(pk=found.campaign_id)
     group = AdGroup.objects.select_for_update().get(pk=found.pk)
     group.campaign = campaign
+    tr.assert_open(campaign, now)
     return group
 
 
@@ -556,13 +552,14 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
     if unknown or not changes:
         raise _problem("/", f"바꿀 수 있는 필드: {sorted(AD_GROUP_FIELDS)}")
     with transaction.atomic():
-        g = _locked_group(user, ad_group_id)
-        tr.assert_open(g.campaign, now)
+        g = _locked_group(user, ad_group_id, now)
         _assert_seen(expected_updated_at, g.updated_at)
         if "name" in changes:
             g.name = clean_text(changes["name"], "광고 이름", "/name")
         if "enabled" in changes:
-            g.enabled = _flag(changes["enabled"])
+            if not isinstance(changes["enabled"], bool):
+                raise _problem("/enabled", "true 또는 false 여야 합니다.")
+            g.enabled = changes["enabled"]
         if "slot_ids" in changes:
             ids = _validated_slots(changes["slot_ids"])
             g.slot_links.exclude(slot_id__in=ids).delete()
@@ -585,8 +582,7 @@ def add_bid(user, ad_group_id, amount, expected_version, now=None):
     now = _now(now)
     _amount(amount)
     with transaction.atomic():
-        g = _locked_group(user, ad_group_id)
-        tr.assert_open(g.campaign, now)
+        g = _locked_group(user, ad_group_id, now)
         current = _current_bid(g)
         current_version = current.bid_version if current else None
         if expected_version != current_version:
@@ -656,12 +652,6 @@ def _redirect_url(value):
     return value
 
 
-def _check_creative_count(user):
-    """보관하지 않은 소재만 센다(6-9c). 보관한 소재의 이미지는 `_check_image_quota` 가 계속 센다 — 저장 공간은 보유량 상한에서 멈춘다."""
-    if Creative.objects.filter(owner=user, archived_at__isnull=True).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
-        raise LimitExceeded("소재 개수 상한에 도달했습니다.")
-
-
 def _check_image_quota(user, image):
     """광고주가 **보유한 이미지 파일 총량**(현재 + 과거 교체분, 보관한 소재 포함)이 상한을 넘지 않는지. 이미 보유한 같은 파일은 더하지 않는다."""
     held = dict(CreativeImage.objects.filter(creative__owner=user).values_list("image_name", "image_bytes"))
@@ -671,8 +661,8 @@ def _check_image_quota(user, image):
 
 
 def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None):
-    """소재를 광고주의 목록에 올린다(6-9c). `ad_group_id` 를 주면 그 광고그룹에 연결하고, 선택된 소재가 없으면 이것을 선택한다(광고그룹 화면의
-    "올려서 연결"). `None` 이면 목록에만 올린다. 이미지는 검증·재인코딩해 저장한다(`ImageRejected` 는 그대로 전달)."""
+    """소재를 광고주의 목록에 올린다(6-9c). `ad_group_id` 를 주면 그 광고그룹에 연결하고, 선택된 소재가 없으면 이것을 선택한다(광고 만들기의 새 소재,
+    C6 `createCreative`). `None` 이면 목록에만 올린다(소재 목록·광고 상세의 "이미지 업로드"). 이미지는 검증·재인코딩해 저장한다(`ImageRejected` 는 그대로 전달)."""
     require_advertiser(user)
     now = _now(now)
     title = clean_text(title, "제목", "/title", 200)
@@ -680,11 +670,10 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     image = validate_image(image_file)
     with transaction.atomic():
         _lock_quota(user)
-        group = None
-        if ad_group_id is not None:
-            group = _locked_group(user, ad_group_id)
-            tr.assert_open(group.campaign, now)
-        _check_creative_count(user)
+        group = _locked_group(user, ad_group_id, now) if ad_group_id is not None else None
+        # 개수는 보관하지 않은 소재만 센다(6-9c). 보관한 소재의 이미지는 `_check_image_quota` 가 계속 센다 — 저장 공간은 보유량 상한에서 멈춘다
+        if Creative.objects.filter(owner=user, archived_at__isnull=True).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
+            raise LimitExceeded("소재 개수 상한에 도달했습니다.")
         _check_image_quota(user, image)  # 저장(파일 쓰기) 전에 확인한다: 거절된 업로드는 파일을 남기지 않는다
         name = store(image)
         c = Creative.objects.create(owner=user, title=title, redirect_url=redirect_url, image_name=name, image_bytes=len(image.data), created_at=now, updated_at=now)
@@ -714,8 +703,7 @@ def link_creative(user, ad_group_id, creative_id, now=None, select=False):
     require_advertiser(user)
     now = _now(now)
     with transaction.atomic():
-        g = _locked_group(user, ad_group_id)
-        tr.assert_open(g.campaign, now)
+        g = _locked_group(user, ad_group_id, now)
         c = _locked_creative(user, creative_id)
         _link(g, c, now)
         if select and g.creative_id != c.creative_id:
@@ -760,7 +748,7 @@ def list_owned_creatives(user, now=None):
 # ---------------------------------------------------------------- 광고 만들기 (6-9d, 설계 §10 "광고 만들기 흐름" — D3-3 대체)
 
 def _part(prefix, create, *args, **kwargs):
-    """한 부분을 만든다. 입력 오류의 위치(`pointer`)에 부분 이름을 붙인다 — 두 부분 모두 `/title` 같은 칸이 있을 수 있어 어느 쪽인지 알려야 한다."""
+    """한 부분을 만든다. 입력 오류의 위치(`pointer`)에 부분 이름을 붙인다 — 화면은 그것으로 오류를 어느 부분의 칸 옆에 둘지 정한다(`AdCreateForm.POINTERS`)."""
     try:
         return create(*args, **kwargs)
     except errors.ApiError as e:

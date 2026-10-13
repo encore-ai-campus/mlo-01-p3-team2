@@ -32,9 +32,10 @@ def _audit(actor, action, target, detail=None):
     record_audit(None, action, target=target, actor=actor, detail=detail)
 
 
-def _lock_wallet(owner_id):
+def _wallet(owner_id, lock=False):
+    """`lock=True` 는 행 잠금(`FOR UPDATE`, 트랜잭션 안에서만). 없으면 404."""
     try:
-        return Wallet.objects.select_for_update().get(owner_id=owner_id)
+        return (Wallet.objects.select_for_update() if lock else Wallet.objects).get(owner_id=owner_id)
     except Wallet.DoesNotExist:
         raise errors.NotFound("지갑을 찾을 수 없습니다.")
 
@@ -107,7 +108,7 @@ def adjust(actor, user_id, amount, note, now=None, request_key=None):
 
 
 def _adjust(actor, owner_id, amount, note, now, request_key):
-    wallet = _lock_wallet(owner_id)
+    wallet = _wallet(owner_id, lock=True)
     if request_key is not None:
         done = LedgerEntry.objects.filter(adjust_key=request_key).first()
         if done is not None:
@@ -132,7 +133,7 @@ def _charge(owner_id, campaign_id, amount, reaction_ref, policy_name, now):
     existing = LedgerEntry.objects.filter(reaction_ref=reaction_ref).first()
     if existing is not None:
         return _duplicate(existing)
-    wallet = _lock_wallet(owner_id)
+    wallet = _wallet(owner_id, lock=True)
     charged = min(amount, wallet.balance)  # 남은 잔액까지만. 0 밑으로 내리지 않는다
     entry = _append(
         wallet, EntryType.CHARGE, -charged, now, campaign_id=campaign_id, reaction_ref=reaction_ref,
@@ -200,10 +201,7 @@ def _charged_on(day, **scope):
 
 
 def _wallet_view(owner_id, now):
-    try:
-        wallet = Wallet.objects.get(owner_id=owner_id)
-    except Wallet.DoesNotExist:
-        raise errors.NotFound("지갑을 찾을 수 없습니다.")
+    wallet = _wallet(owner_id)
     day = budget_day_of(now)
     return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=_charged_on(day, wallet=wallet), budget_day=day, resets_at=next_reset(now))
 
@@ -283,7 +281,7 @@ def spend_by_campaign(campaign_ids, start_day, end_day):
 
 
 def charged_amounts(reaction_refs):
-    """반응 멱등 키(`reaction_ref`)별로 **실제로 받은** 포인트 `{키: 포인트}`. 과금되지 않은 키(과금 단위가 아닌 유형 등)는 결과에 없다.
+    """반응 멱등 키(`reaction_ref`)별로 **실제로 받은** 포인트 `{키: 포인트}`. 과금되지 않은 키는 결과에 없다.
 
     광고그룹처럼 소진액이 따로 쌓이지 않는 범위의 소진을 원장에서 읽을 때 쓴다. 한 번에 많은 키를 `IN` 에 넣지 않도록 나눠 조회한다.
     """
