@@ -120,8 +120,9 @@ def run_scenario(name, db, mongo_container, log):
     import mysql_admin
 
     tmp = Path(tempfile.mkdtemp(prefix="ads-failure-"))
+    (tmp / "static").mkdir()  # 빈 정적 파일 폴더(WhiteNoise 가 시작할 때 읽는다, 6-5e)
     database = mysql_admin.create_database("ads_failure")
-    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=database, MEDIA_ROOT=str(tmp / "media"))
+    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=database, MEDIA_ROOT=str(tmp / "media"), STATIC_ROOT=str(tmp / "static"))
     os.environ.pop("DJANGO_DEBUG", None)
     import django
 
@@ -131,10 +132,12 @@ def run_scenario(name, db, mongo_container, log):
     from django.conf import settings
     from django.db import connections
 
-    # 시나리오마다 새 데이터베이스다. 이 프로세스의 Django 설정은 첫 시나리오 때 굳어 있으므로 이름을 직접 바꾼다(처리 프로세스는 새 환경변수를 읽는다).
+    # 시나리오마다 새 데이터베이스와 임시 폴더다. 이 프로세스의 Django 설정은 첫 시나리오 때 굳어 있으므로 직접 바꾼다(처리 프로세스는 새 환경변수를 읽는다).
+    # 폴더를 그대로 두면 둘째 시나리오부터 지운 첫 폴더를 가리킨다 — 정적 폴더 경고가 다시 나고, 소재 이미지가 첫 폴더를 다시 만들어 남는다(6-7b).
     connections.close_all()
     settings.DATABASES["default"]["NAME"] = database
     connections["default"].settings_dict["NAME"] = database
+    settings.MEDIA_ROOT, settings.STATIC_ROOT = os.environ["MEDIA_ROOT"], os.environ["STATIC_ROOT"]
     from events import mongo, store
 
     mongo_db = f"ads_events_failure_{uuid.uuid4().hex}"
