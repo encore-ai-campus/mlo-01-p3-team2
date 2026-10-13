@@ -196,7 +196,7 @@ apps/ads_server/
 foundation/
   api.py                       # create_advertiser, authenticate 헬퍼 등 외부 공개 면
   accounts.py                  # 가입 서비스(검증 규칙의 유일한 위치)
-  models.py                    # + SignupAttempt (IP, 시각)
+  models.py                    # + SignupAttempt (IP, 시각) — 6-5b에서 지움
   validators.py                # 아이디·닉네임·반 규칙
 console/
   views/auth.py  forms.py  urls.py
@@ -211,7 +211,7 @@ tests/test_accounts.py  tests/test_lockout.py  tests/test_session_cookies.py
 2. **가입 서비스** `foundation.accounts.create_advertiser(username, password, nickname, class_label)`: 규칙은 **여기에만** 둔다(설계 §6.6 규칙 1).
    - 아이디 `[a-z0-9_]{4,20}`, 닉네임 2~20자, 반 1~30자(공백 정리, 제어 문자 금지). 아이디 중복은 일반적인 오류 문구(존재 여부를 과하게 알리지 않음).
    - 역할은 **항상 `advertiser`**. 서비스 함수가 역할 인자를 받지 않는다.
-3. **가입 시도 제한**: `SignupAttempt(ip, created_at)` 행을 남기고, 최근 1시간 안의 시도가 `SIGNUP_MAX_PER_IP_PER_HOUR`(기본 5, 설정값, 설계 §7-5)를 넘으면 429. 오래된 행은 가입 처리 중 기회가 될 때 삭제(별도 스케줄러 없음). 프로세스가 여러 개여도 일관되도록 **메모리 캐시가 아니라 DB**를 쓴다.
+3. **가입 시도 제한** — **6-5b에서 제거**(설계 §10 "가입 시도 제한", §8.4.6. 아래는 0-2 때의 계획): `SignupAttempt(ip, created_at)` 행을 남기고, 최근 1시간 안의 시도가 `SIGNUP_MAX_PER_IP_PER_HOUR`(기본 5, 설정값, 설계 §7-5)를 넘으면 429. 오래된 행은 가입 처리 중 기회가 될 때 삭제(별도 스케줄러 없음). 프로세스가 여러 개여도 일관되도록 **메모리 캐시가 아니라 DB**를 쓴다.
 4. **로그인 잠금(axes)**: `AXES_FAILURE_LIMIT = 5`, `AXES_COOLOFF_TIME = 5분`, **아이디+IP 조합**으로 잠금(설계 §5.1). 백엔드 `AxesStandaloneBackend`를 `ModelBackend`보다 앞에 두고 미들웨어를 등록한다. 잠긴 사용자에게는 "5분 뒤 다시 시도" 안내 화면을 보여준다.
    - **IP 판정**: 기본은 `REMOTE_ADDR`만 신뢰한다. 리버스 프록시 뒤에 둘 때는 **신뢰할 프록시 수를 명시**한다. 그렇지 않으면 `X-Forwarded-For` 위조로 잠금을 피할 수 있다.
 5. **세션·쿠키**: `SESSION_COOKIE_NAME = "ads_sessionid"`, `CSRF_COOKIE_NAME = "ads_csrftoken"`(게임 서버와 충돌 방지), `HttpOnly`, `SameSite=Lax`, prod에서 `Secure`, `SESSION_COOKIE_AGE`(8시간, 설정값). 로그아웃은 **POST만** 받고 세션을 폐기한다. 로그인 성공 시 세션 키를 새로 발급한다(Django 기본 동작 확인).
@@ -227,7 +227,7 @@ tests/test_accounts.py  tests/test_lockout.py  tests/test_session_cookies.py
 | | `test_username_rules`, `test_nickname_class_label_rules` | 경계값 |
 | | `test_password_validators_applied` | 짧은·흔한·아이디 유사 비밀번호 거부 |
 | | `test_password_stored_as_argon2` | 저장 해시 접두사 |
-| | `test_signup_rate_limit_per_ip` | 한도 초과 시 429, 다른 IP는 영향 없음 |
+| | `test_signup_rate_limit_per_ip` | 한도 초과 시 429, 다른 IP는 영향 없음 — 6-5b에서 지움(제한 제거, 대신 `test_signup_has_no_attempt_limit_even_from_one_ip`) |
 | | `test_duplicate_username_generic_error` | |
 | `test_lockout` | `test_locked_after_5_failures` | 5회 실패 후 올바른 비밀번호도 거부 |
 | | `test_lock_is_per_username_and_ip` | 다른 IP·다른 아이디는 영향 없음 |
@@ -1067,7 +1067,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 - [x] **광고주 화면(3-2a~3-2f)**: 대시보드·알림, 캠페인, 광고 만들기(한 페이지 폼 + 원자적 `create_ad`), 광고그룹 상세, 포인트, 내 정보·비밀번호 변경(로그인과 같은 시도 제한)
 - [x] **두 번·겹쳐 내도 한 번만, 옛 폼은 덮지 않음**: 두 번 하면 안 되는 동작은 결과 행에 같은 트랜잭션으로 저장하는 요청 키(매체 키 발급·교체, 포인트 조정, 광고 만들기 — §8.1.1), 수정 폼은 화면이 본 값과 대조(`expected_updated_at`·`expected_version`), 쓰기는 광고주 → 캠페인 → 광고그룹·소재 순서로 잠근다(설계 §10 "캠페인 행 잠금 규약")
 - [x] **접근 제어 전수**(3-3a `38647b9`): URL 설정 전체(정규식 경로 제외)를 실제 값으로 채워 역할마다 GET·POST — 광고주 화면은 익명이면 로그인으로·관리자는 403, 관리자 화면은 익명·광고주 모두 404
-- [x] **화면 전수 점검**(3-3b `38647b9`, `e781f20`, `de77684`): 모든 화면(정상 GET 화면과 키 발급·로그인 잠금·가입 제한·오류 화면)의 보안 헤더, CSP 위반 마크업 없음, 접근성 기본, 디자인 토큰 대비(WCAG AA). 광고주·운영 경로를 모두 GET 해 빠뜨리면 실패, 관리자 사이트는 등록된 모든 모델
+- [x] **화면 전수 점검**(3-3b `38647b9`, `e781f20`, `de77684`): 모든 화면(정상 GET 화면과 키 발급·로그인 잠금·가입 제한·오류 화면 — 가입 제한 화면은 6-5b에서 없앰)의 보안 헤더, CSP 위반 마크업 없음, 접근성 기본, 디자인 토큰 대비(WCAG AA). 광고주·운영 경로를 모두 GET 해 빠뜨리면 실패, 관리자 사이트는 등록된 모든 모델
 - [x] **JS 없이 주요 흐름**(D3-1): HTML 폼 기반 서버 통합 시험(`89c8a38`, 브라우저가 아니다). **실제 브라우저**: 3-3c Chrome 점검(`526046d`, 8건 수정), 외부 검토가 Chrome에서 앱 스크립트를 막고 단위 보기 → 미리보기 → 집행 → 캠페인 수정 → 새 입찰 확인
 - [x] **C6 규칙 ↔ 서비스 대조**(`89c8a38`): 값 목록·금액 상한·칸 길이. 찾은 것: 비밀번호 최대 128자 → 비밀번호 검증기(비대화형 `createsuperuser`는 Django가 검증기를 돌리지 않음 — 코드로 막지 않고 문서에 남김, 사용자 결정 2026-10-12)
 - [x] **미뤄 둔 P3 두 건**(외부 검토 `00d3067`, 사용자 결정 2026-10-11): 모니터링 DB 정렬·쪽 나누기(3-3d `ca2572c`), 구간 manifest 창 단위 읽기(3-3e `6654077`, 보완 `5e8fa8c`·`13f3bc2` — 창에 놓을 수 없는 과금 원장 줄은 세어 내보내기·대조를 실패로)
@@ -1398,8 +1398,8 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 
 | 단계 | 할 일 | 완료 증거 | 상태 |
 |---|---|---|---|
-| **6-5a 결정·계획** | 설계 §7-14·§10·§6.6·§5.1·§7-5·§2·§8, 이 계획 §7.3.4 #9·§8.1.6·§8.1.7·§8.4.4·이 절·§8 요약·§10 | 문서만 | 이 커밋 |
-| **6-5b 가입 시도 제한 제거** | `foundation/signup_limit.py`, `SignupAttempt`(마이그레이션 `foundation/0003`, 테이블 삭제), 가입 뷰의 호출과 429 화면(`signup_limited.html`), `SIGNUP_MAX_PER_IP_PER_HOUR`(base·dev·prod·`.env.example`), `foundation.api` 공개 이름 2개, 관련 시험 | 같은 IP의 6번째 가입도 된다, 마이그레이션 최신, 로그인 잠금 시험 그대로 | 착수 대기 |
+| **6-5a 결정·계획** | 설계 §7-14·§10·§6.6·§5.1·§7-5·§2·§8, 이 계획 §7.3.4 #9·§8.1.6·§8.1.7·§8.4.4·이 절·§8 요약·§10 | 문서만 | **완료 `90eb3b4`** |
+| **6-5b 가입 시도 제한 제거** | `foundation/signup_limit.py`, `SignupAttempt`(마이그레이션 `foundation/0003`, 테이블 삭제), 가입 뷰의 호출과 429 화면(`signup_limited.html`), `SIGNUP_MAX_PER_IP_PER_HOUR`(base·dev·prod·`.env.example`), `foundation.api` 공개 이름 2개, 관련 시험 | 같은 IP의 6번째 가입도 된다, 마이그레이션 최신, 로그인 잠금 시험 그대로 | **이 커밋** — 새 시험 `test_signup_has_no_attempt_limit_even_from_one_ip`(한 IP에서 실패 6번·가입 6번, 지우기 전 코드에서는 6번째 시도가 429로 실패함을 먼저 확인), 지운 시험: 가입 제한 2개·`SignupLimitSettingTests` 2개·화면 점검의 가입 제한 사례. `env_int(minimum=)`은 6-5c가 쓰므로 남김. 같은 커밋의 문서: 계약 C6 `/signup`(429·문구), DRD 0.36(A2 [제거]·가입 흐름·보존 기간·L2), 위협 모델 T2(인용 시험 교체)·T6·T43 ⑪·§6 문구, README "단체 가입" 삭제·배포 점검 문구. 시험 1,357 → 1,354 |
 | **6-5c 신뢰할 프록시 수 필수** | prod `TRUSTED_PROXY_COUNT` 필수·1 이상(`env_int`에 `required`), 6-3h `foundation/checks.py`와 import·시험 제거, 시험의 prod 환경(`PROD_ENV`)과 `check.sh` 배포 점검 환경 | 없거나 0이면 prod 기동 실패, `check --deploy` 경고 0 | 착수 대기 |
 | **6-5d Django HTTPS 제거** | prod의 HTTPS 리다이렉트·HSTS·`BEHIND_TLS_PROXY` 제거, `CSRF_TRUSTED_ORIGINS` 필수, 경고 침묵 교체(W004·W008, W021 제거), HTTPS 시험 정리 | prod에서 리다이렉트·HSTS 꺼짐·Secure 쿠키 켜짐, `https` 출처의 로그인 POST가 신뢰 출처가 있으면 통과·없으면 403, `CSRF_TRUSTED_ORIGINS`가 없으면 기동 실패, 경고 0 | 착수 대기 |
 | **6-5e 정적 파일** | `whitenoise`(`requirements.txt`), 미들웨어, `STATIC_ROOT` 주석 | `collectstatic` 결과를 로그인 없이 Django가 서빙(콘솔·관리자 CSS 200, `Content-Type`·`nosniff`), 호환 게이트(전체 시험·`check.sh`) | 착수 대기 |

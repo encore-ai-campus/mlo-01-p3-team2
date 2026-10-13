@@ -77,7 +77,7 @@ paths:
       summary: 광고주로 가입한다
       description: |
         받는 항목은 아이디·비밀번호·닉네임·반뿐이다. **역할은 항상 `advertiser`**이며 요청으로 정할 수 없다.
-        가입하면 **포인트가 지급**된다(`SIGNUP_GRANT`). IP당 가입 시도 횟수가 제한된다.
+        가입하면 **포인트가 지급**된다(`SIGNUP_GRANT`). 가입 시도 횟수는 제한하지 않는다(설계 §10 "가입 시도 제한", 2026-10-13 — 같은 내부망에서 정상 사용자를 막아 제거).
         아이디가 이미 있을 때도 일반적인 검증 오류(400)로 응답한다.
       security: []
       requestBody:
@@ -95,8 +95,6 @@ paths:
                 $ref: "#/components/schemas/Profile"
         "400":
           $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
 

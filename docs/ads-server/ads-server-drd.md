@@ -334,7 +334,7 @@ erDiagram
 | # | 엔터티(테이블) | 모듈 | 구분 | 쓰는 주체 | 행이 늘어나는 때 | 상태 |
 |---|---|---|---|---|---|---|
 | A1 | 사용자 `foundation_user` | foundation | 계정 | 가입(광고주), 서버 명령(관리자) | 가입 | [구현] |
-| A2 | 가입 시도 `foundation_signup_attempt` | foundation | 보안 기록 | 가입 화면 | 가입 시도마다 | [구현] |
+| A2 | ~~가입 시도 `foundation_signup_attempt`~~ | foundation | 보안 기록 | — | — | **[제거]** 6-5b(가입 시도 제한을 두지 않는다, 마이그레이션 `foundation/0003`) |
 | A3 | 감사 로그 `foundation_audit_log` | foundation | 감사(추가 전용) | 모든 서비스 | 변경·인증 사건마다 | [구현] |
 | M1 | 매체 `masters_media` | masters | 마스터 | 관리자 | 매체 등록 | [구현] |
 | M2 | 게재 위치 `masters_slot` | masters | 마스터 | 관리자 | 슬롯 등록 | [구현] |
@@ -383,9 +383,9 @@ erDiagram
 | `last_login` | 시각 | Y | | Django 기본 |
 | `created_at` | 시각 | N | | |
 
-#### A2. 가입 시도 `foundation_signup_attempt` [구현]
+#### A2. ~~가입 시도 `foundation_signup_attempt`~~ [제거 2026-10-13, Step 6-5b]
 
-IP당 시간당 가입 시도 수 제한(기본 5회)용. 성공·실패 모두 센다.
+IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부망(강의실 NAT)에서는 모두 같은 IP로 보여 정상 사용자를 막아, **가입 시도 제한을 두지 않기로** 하고 표를 지웠다(마이그레이션 `foundation/0003_delete_signupattempt`, 하루치 기록·개인정보 없음 — 설계서 §10 "가입 시도 제한"). 번호 A2는 비워 둔다. 아래는 지우기 전의 모양이다.
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|:---:|---|---|
@@ -774,7 +774,7 @@ stateDiagram-v2
 
 | 테이블 | 적용 전 PK | 적용 후(R-2) | 정수 `id`에 기대던 코드(적용으로 바뀐 곳) |
 |---|---|---|---|
-| `foundation_signup_attempt` | 정수 자동 증가 | `attempt_id` UUIDv7 | 없음 |
+| `foundation_signup_attempt` | 정수 자동 증가 | `attempt_id` UUIDv7 | 없음(6-5b에서 표를 지움) |
 | `foundation_audit_log` | 정수 자동 증가 | `log_id` UUIDv7 | 테스트 도우미의 정렬(시각 순으로 대체) |
 | `masters_media_key` | 정수 + `key_id` UNIQUE | `key_id` PK | 없음(`key_id`로 찾는다) |
 | `masters_bid_policy` | 정수 + `bid_policy_id` UNIQUE | `bid_policy_id` PK | 없음 |
@@ -961,7 +961,7 @@ sequenceDiagram
 
 | 사건 | 한 트랜잭션에서 쓰는 것 | 감사 로그 |
 |---|---|---|
-| 광고주 가입 | A2 가입 시도 → A1 사용자 + B1 지갑 + B2 `SIGNUP_GRANT`(기본 50,000) | `account.signup`, `billing.signup_grant` |
+| 광고주 가입 | A1 사용자 + B1 지갑 + B2 `SIGNUP_GRANT`(기본 50,000). 가입 시도 기록(A2)은 6-5b에서 지웠다 | `account.signup`, `billing.signup_grant` |
 | 로그인 성공·실패·잠금·로그아웃 | 세션, axes 기록 | `auth.*` |
 | 캠페인 생성 | O1 | `campaign.created` |
 | 광고그룹 생성(입찰 포함) | O2 + O3 + O5(버전 1) | `ad_group.created` |
@@ -1116,7 +1116,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 결정 | 광고 요청 | **없음** | 보존 기간 후 [열림] | 설정값 [열림 §7-8] |
 | 반응(원문 포함) | 매체 보고 | 상태만 | 보존 기간 후 [열림] | 설정값 [열림 §7-8] |
 | 감사 로그 | 모든 변경 | **없음** | [열림] | [열림] |
-| 가입 시도 | 가입 시도 | 없음 | 1시간이 지난 행은 정리 | 1시간 |
+| ~~가입 시도~~ | 가입 시도 | 없음 | 표를 지웠다(6-5b) | — |
 | 이벤트 outbox | 결정·접수·판정·과금 트랜잭션 | `sent_at`만(중계가 표시) | **보낸 뒤 7일**이 지난 행을 `purge_sent_events`가 지움. 미전송은 지우지 않음 | 7일(`EVENTS_OUTBOX_RETENTION_DAYS`) [구현 Step 4-1e] |
 | MongoDB 이벤트 로그 | outbox 중계 | 없음(추가만) | 보존 기간 후 | 설정값 [열림 §7-8] |
 | NDJSON 결과(데이터 파일 세대 + manifest) | 점검·백필 도구 | 없음(세대마다 새 파일, manifest만 교체) | 옛 세대 파일은 자동으로 지우지 않음 | 설정값 [열림 §7-8] |
@@ -1130,7 +1130,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 등급 | 데이터 | 규칙 |
 |---|---|---|
 | **L3** | 비밀번호 해시, 로그인 아이디(`username`), 매체 키(원문은 발급 시 한 번만 보여 주고 해시만 저장 [구현 2-2]), `SECRET_KEY` | 이벤트·로그·감사 상세에 넣지 않는다. 로그·감사는 비밀 키 이름을 자동 제거 |
-| **L2** | `subject_id`(노출 대상 가명 — 매체가 만든 **광고 전용 가명**이고 다른 시스템의 식별자가 아니다, C1 v1.2), 매체 `context`, IP 주소(가입 시도·감사), 광고주 `nickname`·`class_label`, `actor_username` | `subject_id`는 **수집만 하고 해석·응답하지 않는다**. 광고주·관리자 화면과 API 응답에 되돌려주지 않는다(설계서 §3 [제안]). **Step 4부터 MongoDB `ad_events`에 쌓인다**: 결정·접수·판정 이벤트의 `subject_id`, 판정 이벤트의 `person_id`·`basis`, 접수 이벤트의 원문(`raw`). 분석 계층 접근 권한을 분리하고(인프라 계정은 아직 나뉘지 않음, 위협 모델 T41), 보존 기간은 §6 |
+| **L2** | `subject_id`(노출 대상 가명 — 매체가 만든 **광고 전용 가명**이고 다른 시스템의 식별자가 아니다, C1 v1.2), 매체 `context`, IP 주소(감사 로그·로그인 잠금 기록), 광고주 `nickname`·`class_label`, `actor_username` | `subject_id`는 **수집만 하고 해석·응답하지 않는다**. 광고주·관리자 화면과 API 응답에 되돌려주지 않는다(설계서 §3 [제안]). **Step 4부터 MongoDB `ad_events`에 쌓인다**: 결정·접수·판정 이벤트의 `subject_id`, 판정 이벤트의 `person_id`·`basis`, 접수 이벤트의 원문(`raw`). 분석 계층 접근 권한을 분리하고(인프라 계정은 아직 나뉘지 않음, 위협 모델 T41), 보존 기간은 §6 |
 | **L1** | 매체·슬롯·정책, 캠페인·광고그룹·소재·입찰, 결정의 광고 선택, 원장 금액 | 광고주는 자기 것만(R-9). 소재 제목·이동 주소는 **신뢰할 수 없는 값**으로 표시(매체가 이스케이프) |
 
 추가 규칙:
@@ -1235,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.36 | 2026-10-13 | Step 6-5b 가입 시도 제한 제거(설계서 §10 "가입 시도 제한"): A2 `foundation_signup_attempt` 표 삭제(마이그레이션 `foundation/0003`, 엔터티 목록·A2 절은 [제거]로 남김), 광고주 가입 흐름에서 A2를 뺌, 보존 기간 표의 가입 시도 행, L2의 IP 주소(감사 로그·로그인 잠금 기록) |
 | 0.35 | 2026-10-12 | Step 6-2f(6-2c `5461af2`, 스키마 변화 없음): 요청 JSON 숫자 범위 ±(2^53−1)을 R-12·결정 `context` 열·C1 입력 `context`·D-2 해결 행에 |
 | 0.34 | 2026-10-12 | Step 6-2 문구 정정(외부 검토, 동작·스키마 변화 없음): "부분 UNIQUE"를 실제 MySQL 구현으로 — §4.3 표기에 논리 규칙과 물리 구현의 구분(MySQL은 조건부 유일 제약을 만들지 않음, W036), O6 `open_campaign`·B2 `signup_grant_wallet`(DB 계산 열 + `UNIQUE`) 행 추가, B2 `reaction_ref`는 NULL 허용 일반 `UNIQUE`, §4.4 무결성 표 세 행, D-7 계획도 같은 방식 |
 | 0.33 | 2026-10-12 | Step 6-1 서버 규칙(6-1a `42de743`·6-1b `a70d769`): M5 `masters_media_deactivation`(ERD·엔터티 목록·컬럼·수명주기), M1 `is_active` 설명, P2 `basis` v3 `media_deactivated_at`, §5.3 규칙 체인에 `media-period` |
