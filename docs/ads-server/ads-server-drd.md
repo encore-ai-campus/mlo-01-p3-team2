@@ -458,7 +458,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `bid_policy_id` | UUID | N | PK | 버전 행 하나의 식별자. 결정·이벤트가 이것으로 가리킨다 |
 | `slot_id` | UUID | N | FK→M2 `PROTECT`, UNIQUE(slot, policy_version) | |
 | `policy_version` | 정수 | N | 슬롯별 1부터 | 변경은 새 행. `expected_version`이 틀리면 거절(낙관적 잠금) |
-| `floor_amount` | 정수 | N | `CHECK 0 < floor ≤ base ≤ cap ≤ 2^53−1`, `CHECK floor ≥ 100`(6-10c) | 하한. 미만이면 노출 안 됨. 최소 100 — 비율 ≥ 1% 와 함께 반응 하나의 과금(내림)이 0 이 되지 않게 한다 |
+| `floor_amount` | 정수 | N | `CHECK floor ≤ base ≤ cap ≤ 2^53−1`, `CHECK floor ≥ 100`(6-10c — 그 전의 `0 < floor` 는 6-13f에서 이것에 합쳤다, 마이그레이션 `masters/0008`) | 하한. 미만이면 노출 안 됨. 최소 100 — 비율 ≥ 1% 와 함께 반응 하나의 과금(내림)이 0 이 되지 않게 한다 |
 | `base_amount` | 정수 | N | 〃 | 기준가. 입찰 화면 기본값(V1 선택 알고리즘은 쓰지 않음) |
 | `cap_amount` | 정수 | N | 〃 | 상한. 초과 입찰은 상한으로 적용 |
 | `impression_share`·`click_share`·`conversion_share` | 작은 정수 | N | `CHECK` 각각 1~98, `CHECK` 합 = 100 | 반응 유형별 과금 비율(%) [구현 6-10b]. 반응 하나의 과금 = 내림(적용 금액 × 그 유형의 % ÷ 100) — 과금 전환은 6-10c(설계서 §10 "구성별 반응 비율 과금"). 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음, 구현 계획 §8.4.11 K1) |
@@ -708,7 +708,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 
 | 규칙 | DB 제약 | 서비스 규칙 | 테스트(대표) |
 |---|---|---|---|
-| 정책 `0 < 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증 | `test_policy_check_constraint_in_db` |
+| 정책 `하한 ≤ 기준가 ≤ 상한`(하한의 아래 경계는 다음 행 — 6-13f) | `CHECK` | 입력 검증 | `test_policy_check_constraint_in_db` |
 | 정책 비율 각각 1~98, 합 100(6-10b) | `CHECK` 둘 | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `test_policy_check_constraint_in_db`, `test_charge_shares_are_checked_the_same_way_in_all_three_places` |
 | 정책 하한 ≥ 100(6-10c) | `CHECK` | 입력 검증(세 곳 같은 검사) | `test_policy_check_constraint_in_db`, `test_the_floor_is_at_least_100_in_all_three_places` |
 | 결정 비율 각각 1~98·합 100, 광고 없음이면 비움(6-10c) | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `test_charge_shares_follow_the_policy_rule_in_db` |
@@ -1266,6 +1266,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.51 | 2026-10-14 | Step 6-13f(구현 계획 §8.4.14, 사용자 결정): M3 입찰 정책의 `CHECK 0 < floor` 를 `CHECK floor ≥ 100`(6-10c)에 합침(마이그레이션 `masters/0008`, 빈 DB 전제). M2 슬롯 `audience` 는 모델·서비스 모두 기본값이 없다(만드는 쪽이 정한다) |
 | 0.50 | 2026-10-14 | Step 6-13e(구현 계획 §8.4.14, 사용자 결정): O2 광고그룹 `creative_id`(선택)를 바꾸는 길은 연결 하나 — 고를 때 아직 연결되지 않았으면 함께 연결한다(C6 광고그룹 `PATCH` 의 `creative_id` 삭제). 데이터 모양은 그대로 |
 | 0.49 | 2026-10-14 | Step 6-13d(구현 계획 §8.4.14): 광고주 상한의 동시 쓰기 행 — 인용 시험 이름 정정(캠페인을 만드는 시험이 "ads"라는 이름이었다 → `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`)과 서로 다른 캠페인에 광고를 겹쳐 만드는 시험 `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit` 추가. 데이터 모양은 그대로 |
 | 0.48 | 2026-10-13 | Step 6-10f 정합: ERD 관계 줄을 6-9c 소재 목록에 맞춤 — 소재는 광고주 소유이고 광고그룹과는 연결 표(O9)로 잇고, 광고그룹은 그중 하나를 선택한다(엔터티 블록은 6-9c에 이미 고쳐져 있었고 관계 줄 "광고그룹 → 소재"가 남아 있었다) |

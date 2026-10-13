@@ -257,8 +257,8 @@ class SelectionPolicy(Protocol):
 |---|---|---|
 | 식별 | `campaign_id`, `ad_group_id`, `creative_id`, `slot_id` | 선택 결과 식별, Decision 기록, 응답 조립 |
 | 과금 | `pricing_unit` **[6-10에서 바뀜 — 구현 6-10c `1fd6d83`]** 후보에서 빠진다. 반응 비율은 `records`가 판정에 쓴 정책 버전에서 결정에 남긴다 — 엔진은 비율을 쓰지 않아 후보에 넣지 않았다(쓰는 선택 알고리즘이 생기면 그때 더한다) | (6-10c 전) Decision 기록 |
-| 입찰 | `bid_amount`, `bid_version`, `bid_created_at` | 적용 금액 계산, Decision 재현, trace |
-| 정책 스냅샷 | `floor`, `base`, `cap`, `policy_version` | 적용 금액 계산, 하한 필터, 이후 확률 노출 공식, Decision 재현 |
+| 입찰 | `bid_amount`, `bid_version` **[6-13f — `bid_created_at` 삭제: 판정에 쓰지 않았다]** | 적용 금액 계산, Decision 재현, trace |
+| 정책 스냅샷 | `floor`, `cap`, `policy_version` **[6-13f — `base` 삭제: 기준가는 판정에 쓰지 않는다. 결정 기록은 `records`가 정책 스냅샷에서 남긴다. 쓰는 선택 알고리즘(확률 노출 공식 등)이 생기면 그때 더한다]** | 적용 금액 계산, 하한 필터, Decision 재현 |
 | 자격 판정용 사실 | `campaign_status`, `ad_group_enabled`, `period_start`, `period_end`, `wallet_balance`, `remaining_daily_budget` | 필터가 판정 |
 
 - 요청 쪽 `AdRequest`는 `subject_id`, 슬롯, **`now`**(UTC)를 가진다. `engine`은 시계를 읽지 않고 `now`를 주입받는다(테스트에서 시각 고정).
