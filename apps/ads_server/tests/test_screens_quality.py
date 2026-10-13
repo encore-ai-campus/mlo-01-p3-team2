@@ -239,6 +239,17 @@ class ScreenQualityTests(TestCase):
                 audit.feed(client.get(url).content.decode())
                 self.assertEqual(audit.report(), [], url)
 
+    def test_screens_say_ad_not_ad_group(self):
+        """화면 용어는 "광고"다 — 코드·계약의 광고그룹(`AdGroup`)을 화면에 드러내지 않는다(6-9e, 설계 §10 "화면 용어: 광고"). Django admin 의 모델 화면은 범위 밖."""
+        for user, urls in self.pages():
+            client = Client()
+            if user is not None:
+                client.force_login(user)
+            for url in urls:
+                if url.startswith("/" + settings.ADMIN_URL_PATH) and "/operator/" not in url:
+                    continue
+                self.assertNotIn("광고그룹", client.get(url).content.decode(), url)
+
     def test_the_design_tokens_have_enough_contrast_in_both_themes(self):
         css = Path(finders.find("console/app.css")).read_text()
         token = re.compile(r"--([\w-]+):\s*(#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b)")

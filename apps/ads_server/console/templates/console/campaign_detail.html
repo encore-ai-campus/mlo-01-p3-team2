@@ -60,12 +60,12 @@
 </section>
 {% endif %}
 
-<section class="card" aria-label="광고그룹">
-  <h1>광고그룹</h1>
+<section class="card" aria-label="광고">
+  <h1>광고</h1>
   {% if campaign.status != "ENDED" %}<p><a href="{% url 'ad_create' %}?campaign={{ campaign.campaign_id }}">+ 이 캠페인에 광고 만들기</a></p>{% endif %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th scope="col">광고그룹</th><th scope="col">과금 단위</th><th scope="col">상태</th><th scope="col" class="num">입찰</th><th scope="col">게재 위치</th></tr></thead>
+      <thead><tr><th scope="col">광고</th><th scope="col">과금 단위</th><th scope="col">상태</th><th scope="col" class="num">입찰</th><th scope="col">게재 위치</th></tr></thead>
       <tbody>
       {% for g, summary in groups %}
         <tr>
@@ -76,7 +76,7 @@
           <td>노출 가능 {{ summary.eligible }}곳{% if summary.below_floor %} · 하한 미만 {{ summary.below_floor }}곳{% endif %}{% if summary.capped %} · 상한 적용 {{ summary.capped }}곳{% endif %}{% if summary.inactive %} · 꺼진 위치 {{ summary.inactive }}곳{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="5">광고그룹이 없습니다.</td></tr>
+        <tr><td colspan="5">광고가 없습니다.</td></tr>
       {% endfor %}
       </tbody>
     </table>

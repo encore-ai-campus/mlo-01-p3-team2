@@ -160,7 +160,7 @@ class AdGroupTableTests(CampaignPagesBase):
     def test_groups_with_bid_and_placement_summary(self):
         campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 60, expected_version=1)  # 상한 50 초과
         html = self.client.get(self.detail).content.decode()
-        table = html[html.index('aria-label="광고그룹"'):]
+        table = html[html.index('aria-label="광고"'):]
         self.assertIn("60 포인트", table)
         self.assertIn("노출 가능 1곳 · 상한 적용 1곳", table)
 

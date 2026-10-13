@@ -25,7 +25,7 @@ class UnitImmutable(base.Conflict):
 
 
 class UnitMismatch(base.InvalidRequest):
-    code, title = "unit_mismatch", "게재 위치의 과금 단위가 광고그룹과 다릅니다"
+    code, title = "unit_mismatch", "게재 위치의 과금 단위가 광고와 다릅니다"
 
 
 class LimitExceeded(base.Conflict):

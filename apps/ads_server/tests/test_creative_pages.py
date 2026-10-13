@@ -26,7 +26,7 @@ class CreativePageTests(TestCase):
         self.assertRedirects(self.client.post(reverse("creative_archive", args=[self.spare.creative_id])), LIST)
         self.assertNotIn("예비 소재", self.client.get(LIST).content.decode())
         r = self.client.post(reverse("creative_archive", args=[self.w.creative.creative_id]), follow=True)
-        self.assertContains(r, "끝나지 않은 캠페인의 광고그룹에 연결된 소재는 삭제할 수 없습니다")  # 위조한 요청도 서비스가 막는다
+        self.assertContains(r, "끝나지 않은 캠페인의 광고에 연결된 소재는 삭제할 수 없습니다")  # 위조한 요청도 서비스가 막는다
         self.assertFalse(campaigns.get_creative(self.w.adv, self.w.creative.creative_id).archived)
 
     def test_an_edit_from_the_detail_page_returns_there(self):

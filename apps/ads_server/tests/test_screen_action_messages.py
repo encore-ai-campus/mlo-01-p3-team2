@@ -90,8 +90,8 @@ class AdvertiserActionMessageTests(ActionBase):
         self.group_page, self.campaign_page = reverse("ad_group_detail", args=[self.gid]), reverse("campaign_detail", args=[self.cid])
 
     def test_ad_group_switch(self):
-        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "0"}, self.group_page), [("success", "광고그룹을 껐습니다.")])
-        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("success", "광고그룹을 켰습니다.")])
+        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "0"}, self.group_page), [("success", "광고를 껐습니다.")])
+        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("success", "광고를 켰습니다.")])
         campaigns.end_campaign(self.w.adv, self.cid)
         ended_group = shown(lambda: campaigns.update_ad_group(self.w.adv, self.gid, {"enabled": True}))
         self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("error", ended_group)])

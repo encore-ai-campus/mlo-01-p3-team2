@@ -4,7 +4,7 @@
 {% block content %}
 <p><a href="{% url 'campaign_detail' group.campaign_id %}">← {{ page.campaign_name }}</a></p>
 
-<section class="card" aria-label="광고그룹">
+<section class="card" aria-label="광고">
   <h1>{{ group.name }} <span class="status{% if not group.enabled %} paused{% endif %}">{% if group.enabled %}켜짐{% else %}꺼짐{% endif %}</span></h1>
   <p>과금 단위 <strong>{{ group.pricing_unit|unit_label }}</strong> <span class="muted">(만든 뒤에는 바꿀 수 없습니다)</span></p>
   <form method="post" action="{% url 'ad_group_enabled' group.ad_group_id %}">{% csrf_token %}

@@ -511,7 +511,7 @@ def _validated_slots(slot_ids, pricing_unit):
 def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=None, now=None):
     require_advertiser(user)
     now = _now(now)
-    name = clean_text(name, "광고그룹 이름", "/name")
+    name = clean_text(name, "광고 이름", "/name")
     if pricing_unit not in masters.PricingUnit.values:
         raise _problem("/pricing_unit", f"{', '.join(masters.PricingUnit.values)} 중 하나여야 합니다.")
     ids = _validated_slots(slot_ids, pricing_unit)
@@ -522,7 +522,7 @@ def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=
         c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)
         if AdGroup.objects.filter(campaign__owner=user).count() >= settings.MAX_AD_GROUPS_PER_ADVERTISER:
-            raise LimitExceeded("광고그룹 개수 상한에 도달했습니다.")
+            raise LimitExceeded("광고 개수 상한에 도달했습니다.")
         group = AdGroup.objects.create(campaign=c, name=name, pricing_unit=pricing_unit, created_at=now, updated_at=now)
         AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=group, slot_id=s) for s in ids])
         bid = Bid.objects.create(ad_group=group, bid_version=1, amount=bid_amount, created_by=user.pk, created_at=now) if bid_amount is not None else None
@@ -565,7 +565,7 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
         tr.assert_open(g.campaign, now)
         _assert_seen(expected_updated_at, g.updated_at)
         if "name" in changes:
-            g.name = clean_text(changes["name"], "광고그룹 이름", "/name")
+            g.name = clean_text(changes["name"], "광고 이름", "/name")
         if "enabled" in changes:
             g.enabled = _flag(changes["enabled"])
         if "slot_ids" in changes:
@@ -576,7 +576,7 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
         if "creative_id" in changes:
             c = _locked_creative(user, changes["creative_id"])  # 남의 것·보관한 것은 404. 잠금 순서: 캠페인 → 광고그룹 → 소재
             if not AdGroupCreative.objects.filter(ad_group=g, creative=c).exists():
-                raise _problem("/creative_id", "이 광고그룹에 연결된 소재가 아닙니다.")
+                raise _problem("/creative_id", "이 광고에 연결된 소재가 아닙니다.")
             g.creative = c
         g.updated_at = now
         g.save()
@@ -736,7 +736,7 @@ def archive_creative(user, creative_id, now=None):
         in_use = (AdGroupCreative.objects.filter(creative=c).exclude(ad_group__campaign__status=CampaignStatus.ENDED)
                   .filter(Q(ad_group__campaign__ends_at__isnull=True) | Q(ad_group__campaign__ends_at__gt=now)).exists())
         if in_use:
-            raise errors.Conflict("끝나지 않은 캠페인의 광고그룹에 연결된 소재는 삭제할 수 없습니다.")
+            raise errors.Conflict("끝나지 않은 캠페인의 광고에 연결된 소재는 삭제할 수 없습니다.")
         c.archived_at = now
         c.save(update_fields=["archived_at"])
         _audit(user, "creative.archived", ("campaigns.creative", c.creative_id))

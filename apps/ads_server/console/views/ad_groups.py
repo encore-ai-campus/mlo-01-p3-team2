@@ -120,5 +120,5 @@ def ad_group_creative_select(request, ad_group_id):
 @require_POST
 def ad_group_enabled(request, ad_group_id):
     enabled = request.POST.get("enabled") == "1"
-    run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"enabled": enabled}, success="광고그룹을 켰습니다." if enabled else "광고그룹을 껐습니다.")
+    run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"enabled": enabled}, success="광고를 켰습니다." if enabled else "광고를 껐습니다.")
     return redirect("ad_group_detail", ad_group_id=ad_group_id)

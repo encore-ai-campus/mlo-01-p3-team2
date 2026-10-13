@@ -179,7 +179,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
     @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=1)
     def test_the_quota_is_explained(self):
         r = self.client.post(URL, self.fields())
-        self.assertContains(r, "광고그룹 개수 상한에 도달했습니다", status_code=r.status_code)
+        self.assertContains(r, "광고 개수 상한에 도달했습니다", status_code=r.status_code)
         self.assertIn(r.status_code, (400, 409, 422))
         self.assertFalse(self.created().exists())
 

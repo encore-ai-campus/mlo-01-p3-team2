@@ -178,7 +178,7 @@ class BidForm(forms.Form):
 class GroupNameForm(forms.Form):
     """`updated_at` 은 화면이 본 광고그룹의 마지막 변경 시각 — 그 사이 바뀌었으면 서비스가 거절한다(같은 칸의 옛 제출이 최신 변경을 덮지 않게)."""
 
-    name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
+    name = forms.CharField(label="광고 이름", max_length=100, strip=False)
     updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
 
