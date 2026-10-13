@@ -668,7 +668,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|---|---|---|
-| `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). Debezium `id` |
+| `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). 모델 기본값은 없다 — 빠뜨리면 저장이 실패한다(6-7c). Debezium `id` |
 | `event_name` | 문자 64 | N | 색인(아래) | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
 | `schema_version` | 작은 정수 | N | | 지금 `1`. 페이로드 모양이 바뀌면 올린다 |
 | `aggregate_id` | UUID | N | | 메시지 키 = `decision_id`(모든 이벤트). Debezium `aggregateid` |
@@ -689,7 +689,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 광고그룹의 슬롯은 같은 단위·활성 | — | `unit_mismatch` | `test_ad_group_unit_must_match_slots` |
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
-| 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
+| 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
 | 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
@@ -1235,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.40 | 2026-10-13 | Step 6-7c(구현 계획 §8.4.8): P3 outbox `event_id`에는 모델 기본값이 없다(빠뜨리면 저장 실패, 마이그레이션 `events/0003`은 상태만 — SQL 없음). 검증 표의 PK 규칙 행에 outbox 예외를 적었다 |
 | 0.39 | 2026-10-13 | Step 6-6c 시험 정리(구현 계획 §8.4.7): 원장 순번 행의 검증 시험을 같은 지갑에 과금·조정·읽기를 함께 돌리는 시험으로 바꿨다(지운 동시 과금 시험의 부분집합 관계, 스키마 변화 없음) |
 | 0.38 | 2026-10-13 | Step 6-5f 정합: 인터페이스 표(§2·§5)의 C1·C3 HTTPS는 앞단 nginx에서 끝나고 Django는 HTTP로 받는다(설계서 §10 "배포 구성", 형식·스키마 변화 없음) |
 | 0.37 | 2026-10-13 | Step 6-5e 정적 파일 서빙(설계서 §10 "정적 파일 서빙"): §2.2 정적 파일은 운영에서도 Django가 WhiteNoise로 서빙(스키마 변화 없음) |
