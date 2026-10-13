@@ -142,12 +142,11 @@ class NoJsJourneyTests(TestCase):
         self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="40"), group_url)
         self.assertEqual(group.bids.order_by("-bid_version").first().amount, 40)
 
-        # 소재 목록에 올린 소재를 광고에 연결하고 선택한다(재사용, 6-9d)
+        # 소재 목록에 올린 이미지를 광고 상세의 "이미지"에서 고른다(재사용 — 연결은 고를 때 함께, 6-11)
         done = submit(self.adv, self.go(self.adv, reverse("creative_list")), lambda a: a.get("enctype") == "multipart/form-data",
                       files={"new-image": png_file((4, 5, 6))}, **{"new-title": "재사용 소재", "new-redirect_url": "https://example.com/reuse"})
         reused = Creative.objects.get(title="재사용 소재")
         self.assertRedirects(done, reverse("creative_detail", args=[reused.creative_id]))
-        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_creative_link", args=[group.ad_group_id]))), group_url)
         page = self.go(self.adv, group_url)
         self.assertRedirects(submit(self.adv, page, action(reverse("ad_group_creative_select", args=[group.ad_group_id]))), group_url)
         group.refresh_from_db()

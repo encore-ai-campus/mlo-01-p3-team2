@@ -1,7 +1,7 @@
-"""광고그룹(화면의 "광고") 상세(Step 3-2d): 위치별 결과, 입찰 이력과 새 입찰(낙관적 잠금), 이름·위치·켜기/끄기, 소재(연결된 소재와 선택·올려서 연결·
-등록된 소재 연결, 6-9d — 소재의 제목/주소 수정·이미지 교체 뷰는 `views/creatives.py`가 이 화면으로 돌아온다).
+"""광고그룹(화면의 "광고") 상세(Step 3-2d): 위치별 결과, 입찰 이력과 새 입찰(낙관적 잠금), 이름·위치·켜기/끄기, 이미지(소재).
+이미지는 **고르기만** 하고(내 이미지 중 하나 — 연결은 고를 때 함께), 올리기는 따로 둔다(6-11). 이미지의 제목·주소 수정과 교체는 소재 상세(`views/creatives.py`).
 
-동작마다 작은 폼을 따로 둔다 — 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다(소재의 제목·주소는 한 폼이라 화면이 본 변경 시각과 대조한다).
+동작마다 작은 폼을 따로 둔다 — 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다(같은 칸은 화면이 본 변경 시각과 대조한다).
 뷰는 서비스를 부르고 그리기만 한다. 입찰은 추가만 된다(서비스 규칙). 위치별 결과에는 반응 유형별 예상 과금을 함께 보인다(6-10d).
 """
 from django.contrib import messages
@@ -11,13 +11,13 @@ from django.views.decorators.http import require_POST
 from campaigns import api as campaigns
 
 from ..errors import HANDLED, fetch, form_errors, run_action, status_of
-from ..forms import BidForm, CreativeEditForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm, ImageForm
+from ..forms import BidForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm
 from ..queries.ad_groups import ad_group_page
 from .ads import effect_row
 
 
-def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
-    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼, `edit`·`image` 는 (소재 ID, 다시 그릴 그 소재의 수정·이미지 폼)."""
+def _page(request, ad_group_id, status=200, **bound):
+    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼."""
     page = fetch(ad_group_page, request.user, ad_group_id)
     group = page.group
     forms = {
@@ -27,26 +27,9 @@ def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
         "upload_form": CreativeUploadForm(prefix="new"),
         **bound,
     }
-    edits = {c.creative_id: _edit_form(c) for c in page.creatives}
-    images = {c.creative_id: _image_form(c) for c in page.creatives}
-    if edit is not None:
-        edits[edit[0]] = edit[1]
-    if image is not None:
-        images[image[0]] = image[1]
     return render(request, "console/ad_group_detail.html", {
-        "page": page, "group": group, "effects": [effect_row(page.linked.get(e.slot_id), e) for e in page.effects],
-        "creatives": [(c, edits[c.creative_id], images[c.creative_id]) for c in page.creatives], **forms,
+        "page": page, "group": group, "effects": [effect_row(page.linked.get(e.slot_id), e) for e in page.effects], **forms,
     }, status=status)
-
-
-def _edit_form(creative, data=None):
-    initial = {"title": creative.title, "redirect_url": creative.redirect_url, "updated_at": creative.updated_at.isoformat()}
-    return CreativeEditForm(data, prefix=str(creative.creative_id), initial=initial)
-
-
-def _image_form(creative, data=None, files=None):
-    """소재마다 따로(접두사 = 소재 ID) — 한 소재의 거절 사유가 다른 소재 아래에 나오지 않고 이름표가 겹치지 않는다."""
-    return ImageForm(data, files, prefix=str(creative.creative_id), auto_id="image_%s", initial={"updated_at": creative.updated_at.isoformat()})  # id 는 수정 폼과 다르게
 
 
 def ad_group_detail(request, ad_group_id):
@@ -97,24 +80,19 @@ def ad_group_slots(request, ad_group_id):
 
 @require_POST
 def ad_group_creative_upload(request, ad_group_id):
-    """소재를 올려 이 광고에 연결한다(선택된 소재가 없으면 선택 — 서비스). 소재는 소재 목록에도 남는다."""
+    """"이미지 업로드"(6-11): 내 이미지(소재)를 올리기만 한다 — 이 광고에 연결·선택하지 않는다. 올린 것은 위 "이미지"에서 고른다. 남의 광고 화면이면 404."""
+    fetch(campaigns.get_ad_group, request.user, ad_group_id)
     form = CreativeUploadForm(request.POST, request.FILES, prefix="new")
-    return _submit(request, ad_group_id, form, lambda d: campaigns.create_creative(request.user, ad_group_id, d["title"], d["redirect_url"], d["image"]),
-                   "소재를 올려 이 광고에 연결했습니다.", image_field="image", upload_form=form)
-
-
-@require_POST
-def ad_group_creative_link(request, ad_group_id):
-    """등록된 소재를 이 광고에 연결한다(재사용). 남의 소재·보관한 소재는 서비스가 404."""
-    run_action(request, campaigns.link_creative, request.user, ad_group_id, request.POST.get("creative_id"), success="등록된 소재를 이 광고에 연결했습니다.")
-    return redirect("ad_group_detail", ad_group_id=ad_group_id)
+    return _submit(request, ad_group_id, form, lambda d: campaigns.create_creative(request.user, None, d["title"], d["redirect_url"], d["image"]),
+                   "이미지를 올렸습니다. 위 ‘이미지’에서 고르면 이 광고에 나갑니다.", image_field="image", upload_form=form)
 
 
 @require_POST
 def ad_group_creative_select(request, ad_group_id):
-    """연결된 소재 중 하나를 이 광고에 나갈 소재로 고른다(다음 결정부터 — 이미 나간 결정은 그대로)."""
-    run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"creative_id": request.POST.get("creative_id")},
-               success="이 광고에 나갈 소재를 바꿨습니다. 다음 결정부터 적용됩니다.")
+    """"이미지"(6-11): 내 이미지 중 하나를 이 광고에 나갈 것으로 고른다 — 아직 연결되지 않았으면 같은 트랜잭션에서 연결한다(다음 결정부터, 이미 나간 결정은 그대로).
+    남의 이미지·보관한 이미지는 서비스가 404."""
+    run_action(request, campaigns.link_creative, request.user, ad_group_id, request.POST.get("creative_id"), select=True,
+               success="이 광고에 나갈 이미지를 바꿨습니다. 다음 결정부터 적용됩니다.")
     return redirect("ad_group_detail", ad_group_id=ad_group_id)
 
 

@@ -50,6 +50,21 @@ class CreativeLibraryTests(TestCase):
         api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": mine.creative_id}, now=NOW)
         self.assertEqual(self.titles(), ["새 소재"])  # 결정에 나가는 것은 선택한 소재다
 
+    def test_choosing_an_unlinked_creative_links_and_selects_it_in_one_go(self):
+        """광고 상세의 "이미지"(6-11): 내 이미지 중 하나를 고르면 아직 연결되지 않았어도 같은 트랜잭션에서 연결하고 선택한다. 끝난 캠페인이면 둘 다 하지 않는다."""
+        mine = api.create_creative(self.w.adv, None, "목록의 소재", "https://example.com/2", png_file((9, 9, 9)), now=NOW)
+        view = api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=NOW, select=True)
+        self.assertEqual(view.creative_id, mine.creative_id)
+        self.assertEqual(AdGroupCreative.objects.filter(ad_group_id=self.w.group.ad_group_id, creative_id=mine.creative_id).count(), 1)
+        api.link_creative(self.w.adv, self.w.group.ad_group_id, self.w.creative.creative_id, now=NOW, select=True)  # 이미 연결된 것은 선택만
+        self.assertEqual((api.get_ad_group(self.w.adv, self.w.group.ad_group_id).creative_id, AdGroupCreative.objects.filter(ad_group_id=self.w.group.ad_group_id).count()),
+                         (self.w.creative.creative_id, 2))
+        other = api.create_creative(self.w.adv, None, "늦은 소재", "https://example.com/3", png_file((8, 8, 8)), now=NOW)
+        api.end_campaign(self.w.adv, self.w.campaign.campaign_id, now=NOW)
+        with self.assertRaises(api.CampaignEnded):
+            api.link_creative(self.w.adv, self.w.group.ad_group_id, other.creative_id, now=NOW, select=True)
+        self.assertFalse(AdGroupCreative.objects.filter(creative_id=other.creative_id).exists())
+
     def test_another_advertisers_or_an_archived_creative_is_404(self):
         other = World(ends_in=None)
         theirs = other.creative.creative_id

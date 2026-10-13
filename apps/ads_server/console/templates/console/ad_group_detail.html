@@ -86,55 +86,34 @@
   </form>
 </section>
 
-<section class="card" aria-label="소재">
-  <h1>소재</h1>
-  <p class="muted">이 광고에 연결된 소재 중 <strong>선택한 하나</strong>가 나갑니다. 선택을 바꾸면 다음 결정부터 적용되고, 이미 나간 광고는 그대로입니다.</p>
-  {% for c, edit, image in creatives %}
+<section class="card" aria-label="이미지">
+  <h1>이미지</h1>
+  <p class="muted">내 이미지 중 <strong>고른 하나</strong>가 이 광고에 나갑니다. 바꾸면 다음 결정부터 적용되고, 이미 나간 광고는 그대로입니다. 제목·이동 주소 수정과 이미지 교체는 <a href="{% url 'creative_list' %}">소재</a>에서 합니다.</p>
+  {% for c in page.images %}
   <div class="creative">
-    <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 소재 이미지">
+    <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 이미지">
     <p><strong><a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></strong> → <strong>{{ c.redirect_url|domain }}</strong>
-      {% if c.creative_id == group.creative_id %}<span class="status active">나가는 중</span>{% endif %}{% if c.archived %} <span class="muted">(삭제한 소재)</span>{% endif %}</p>
-    {% if c.creative_id != group.creative_id and not c.archived %}
+      {% if c.creative_id == group.creative_id %}<span class="status active">나가는 중</span>{% endif %}{% if c.archived %} <span class="muted">(삭제한 이미지)</span>{% endif %}</p>
+    {% if c.creative_id != group.creative_id %}{# 보관한 이미지는 선택된 것일 때만 목록에 있다 #}
     <form method="post" action="{% url 'ad_group_creative_select' group.ad_group_id %}">{% csrf_token %}<input type="hidden" name="creative_id" value="{{ c.creative_id }}">
-      <button type="submit" class="secondary">이 소재로 바꾸기</button>
+      <button type="submit" class="secondary">이 이미지로 바꾸기</button>
     </form>
     {% endif %}
-    <form method="post" action="{% url 'creative_edit' c.creative_id %}">{% csrf_token %}<input type="hidden" name="ad_group_id" value="{{ group.ad_group_id }}">
-      {% if edit.non_field_errors %}<div class="notice error" role="alert">{{ edit.non_field_errors }}</div>{% endif %}
-      {{ edit.updated_at }}
-      {{ edit.title.as_field_group }}
-      {{ edit.redirect_url.as_field_group }}
-      <button type="submit" class="secondary">제목·주소 저장</button>
-    </form>
-    <form method="post" action="{% url 'creative_image' c.creative_id %}" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="ad_group_id" value="{{ group.ad_group_id }}">
-      {% if image.non_field_errors %}<div class="notice error" role="alert">{{ image.non_field_errors }}</div>{% endif %}
-      {{ image.updated_at }}
-      {{ image.image.as_field_group }}
-      <p class="muted">PNG·JPEG. 이전 이미지는 이미 나간 광고를 위해 보관하며, 보관분도 업로드 총량에 들어갑니다.</p>
-      <button type="submit" class="secondary">이미지 바꾸기</button>
-    </form>
   </div>
   {% empty %}
-  <p class="muted">소재가 없습니다. 아래에서 올리거나 등록된 소재를 연결하세요(소재가 없으면 광고가 나가지 않습니다).</p>
+  <p class="muted">이미지가 없습니다. 아래에서 올린 뒤 고르세요(이미지가 없으면 광고가 나가지 않습니다).</p>
   {% endfor %}
 </section>
 
-<section class="card" aria-label="소재 연결">
-  <h1>소재 더하기</h1>
-  {% if page.library %}
-  <form method="post" action="{% url 'ad_group_creative_link' group.ad_group_id %}">{% csrf_token %}
-    <label for="link-creative">등록된 소재 연결</label>
-    <select name="creative_id" id="link-creative">{% for c in page.library %}<option value="{{ c.creative_id }}">{{ c.title }}</option>{% endfor %}</select>
-    <button type="submit" class="secondary">연결</button>
-  </form>
-  {% endif %}
+<section class="card" aria-label="이미지 업로드">
+  <h1>이미지 업로드</h1>
   <form method="post" action="{% url 'ad_group_creative_upload' group.ad_group_id %}" enctype="multipart/form-data" novalidate>{% csrf_token %}
     {% if upload_form.non_field_errors %}<div class="notice error" role="alert">{{ upload_form.non_field_errors }}</div>{% endif %}
-    <p><strong>새로 올려서 연결</strong> <span class="muted">— 올린 소재는 <a href="{% url 'creative_list' %}">소재 목록</a>에도 남습니다.</span></p>
+    <p class="muted">올리기만 합니다 — 이 광고에 나가게 하려면 올린 뒤 위 ‘이미지’에서 고르세요. 올린 이미지는 <a href="{% url 'creative_list' %}">소재</a> 목록에도 남습니다.</p>
     {{ upload_form.title.as_field_group }}
     {{ upload_form.redirect_url.as_field_group }}
     {{ upload_form.image.as_field_group }}
-    <button type="submit" class="secondary">올려서 연결</button>
+    <button type="submit" class="secondary">올리기</button>
   </form>
 </section>
 {% endblock %}

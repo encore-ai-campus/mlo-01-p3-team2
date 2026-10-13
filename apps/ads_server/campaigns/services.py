@@ -706,9 +706,11 @@ def _link(group, creative, now):
         group.creative = creative
 
 
-def link_creative(user, ad_group_id, creative_id, now=None):
+def link_creative(user, ad_group_id, creative_id, now=None, select=False):
     """등록된 소재를 광고그룹에 연결한다(재사용, 6-9c). 선택된 소재가 없으면 이것을 선택한다. 남의 소재·보관한 소재는 404, 끝난 캠페인은 409.
-    잠금 순서: 캠페인 → 광고그룹 → 소재 — 같은 소재의 보관과 소재 행에서 줄을 선다(보관된 소재는 연결되지 않고, 연결된 소재는 보관되지 않는다)."""
+    `select=True` 면 연결과 같은 트랜잭션에서 이것을 선택한다 — 광고 상세의 "이미지"는 내 이미지 중 하나를 고르기만 하고, 아직 연결되지 않았으면
+    여기서 함께 연결한다(6-11). 잠금 순서: 캠페인 → 광고그룹 → 소재 — 같은 소재의 보관과 소재 행에서 줄을 선다(보관된 소재는 연결되지 않고,
+    연결된 소재는 보관되지 않는다)."""
     require_advertiser(user)
     now = _now(now)
     with transaction.atomic():
@@ -716,7 +718,10 @@ def link_creative(user, ad_group_id, creative_id, now=None):
         tr.assert_open(g.campaign, now)
         c = _locked_creative(user, creative_id)
         _link(g, c, now)
-        _audit(user, "creative.linked", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id)})
+        if select and g.creative_id != c.creative_id:
+            g.creative, g.updated_at = c, now
+            g.save(update_fields=["creative", "updated_at"])
+        _audit(user, "creative.linked", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "selected": select})
     return _ad_group_view(g, _current_bid(g))
 
 

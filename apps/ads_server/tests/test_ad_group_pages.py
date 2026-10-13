@@ -23,6 +23,7 @@ class AdGroupPageBase(TestCase):
         self.crid = self.w.creative.creative_id
         self.client.force_login(self.w.adv)
         self.detail = reverse("ad_group_detail", args=[self.gid])
+        self.creative_page = reverse("creative_detail", args=[self.crid])  # 소재 수정·이미지 교체는 소재 상세에서만(6-11)
 
     def html(self):
         return self.client.get(self.detail).content.decode()
@@ -41,15 +42,16 @@ class AdGroupPageBase(TestCase):
         return self.creative().updated_at.isoformat()
 
     def edit_fields(self, **over):
+        """소재 상세의 제목·주소 폼(접두사 = 소재 ID)이 싣는 값."""
         prefix = str(self.crid)
-        html = self.html()
+        html = self.client.get(self.creative_page).content.decode()
         found = dict(re.findall(rf'name="{prefix}-(title|redirect_url|updated_at)"[^>]*?value="([^"]*)"', html))
-        return {"ad_group_id": str(self.gid), **{f"{prefix}-{k}": v for k, v in {**found, **over}.items()}}  # 돌아갈 광고그룹(6-9c)
+        return {f"{prefix}-{k}": v for k, v in {**found, **over}.items()}
 
     def image_fields(self, image, creative=None, updated_at=None):
-        """소재마다 따로인 이미지 교체 폼(접두사 = 소재 ID)."""
+        """소재 상세의 이미지 교체 폼(접두사 = 소재 ID)."""
         creative = creative or self.creative()
-        return {"ad_group_id": str(self.gid), f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
+        return {f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
 
 
 class DetailTests(AdGroupPageBase):
@@ -130,7 +132,7 @@ class GroupEditTests(AdGroupPageBase):
 
 class CreativeTests(AdGroupPageBase):
     def test_edit_only_what_changed(self):
-        self.assertRedirects(self.client.post(reverse("creative_edit", args=[self.crid]), self.edit_fields(title="새 제목")), self.detail)
+        self.assertRedirects(self.client.post(reverse("creative_edit", args=[self.crid]), self.edit_fields(title="새 제목")), self.creative_page)
         creative = self.creative()
         self.assertEqual((creative.title, creative.redirect_url), ("새 제목", "https://example.com/landing"))
 
@@ -148,7 +150,7 @@ class CreativeTests(AdGroupPageBase):
 
     def test_image_replacement_keeps_the_old_file(self):
         old = self.creative().image_name
-        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((5, 6, 7)))), self.detail)
+        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((5, 6, 7)))), self.creative_page)
         self.assertNotEqual(self.creative().image_name, old)
         self.assertEqual(set(CreativeImage.objects.filter(creative_id=self.crid).values_list("image_name", flat=True)), {old, self.creative().image_name})
 
@@ -159,19 +161,34 @@ class CreativeTests(AdGroupPageBase):
         self.assertEqual(r.status_code, 400)
         self.assertRegex(r.content.decode(), rf'id="image_{self.crid}-image_error"><li>[^<]+</li>')
 
-    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)  # V1 은 1개지만 설정만 올리면 늘어난다(설계 §10)
-    def test_each_creative_has_its_own_image_form(self):
-        """3-3 브라우저 점검: 이미지 교체 폼 하나를 모든 소재가 같이 써서, 한 소재의 거절 사유가 모든 소재 아래에 나오고 이름표(id)가 겹쳤다."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
+    def test_the_image_section_only_selects_and_the_upload_section_only_uploads(self):
+        """6-11(사용자 요청): 광고 상세의 "이미지"는 내 이미지(보관하지 않은 것 전부) 중 하나를 고르기만 하고, "이미지 업로드"는 올리기만 한다.
+        제목·주소 수정과 이미지 교체는 소재 상세에만 있다."""
+        mine = campaigns.create_creative(self.w.adv, None, "목록의 이미지", "https://example.com/2", png_file((9, 9, 9)))  # 아직 이 광고에 연결되지 않음
+        gone = campaigns.create_creative(self.w.adv, None, "지운 이미지", "https://example.com/3", png_file((8, 8, 8)))
+        campaigns.archive_creative(self.w.adv, gone.creative_id)
+        html = self.html()
+        image, upload = html.split('aria-label="이미지"', 1)[1].split('aria-label="이미지 업로드"', 1)
+        self.assertNotIn("소재 더하기", html)
+        self.assertEqual(re.findall(r'name="creative_id" value="([^"]+)"', image), [str(mine.creative_id)])  # 나가는 중인 것은 버튼이 없고, 지운 것은 보이지 않는다
+        self.assertIn("나가는 중", image)
+        self.assertNotIn("지운 이미지", image)
+        self.assertNotIn(f'action="{reverse("creative_edit", args=[self.crid])}"', html)  # 이 화면에서는 고치지 않는다
+        self.assertNotIn(f'action="{reverse("creative_image", args=[self.crid])}"', html)
+        self.assertEqual(re.findall(r'<input type="file"[^>]*name="([^"]+)"', html), ["new-image"])  # 파일 칸은 올리기 하나
+        self.assertNotIn('name="creative_id"', upload)
 
-        second = campaigns.create_creative(self.w.adv, self.gid, "둘째", "https://example.com/2", png_file((9, 9, 9)))
-        r = self.client.post(reverse("creative_image", args=[second.creative_id]),
-                             self.image_fields(SimpleUploadedFile("x.png", b"nope", content_type="image/png"), second))
-        html = r.content.decode()
-        self.assertEqual(r.status_code, 400)
-        self.assertEqual(re.findall(r'id="([^"]+_error)"', html), [f"image_{second.creative_id}-image_error"])  # 그 소재 아래에만
-        files = re.findall(r'<input type="file"[^>]*id="([^"]+)"', html)
-        self.assertEqual((len(files), len(set(files))), (3, 3))  # 소재 둘의 교체 폼 + 올려서 연결(6-9d) — 이름표가 겹치지 않는다
+        self.assertRedirects(self.client.post(reverse("ad_group_creative_select", args=[self.gid]), {"creative_id": str(mine.creative_id)}), self.detail)
+        self.assertEqual(self.group().creative_id, mine.creative_id)  # 연결되지 않았던 것도 고르면 연결과 선택이 함께
+        self.assertIn(mine.creative_id, {c.creative_id for c in campaigns.list_creatives(self.w.adv, self.gid)})
+
+        r = self.client.post(reverse("ad_group_creative_upload", args=[self.gid]),
+                             {"new-title": "새 이미지", "new-redirect_url": "https://example.com/new", "new-image": png_file((7, 7, 7))})
+        self.assertRedirects(r, self.detail)
+        uploaded = next(o.creative for o in campaigns.list_owned_creatives(self.w.adv) if o.creative.title == "새 이미지")
+        self.assertEqual(self.group().creative_id, mine.creative_id)  # 올리기만 한다 — 선택은 그대로
+        self.assertNotIn(uploaded.creative_id, {c.creative_id for c in campaigns.list_creatives(self.w.adv, self.gid)})  # 연결도 하지 않는다
+        self.assertIn(f'value="{uploaded.creative_id}"', self.html().split('aria-label="이미지 업로드"', 1)[0])  # 위 목록에서 고를 수 있다
 
     @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")
     def test_the_owner_sees_the_image_while_suspended_and_nobody_else_does(self):
@@ -194,20 +211,19 @@ class IsolationTests(AdGroupPageBase):
         self.assertEqual(self.client.get(reverse("ad_group_detail", args=[gid])).status_code, 404)
         posts = (("ad_group_bid", gid, {"amount": 1, "expected_version": 1}), ("ad_group_name", gid, {"name": "x"}),
                  ("ad_group_slots", gid, {"slot_ids": [str(other.slot.slot_id)]}), ("ad_group_enabled", gid, {"enabled": "0"}),
-                 ("creative_edit", crid, {}), ("creative_image", crid, {"image": png_file()}))
+                 ("creative_edit", crid, {}), ("creative_image", crid, {"image": png_file()}),
+                 ("ad_group_creative_upload", gid, {"new-title": "남의 화면", "new-redirect_url": "https://example.com/x", "new-image": png_file()}))
         for name, target, data in posts:
             self.assertEqual(self.client.post(reverse(name, args=[target]), data).status_code, 404, name)
         self.assertEqual(self.client.get(reverse("creative_image_file", args=[crid])).status_code, 404)
         group = campaigns.get_ad_group(other.adv, gid)
         self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 300))
         self.assertEqual(campaigns.get_creative(other.adv, crid).title, "제목")
-        forged = {**self.edit_fields(title="위조"), "ad_group_id": str(gid)}  # 내 소재의 맞는 수정이어도 돌아갈 곳(숨김 칸)이 남의 광고면 404(6-9d)
-        self.assertEqual(self.client.post(reverse("creative_edit", args=[self.crid]), forged).status_code, 404)
-        self.assertEqual(self.creative().title, "제목")  # 고치기 전에 막는다
-        self.assertEqual(self.client.post(reverse("creative_image", args=[self.crid]), {**self.image_fields(png_file((3, 3, 3))), "ad_group_id": str(gid)}).status_code, 404)
-        for name in ("ad_group_creative_link", "ad_group_creative_select"):  # 남의 광고에 내 소재를 연결·선택할 수 없다
-            self.assertEqual(self.client.post(reverse(name, args=[gid]), {"creative_id": str(self.crid)}).status_code, 404, name)
+        self.assertEqual([o.creative.title for o in campaigns.list_owned_creatives(self.w.adv)], ["제목"])  # 남의 광고 화면으로는 올라가지 않는다
+        self.assertEqual(self.client.post(reverse("ad_group_creative_select", args=[gid]), {"creative_id": str(self.crid)}).status_code, 404)  # 남의 광고에 내 이미지를 고를 수 없다
+        self.assertEqual(self.client.post(reverse("ad_group_creative_select", args=[self.gid]), {"creative_id": str(crid)}).status_code, 404)  # 내 광고에 남의 이미지도
         self.assertEqual(campaigns.get_ad_group(other.adv, gid).creative_id, other.creative.creative_id)
+        self.assertEqual(self.group().creative_id, self.crid)
 
 
 class StaleSameFieldTests(AdGroupPageBase):
