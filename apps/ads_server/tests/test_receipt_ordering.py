@@ -15,8 +15,8 @@ from django.utils import timezone
 from records import api as records
 from records.models import Reaction
 from tests.concurrency import BLOCKED, WAIT, Uncommitted, Worker, arriving_before
-from tests.factories import NOW, SUBJECT, World
-from tests.test_funnel_rules import FunnelMixin, at
+from tests.factories import NOW, SUBJECT, World, at
+from tests.test_funnel_rules import FunnelMixin
 
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)

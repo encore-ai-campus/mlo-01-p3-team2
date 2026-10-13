@@ -10,11 +10,10 @@ from django.urls.resolvers import RoutePattern
 from config.access_map import validate_admin_path
 from foundation.api import owned_or_404, owned_queryset
 from foundation.models import User
-from tests.factories import make_admin, make_advertiser
+from tests.factories import PW, make_admin, make_advertiser
 from tests.helpers import PROD_ENV, run_python
 from tests.support_app.models import OwnedThing
 
-PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 # 새 공개 뷰나 "로그인만 필요" 뷰를 추가하면 **여기도 고쳐야 한다**(리뷰 지점).

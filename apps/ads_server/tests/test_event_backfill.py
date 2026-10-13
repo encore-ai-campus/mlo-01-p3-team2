@@ -20,7 +20,7 @@ from records import api as records
 from records.processing import parse_reaction_ref, reaction_ref
 from records.models import Reaction
 from tests.factories import NOW, SUBJECT, World
-from tests.mongo_support import MongoDatabaseMixin
+from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 from tests.test_event_invariants import load_test
 
 
@@ -288,16 +288,10 @@ class BackfillTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(len(manifest["checkpoint"]["input_sha256"]), 64)
 
     def test_mongodb_unreachable_refuses_instead_of_guessing(self):
-        from django.test import override_settings
-
-        from events import mongo
-
         self.wipe()
         manifest = self.gaps_manifest()
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             ok, text = self.run_backfill(manifest, "--apply")
-            mongo.close()
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertEqual(EventOutbox.objects.count(), 0)

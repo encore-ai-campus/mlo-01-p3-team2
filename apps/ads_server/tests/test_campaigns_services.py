@@ -1,5 +1,4 @@
 import io
-import threading
 import uuid
 
 from django.db import connection
@@ -14,6 +13,7 @@ from foundation.errors import Forbidden, InvalidRequest, StaleVersion
 from foundation.models import AuditLog
 from masters import api as masters
 from tests import image_factory
+from tests.concurrency import run_together
 from tests.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, make_slot, png_file
 
 SEC = DAY / 86400
@@ -453,22 +453,8 @@ class AuditTests(TestCase):
 class ConcurrentBidTests(TransactionTestCase):
     def test_concurrent_bids_with_same_expected_version_only_one_wins(self):
         w = World()
-        barrier, results = threading.Barrier(2), []
-
-        def worker(amount):
-            try:
-                barrier.wait(timeout=5)
-                api.add_bid(w.adv, w.group.ad_group_id, amount, expected_version=1, now=NOW)
-                results.append("ok")
-            except Exception as e:  # noqa: BLE001
-                results.append(type(e).__name__)
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=worker, args=(a,)) for a in (31, 32)]
-        [t.start() for t in threads]
-        [t.join(timeout=15) for t in threads]
-        self.assertEqual(sorted(results), ["StaleVersion", "ok"], results)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
+        results, errors = run_together([lambda a=a: api.add_bid(w.adv, w.group.ad_group_id, a, expected_version=1, now=NOW) for a in (31, 32)])
+        self.assertEqual(([type(e).__name__ for e in errors], sum(r is not None for r in results)), (["StaleVersion"], 1), errors)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
         self.assertEqual([b.bid_version for b in api.list_bids(w.adv, w.group.ad_group_id)], [2, 1])
 
 

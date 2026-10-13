@@ -11,8 +11,7 @@ from billing import api as billing
 from campaigns import api as campaigns
 from foundation.models import User
 from records import api as records
-from tests.factories import NOW, PW, SUBJECT, World
-from tests.test_dashboard import impression
+from tests.factories import NOW, PW, SUBJECT, World, impression
 
 URL = reverse("points")
 

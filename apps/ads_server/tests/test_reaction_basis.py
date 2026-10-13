@@ -14,8 +14,8 @@ from campaigns.models import Campaign
 from records import api as records
 from records.models import Decision, Reaction
 from records.processing import _finish
-from tests.factories import NOW, SUBJECT
-from tests.test_funnel_rules import A, FunnelBase, at
+from tests.factories import NOW, SUBJECT, at
+from tests.test_funnel_rules import A, FunnelBase
 
 
 @tag("security")

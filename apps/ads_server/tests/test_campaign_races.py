@@ -3,7 +3,6 @@
 실제 MySQL 연결을 스레드마다 하나씩 쓰고, 한쪽이 행을 쓰기 직전(SQL 훅, `tests/concurrency.py`)에 멈춘 사이 다른 쪽을 실행해 순서를 고정한다.
 """
 import re
-import threading
 
 from django.db import connection
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
@@ -14,8 +13,8 @@ from campaigns import api
 from campaigns.models import Campaign, Creative, CreativeImage, ReviewRequest
 from foundation.api import errors
 from foundation.models import AuditLog
-from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
-from tests.factories import DAY, NOW, World, png_file
+from tests.concurrency import overlap
+from tests.factories import DAY, NOW, World, make_admin, png_file
 
 EXPIRE_AT = NOW + 11 * DAY  # World 의 캠페인은 NOW + 10일에 끝난다
 EXTENDED = NOW + 16 * DAY
@@ -46,18 +45,7 @@ class QuotaRaceTests(TransactionTestCase):
 
     def overlap(self, first, verb, table, second):
         """`first` 가 `table` 에 쓰기 직전(상한 확인 뒤)에 멈춘 사이 `second` 를 보낸다. 둘째는 광고주 잠금에서 기다려야 한다."""
-        paused, release = threading.Event(), threading.Event()
-        self.addCleanup(release.set)
-        a = Worker(pausing_before(verb, table, first, paused, release))
-        a.start()
-        self.assertTrue(paused.wait(WAIT), f"첫 요청이 {table} {verb} 에 이르지 않았다")
-        b = Worker(second)
-        b.start()
-        b.join(BLOCKED)
-        self.assertTrue(b.is_alive(), "둘째 요청이 광고주 잠금을 기다리지 않았다")
-        release.set()
-        a.join(WAIT)
-        b.join(WAIT)
+        a, b = overlap(self, first, verb, table, second)
         self.assertEqual(a.errors, [])
         return b
 
@@ -103,19 +91,7 @@ class AdGroupWriteRaceTests(TransactionTestCase):
         self.cid = self.w.campaign.campaign_id
 
     def race(self, first, table, second, verb="UPDATE"):
-        paused, release = threading.Event(), threading.Event()
-        self.addCleanup(release.set)
-        a = Worker(pausing_before(verb, table, first, paused, release))
-        a.start()
-        self.assertTrue(paused.wait(WAIT), f"첫 동작이 {table} {verb} 에 이르지 않았다")
-        b = Worker(second)
-        b.start()
-        b.join(BLOCKED)
-        self.assertTrue(b.is_alive(), "둘째 동작이 잠금을 기다리지 않았다")  # 캠페인 행 잠금에서
-        release.set()
-        a.join(WAIT)
-        b.join(WAIT)
-        return a, b
+        return overlap(self, first, verb, table, second)  # 둘째는 캠페인 행 잠금에서 기다린다
 
     def order(self):
         return list(AuditLog.objects.filter(action__in=["creative.updated", "creative.image_replaced", "ad_group.updated", "bid.added", "campaign.ended_early"])
@@ -177,17 +153,9 @@ class ExpireVersusExtendTests(TransactionTestCase):
 
     def race(self, paused_side, writer="extend"):
         """`paused_side`("expire"|"writer")가 캠페인 행을 쓰기 직전에 멈춘 사이 다른 쪽을 시작하고, 막혀 있든 끝났든 재개해 둘 다 마친다. 쓰기 쪽의 오류 목록을 돌려준다."""
-        paused, release = threading.Event(), threading.Event()
         works = (self.expire, self.writer(writer)) if paused_side == "expire" else (self.writer(writer), self.expire)
-        first = Worker(pausing_before("UPDATE", "campaigns_campaign", works[0], paused, release))
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "멈출 지점(캠페인 행 UPDATE)에 이르지 않았다")
-        second = Worker(works[1])
-        second.start()
-        second.join(BLOCKED)  # 첫째가 행을 쥐고 있으면 여기서 기다린다 — 끝났든 막혔든 재개 뒤에 합쳐진다
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)
+        # 첫째가 행을 쥐고 있으면 둘째는 기다린다 — 끝났든 막혔든 재개 뒤에 합쳐진다
+        first, second = overlap(self, works[0], "UPDATE", "campaigns_campaign", works[1], waits=False)
         expire, written = (first, second) if paused_side == "expire" else (second, first)
         self.assertEqual(expire.errors, [])
         return written.errors
@@ -235,16 +203,8 @@ class ExpireVersusExtendTests(TransactionTestCase):
     def test_expire_racing_a_new_review_request_leaves_no_open_request_on_an_ended_campaign(self):
         """재검토 요청 접수가 캠페인을 읽은 뒤 기간 종료가 커밋되면, 끝난 캠페인에 열린 요청이 생겼다."""
         api.reject_review_request(self.w.admin, self.review.review_request_id, "아직 아닙니다", now=NOW + DAY)  # 기존 요청을 닫아 새 요청을 받을 수 있게
-        paused, release = threading.Event(), threading.Event()
-        create = Worker(pausing_before("INSERT", "campaigns_review_request", lambda: api.create_review_request(self.w.adv, self.cid, "다시", now=NOW + 9 * DAY), paused, release))
-        create.start()
-        self.assertTrue(paused.wait(WAIT))
-        expire = Worker(self.expire)
-        expire.start()
-        expire.join(BLOCKED)
-        release.set()
-        create.join(WAIT)
-        expire.join(WAIT)
+        _create, expire = overlap(self, lambda: api.create_review_request(self.w.adv, self.cid, "다시", now=NOW + 9 * DAY), "INSERT", "campaigns_review_request",
+                                  self.expire, waits=False)
         self.assertEqual(expire.errors, [])
         self.assertEqual(Campaign.objects.get(pk=self.cid).status, "ENDED")
         self.assertEqual(ReviewRequest.objects.filter(campaign_id=self.cid, status="OPEN").count(), 0)
@@ -286,17 +246,8 @@ class RejectRaceTests(TransactionTestCase):
         self.review = api.create_review_request(self.w.adv, self.cid, "고쳤습니다", now=NOW)
 
     def race(self, other):
-        paused, release = threading.Event(), threading.Event()
         reject = lambda: api.reject_review_request(self.w.admin, self.review.review_request_id, "먼저 반려", now=NOW + DAY)  # noqa: E731
-        first = Worker(pausing_before("UPDATE", "campaigns_review_request", reject, paused, release))
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "멈출 지점(재검토 요청 UPDATE)에 이르지 않았다")
-        second = Worker(other)
-        second.start()
-        second.join(BLOCKED)  # 반려가 캠페인 행을 쥐고 있으면 여기서 기다린다
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)
+        first, second = overlap(self, reject, "UPDATE", "campaigns_review_request", other, waits=False)  # 반려가 캠페인 행을 쥐고 있으면 둘째는 기다린다
         self.assertEqual(first.errors, [])
         return second.errors
 
@@ -307,7 +258,7 @@ class RejectRaceTests(TransactionTestCase):
         return ReviewRequest.objects.get(pk=self.review.review_request_id)
 
     def test_two_admins_reject_at_once(self):
-        errors_ = self.race(lambda: api.reject_review_request(make_second_admin(), self.review.review_request_id, "나중 반려", now=NOW + DAY))
+        errors_ = self.race(lambda: api.reject_review_request(make_admin(), self.review.review_request_id, "나중 반려", now=NOW + DAY))
         self.assertEqual([type(e) for e in errors_], [errors.Conflict])  # 나중 쪽은 "이미 처리된 요청"
         self.assertEqual((self.stored().status, self.stored().response_note), ("REJECTED", "먼저 반려"))  # 먼저 저장한 답변이 남는다
         self.assertEqual(self.actions_in_commit_order().count("campaign.review_rejected"), 1)
@@ -332,12 +283,6 @@ class RejectRaceTests(TransactionTestCase):
         with self.assertRaises(errors.Conflict):
             api.reject_review_request(self.w.admin, self.review.review_request_id, "늦은 반려", now=NOW + DAY)
         self.assertEqual((self.stored().status, self.stored().response_note), ("RELEASED", ""))
-
-
-def make_second_admin():
-    from tests.factories import make_admin
-
-    return make_admin()
 
 
 @tag("security")

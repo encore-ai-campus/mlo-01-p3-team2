@@ -8,9 +8,8 @@ from django.test import Client, TestCase, TransactionTestCase, override_settings
 
 from masters import api as masters
 from records.models import Decision
-from serving_api.throttle import buckets
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, World
+from tests.factories import NOW, World, media_api
 
 BASE = "/api/media/v1"
 SUBJECT = str(uuid.uuid4())
@@ -20,14 +19,8 @@ class DecisionApiMixin(ProviderContractMixin):
     contract = Contract("serving")
 
     def setUp(self):
-        buckets.reset()
-        self.addCleanup(buckets.reset)
-        self.w = World()
-        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+        self.w, self.key = media_api(self)
         self.client = Client()
-        patcher = mock.patch("records.services._now", lambda now=None: now or NOW)  # 후보 광고의 기간(NOW 기준)이 맞도록 시각을 고정한다
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def post(self, body=None, key="USE", raw=None, content_type="application/json", **extra):
         if body is None and raw is None:

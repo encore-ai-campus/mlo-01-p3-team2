@@ -2,11 +2,9 @@
 
 정상 경쟁에서 오류(특히 교착 1213·잠금 초과 1205)가 나면 안 되므로 재시도하지 않고 오류를 그대로 드러낸다. 이 파일의 시험은 `scripts/` 의 반복 실행(수십 회)에서도 무실패여야 한다.
 """
-import threading
 import uuid
 from random import Random
 
-from django.db import connection
 from django.test import TransactionTestCase, override_settings, tag
 
 from billing import api as billing
@@ -15,28 +13,8 @@ from campaigns import api as campaigns
 from campaigns.models import ReviewRequest
 from records import api as records
 from records.models import Reaction
-from tests.concurrency import WAIT
+from tests.concurrency import run_together
 from tests.factories import NOW, SUBJECT, World, make_admin, make_advertiser
-
-
-def run_together(jobs, timeout=WAIT):
-    """`jobs`(인자 없는 함수들)를 스레드 하나씩, 같은 순간에 시작한다. 결과 목록과 오류 목록을 돌려준다."""
-    barrier, results, errors = threading.Barrier(len(jobs)), [None] * len(jobs), []
-
-    def run(index, job):
-        try:
-            barrier.wait(timeout=10)
-            results[index] = job()
-        except BaseException as error:  # noqa: BLE001
-            errors.append(error)
-        finally:
-            connection.close()
-
-    threads = [threading.Thread(target=run, args=(i, job), daemon=True) for i, job in enumerate(jobs)]
-    [t.start() for t in threads]
-    [t.join(timeout) for t in threads]
-    assert not any(t.is_alive() for t in threads), "스레드가 끝나지 않았다(잠금 대기?)"
-    return results, errors
 
 
 @tag("security")

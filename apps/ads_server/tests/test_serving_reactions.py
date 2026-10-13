@@ -1,19 +1,18 @@
 """2-4 반응 수신(inbox): 실제 URL 로 요청하고 응답을 계약(C1)에 대조한다. **2xx = 수신함에 커밋됐다**는 의미를 동시성·커밋 실패까지 확인한다."""
 import json
-import threading
 import time
 import uuid
 from unittest import mock
 
-from django.db import OperationalError, connection
+from django.db import OperationalError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from masters import api as masters
 from records.models import Reaction
-from serving_api.throttle import buckets
+from tests.concurrency import run_together
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, World
+from tests.factories import NOW, World, media_api
 
 BASE = "/api/media/v1"
 PATH = "/decisions/{decision_id}/reactions/{reaction_id}"
@@ -24,17 +23,11 @@ class ReactionApiMixin(ProviderContractMixin):
     contract = Contract("serving")
 
     def setUp(self):
-        buckets.reset()
-        self.addCleanup(buckets.reset)
         self.enterContext(override_settings(REACTION_PROCESS_ON_RECEIPT=False))  # 이 파일은 접수만 본다(처리는 test_records_processing.py)
-        self.w = World()
-        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+        self.w, self.key = media_api(self)
         self.media_id = self.w.slot.media_id
         self.decision_id = uuid.uuid4()  # 이 단계는 결정의 존재를 묻지 않는다(처리 단계가 판정한다)
         self.client = Client()
-        patcher = mock.patch("records.services._now", lambda now=None: now or NOW)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def url(self, reaction_id, decision_id=None):
         return f"{BASE}/decisions/{decision_id or self.decision_id}/reactions/{reaction_id}"
@@ -344,26 +337,19 @@ class ConcurrentReceiptTests(ReactionApiMixin, TransactionTestCase):
 
     def send_all(self, jobs):
         """jobs: [(reaction_id, body)]. 각 작업을 스레드 하나로 동시에 시작하고, 2xx/409 가 나올 때까지 재시도한 최종 상태를 모은다."""
-        barrier, results, self.retried = threading.Barrier(len(jobs)), [None] * len(jobs), []
+        self.retried = []
 
-        def worker(index, reaction_id, body):
+        def worker(reaction_id, body):
             client = Client()
-            try:
-                barrier.wait(timeout=10)
-                for _ in range(400):
-                    response = self.put(reaction_id, body=body, client=client)
-                    if response.status_code not in (503, 429):
-                        results[index] = (response.status_code, response.json())
-                        return
-                    self.retried.append(response.status_code)
-                    time.sleep(0.003)
-            finally:
-                connection.close()
+            for _ in range(400):
+                response = self.put(reaction_id, body=body, client=client)
+                if response.status_code not in (503, 429):
+                    return response.status_code, response.json()
+                self.retried.append(response.status_code)
+                time.sleep(0.003)
 
-        threads = [threading.Thread(target=worker, args=(i, *job)) for i, job in enumerate(jobs)]
-        [t.start() for t in threads]
-        [t.join(timeout=60) for t in threads]
-        self.assertEqual(self.retried, [], "정상 경쟁에서 503/429 가 났다(교착·잠금 초과?)")
+        results, errors = run_together([lambda job=job: worker(*job) for job in jobs], timeout=60)
+        self.assertEqual((self.retried, errors), ([], []), "정상 경쟁에서 503/429 가 났다(교착·잠금 초과?)")
         return results
 
     @override_settings(MEDIA_RATE_LIMITS={"decisions": (1000, 1000), "reactions": (100000, 100000), "reads": (1000, 1000)})

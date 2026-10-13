@@ -2,7 +2,6 @@
 import io
 import json
 import signal
-import threading
 import time
 import uuid
 from datetime import timedelta
@@ -11,7 +10,7 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import OperationalError, connection
+from django.db import OperationalError
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api as billing
@@ -20,8 +19,8 @@ from masters import api as masters
 from records import api as records
 from records.models import Reaction
 from records.rules import UnknownRule
-from serving_api.throttle import buckets
-from tests.factories import DAY, NOW, SUBJECT, World
+from tests.concurrency import run_together
+from tests.factories import DAY, NOW, SUBJECT, World, media_api
 
 
 class ProcessingBase(TestCase):
@@ -389,27 +388,19 @@ class ConcurrentProcessingTests(TransactionTestCase):
         for _ in range(6):  # 서로 다른 결정 6개 × 노출 하나씩
             d = records.decide(media, w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
             views.append(records.receive_reaction(media, d.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)[0])
-        barrier, errors = threading.Barrier(2), []
+        errors = []
 
         def worker():
-            try:
-                barrier.wait(timeout=10)
-                for _ in range(300):
-                    counts = records.process_pending(limit=100, now=NOW)
-                    if counts["failed"] or counts["transient"]:  # 정상 경쟁에서 실패·교착·잠금 초과가 나면 안 된다(MySQL 행 잠금) — 드러낸다
-                        errors.append(f"처리 중 실패/일시 오류: {counts}")
-                    if not Reaction.objects.filter(status="RECEIVED").exists():
-                        return
-                    time.sleep(0.003)
-            except Exception as error:  # noqa: BLE001
-                errors.append(repr(error))
-            finally:
-                connection.close()
+            for _ in range(300):
+                counts = records.process_pending(limit=100, now=NOW)
+                if counts["failed"] or counts["transient"]:  # 정상 경쟁에서 실패·교착·잠금 초과가 나면 안 된다(MySQL 행 잠금) — 드러낸다
+                    errors.append(f"처리 중 실패/일시 오류: {counts}")
+                if not Reaction.objects.filter(status="RECEIVED").exists():
+                    return
+                time.sleep(0.003)
 
-        threads = [threading.Thread(target=worker) for _ in range(2)]
-        [t.start() for t in threads]
-        [t.join(timeout=60) for t in threads]
-        self.assertEqual(errors, [])
+        _, raised = run_together([worker, worker], timeout=60)
+        self.assertEqual(errors + raised, [])
         # 끝난 뒤에는 남김없이 처리되고 이중 과금이 없다
         records.process_pending(limit=100, now=NOW)
         self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 0)
@@ -424,14 +415,8 @@ class InlineProcessingTests(TransactionTestCase):
     """수신 커밋 뒤 한 번 바로 처리해 본다. 접수 응답(스냅샷)은 처리 결과나 실패에 영향받지 않는다."""
 
     def setUp(self):
-        buckets.reset()
-        self.addCleanup(buckets.reset)
-        self.w = World()
+        self.w, self.key = media_api(self)
         self.media = self.w.slot.media_id
-        self.key = masters.issue_media_key(self.w.admin, self.media).key
-        patcher = mock.patch("records.services._now", lambda now=None: now or NOW)
-        patcher.start()
-        self.addCleanup(patcher.stop)
         self.client = Client()
 
     def decide(self):

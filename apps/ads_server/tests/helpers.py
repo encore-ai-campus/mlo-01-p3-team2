@@ -1,9 +1,26 @@
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+ROUTE_PARAM = re.compile(r"<(?:(\w+):)?(\w+)>")  # 경로의 `<str:campaign_id>` 같은 자리
+
+
+def every_route(patterns=None, prefix=""):
+    """URL 설정 전체(포함한 하위 설정까지)의 경로 문자열. 정규식(관리자 사이트의 앱 목록 등)은 건너뛴다."""
+    from django.urls import URLResolver, get_resolver
+    from django.urls.resolvers import RoutePattern
+
+    for p in patterns if patterns is not None else get_resolver().url_patterns:
+        if not isinstance(p.pattern, RoutePattern):
+            continue
+        route = prefix + str(p.pattern)
+        if isinstance(p, URLResolver):
+            yield from every_route(p.url_patterns, route)
+        else:
+            yield route
 
 
 def run_python(code, settings_module, env=None):

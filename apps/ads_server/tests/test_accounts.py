@@ -7,8 +7,7 @@ from django.urls import reverse
 from config.settings import base
 from foundation.accounts import create_advertiser
 from foundation.models import Role, User
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 def signup_data(**over):
@@ -24,8 +23,8 @@ class SignupTests(TestCase):
     def setUp(self):
         self.url = reverse("signup")
 
-    def post(self, ip="10.1.0.1", **over):
-        return self.client.post(self.url, signup_data(**over), REMOTE_ADDR=ip)
+    def post(self, **over):
+        return self.client.post(self.url, signup_data(**over), REMOTE_ADDR="10.1.0.1")  # 모두 한 IP(강의실 NAT 처럼)
 
     def test_signup_creates_advertiser_role(self):
         r = self.post()
@@ -52,20 +51,20 @@ class SignupTests(TestCase):
         self.assertNotIn("role", inspect.signature(create_advertiser).parameters)
 
     def test_username_rules(self):
-        for i, bad in enumerate(["abc", "a" * 21, "UPPER_case", "한글아이디", "bad name", "ab-cd1", ""]):
-            r = self.post(ip=f"10.2.0.{i}", username=bad)
+        for bad in ["abc", "a" * 21, "UPPER_case", "한글아이디", "bad name", "ab-cd1", ""]:
+            r = self.post(username=bad)
             self.assertEqual(r.status_code, 400, bad)
         self.assertEqual(User.objects.count(), 0)
-        for i, good in enumerate(["abcd", "a" * 20, "a_1_b2"]):
-            self.assertEqual(self.post(ip=f"10.3.0.{i}", username=good).status_code, 302, good)
+        for good in ["abcd", "a" * 20, "a_1_b2"]:
+            self.assertEqual(self.post(username=good).status_code, 302, good)
 
     def test_nickname_and_class_label_rules(self):
         bad = [
             {"nickname": "가"}, {"nickname": "가" * 21}, {"nickname": "홍​길동"},  # 제로폭 공백
             {"nickname": "홍\x07길동"}, {"class_label": ""}, {"class_label": "반" * 31}, {"nickname": "   "},
         ]
-        for i, over in enumerate(bad):
-            self.assertEqual(self.post(ip=f"10.4.0.{i}", **over).status_code, 400, over)
+        for over in bad:
+            self.assertEqual(self.post(**over).status_code, 400, over)
         self.assertEqual(User.objects.count(), 0)
 
     def test_nickname_and_class_label_are_trimmed(self):
@@ -80,8 +79,8 @@ class SignupTests(TestCase):
             "common": "qwertyuiop",
             "similar_to_username": "ad_user1ab",
         }
-        for i, (name, pw) in enumerate(cases.items()):
-            r = self.post(ip=f"10.5.0.{i}", password=pw, password_confirm=pw)
+        for name, pw in cases.items():
+            r = self.post(password=pw, password_confirm=pw)
             self.assertEqual(r.status_code, 400, name)
         self.assertEqual(User.objects.count(), 0)
 
@@ -96,8 +95,8 @@ class SignupTests(TestCase):
         self.assertTrue(User.objects.get(username="ad_user1").password.startswith("argon2$"))
 
     def test_duplicate_username_generic_error(self):
-        self.post(ip="10.6.0.1")
-        r = self.post(ip="10.6.0.2")
+        self.post()
+        r = self.post()
         self.assertEqual(r.status_code, 400)
         self.assertContains(r, "사용할 수 없는 아이디입니다.", status_code=400)
         self.assertEqual(User.objects.filter(username="ad_user1").count(), 1)

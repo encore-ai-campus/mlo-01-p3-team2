@@ -3,36 +3,21 @@
 `test_access.UrlSweepTests` 는 모든 URL 이 역할 접두사 아래이거나 공개로 표시됐는지(정적) 보고, 여기서는 그 접두사가 **실제로** 막는지 본다.
 새 경로를 더하면 이 시험이 자동으로 함께 돈다(경로 목록을 손으로 적지 않는다).
 """
-import re
 import uuid
 
 from django.conf import settings
 from django.test import TestCase, tag
-from django.urls import URLResolver, get_resolver, reverse
-from django.urls.resolvers import RoutePattern
+from django.urls import reverse
 
 from tests.factories import make_admin, make_advertiser
-
-_PARAM = re.compile(r"<(?:(\w+):)?(\w+)>")
+from tests.helpers import ROUTE_PARAM, every_route
 
 
 def concrete(route):
     """`<str:campaign_id>` 같은 자리를 실제 값으로 채운다(UUID — 남의·없는 객체와 같은 모양). 정규식 경로는 None."""
     def fill(match):
         return "0" * 64 + ".png" if match.group(1) == "asset_name" else str(uuid.uuid4())
-    return "/" + _PARAM.sub(fill, route)
-
-
-def every_route(patterns=None, prefix=""):
-    """URL 설정 전체(포함한 하위 설정까지)의 경로 문자열. 정규식(관리자 사이트의 앱 목록 등)은 건너뛴다."""
-    for p in patterns if patterns is not None else get_resolver().url_patterns:
-        if not isinstance(p.pattern, RoutePattern):
-            continue
-        route = prefix + str(p.pattern)
-        if isinstance(p, URLResolver):
-            yield from every_route(p.url_patterns, route)
-        else:
-            yield route
+    return "/" + ROUTE_PARAM.sub(fill, route)
 
 
 def under(prefix):

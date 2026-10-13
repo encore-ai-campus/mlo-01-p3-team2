@@ -3,8 +3,8 @@ from django.urls import reverse
 
 from foundation.api import record_audit
 from foundation.models import AppendOnlyError, AuditLog, User
+from tests.factories import PW
 
-PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 

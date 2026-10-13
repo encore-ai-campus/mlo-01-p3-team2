@@ -1,12 +1,11 @@
-import threading
 import uuid
 
-from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
 from foundation.errors import InvalidRequest, NotFound
+from tests.concurrency import run_together
 from tests.factories import NOW, make_advertiser
 
 IMPRESSION, CLICK = "IMPRESSION", "CLICK"
@@ -102,20 +101,7 @@ class ChargeTests(TestCase):
 class ConcurrentChargeTests(TransactionTestCase):
     def test_charge_concurrent_same_ref_once(self):
         adv, camp = funded(1_000), uuid.uuid4()
-        barrier, outcomes = threading.Barrier(2), []
-
-        def worker():
-            try:
-                barrier.wait(timeout=5)
-                outcomes.append(charge(adv, 100, "same-ref", camp))
-            except Exception as e:  # noqa: BLE001
-                outcomes.append(type(e).__name__)
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=worker) for _ in range(2)]
-        [t.start() for t in threads]
-        [t.join(timeout=15) for t in threads]
+        outcomes, _ = run_together([lambda: charge(adv, 100, "same-ref", camp)] * 2)  # 진 쪽의 오류는 매체처럼 재시도로 다룬다
         charge(adv, 100, "same-ref", camp)  # 실패한 쪽은 매체처럼 재시도한다(최소 한 번 전달)
         self.assertEqual(LedgerEntry.objects.filter(reaction_ref="same-ref").count(), 1)
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 900)  # 한 번만 차감

@@ -12,9 +12,9 @@ from config.settings import base
 from foundation import errors
 from foundation.http import parse_json
 from foundation.models import User
+from tests.factories import PW
 from tests.helpers import BASE_DIR, PROD_ENV, run_python
 
-PW = "Tr0ub4dor-horse-staple"
 URLS = "tests.urls_api"
 
 

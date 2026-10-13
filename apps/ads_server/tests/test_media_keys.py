@@ -1,6 +1,5 @@
 import hmac
 import re
-import threading
 import uuid
 from datetime import timedelta
 from unittest import mock
@@ -12,7 +11,7 @@ from foundation.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from foundation.models import AuditLog
 from masters import api
 from masters.models import MediaKey
-from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
+from tests.concurrency import overlap
 from tests.factories import DAY, NOW, make_admin, make_advertiser
 
 KEY_SHAPE = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
@@ -196,17 +195,9 @@ class RotationRaceTests(TransactionTestCase):
         admin = make_admin()
         m = media(admin)
         old = api.issue_media_key(admin, m.media_id)
-        paused, release = threading.Event(), threading.Event()
-        slow = Worker(pausing_before("UPDATE", "masters_media_key", lambda: api.rotate_media_key(admin, m.media_id, 3600, request_key="slow"), paused, release))
-        slow.start()
-        self.assertTrue(paused.wait(WAIT), "긴 유예 교체가 만료 UPDATE 에 이르지 않았다")  # 옛 키(만료 없음)를 읽은 뒤
-        fast = Worker(lambda: api.rotate_media_key(admin, m.media_id, 0, request_key="fast"))
-        fast.start()
-        fast.join(BLOCKED)
-        self.assertTrue(fast.is_alive(), "유예 0 교체가 매체 행 잠금을 기다리지 않았다")
-        release.set()
-        slow.join(WAIT)
-        fast.join(WAIT)
+        # 긴 유예 교체가 옛 키(만료 없음)를 읽은 뒤 만료 UPDATE 직전에 멈춘 사이, 유예 0 교체는 매체 행 잠금에서 기다린다
+        slow, fast = overlap(self, lambda: api.rotate_media_key(admin, m.media_id, 3600, request_key="slow"), "UPDATE", "masters_media_key",
+                             lambda: api.rotate_media_key(admin, m.media_id, 0, request_key="fast"))
         self.assertEqual((slow.errors, fast.errors), ([], []))
         self.assertIsNone(api.authenticate_media_key(old.key))  # 즉시 만료가 되살아나지 않는다
         self.assertIsNone(api.authenticate_media_key(slow.result.key))  # 뒤의 교체(유예 0)는 앞의 교체가 만든 키도 본다

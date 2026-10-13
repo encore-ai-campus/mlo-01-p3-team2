@@ -24,7 +24,7 @@ from records import api as records
 from records.models import Decision, Reaction
 from records.processing import reaction_ref
 from tests.factories import DAY, NOW, SUBJECT, World
-from tests.mongo_support import MongoDatabaseMixin
+from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 
 UTC = timezone.utc
 
@@ -449,12 +449,8 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn("없다", " ".join(ndjson.verify_chain(path)))
 
     def test_mongodb_unreachable_fails_without_publishing(self):
-        from events import mongo
-
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             ok, text = self.export()
-            mongo.close()
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertFalse((self.dir / "out").exists())

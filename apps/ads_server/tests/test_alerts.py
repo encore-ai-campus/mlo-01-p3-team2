@@ -17,8 +17,7 @@ from campaigns import api as campaigns
 from console.queries.alerts import alerts_for
 from masters import api as masters
 from records import api as records
-from tests.factories import DAY, NOW, SUBJECT, World, make_slot
-from tests.test_dashboard import impression
+from tests.factories import DAY, NOW, SUBJECT, World, impression, make_slot
 
 
 def codes(alerts):

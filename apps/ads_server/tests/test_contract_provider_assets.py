@@ -39,7 +39,7 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
         response = Client().get(f"/assets/{missing}")
         self.assertEqual(response.status_code, 404)
         self.assertContract(self.contract, PATH, "get", response)
-        with override_settings(ASSET_SERVABLE_CHECK="tests.test_contract_provider_assets.never"):
+        with override_settings(ASSET_SERVABLE_CHECK="tests.support_app.checks.deny_all"):
             blocked = Client().get(f"/assets/{self.png.name}")
         self.assertEqual(blocked.status_code, 404)
         self.assertContract(self.contract, PATH, "get", blocked)
@@ -67,7 +67,3 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
         self.assertTrue(cookie_problems(response))
         with self.assertRaises(AssertionError):
             self.assertNoCookies(response)
-
-
-def never(name):
-    return False

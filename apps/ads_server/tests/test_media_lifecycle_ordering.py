@@ -6,7 +6,6 @@
 """
 import threading
 import uuid
-from datetime import timedelta
 from random import Random
 
 from django.test import TransactionTestCase, override_settings, tag
@@ -17,14 +16,10 @@ from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
 from tests.concurrency import BLOCKED, WAIT, Uncommitted, Worker, arriving_before, pausing_before
-from tests.factories import NOW, SUBJECT, World
+from tests.factories import SUBJECT, World, at
 
 OTHER_SUBJECT = "0197a5c0-0000-7000-8000-000000000002"
 THIRD_SUBJECT = "0197a5c0-0000-7000-8000-000000000003"
-
-
-def at(seconds):
-    return NOW + timedelta(seconds=seconds)
 
 
 class MediaLifecycleBase(TransactionTestCase):

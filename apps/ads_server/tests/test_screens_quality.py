@@ -28,7 +28,7 @@ from campaigns import api as campaigns
 from masters import api as masters
 from records import api as records
 from tests.factories import NOW, PW, SUBJECT, World, png_file
-from tests.test_access_sweep import _PARAM, every_route
+from tests.helpers import ROUTE_PARAM, every_route
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
 
@@ -169,7 +169,7 @@ class ScreenQualityTests(TestCase):
             prefix = next((p for p in clients if route.startswith(p)), None)
             if prefix is None:
                 continue
-            path = "/" + _PARAM.sub(lambda m: str(values[m.group(2)]), route)
+            path = "/" + ROUTE_PARAM.sub(lambda m: str(values[m.group(2)]), route)
             r = clients[prefix].get(path)
             if r.status_code == 405 or (r.status_code == 200 and not r["Content-Type"].startswith("text/html")):
                 continue

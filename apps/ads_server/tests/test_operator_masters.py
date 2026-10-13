@@ -1,7 +1,6 @@
 """Step 3-1a 관리자 화면: 매체·슬롯 등록과 활성/비활성, 매체 키 발급·교체·폐기(계획 §8.1.3, S6). 화면은 서비스만 부른다."""
 import logging
 import re
-import threading
 import uuid
 from datetime import timedelta
 from unittest import mock
@@ -13,7 +12,7 @@ from django.utils import timezone
 from foundation.models import AuditLog
 from masters import api as masters
 from masters.models import MediaKey
-from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
+from tests.concurrency import overlap
 from tests.factories import make_admin, make_slot
 
 KEY_RE = re.compile(r"[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
@@ -197,18 +196,9 @@ class KeyIssueOnceTests(TransactionTestCase):
         return other
 
     def test_the_same_form_sent_twice_at_once_issues_one_key(self):
-        paused, release = threading.Event(), threading.Event()
-        # 첫 요청은 키를 INSERT 한 뒤(커밋 전) 감사 로그 직전에 멈춘다 — 둘 다 진행 중인 가장 나쁜 겹침
-        first = Worker(pausing_before("INSERT", "foundation_audit_log", lambda: self.client.post(self.url, self.fields), paused, release))
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "첫 요청이 감사 로그 INSERT 에 이르지 않았다")
-        second = Worker(lambda: self.twin().post(self.url, self.fields))
-        second.start()
-        second.join(BLOCKED)
-        self.assertTrue(second.is_alive(), "둘째 요청이 첫 요청의 커밋을 기다리지 않았다")  # 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)
+        # 첫 요청은 키를 INSERT 한 뒤(커밋 전) 감사 로그 직전에 멈춘다 — 둘 다 진행 중인 가장 나쁜 겹침.
+        # 둘째는 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
+        first, second = overlap(self, lambda: self.client.post(self.url, self.fields), "INSERT", "foundation_audit_log", lambda: self.twin().post(self.url, self.fields))
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (200, 302))  # 하나는 평문을 보여 주고, 하나는 이미 처리했다고 돌려보낸다
         self.assertEqual(MediaKey.objects.count(), 1)

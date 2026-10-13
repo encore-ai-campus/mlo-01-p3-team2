@@ -22,6 +22,15 @@ DAY = timedelta(days=1)
 SUBJECT = "0197a5c0-0000-7000-8000-000000000001"  # 개인(individual) 슬롯의 결정에 쓰는 가명 UUID
 
 
+def at(seconds):
+    """`NOW` 에서 `seconds` 초 뒤."""
+    return NOW + timedelta(seconds=seconds)
+
+
+def utc(y, mo, d, h=0, mi=0, s=0):
+    return datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+
+
 def png_file(color=(200, 30, 30)):
     from tests import image_factory
 
@@ -53,3 +62,32 @@ class World:
             campaigns.create_creative(self.adv, self.group.ad_group_id, "제목", "https://example.com/landing", png_file(), now=NOW)
             if with_creative else None
         )
+
+
+def media_api(test):
+    """매체 API 시험 준비: 요청 제한 버킷을 비우고(끝나면 다시), 세계 하나와 그 매체의 키를 만들고, 결정 시각을 `NOW` 로 고정한다. (세계, 키)를 돌려준다."""
+    from unittest import mock
+
+    from masters import api as masters
+    from serving_api.throttle import buckets
+
+    buckets.reset()
+    test.addCleanup(buckets.reset)
+    w = World()
+    key = masters.issue_media_key(w.admin, w.slot.media_id).key
+    test.enterContext(mock.patch("records.services._now", lambda now=None: now or NOW))  # 후보 광고의 기간(NOW 기준)이 맞도록
+    return w, key
+
+
+def impression(world, when, slot=None):
+    """`when` 에 결정, 1초 뒤 노출 수신·인정(입찰이 과금된다)."""
+    import uuid
+    from random import Random
+
+    from records import api as records
+
+    slot = slot or world.slot
+    later = when + timedelta(seconds=1)
+    decision = records.decide(slot.media_id, slot.slot_id, subject_id=SUBJECT, now=when, rng=Random(1))
+    view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", later, {}, now=later)
+    assert records.process_reaction(view.inbox_id, now=later) == "ACCEPTED"

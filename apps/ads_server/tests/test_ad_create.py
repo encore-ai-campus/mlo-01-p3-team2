@@ -4,7 +4,6 @@
 World: 노출 단위 슬롯(하한 10·기준 20·상한 50). 서비스는 실제 시계를 쓰므로 시작은 지금 근처, 끝은 먼 미래로 둔다.
 """
 import re
-import threading
 from unittest import mock
 
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
@@ -13,7 +12,7 @@ from django.urls import reverse
 from campaigns.models import AdGroup, Campaign, Creative
 from foundation.models import AuditLog
 from masters import api as masters
-from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
+from tests.concurrency import overlap
 from tests.factories import World, make_slot, png_file
 
 URL = reverse("ad_create")
@@ -195,18 +194,8 @@ class AdCreateOnceTests(AdCreateBase, TransactionTestCase):
     def test_the_same_form_sent_twice_at_once_creates_once(self):
         data = self.fields()
         data2 = {**data, "image": png_file((10, 20, 30))}
-        paused, release = threading.Event(), threading.Event()
-        self.addCleanup(release.set)
-        first = Worker(pausing_before("UPDATE", "campaigns_campaign", lambda: self.client.post(URL, data), paused, release))  # 키를 붙이기 직전
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "첫 요청이 요청 키 저장에 이르지 않았다")
-        second = Worker(lambda: self.twin().post(URL, data2))
-        second.start()
-        second.join(BLOCKED)
-        self.assertTrue(second.is_alive(), "둘째가 광고주 잠금을 기다리지 않았다")  # 같은 광고주의 만들기는 줄을 선다
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)  # 첫째가 커밋한 뒤 잠금 안에서 키를 다시 보고 처음 결과로 간다
+        # 첫째는 요청 키를 붙이기 직전에 멈추고, 둘째는 광고주 잠금에서 기다렸다가(같은 광고주의 만들기는 줄을 선다) 잠금 안에서 키를 다시 보고 처음 결과로 간다
+        first, second = overlap(self, lambda: self.client.post(URL, data), "UPDATE", "campaigns_campaign", lambda: self.twin().post(URL, data2))
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (302, 302))
         self.assertEqual(first.result["Location"], second.result["Location"])

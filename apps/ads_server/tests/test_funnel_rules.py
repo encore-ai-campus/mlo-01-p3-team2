@@ -19,16 +19,12 @@ from masters import api as masters
 from records import api as records
 from records.models import Reaction
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, SUBJECT, World, png_file
+from tests.factories import NOW, SUBJECT, World, at, png_file
 
 A = "0197a5c0-0000-7000-8000-0000000000a1"
 B = "0197a5c0-0000-7000-8000-0000000000b2"
 C = "0197a5c0-0000-7000-8000-0000000000c3"
 SEC = timedelta(seconds=1)
-
-
-def at(seconds):
-    return NOW + timedelta(seconds=seconds)
 
 
 class FunnelMixin:

@@ -21,7 +21,7 @@ from events.relay import EventConflict, relay_batch
 from records import api as records
 from tests.concurrency import WAIT, Worker
 from tests.factories import NOW, SUBJECT, World
-from tests.mongo_support import MongoDatabaseMixin
+from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 from tests.test_event_outbox import decision_fields
 
 T0 = datetime.datetime(2026, 10, 10, 3, 0, 0, 123456, tzinfo=datetime.timezone.utc)
@@ -163,11 +163,9 @@ class RelayTests(RelayBase):
 
     def test_when_mongodb_is_down_the_rows_stay_unsent(self):
         enqueue_decisions(2)
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             with self.assertRaises(Exception):
                 relay_batch()
-            mongo.close()
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 2)
         self.assertEqual(relay_batch().sent, 2)  # 복구되면 이어서 보낸다
 
@@ -221,10 +219,8 @@ class RelayCommandTests(RelayBase):
 
     def test_once_fails_when_mongodb_is_unreachable(self):
         enqueue_decisions(1)
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             ok, text = self.run_command("--once")
-            mongo.close()
         self.assertFalse(ok)
         self.assertIn("중계 실패", text)
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 1)

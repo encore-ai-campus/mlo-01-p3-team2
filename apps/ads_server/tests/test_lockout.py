@@ -7,8 +7,7 @@ from django.utils import timezone
 
 from foundation.models import User
 from foundation.net import client_ip
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 @tag("security")

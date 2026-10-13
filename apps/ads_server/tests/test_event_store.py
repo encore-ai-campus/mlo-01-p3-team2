@@ -10,7 +10,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError, WriteError
 
 from events import mongo, store
 
-from .mongo_support import EventStoreTestCase
+from .mongo_support import UNREACHABLE, EventStoreTestCase, store_with, unreachable_store
 
 
 def event(**override):
@@ -123,23 +123,12 @@ class CheckTests(EventStoreTestCase):
 class UnavailableStoreTests(EventStoreTestCase):
     """저장소가 없거나 틀려도 확인은 예외로 끝나지 않고 FAIL 로 말한다. 비밀번호는 출력에 나오지 않는다."""
 
-    def with_store(self, **changes):
-        return override_settings(EVENT_STORE={**self.settings_store(), **changes})
-
-    def settings_store(self):
-        from django.conf import settings
-        return settings.EVENT_STORE
-
     def check_with(self, **changes):
-        with self.with_store(**changes):
-            mongo.close()
-            try:
-                return store.check()
-            finally:
-                mongo.close()
+        with store_with(**changes):
+            return store.check()
 
     def test_unreachable_server(self):
-        results = self.check_with(HOSTS=["127.0.0.1:1"], REPLICA_SET=None)
+        results = self.check_with(**UNREACHABLE)
         self.assertEqual([r.name for r in results], ["연결"])
         self.assertFalse(results[0].ok)
 
@@ -160,17 +149,13 @@ class UnavailableStoreTests(EventStoreTestCase):
             self.assertEqual([(r.name, r.ok) for r in store.check()], [("설정", False)])
 
     def test_the_app_does_not_connect_at_all(self):
-        """아직 이벤트를 쓰지 않는다: 저장소가 죽어 있어도 요청 처리 경로는 저장소를 건드리지 않는다(연결은 처음 쓸 때 만든다)."""
-        with self.with_store(HOSTS=["127.0.0.1:1"], REPLICA_SET=None):
-            mongo.close()
+        """연결은 처음 쓸 때 만든다: 저장소가 죽어 있어도 저장소를 쓰지 않는 요청은 연결을 만들지 않고, 쓰려는 순간에야 실패한다."""
+        with unreachable_store():
             self.assertIsNone(mongo._client)
             from django.test import Client
             self.assertEqual(Client().get("/healthz-does-not-exist").status_code, 404)
             self.assertIsNone(mongo._client)  # 요청이 끝나도 연결을 만들지 않았다
-            try:
-                self.assertRaises(PyMongoError, lambda: mongo.client().admin.command("ping"))  # 쓰려는 순간에야 실패한다
-            finally:
-                mongo.close()
+            self.assertRaises(PyMongoError, lambda: mongo.client().admin.command("ping"))  # 쓰려는 순간에야 실패한다
 
 
 class ClientOptionsTests(EventStoreTestCase):

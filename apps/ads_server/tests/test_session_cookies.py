@@ -5,8 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from foundation.models import User
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 @tag("security")

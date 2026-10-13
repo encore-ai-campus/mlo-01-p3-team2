@@ -3,9 +3,6 @@
 시각은 `NOW`(2026-10-07 12:00 UTC)로 고정한다(대시보드의 `_now` 를 바꾼다). 예산 일은 UTC 자정이라 오늘은 2026-10-07 이다.
 """
 import re
-import uuid
-from datetime import timedelta
-from random import Random
 from unittest import mock
 
 from django.db import connection
@@ -17,18 +14,7 @@ from billing import api as billing
 from campaigns import api as campaigns
 from campaigns.models import Campaign
 from records import api as records
-from records.models import Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, make_slot, png_file
-
-SEC = timedelta(seconds=1)
-
-
-def impression(world, when, slot=None):
-    """`when` 에 결정, 1초 뒤 노출 수신·인정(입찰이 과금된다)."""
-    slot = slot or world.slot
-    decision = records.decide(slot.media_id, slot.slot_id, subject_id=SUBJECT, now=when, rng=Random(1))
-    view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", when + SEC, {}, now=when + SEC)
-    assert records.process_reaction(Reaction.objects.get(pk=view.inbox_id).inbox_id, now=when + SEC) == "ACCEPTED"
+from tests.factories import DAY, NOW, World, impression, make_slot, png_file
 
 
 @tag("security")

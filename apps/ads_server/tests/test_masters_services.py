@@ -1,9 +1,8 @@
 import dataclasses
-import threading
 import uuid
 from unittest import mock
 
-from django.db import IntegrityError, connection
+from django.db import IntegrityError
 from django.db.models import Model
 from django.test import TestCase, TransactionTestCase, tag
 from django.utils import timezone
@@ -13,6 +12,7 @@ from foundation.logging import request_id_var
 from foundation.models import AuditLog
 from masters import api
 from masters.models import BidPolicy, Media, MediaDeactivation, Slot
+from tests.concurrency import run_together
 from tests.factories import make_admin, make_advertiser
 
 
@@ -266,21 +266,8 @@ class ConcurrentPolicyTests(TransactionTestCase):
         """같은 `expected_version` 으로 동시에 저장하면 정확히 한쪽만 성공한다."""
         admin_a, admin_b = make_admin(), make_admin()
         slot = new_slot(admin_a)
-        barrier, results = threading.Barrier(2), []
-
-        def worker(admin, cap):
-            try:
-                barrier.wait(timeout=5)
-                api.add_policy_version(admin, slot.slot_id, 11, 21, cap, "동시 변경", expected_version=1)
-                results.append("ok")
-            except Exception as e:  # noqa: BLE001  (결과 종류만 기록)
-                results.append(type(e).__name__)
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=worker, args=(a, cap)) for a, cap in ((admin_a, 60), (admin_b, 70))]
-        [t.start() for t in threads]
-        [t.join(timeout=15) for t in threads]
-        self.assertEqual(sorted(results), ["StaleVersion", "ok"], results)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
+        results, errors = run_together([lambda a=a, cap=cap: api.add_policy_version(a, slot.slot_id, 11, 21, cap, "동시 변경", expected_version=1)
+                                        for a, cap in ((admin_a, 60), (admin_b, 70))])
+        self.assertEqual(([type(e).__name__ for e in errors], sum(r is not None for r in results)), (["StaleVersion"], 1), errors)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
         self.assertEqual(versions(slot.slot_id), [1, 2])  # 두 번째 버전이 정확히 하나
         self.assertIn(api.get_slot(slot.slot_id).policy.cap, (60, 70))

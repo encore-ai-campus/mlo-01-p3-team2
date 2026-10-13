@@ -13,8 +13,7 @@ from django.urls import reverse
 from campaigns import api as campaigns
 from campaigns.models import Campaign
 from foundation.models import AuditLog
-from tests.factories import DAY, NOW, World
-from tests.test_dashboard import impression
+from tests.factories import DAY, NOW, World, impression
 
 
 @tag("security")
