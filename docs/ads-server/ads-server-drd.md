@@ -131,7 +131,7 @@ flowchart LR
 | 저장소 | 담는 것 | 형식 | 상태 |
 |---|---|---|---|
 | 로컬 디렉터리(`MEDIA_ROOT`) | 소재 이미지(재인코딩된 바이트) | `<해시 앞 2자>/<sha256>.<jpg\|png>`, 임시 파일 → `os.replace`로 원자적 확정, 권한 0640 | [구현] |
-| 정적 파일(`STATIC_ROOT`) | 화면 CSS 등(데이터 아님) | `collectstatic` 결과 | [구현] |
+| 정적 파일(`STATIC_ROOT`) | 화면 CSS·JS 등(데이터 아님) | `collectstatic` 결과. 운영에서도 Django가 WhiteNoise로 서빙한다(앞단 nginx는 통로만, 6-5e) | [구현] |
 | MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, P3) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 Step 4-1(2026-10-10). Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
 | MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인) · Step 4-1(중계가 쓰기, 2026-10-10) |
 | NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나. **게시 = 내용 해시가 이름에 들어간 불변 데이터 파일(`<이름>.<SHA-256 앞 16자>.ndjson`) + manifest(`<이름>.manifest.json`, 현재 게시본을 가리키는 포인터)의 원자적 교체**. manifest에 데이터 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·`checkpoint`(범위 서술: 스냅샷 종류·시작 시각·훑은 행 수, 재개 위치 아님)·만든 시각. manifest가 가리키는 파일은 언제나 완결. 파일 종류: `ledger_check`·`event_gaps`·`event_delivery`(점검 결과) [구현]. 4-3 [구현]: `backfill_result`(백필 결과), `hop_source`·`hop_outbox`·`hop_mongo`(구간별 정합 manifest), `hop_report`(구간 대조 결과) | [구현] Step 4-2(2026-10-10, 외부 검토 보완 반영) |
@@ -1235,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.37 | 2026-10-13 | Step 6-5e 정적 파일 서빙(설계서 §10 "정적 파일 서빙"): §2.2 정적 파일은 운영에서도 Django가 WhiteNoise로 서빙(스키마 변화 없음) |
 | 0.36 | 2026-10-13 | Step 6-5b 가입 시도 제한 제거(설계서 §10 "가입 시도 제한"): A2 `foundation_signup_attempt` 표 삭제(마이그레이션 `foundation/0003`, 엔터티 목록·A2 절은 [제거]로 남김), 광고주 가입 흐름에서 A2를 뺌, 보존 기간 표의 가입 시도 행, L2의 IP 주소(감사 로그·로그인 잠금 기록) |
 | 0.35 | 2026-10-12 | Step 6-2f(6-2c `5461af2`, 스키마 변화 없음): 요청 JSON 숫자 범위 ±(2^53−1)을 R-12·결정 `context` 열·C1 입력 `context`·D-2 해결 행에 |
 | 0.34 | 2026-10-12 | Step 6-2 문구 정정(외부 검토, 동작·스키마 변화 없음): "부분 UNIQUE"를 실제 MySQL 구현으로 — §4.3 표기에 논리 규칙과 물리 구현의 구분(MySQL은 조건부 유일 제약을 만들지 않음, W036), O6 `open_campaign`·B2 `signup_grant_wallet`(DB 계산 열 + `UNIQUE`) 행 추가, B2 `reaction_ref`는 NULL 허용 일반 `UNIQUE`, §4.4 무결성 표 세 행, D-7 계획도 같은 방식 |
