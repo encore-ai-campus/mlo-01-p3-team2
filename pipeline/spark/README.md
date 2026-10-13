@@ -30,12 +30,12 @@ Spark 실행기는 Std and Sinker Python 모듈을 import하지 않는다. 계�
 저장소 루트에서 실행한다. 고정 Spark 배포 환경은 Java 21·Spark/Scala 4.2.0/2.13이다. Spark Docker 이미지에는 Python 3.10이 있으며 Python DB·검증 의존성은 `requirements.txt`에 고정한다.
 
 ```bash
-uv venv srcs/std_and_sinker/.venv
-uv pip install --python srcs/std_and_sinker/.venv/bin/python -r srcs/std_and_sinker/requirements.txt -r srcs/spark/requirements.txt
-PYTHONPATH=srcs/std_and_sinker srcs/std_and_sinker/.venv/bin/python -m unittest discover -s srcs/std_and_sinker/tests -v
-PYTHONPATH=srcs/spark srcs/std_and_sinker/.venv/bin/python -m unittest discover -s srcs/spark/tests -v
-python3 srcs/spark/build_contracts.py
-python3 srcs/spark/prepare_jars.py
+uv venv pipeline/std_and_sinker/.venv
+uv pip install --python pipeline/std_and_sinker/.venv/bin/python -r pipeline/std_and_sinker/requirements.txt -r pipeline/spark/requirements.txt
+PYTHONPATH=pipeline/std_and_sinker pipeline/std_and_sinker/.venv/bin/python -m unittest discover -s pipeline/std_and_sinker/tests -v
+PYTHONPATH=pipeline/spark pipeline/std_and_sinker/.venv/bin/python -m unittest discover -s pipeline/spark/tests -v
+python3 pipeline/spark/build_contracts.py
+python3 pipeline/spark/prepare_jars.py
 ```
 
 JAR 10개의 경로·SHA-256은 [runtime_lock.json](runtime_lock.json)에 사용자가 지정한 값으로 등록되어 있다. 다른 버전을 자동으로 대체하지 않는다. 지문은 Std and Sinker와 같은 벡터로 대조하고, MySQL UUID는 `CHAR(32)`, 시각은 UTC `DATETIME(6)`로 저장한다. Spark timestamp가 Python의 로컬 시간대로 변환되지 않도록 적재 전에 UTC 문자열로 표현한다.
@@ -43,10 +43,10 @@ JAR 10개의 경로·SHA-256은 [runtime_lock.json](runtime_lock.json)에 사용
 ## Docker 전체 통합 테스트
 
 ```bash
-docker compose -f srcs/spark/docker-compose.test.yml build spark-driver
-docker compose -f srcs/spark/docker-compose.test.yml up -d --no-build --wait
-srcs/std_and_sinker/.venv/bin/python srcs/spark/test_pipeline.py
-docker compose -f srcs/spark/docker-compose.test.yml stop
+docker compose -f pipeline/spark/docker-compose.test.yml build spark-driver
+docker compose -f pipeline/spark/docker-compose.test.yml up -d --no-build --wait
+pipeline/std_and_sinker/.venv/bin/python pipeline/spark/test_pipeline.py
+docker compose -f pipeline/spark/docker-compose.test.yml stop
 ```
 
 하나의 공통 이미지로 Master·Worker 3개·Driver를 실행한다. `spark-driver`만 `artifacts`를 쓰기 가능하게 연결하며 Worker에는 checkpoint 디렉터리를 연결하지 않는다. 코드 디렉터리는 로컬 테스트에서 읽기 전용으로 연결한다. EC2에서는 같은 배포 패키지·이미지와 필요한 Python 모듈을 각 실행기에 제공한다.
@@ -60,11 +60,11 @@ docker compose -f srcs/spark/docker-compose.test.yml stop
 현재 macOS 대체 실행기는 Homebrew Java 21·`mongod`·`mysqld`와 Python 3.14를 사용한다. 기존 서비스 데이터 디렉터리를 사용하지 않으며 자기 테스트 프로세스만 시작·종료한다. 지정 포트가 이미 사용 중이면 기존 서비스를 중단하지 않고 테스트를 멈춘다.
 
 ```bash
-uv venv srcs/spark/.venv --python 3.14
-uv pip install --python srcs/spark/.venv/bin/python pyspark==4.2.0 -r srcs/spark/requirements.txt -r srcs/std_and_sinker/requirements.txt
-python3 srcs/spark/prepare_jars.py
-python3 srcs/spark/prepare_native_runtime.py
-srcs/spark/.venv/bin/python srcs/spark/run_native_tests.py
+uv venv pipeline/spark/.venv --python 3.14
+uv pip install --python pipeline/spark/.venv/bin/python pyspark==4.2.0 -r pipeline/spark/requirements.txt -r pipeline/std_and_sinker/requirements.txt
+python3 pipeline/spark/prepare_jars.py
+python3 pipeline/spark/prepare_native_runtime.py
+pipeline/spark/.venv/bin/python pipeline/spark/run_native_tests.py
 ```
 
 현재 `pipeline/spark` 디렉터리에서 성공한 테스트 데이터와 MySQL 서버를 유지하려면 다음을 실행한다.
@@ -96,10 +96,10 @@ srcs/spark/.venv/bin/python srcs/spark/run_native_tests.py
 환경변수가 `.env`보다 우선한다. 파일·checkpoint 상대 경로는 `.env` 위치 기준이다. Kafka SASL/SSL 설정은 Executor에서도 유효해야 한다. 초기 기본 구독은 현재 플랫폼의 6개 Std 토픽이며 `standardized.points`는 실제 발행 준비 후 추가한다.
 
 ```bash
-cp srcs/spark/.env.example srcs/spark/.env
+cp pipeline/spark/.env.example pipeline/spark/.env
 ```
 
-배포한 Spark 4.2.0 환경의 `spark-submit --master spark://<master>:7077 --deploy-mode client ... srcs/spark/stream.py --env-file <설정경로> --migrate`로 시작한다. `--available-now`는 현재 데이터 처리 후 종료하는 테스트·배치 실행 옵션이다. 지속 실행에는 해당 옵션을 생략한다. Driver가 작업을 조정하고 Executor가 검증·변환·MySQL 쓰기를 수행한다.
+배포한 Spark 4.2.0 환경의 `spark-submit --master spark://<master>:7077 --deploy-mode client ... pipeline/spark/stream.py --env-file <설정경로> --migrate`로 시작한다. `--available-now`는 현재 데이터 처리 후 종료하는 테스트·배치 실행 옵션이다. 지속 실행에는 해당 옵션을 생략한다. Driver가 작업을 조정하고 Executor가 검증·변환·MySQL 쓰기를 수행한다.
 
 ## 복구 경계
 
