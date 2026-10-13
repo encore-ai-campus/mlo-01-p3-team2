@@ -211,7 +211,6 @@ erDiagram
         uuid slot_id PK
         uuid media_id FK
         string name "매체 안에서 유일"
-        string pricing_unit "변경 불가"
         string audience "individual·shared, 변경 불가"
         bool is_active
     }
@@ -242,7 +241,6 @@ erDiagram
     campaigns_ad_group {
         uuid ad_group_id PK
         uuid campaign_id FK
-        string pricing_unit "변경 불가"
         bool enabled
         uuid creative_id FK "선택된 소재, NULL=없음"
         string request_key "UK, 광고 만들기 요청 멱등 키"
@@ -435,14 +433,13 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 
 #### M2. 게재 위치(슬롯) `masters_slot` [구현]
 
-광고가 놓이는 자리. **과금 단위(방식)를 하나 갖고 바꿀 수 없다**(V1. 한 슬롯 여러 단위는 V2 이후).
+광고가 놓이는 자리. 과금 방식은 M3 입찰 정책 버전의 **반응별 비율**이다(6-10 — 과금 단위 열은 6-10d에 지웠다, 마이그레이션 `masters/0007`).
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|:---:|---|---|
 | `slot_id` | UUID | N | PK | C1 요청은 이 값으로 슬롯을 지정한다 |
 | `media_id` | UUID | N | FK→M1 `PROTECT` | |
 | `name` | 문자 100 | N | UNIQUE(media, name) | 사람용 이름. **식별에 쓰지 않는다** |
-| `pricing_unit` | 코드 | N | `IMPRESSION`·`CLICK`·`CONVERSION`, 변경 시 거부 | |
 | `audience` | 코드 | N | `individual`·`shared`, **변경 시 거부**, 기본값 없음(만드는 쪽이 정한다) | 슬롯 성격 [구현 2-7]. `individual` = 결정 하나를 한 사람이 본다, `shared` = 여러 사람이 같은 광고를 본다. 타기팅이 아니다 |
 | `is_active` | 불리언 | N | | |
 | `created_at` | 시각 | N | | |
@@ -515,14 +512,13 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 
 #### O2. 광고그룹 `campaigns_ad_group` [구현]
 
-입찰·게재 위치·과금 단위를 묶는 단위.
+입찰·게재 위치를 묶는 단위(화면의 "광고"). 아무 게재 위치나 함께 고른다 — 과금 단위 열은 6-10d에 지웠다(마이그레이션 `campaigns/0008`).
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|:---:|---|---|
 | `ad_group_id` | UUID | N | PK | |
 | `campaign_id` | UUID | N | FK→O1 `PROTECT` | |
 | `name` | 문자 100 | N | | |
-| `pricing_unit` | 코드 | N | 변경 시 거부 | 고른 슬롯은 모두 같은 단위여야 한다 |
 | `enabled` | 불리언 | N | | 광고주가 켜고 끈다 |
 | `created_at` | 시각 | N | | |
 | `updated_at` | 시각 | N | | 마지막 변경(이름·게재 위치·켜기/끄기·소재 선택). 화면이 본 값과 대조해 옛 폼이 그 사이의 변경을 덮지 않게(`expected_updated_at`) [구현 `7fdc76f`] |
@@ -715,8 +711,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 결정 비율 각각 1~98·합 100, 광고 없음이면 비움(6-10c) | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `test_charge_shares_follow_the_policy_rule_in_db` |
 | 입찰·정책·원장·결정·감사는 추가만 | — | `AppendOnlyModel` | `test_*_is_append_only*` |
 | 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
-| 과금 단위 불변(슬롯·광고그룹) | — | 모델 `save()` 거부, `unit_immutable` | `test_*_pricing_unit_immutable` |
-| 광고그룹의 슬롯은 같은 단위·활성 | — | `unit_mismatch` | `test_ad_group_unit_must_match_slots` |
+| 슬롯 성격 불변(과금 단위는 6-10d에 없어짐) | — | 모델 `save()` 거부 | `test_slot_audience_immutable` |
+| 광고그룹의 슬롯은 활성(단위 조건은 6-10d에 없어짐) | — | 400 | `test_ad_group_slot_validation`, `test_an_ad_may_combine_any_slots` |
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
 | 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
@@ -1199,7 +1195,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `masters_media` | 없음 | 팀 DRD는 매체를 하나로 본다(7.1 미반영) |
 | `masters_bid_policy.bid_policy_id`, `policy_version` | `ad_bid_policy.bid_policy_id`, `bid_policy_version` | 같다(D-4 해결). 자연 키도 유지 |
 | `floor_amount`·`base_amount`·`cap_amount`(정수) | 같은 이름, `amount_decimal`(DECIMAL 18,2) | 정수 포인트 vs 소수. 이벤트에서는 정수로 보내고 팀 DRD가 받아들이는지 확인 |
-| `pricing_unit` | `charge_unit_code` | 값은 같다(`IMPRESSION`·`CLICK`·`CONVERSION`). 결정은 6-10c부터 단위 대신 비율 셋(`impression_share`·`click_share`·`conversion_share`)을 남기고, 슬롯·광고그룹의 단위는 6-10d에 없어진다 — 팀 DRD에 비율을 받을 필드 [열림] |
+| `pricing_unit` | `charge_unit_code` | 값은 같다(`IMPRESSION`·`CLICK`·`CONVERSION`). 6-10d에 서버에서 없어졌다 — 결정은 비율 셋(`impression_share`·`click_share`·`conversion_share`)을 남기고 슬롯·광고그룹에는 단위가 없다. 팀 DRD에 비율을 받을 필드 [열림] |
 | `campaigns_campaign.campaign_id`, `name`, `status` | `ad_campaign.campaign_id`, `campaign_name`, `campaign_status_code` | 상태 값 같음 |
 | `starts_at`, `ends_at` | `started_at`, `ended_at` | 이름만 다름. 서버의 `ends_at`은 **미포함 종료 시각** |
 | `owner_id`(광고주 계정 UUID) | `advertiser_name`(문자) | 팀 DRD는 광고주 이름 문자열만 둔다(A-07). 내보낼 값 [열림] |
@@ -1267,6 +1263,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.47 | 2026-10-13 | Step 6-10d 과금 단위 제거(구현 계획 §8.4.11): M2 슬롯·O2 광고그룹의 `pricing_unit` 열 삭제(마이그레이션 `masters/0007`·`campaigns/0008`, 빈 DB 전제), ERD, 무결성 표(슬롯 성격 불변·광고그룹 슬롯 활성), §9 대응. 광고그룹은 아무 슬롯이나 함께 고른다 |
 | 0.46 | 2026-10-13 | Step 6-10c 과금 전환(구현 계획 §8.4.11, 설계서 §10 "구성별 반응 비율 과금"): R1 결정에 `impression_share`·`click_share`·`conversion_share`(`CHECK` 각각 1~98·합 100, 광고 없음이면 NULL) — `pricing_unit` 열 삭제(마이그레이션 `records/0012`, 빈 DB 전제), M3 `CHECK floor ≥ 100`(`masters/0006`), B2 `charge_policy` = `share/v1`, 과금 규칙(인정된 모든 유형, 내림(적용 금액 × 비율 ÷ 100)), P3·§5.6 `schema_version` 종류별(`ad.decision` 2 — `selected.charge_shares`), ERD·무결성 표·멱등 표·§8·§9 대응 |
 | 0.45 | 2026-10-13 | Step 6-10b(구현 계획 §8.4.11): M3 입찰 정책에 반응 유형별 과금 비율 `impression_share`·`click_share`·`conversion_share`(각각 1~98, 합 100 — DB `CHECK` 둘, 서비스 세 곳 같은 검사), ERD·무결성 표. 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음 — 데이터가 있으면 비율 제약에서 멈춘다). 과금은 아직 단위로 한다(6-10c에서 비율로) |
 | 0.44 | 2026-10-13 | Step 6-9d 화면(구현 계획 §8.4.10, 스키마 변화 없음): O1 `request_key`는 캠페인 만들기의 키, O2 `request_key`가 광고 만들기의 키(불변식·멱등 키 표, 구조도) |

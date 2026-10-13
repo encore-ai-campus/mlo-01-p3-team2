@@ -36,7 +36,7 @@ info:
 
     | 규칙 | 내용 |
     |---|---|
-    | 과금 단위 고정 | 광고그룹의 `pricing_unit`은 만들 때 정하고 **바꿀 수 없다**(409). 고른 슬롯은 모두 그 단위여야 한다(400 `unit_mismatch`) |
+    | 반응별 비율 과금(6-10) | 슬롯의 입찰 정책 버전이 노출·클릭·전환 **비율**(각각 1~98%, 합 100%)을 정한다. 인정된 반응은 결정에 남긴 비율로 **내림(적용 금액 × % ÷ 100)** 과금된다. 과금 단위는 없다 — 광고그룹은 아무 슬롯이나 함께 고른다. `effects`의 `expected_charges`가 반응별 예상 과금이다(실제 과금과 같은 계산) |
     | 입찰은 추가만 | 입찰 변경은 새 `bid_version` 추가(`POST .../bids`). 수정·삭제 없음 |
     | 입력은 거절하지 않는다 | 하한 미만·상한 초과 입찰도 저장된다. 응답의 `effects`가 **슬롯별 노출 여부와 적용 금액**을 알려준다 |
     | 동시 수정 보호 | 입찰 생성 시 본 버전(`expected_version`)이 현재와 다르면 409 `stale_version`. 캠페인·광고그룹·소재 수정과 소재 이미지 교체는 본 마지막 변경 시각(`expected_updated_at`, 선택)을 함께 보내고 다르면 409 `stale_version`(켜기·끄기·종료는 대조하지 않음) |
@@ -203,13 +203,8 @@ paths:
       summary: 게재 위치(슬롯) 목록과 현재 입찰 정책
       description: |
         광고그룹을 만들 때 위치를 고르는 데 쓴다. 매체(플랫폼)별로 묶어 보여줄 수 있도록 매체 정보가 들어 있다.
-        **읽기 전용**이며, 정책(하한·기준가·상한)은 관리자가 정한다.
+        **읽기 전용**이며, 정책(하한·기준가·상한·반응별 비율)은 관리자가 정한다.
       parameters:
-        - name: pricing_unit
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/PricingUnit"
         - name: media_id
           in: query
           required: false
@@ -530,8 +525,7 @@ paths:
       operationId: createAdGroup
       summary: 광고그룹을 만든다
       description: |
-        게재 위치(슬롯) 1개 이상과 과금 단위를 정한다. **과금 단위는 이후 바꿀 수 없다.**
-        고른 슬롯이 모두 그 과금 단위여야 한다(400 `unit_mismatch`).
+        게재 위치(슬롯) 1개 이상을 고른다. 과금 단위는 없다 — 아무 슬롯이나 함께 고르고, 과금은 슬롯마다 그 정책의 반응별 비율로 나뉜다(6-10).
         `bid_amount`를 함께 보내면 입찰 버전 1이 같은 요청에서 만들어진다.
       requestBody:
         required: true
@@ -543,9 +537,8 @@ paths:
               withBid:
                 value:
                   name: 로비 배너
-                  pricing_unit: CLICK
                   slot_ids: [5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10]
-                  bid_amount: 30
+                  bid_amount: 300
       responses:
         "201":
           description: 만들어짐
@@ -590,8 +583,8 @@ paths:
       operationId: updateAdGroup
       summary: 광고그룹 수정 (이름·켜기/끄기·게재 위치)
       description: |
-        `slot_ids`를 보내면 **전체 집합을 교체**한다(1개 이상, 모두 광고그룹의 과금 단위와 같아야 함).
-        `pricing_unit`을 바꾸려는 요청은 409 `unit_immutable`이다. 입찰은 여기서 바꾸지 않고 `POST .../bids`로 한다.
+        `slot_ids`를 보내면 **전체 집합을 교체**한다(1개 이상, 쓸 수 있는 슬롯).
+        입찰은 여기서 바꾸지 않고 `POST .../bids`로 한다.
       requestBody:
         required: true
         content:
@@ -682,12 +675,13 @@ paths:
                   summary: 새 입찰 버전과 슬롯별 적용 결과
                   value:
                     bid_version: 3
-                    amount: 45
+                    amount: 450
                     created_at: "2026-10-08T03:00:00Z"
                     effects:
                       - slot_id: 5b1c9a52-6c1e-4d0b-9a1e-0b6b2f6d8f10
                         eligible: true
-                        applied_amount: 40
+                        applied_amount: 400
+                        expected_charges: {IMPRESSION: 4, CLICK: 392, CONVERSION: 4}
                         reason: capped_at_cap
                         policy_version: 2
         "400":
@@ -1179,10 +1173,29 @@ components:
       maximum: 9007199254740991
       description: 부호가 있는 포인트 금액(원장, 정수).
 
-    PricingUnit:
+    ReactionType:
       type: string
       enum: [IMPRESSION, CLICK, CONVERSION]
-      description: 노출 / 클릭 / 전환. 입찰 금액이 이 반응 1건당 금액이다.
+      description: 반응 유형(노출 / 클릭 / 전환). 과금 단위가 아니다 — 과금은 반응마다 슬롯 정책의 비율로 한다(6-10).
+
+    ChargeShare:
+      type: integer
+      minimum: 1
+      maximum: 98
+      description: 반응 유형 하나의 과금 비율(%). 한 정책 버전의 노출·클릭·전환 비율은 합이 100이다.
+
+    ExpectedCharges:
+      type: object
+      required: [IMPRESSION, CLICK, CONVERSION]
+      additionalProperties: false
+      description: 반응 유형별 예상 과금 = 내림(적용 금액 × 그 유형의 비율 ÷ 100). 실제 과금과 같은 계산이고, 잔액 부족으로 덜 받는 경우는 반영하지 않는다.
+      properties:
+        IMPRESSION:
+          $ref: "#/components/schemas/Money"
+        CLICK:
+          $ref: "#/components/schemas/Money"
+        CONVERSION:
+          $ref: "#/components/schemas/Money"
 
     CampaignStatus:
       type: string
@@ -1274,7 +1287,7 @@ components:
 
     Slot:
       type: object
-      required: [slot_id, media, name, pricing_unit, audience, active, policy]
+      required: [slot_id, media, name, audience, active, policy]
       additionalProperties: false
       properties:
         slot_id:
@@ -1291,8 +1304,6 @@ components:
         name:
           type: string
           description: 슬롯 이름. **읽기 편하라고 주는 정보**이며 식별은 `slot_id`로 한다(이름은 바뀔 수 있다).
-        pricing_unit:
-          $ref: "#/components/schemas/PricingUnit"
         audience:
           $ref: "#/components/schemas/Audience"
         active:
@@ -1312,9 +1323,9 @@ components:
 
     SlotPolicy:
       type: object
-      required: [policy_version, floor_amount, base_amount, cap_amount]
+      required: [policy_version, floor_amount, base_amount, cap_amount, impression_share, click_share, conversion_share]
       additionalProperties: false
-      description: 노출 범위는 `[floor_amount, cap_amount]`다. 기준가(`base_amount`)는 입찰 화면의 기본 입력값이다.
+      description: 노출 범위는 `[floor_amount, cap_amount]`다(하한은 100 이상). 기준가(`base_amount`)는 입찰 화면의 기본 입력값이다. 반응별 비율(합 100)이 과금을 나눈다(6-10).
       properties:
         policy_version:
           type: integer
@@ -1325,10 +1336,16 @@ components:
           $ref: "#/components/schemas/Money"
         cap_amount:
           $ref: "#/components/schemas/Money"
+        impression_share:
+          $ref: "#/components/schemas/ChargeShare"
+        click_share:
+          $ref: "#/components/schemas/ChargeShare"
+        conversion_share:
+          $ref: "#/components/schemas/ChargeShare"
 
     SlotEffect:
       type: object
-      required: [slot_id, eligible, applied_amount, reason, policy_version]
+      required: [slot_id, eligible, applied_amount, expected_charges, reason, policy_version]
       additionalProperties: false
       description: 어떤 입찰 금액이 **이 슬롯의 현재 정책**에서 어떻게 취급되는지.
       properties:
@@ -1341,6 +1358,11 @@ components:
           description: 적용 금액. 후보가 아니면 `null`.
           oneOf:
             - $ref: "#/components/schemas/Money"
+            - type: "null"
+        expected_charges:
+          description: 반응 유형별 예상 과금(6-10). 후보가 아니면 `null`.
+          oneOf:
+            - $ref: "#/components/schemas/ExpectedCharges"
             - type: "null"
         reason:
           type: string
@@ -1519,7 +1541,7 @@ components:
 
     AdGroup:
       type: object
-      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, creative_id, current_bid, effects, created_at, updated_at]
+      required: [ad_group_id, campaign_id, name, slot_ids, enabled, creative_id, current_bid, effects, created_at, updated_at]
       additionalProperties: false
       properties:
         ad_group_id:
@@ -1528,8 +1550,6 @@ components:
           $ref: "#/components/schemas/Uuid"
         name:
           type: string
-        pricing_unit:
-          $ref: "#/components/schemas/PricingUnit"
         slot_ids:
           type: array
           minItems: 1
@@ -1560,15 +1580,13 @@ components:
 
     AdGroupCreate:
       type: object
-      required: [name, pricing_unit, slot_ids]
+      required: [name, slot_ids]
       additionalProperties: false
       properties:
         name:
           type: string
           minLength: 1
           maxLength: 100
-        pricing_unit:
-          $ref: "#/components/schemas/PricingUnit"
         slot_ids:
           type: array
           minItems: 1
@@ -1599,9 +1617,6 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/Uuid"
-        pricing_unit:
-          description: 보내면 항상 409(`unit_immutable`)다. 과금 단위는 바꿀 수 없다.
-          $ref: "#/components/schemas/PricingUnit"
         creative_id:
           description: 선택할 소재. 이 광고그룹에 연결된 소재만(아니면 400), 남의 것·보관한 것은 404.
           $ref: "#/components/schemas/Uuid"
@@ -1817,7 +1832,7 @@ components:
                 ad_group_id:
                   $ref: "#/components/schemas/Uuid"
                 reaction_type:
-                  $ref: "#/components/schemas/PricingUnit"
+                  $ref: "#/components/schemas/ReactionType"
             - type: "null"
 
     Page:
@@ -1950,7 +1965,7 @@ components:
           description: |
             공통: `invalid_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `payload_too_large`,
             `unsupported_media_type`, `rate_limited`, `unavailable`.
-            도메인: `unit_mismatch`, `unit_immutable`, `stale_version`, `suspended`, `not_suspended`, `review_pending`, `ended`, `limit_exceeded`,
+            도메인: `stale_version`, `suspended`, `not_suspended`, `review_pending`, `ended`, `limit_exceeded`,
             `invalid_image`(상세 `reason`: `unsupported_format`, `too_large`, `too_many_pixels`, `animated`, `corrupt`).
         detail:
           type: string
@@ -1969,7 +1984,7 @@ components:
 
   responses:
     ValidationError:
-      description: 입력이 올바르지 않다(`invalid_request`, `unit_mismatch`, `invalid_image`, `forbidden` 등). 고쳐서 다시 보낸다.
+      description: 입력이 올바르지 않다(`invalid_request`, `invalid_image`, `forbidden` 등). 고쳐서 다시 보낸다.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
@@ -1999,7 +2014,7 @@ components:
       description: |
         현재 상태와 충돌한다. `code`로 구분한다: `stale_version`(입찰을 다른 곳에서 먼저 바꿈 → 새로 불러와 다시),
         `suspended`(관리자 중단 중), `not_suspended`(재검토 요청은 중단 중에만), `review_pending`(이미 대기 중인 요청이 있음),
-        `ended`(종료된 캠페인은 수정할 수 없음), `unit_immutable`, `limit_exceeded`(상한 초과).
+        `ended`(종료된 캠페인은 수정할 수 없음), `limit_exceeded`(상한 초과).
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
