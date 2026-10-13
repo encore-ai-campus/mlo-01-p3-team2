@@ -1,15 +1,14 @@
-#!/usr/bin/env python
-"""Run Django management commands for the campus project."""
+"""Compatibility entry point for backend management commands."""
+from pathlib import Path
 import os
+import runpy
 import sys
 
-
-def main():
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-    from django.core.management import execute_from_command_line
-
-    execute_from_command_line(sys.argv)
-
-
 if __name__ == "__main__":
-    main()
+    root = Path(__file__).resolve().parent
+    from dotenv import load_dotenv
+    load_dotenv(root / ".env", override=False)
+    if (root / "db.sqlite3").is_file():
+        os.environ.setdefault("CAMPUS_DATA_DIR", str(root))
+    sys.path.insert(0, str(root / "backend"))
+    runpy.run_path(str(root / "backend/manage.py"), run_name="__main__")

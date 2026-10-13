@@ -6,10 +6,5 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-".venv\Scripts\python.exe" manage.py migrate --noinput
-if errorlevel 1 (
-    pause
-    exit /b 1
-)
-".venv\Scripts\python.exe" run-campus.py --port 8003
+".venv\Scripts\python.exe" run-split.py
 if errorlevel 1 pause

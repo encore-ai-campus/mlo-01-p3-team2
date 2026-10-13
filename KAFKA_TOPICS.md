@@ -1,6 +1,10 @@
 # 플랫폼 Kafka 토픽 정리
 
-현재 **6개 토픽, 13개 이벤트** 구현된 상태임. 플랫폼에 Kafka 전송기까지 구현
+최종 갱신: **2026-10-13** · 대상: **프론트·백엔드 분리 플랫폼 (`frontend/`, `backend/`)**
+
+현재 **7개 토픽, 15개 이벤트**의 생성·Outbox 저장·Kafka 전송 코드가 구현된 상태임. 학습 답안과 실제 포인트 지급이 연결되어 있으며, 이동 이벤트도 위치 체크포인트와 함께 DB Outbox에 저장하도록 변경됨.
+
+위 개수는 코드에 정의된 발행 구성을 뜻함. 실제 Kafka 전송은 브로커 설정과 발행기 실행이 필요함. `KAFKA_BOOTSTRAP_SERVERS`가 비어 있으면 이동·REST·LEARNING을 포함한 모든 이벤트가 발생 시 Outbox에 대기함.
 
 ## 1. 토픽과 이벤트
 
@@ -10,10 +14,13 @@
 | `raw.chat` | `chat_sent` | 서버가 받아들인 채팅 |
 | `raw.board` | `post_created`, `post_updated`, `post_deleted`, `post_read` | 커뮤니티 게시글 작성·수정·삭제·상세 조회 |
 | `raw.comment` | `comment_created`, `comment_updated`, `comment_deleted` | 댓글·대댓글 작성·수정·삭제 |
-| `raw.content_usage` | `content_open_requested` | 오목·전쟁시대·아빠와 나·지뢰찾기·사과게임·버블슈터·수박게임·후레시맨·심심테스트 열기 요청 |
-| `raw.movement` | `movement_observed`, `floor_transferred` | 이동 좌표·층 전환 |
+| `raw.content_usage` | `content_open_requested`, `quiz_answered` | 게임·심리 테스트·Python·SQL 학습 열기 요청, 객관식·빈칸 답안 채점 결과 |
+| `raw.movement` | `movement_observed`, `floor_transferred` | 변경된 최신 위치를 약 5초마다 저장한 체크포인트·층 전환 |
+| `raw.points` | `point_granted` | 정답에 대한 실제 지급 내역과 지급 직후 잔액 |
 
-포인트 지급, 퀴즈 답안, 옥상 부저 참여·추첨은 현재 Raw 이벤트 범위에서 제외함.
+옥상 부저 참여·추첨·설문 원문, 포인트 사용·광고 입찰 이벤트는 현재 Raw 범위에서 제외함.
+
+이동 토픽명은 `raw.movement`이며, `movement_observed`는 해당 토픽에 들어가는 이벤트명임.
 
 ## 2. 공통 메시지 구조
 
@@ -24,7 +31,7 @@
 | 구분 | 필드 | 의미 |
 |---|---|---|
 | 최상위 | `event_uuid` | 발생한 이벤트 한 건의 고유 UUIDv4 |
-| `raw_manifest` | `schema_version` | 현재 `"1.0"` |
+| `raw_manifest` | `schema_version` | `quiz_answered`는 `"1.1"`, 나머지는 `"1.0"` |
 | 〃 | `event_type` | 이벤트 종류 |
 | 〃 | `occurred_at` | 서버 발생 시간. UTC·밀리초 포함 |
 | 〃 | `source` | 발생 서버. 기본값 `"platform_server_1"` |
@@ -50,6 +57,8 @@
 | `post_created`, `post_updated`, `post_deleted`, `post_read` | `post_uuid`, `revision`, `zone_uuid` |
 | `comment_created`, `comment_updated`, `comment_deleted` | `comment_uuid`, `post_uuid`, `parent_comment_uuid`, `revision` |
 | `content_open_requested` | `content_uuid`, `category_uuid`, `domain`, `content_kind`, `zone_uuid`, `action` |
+| `quiz_answered` | `attempt_uuid`, `question_uuid`, `content_uuid`, `question_type`, `choice_uuid`, `is_correct` |
+| `point_granted` | `ledger_uuid`, `attempt_uuid`, `delta`, `balance_after` |
 | `movement_observed` | `floor_uuid`, `zone_uuid`, `x`, `y`, `input_kind` |
 | `floor_transferred` | `from_floor_uuid`, `to_floor_uuid`, `zone_uuid` |
 
@@ -58,12 +67,15 @@
 - `end_reason`: 직접 로그아웃은 `"LOGOUT"`, 세션 만료는 `"SESSION_EXPIRED"`로 기록함. 웹소켓 연결 종료만으로 로그인 세션을 종료하지 않음.
 - `channel_code`: 현재 `"GLOBAL"` 사용함.
 - `revision`: 1부터 시작하며 수정·삭제 시 증가함.
-- `content_kind`: 현재 콘텐츠는 `"EXTERNAL_LINK"`로 기록함.
+- `content_kind`: 게임·심리 테스트는 `"EXTERNAL_LINK"`, Python·SQL은 `"QUIZ"`로 기록함.
 - `action`: 현재 `"OPEN_REQUESTED"`로 기록함. 외부 사이트의 실제 로딩·게임 완료·테스트 완료를 의미하지 않음.
-- `domain`: 현재 오목·전쟁시대·아빠와 나·지뢰찾기·사과게임·버블슈터·수박게임·후레시맨와 심심테스트는 모두 `"REST"`임. 게임과 심리 테스트는 서로 다른 `category_uuid`로 구분하고 각 게임은 서로 다른 `content_uuid`로 구분함. `"LEARNING"`은 추후 학습 콘텐츠용으로 남겨두며 현재 등록된 콘텐츠는 없음.
+- `domain`: 게임·심리 테스트는 `"REST"`, Python·SQL 학습은 `"LEARNING"`임. `category_uuid`로 게임·심리 테스트·Python·SQL을 구분함. 각 게임과 학습 과목×문제 유형마다 고유한 `content_uuid` 사용함.
+- `question_type`: `"MULTIPLE_CHOICE"` 또는 `"FILL_BLANK"`임. 객관식은 실제 선택한 보기의 `choice_uuid`를 기록하고, 빈칸은 반드시 `null`임. `is_correct`는 서버 채점 불리언임. 제출 원문·정답·해설·재전송용 요청 UUID는 Kafka에 넣지 않음.
+- `delta`: 실제 지급한 양의 정수 포인트임. 기본 초급 20P·중급 50P·고급 80P임. `balance_after`는 그 지급 직후의 0 이상 정수 잔액임. 같은 `attempt_uuid`는 지급 원장 한 건만 생성 가능함.
 - `input_kind`: 현재 `"KEYBOARD"`로 기록함.
 - `x`, `y`: 맵 좌표임. 이동 Raw에는 방향 필드를 넣지 않음.
-- 게시글·이동·층 전환의 `zone_uuid`는 현재 `null`임. 콘텐츠 열기는 해당 부스 ID를 넣음.
+- `movement_observed`의 좌표는 실제 위치 DB에 저장한 값이며, `occurred_at`은 그 위치 변경을 서버가 관측한 시각임. 체크포인트 실행 시각이나 Kafka 전송 시각과 구분함.
+- 게시글·이동·층 전환의 `zone_uuid`는 현재 `null`임. 콘텐츠 열기는 해당 부스 또는 1·2 강의실 구역 ID를 넣음.
 - 일반 댓글의 `parent_comment_uuid`는 `null`, 대댓글은 부모 댓글의 UUIDv4를 넣음. 작성·수정·삭제 시 같은 부모 UUID를 유지함. 대댓글은 한 단계까지 지원함.
 
 **댓글·대댓글 구분**
@@ -87,21 +99,135 @@
 |---|---|---|
 | `REST` | `game` — 게임 | 오목, 전쟁시대, 아빠와 나, 지뢰찾기, 사과게임, 버블슈터, 수박게임, 후레시맨 |
 | `REST` | `psychology` — 심리 테스트 | 심심테스트 |
-| `LEARNING` | 추후 학습 콘텐츠에 맞춰 추가 | 현재 없음 |
+| `LEARNING` | `python` — Python 학습 | Python 객관식, Python 코드 빈칸 |
+| `LEARNING` | `sql` — SQL 학습 | SQL 객관식, SQL 코드 빈칸 |
 
-콘텐츠 열기 이벤트는 모두 `raw.content_usage`로 발행하고, `domain`과 `category_uuid`로 분류함. 게임·심리 테스트의 카테고리는 서로 구분되며, 학습 콘텐츠가 추가되면 `LEARNING`에 해당 카테고리를 등록할 예정임.
+콘텐츠 열기 이벤트는 모두 `raw.content_usage`로 발행하고 `domain`·`category_uuid`로 분류함. 학습 맵의 유형별 영역에서 E로 문제 팝업을 열 때 기록함. 난이도 선택·개별 문항 조회 때 같은 열기 로그를 추가하지 않음. `session_uuid`는 로그인 세션 UUID이며 내부 학습 세션의 정수 ID와 다름.
+
+학습 콘텐츠 ID는 난이도나 출제 순서에 따라 바뀌지 않음. 개별 문제·보기에 UUIDv4를 부여하고 기존 정수 PK도 유지함. 새 환경·기존 환경은 마이그레이션으로 기준정보를 준비함.
+
+## 4. 학습 답안·포인트 흐름
+
+1. 클라이언트가 답안별 `submission_request_uuid`를 발급하고 재시도까지 유지함. HTTP API는 UUIDv4를 필수로 받음. 객관식 화면은 실제 `choice_uuid`도 함께 보냄.
+2. 서버가 소유자·문제·선택지·3회 제한을 검증하고 직접 채점함. 유효한 정답·오답 각각 `quiz_answered` 한 건 생성함. 거부된 요청은 답안 로그를 만들지 않음.
+3. 정답이면 난이도 배점으로 지갑 적립·지급 원장·`point_granted` 생성함. 빈칸도 같은 배점임. 오답은 포인트 이벤트 없음. 배점을 0으로 설정한 경우에도 0P 지급 이벤트는 만들지 않음.
+4. 답안·성적·지갑·원장·두 Outbox 이벤트·응답 스냅샷을 **같은 운영 DB의 한 트랜잭션**으로 확정함. 중간 실패 시 모두 취소함. Kafka ACK를 기다리면서 채점하지 않음.
+5. 동일 사용자·요청 UUID·답안은 이전 응답을 반환하며 답안·원장·이벤트를 중복 생성하지 않음. 같은 요청 UUID를 다른 답안이나 학습 세션에 재사용하면 409임. 동시 제출도 사용자별로 직렬화함.
+
+재시도 응답의 `balance_after`는 원래 지급 시점의 값임. 최신 잔액은 별도 지갑 조회 API로 확인함. 다른 사용자는 같은 요청 UUID를 사용해도 서로 별도 요청임. 새 학습에서 같은 문제를 다시 맞히면 새 시도이며 다시 적립됨. 통과 여부와 별개로 정답 제출 시 지급됨.
+
+기존 미연동 답안의 정수 ID·`attempt_uuid`·응답 스냅샷은 보존함. 이전 답안에 소급 지급하거나 Kafka 로그를 새로 만들지 않음. 기존 계정 지갑은 0P로 시작함. 운영 보상 정책 변경 시 `backend/.env`의 `LEARNING_POINTS_BEGINNER`, `LEARNING_POINTS_INTERMEDIATE`, `LEARNING_POINTS_ADVANCED` 변경 후 서버 재시작함. 이미 지급한 내역과 재시도 결과는 바뀌지 않음.
+
+**빈칸 계약 확장**
+
+기존 DRD의 객관식 전용 `quiz_answered 1.0`은 수신측에서 유지함. 새 발행자는 객관식·빈칸 모두 `1.1`을 사용함. 추가 필드는 `question_type`이며 `choice_uuid`는 빈칸에서만 `null` 허용함. `point_granted`와 다른 이벤트는 `1.0` 유지함.
+
+이 프로젝트는 프론트·백엔드로 나뉜 발행 측 프로젝트이며, 수신 서비스는 별도로 관리함. 새 메시지 계약은 `quiz_answered 1.1`임. 저장소의 수신 파이프라인은 팀원이 별도로 관리하며 이 분리 PR에서 교체하지 않음. 수신 서비스에서 `quiz_answered 1.1`, 빈칸의 nullable `choice_uuid`, `raw.points` 구독을 지원하도록 반영한 뒤 실제 Kafka 발행을 켜야 함. 실 Kafka·MongoDB 송수신 검증은 팀 서버에서 별도로 필요함.
+
+**객관식 답안 예시 — 이벤트별 `raw_data` 추가 필드**
+
+```json
+{
+  "attempt_uuid": "98fc94d3-a44f-47e2-b584-bbb8af2b4638",
+  "question_uuid": "ec543f6c-fabe-48fb-8753-6c7c7e1ce188",
+  "content_uuid": "0a2e7beb-e01b-4c0f-b0b6-85dbe00452d6",
+  "question_type": "MULTIPLE_CHOICE",
+  "choice_uuid": "d9c8bf8b-1aa5-4d45-9f15-78a7a486191a",
+  "is_correct": true
+}
+```
+
+**빈칸 답안 예시**
+
+```json
+{
+  "attempt_uuid": "56fd1d9c-b1ae-4a3d-9c4a-b86811f0ab25",
+  "question_uuid": "8b59b8ad-7d8d-46f4-838b-9c3a1ca0f91a",
+  "content_uuid": "424c4db5-0a92-42e2-a009-23c675c2b889",
+  "question_type": "FILL_BLANK",
+  "choice_uuid": null,
+  "is_correct": true
+}
+```
+
+**위 빈칸의 지급 예시 — `raw.points`**
+
+```json
+{
+  "ledger_uuid": "9c2c2877-e9d4-4e30-8474-bd8f705b8ac7",
+  "attempt_uuid": "56fd1d9c-b1ae-4a3d-9c4a-b86811f0ab25",
+  "delta": 20,
+  "balance_after": 70
+}
+```
+
+예시의 문제·보기·시도·원장 UUID는 설명용임. 실제로는 발급·저장한 UUID를 사용함. 위 필드에 공통 회원·로그인 세션·기수 UUID가 추가되고 최상위 `event_uuid`, `raw_manifest`, `raw_data`로 감싸 전송됨. 답안과 지급은 같은 `attempt_uuid`로 연결하되 각기 다른 `event_uuid`를 사용함. 서로 다른 토픽 간 도착 순서는 보장되지 않으므로 수신측은 연결 키로 합쳐야 함.
 
 채팅 원문·닉네임, 게시글 제목·본문, 댓글 본문은 Kafka Raw에 포함하지 않음. 채팅 원문은 운영 DB에 30일 보관함.
 
-## 4. 저장·전송 방식
+## 5. 이동 로그 수집 흐름
+
+매 이동마다 이벤트를 메모리 큐에 넣던 경로를 제거하고, 기존 위치 저장 체크포인트를 재사용함. 실시간 화면 이동과 다른 사용자에게 보내는 웹소켓 동기화는 계속 유지함.
+
+1. 서버가 받아들인 위치 정보가 바뀌면 `position_dirty=True`로 표시하고 최신 위치와 관측 시각을 메모리에 유지함.
+2. 일반 체크포인트는 마지막 체크포인트로부터 약 5초가 지났고 `position_dirty=True`인 경우에만 저장함. 변경 표시가 없는 사용자는 위치 저장·Outbox 기록을 건너뜀. 이를 위해 모든 사용자의 좌표를 DB에서 다시 조회하지 않음.
+3. 사용자 위치(`last_position`, `last_position_at`)를 갱신하고 이전 저장 위치와 층 또는 x/y가 달라졌으면 `movement_observed` 한 건을 **같은 DB 트랜잭션**으로 Outbox에 기록함. 방향만 바뀌면 복원용 방향만 저장하고 이동 이벤트는 생성하지 않음. 여러 이동은 저장 시점의 최신 위치 한 건으로 모음.
+4. 저장이 성공하면 처리한 위치의 변경 표시를 해제함. 저장 중 더 최신 위치가 들어오면 변경 표시를 유지해서 다음 체크포인트에서 저장함. Outbox 기록에 실패하면 위치 갱신도 취소하고 다음 체크포인트에서 재시도함.
+5. 백그라운드 발행기가 Outbox의 이벤트를 `raw.movement`로 전송함. **5초는 위치 기록 간격이며 실제 Kafka 전송 시각을 보장하는 간격은 아님.**
+
+`position_dirty`는 현재 `moving=True`인지가 아니라 **지난 저장 이후 위치 정보가 바뀌었는지**를 나타냄. 따라서 잠깐 움직였다가 멈춘 사용자도 마지막 변경 위치를 한 번 저장하고, 그 뒤 변경이 없으면 기록하지 않음. 위치 정보에는 층·좌표·방향이 포함되지만 Kafka Raw에는 방향 필드를 넣지 않음. 정지 또는 방향 변경만으로 이동 이벤트가 추가되지 않음.
+
+**최종 위치와 층 전환 처리**
+
+- 층 이동·웹소켓 접속 종료·명시적 로그아웃·세션 만료에는 미저장 최종 위치를 5초 제한을 기다리지 않고 저장함.
+- 층 이동에는 위치 갱신·`movement_observed`·`floor_transferred`를 같은 트랜잭션으로 기록함.
+- 이미 저장한 관측 시각과 같거나 더 오래된 좌표는 위치를 덮어쓰지 않고 이동 이벤트도 추가하지 않음. 오래된 탭이나 중복 종료 처리로 인한 중복 기록을 방지함.
+- 일반 주기 확인은 5초 제한을 유지함. 위치를 갱신하지 않은 사용자에 대한 이동 이벤트는 생성하지 않음.
+
+이동 토픽·이벤트 필드·스키마 `1.0`은 유지함. 수집 빈도와 저장·재시도 방식만 변경함.
+
+## 6. 저장·전송 방식
 
 | 구분 | 처리 방식 | 실패 처리 |
 |---|---|---|
-| `movement_observed` | 메모리 대기열 → Kafka | 일부 유실 허용. DB에 보관하지 않음 |
+| `movement_observed` | 변경된 위치의 체크포인트 → 위치 DB 갱신 + Outbox 저장 → Kafka | 위치와 Outbox를 함께 확정하고, 전송 실패 시 DB에 남겨두고 재시도 |
 | 그 외 모든 이벤트 | DB Outbox → Kafka | DB에 남겨두고 재시도 |
 
 주요 서비스 변경과 Outbox 기록을 같은 DB 트랜잭션으로 저장함. Kafka의 전송 성공 응답을 받은 뒤 전송 완료로 표시함.
 
 Producer는 `acks=all`, `enable.idempotence=True`를 사용함. Kafka 전송 성공 직후 서버가 종료되면 같은 이벤트가 다시 전송될 수 있으므로, 소비자에서도 `event_uuid` 기준 중복 제거가 필요함.
 
-현재 DB는 SQLite임. Kafka 연결 정보가 없는 상태에서는 Outbox 이벤트가 DB에 대기하고, 이동 Raw는 저장·전송되지 않음.
+현재 기본 DB는 SQLite임. Kafka 연결 정보가 없어도 이동 체크포인트를 포함한 모든 이벤트는 발생 시 Outbox에 기록됨. 브로커 주소가 없으면 실제 Kafka 전송은 시작하지 않고, 설정 후 발행기를 실행하면 기존 미발행 이벤트부터 전송함.
+
+## 7. 설정·실행·검증
+
+- 연결 정보는 `backend/.env`에서 설정함. 예시는 `backend/.env.example`에 있음.
+- `KAFKA_BOOTSTRAP_SERVERS`가 발행기 시작에 필요하며, 인증을 사용하는 환경에서는 `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`도 설정함.
+- 기본 출처는 `CAMPUS_RAW_SOURCE=platform_server_1`임.
+- `run-campus.py`와 `manage.py runserver` 모두 실제 서비스 프로세스에서 발행기를 시작함. 자동 재시작을 감시하는 부모 프로세스에서는 시작하지 않으며, 마이그레이션·검사·테스트 명령도 발행기를 시작하지 않음.
+- 토픽 생성, 파티션·복제 수 설정과 수신 서비스 구독은 별도로 관리함. 토픽·이벤트 코드가 구현되었다는 사실과 실제 브로커 송수신 확인을 구분함.
+
+2026-10-13 기준 검증: 이동 체크포인트·정지 사용자 제외·최종 위치·오래된 좌표 제외·Outbox 실패 시 전체 취소·전송 재시도와 기존 학습·포인트 기능을 포함한 **테스트 66개 통과**. DB 스키마 변경 없이 기존 Outbox를 사용함. 이 검증은 실제 브로커 연결 검증과 별개임.
+
+백엔드 폴더에서 다음 명령으로 검증할 수 있음. 동시 제출 검증을 위해 별도의 파일 테스트 DB를 사용함.
+
+```powershell
+cd C:\3rd-pr-f\backend
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test learning.tests eventing.test_publisher campus.test_publisher_startup campus.test_movement_outbox --settings=config.kafka_test_settings --noinput
+```
+
+실행 방법은 [RUN_GUIDE.md](RUN_GUIDE.md)를 참고함.
+
+## 8. 주요 구현 위치
+
+| 파일 | 역할 |
+|---|---|
+| [backend/eventing/events.py](backend/eventing/events.py) | 토픽 매핑, 필드 검증, 메시지 구조, Outbox 기록 |
+| [backend/campus/consumers.py](backend/campus/consumers.py) | 변경 표시와 약 5초 체크포인트, 실시간 이동·최종 위치 처리 |
+| [backend/campus/positions.py](backend/campus/positions.py) | 위치 갱신과 이동 Outbox를 같은 트랜잭션으로 저장 |
+| [backend/eventing/publisher.py](backend/eventing/publisher.py) | Outbox 전송, Kafka ACK 확인, 실패 재시도 |
+| [backend/learning/services.py](backend/learning/services.py) | 학습 열기·답안 채점·포인트·Outbox를 연결 |
+| [backend/learning/point_integration.py](backend/learning/point_integration.py) | 실제 지갑 적립과 지급 원장 |
+| [backend/accounts/views.py](backend/accounts/views.py), [backend/accounts/session_policy.py](backend/accounts/session_policy.py) | 로그아웃·세션 만료의 최종 위치 저장 |

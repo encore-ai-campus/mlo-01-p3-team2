@@ -7,7 +7,7 @@ import sys
 
 root = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--port", type=int, default=8002)
+parser.add_argument("--port", type=int, default=8004)
 options = parser.parse_args()
 if not 1 <= options.port <= 65535:
     parser.error("--port must be between 1 and 65535")
