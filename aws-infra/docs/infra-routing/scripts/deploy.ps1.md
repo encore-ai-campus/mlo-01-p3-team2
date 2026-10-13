@@ -53,7 +53,7 @@ NewProfile은 현재 infra/config의 topology·traffic을 복사하고 플랫폼
 
 workload 출력과 선택한 노드 목록이 일치하는지 검사하고, 실제 AWS 소유 계정·Project/Node/Role 태그·실행 상태·사양을 확인한다. 조건에 맞지 않으면 파일을 쓰지 않는다. 계정에 서비스 노드가 없어도 처리한다.
 
-계정 그룹과 역할 그룹을 함께 생성하고 mongo는 기본적으로 mongodb에 대응시킨다. role_groups는 사용자가 수정할 수 있다. edge-1의 role=edge는 별도 매핑 없이 edge 그룹으로 생성된다. bastion 노드는 Ansible에서 bastion-01이라는 내부 호스트명으로 표현한다. 중복 호스트 이름은 거부한다.
+계정 그룹과 역할 그룹을 함께 생성하고 mongo는 기본적으로 mongodb에 대응시킨다. role_groups는 사용자가 수정할 수 있다. 현재 front-a·front-b는 각각 game_frontend·ad_frontend 그룹으로 생성된다. 이전 role=edge의 호환 분기는 유지한다. bastion 노드는 Ansible에서 bastion-01이라는 내부 호스트명으로 표현한다. 중복 호스트 이름은 거부한다.
 
 대상 서버는 자신의 계정 키를 사용하고 ProxyCommand는 별도로 배스천 계정 키를 사용한다. 개인키를 배스천으로 복사하거나 모든 계정 키를 배스천에 등록할 필요가 없다. 생성 파일에는 키 경로만 기록한다.
 
@@ -67,8 +67,8 @@ Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해
 
 연결 대상은 [플랫폼 실행 스크립트](../../../../aws-platform/platform/scripts/setup-proxy.sh)와 [배스천 초기화](../../../../aws-platform/platform/bootstrap-proxy.yml)다. 프록시 준비에서는 Kafka·Spark·DB 애플리케이션 설치를 실행하지 않는다.
 
-## edge HTTPS 설치 입력
+## Front HTTPS 설치 입력과 기존 edge 호환
 
-Inventory는 edge 호스트에 AWS에서 조회한 public_ip와 선택한 traffic.game_client_cidrs를 edge_https_allowed_cidrs로 기록한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
+현재 Inventory는 Front별 EIP·공개 CIDR 0.0.0.0/0·리다이렉트와 단일 Backend 주소를 기록한다. 이전 role=edge 호스트만 traffic.game_client_cidrs를 사용한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
 
-Deploy는 EC2 생성·Inventory·Proxy까지 실행한다. 소프트웨어 전체 설치는 [site.yml](../../../../aws-platform/platform/site.yml)의 edge 역할에서, 진입 서버만 먼저 설치할 때는 [edge.yml](../../../../aws-platform/platform/edge.yml)에서 실행한다. edge 단독 초기 구축에는 Bastion이 없으므로 public_ip, 허용 CIDR, 키 경로, proxy_enabled=false를 가진 별도 인벤토리를 사용한다.
+Deploy는 EC2 생성·Inventory·Proxy까지 실행한다. HTTPS 설치는 [site.yml](../../../../aws-platform/platform/site.yml)의 edge 역할에서, 두 Front의 HTTPS만 설치할 때는 [edge.yml](../../../../aws-platform/platform/edge.yml)에서 실행한다. edge 단독 초기 구축에는 Bastion이 없으므로 public_ip, 허용 CIDR, 키 경로, proxy_enabled=false를 가진 별도 인벤토리를 사용한다.

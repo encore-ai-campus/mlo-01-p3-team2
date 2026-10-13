@@ -31,20 +31,23 @@ Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad만 남�
 | --- | --- |
 | local.nodes | 현재 계정의 role != bastion인 서버. edge_bootstrap_only=true이면 edge만 선택 |
 | local.active_flows | 정규 배포는 전체 flow, 초기 구축은 같은 계정의 edge 관련 flow만 선택 |
-| local.edge_ingress | edge SG에 ACME 80, 사용자 CIDR 443, 관리자 CIDR 22 |
-| local.service_console_ssh_sg_ids | 현재 계정 서비스 EC2의 역할별 SG. 같은 역할을 중복 제거하며 Bastion·ALB는 제외 |
+| local.edge_ingress | 실제 edge 노드가 있는 이전 구성에만 생성. 현재 기본 구성은 빈 값 |
+| local.restricted_roles | Account 1의 game_frontend·ad_frontend·game·ad. 다른 계정은 빈 집합 |
+| local.front_sg_ids / local.front_https_ingress | 두 Front SG와 전체 IPv4 출처 TCP 80·443 |
+| aws_vpc_security_group_egress_rule.front_all | 두 Front에만 전체 IPv4 프로토콜 송신 허용 |
+| local.service_console_ssh_sg_ids | 현재 계정 서비스 EC2의 역할별 SG. 같은 역할을 중복 제거하며 Bastion·ALB 및 Account 1 restricted_roles는 제외 |
 | local.sg_ids | 모든 foundation의 SG ID를 계정/역할 키로 결합 |
 | local.peer_sg_ids | 같은 계정은 SG ID, 다른 계정은 소유 계정 ID/SG ID로 peer 참조 구성 |
-| local.ingress_grouped | model.flows 중 대상 계정이 현재 계정인 규칙. port·port_end 전달 |
+| local.ingress_grouped | 현재 계정 대상 흐름을 선택하고 Account 1 Backend 8000 포함 흐름은 해당 Front 출처만 유지 |
 | local.egress_grouped | model.flows 중 소스 계정이 현재 계정인 규칙. port·port_end 전달 |
 | local.admin_ingress | Bastion SG가 있을 때 관리자 CIDR → SSH 포트 |
 | local.public_http_cidrs | 선택 입력 public_http_cidrs, 누락·null이면 game_client_cidrs |
 | local.front_ingress | 선택된 노드에 Public frontend가 있을 때 HTTP CIDR → TCP 80. edge 단독 모드에서는 생성하지 않음 |
-| local.private_role_sg_ids / local.private_admin_ingress | Private 노드의 역할별 SG를 중복 제거하고 관리자 CIDR → TCP 22 생성 |
+| local.private_role_sg_ids / local.private_admin_ingress | Private 역할별 관리자 CIDR → TCP 22 생성. Account 1 restricted_roles 제외 |
 | local.alb_ingress | 현재 계정 ALB가 활성화됐을 때 public_http_cidrs → TCP 80 |
 | data.aws_ec2_managed_prefix_list.ec2_instance_connect | Bastion 또는 서비스 EC2 SG가 있는 계정에서 해당 리전의 IPv4 EC2 Instance Connect 접두사 목록을 이름으로 조회 |
 | aws_vpc_security_group_ingress_rule.bastion_console_ssh | count=0으로 미생성. 기존 상태의 규칙은 다음 Plan에서 삭제 대상으로 표시 |
-| aws_vpc_security_group_ingress_rule.service_console_ssh | 서비스 EC2 역할별 SG에 접두사 목록을 소스로 TCP 22 허용. Bastion·ALB 제외 |
+| aws_vpc_security_group_ingress_rule.service_console_ssh | 서비스 역할별 콘솔 SSH 22. Bastion·ALB 및 Account 1 네 서비스 제외 |
 | module.rules | SG쌍/포트 중복을 제거하고 규칙 생성. internet_https_roles에는 외부 TCP 443 egress |
 | module.compute | 선택 계정의 서버·키페어·EBS·EIP 생성. rules 이후 실행 |
 | module.alb | ALB 대상 계정에만 생성. HTTP 80 listener 및 같은 계정의 frontend/game/ad 대상 그룹. 역할별 EC2 ID·포트·경로·헬스 체크 경로를 전달하며 인증서 입력을 전달하지 않음 |
@@ -57,7 +60,7 @@ SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 �
 
 ## 선택적으로 ALB를 활성화했을 때의 HTTP 접속 경로
 
-현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. Public Front HTTP 80은 public_http_cidrs로 허용하며 기존 Front→game/ad 8000도 유지한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
+현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. 현재 두 Front는 별도 규칙으로 80·443을 전체 공개하고 각 Front→해당 Backend 8000을 허용한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
 
 | 경로 | 허용·전달 조건 |
 | --- | --- |
@@ -95,13 +98,13 @@ SG 규칙·compute·ALB는 하나의 workload 상태로 묶여 있다. 실행기
 
 ## 콘솔 SSH 및 학원 SSH 규칙의 범위
 
-`service_console_ssh`는 서비스 역할 SG에 EC2 Instance Connect의 TCP 22를 유지한다. Bastion의 `bastion_console_ssh`는 count=0으로 제거하며 admin_public_cidrs의 SSH만 허용한다.
+`service_console_ssh`는 Account 1 네 서비스를 제외한 서비스 역할 SG에 EC2 Instance Connect의 TCP 22를 유지한다. Bastion의 `bastion_console_ssh`는 count=0으로 제거하며 admin_public_cidrs의 SSH만 허용한다.
 
-`private_role_sg_ids`는 실제 생성 대상 노드 중 private 역할만 중복 없이 선택한다. `private_admin_ingress`는 해당 SG마다 관리자 CIDR의 TCP 22 규칙을 만들고 module.rules.public_ingress에 합친다. 초기 edge_bootstrap_only 모드에는 private 노드가 없으므로 추가되지 않는다.
+`private_role_sg_ids`는 실제 생성 대상 노드 중 private 역할을 중복 없이 선택하며 Account 1 restricted_roles는 제외한다. `private_admin_ingress`는 해당 SG마다 관리자 CIDR의 TCP 22 규칙을 만들고 module.rules.public_ingress에 합친다. 초기 edge_bootstrap_only 모드에는 private 노드가 없으므로 추가되지 않는다.
 
-`front_ingress`는 Public Front의 TCP 80만 public_http_cidrs에 허용한다. edge HTTPS는 game_client_cidrs를 계속 사용한다. optional ALB의 HTTP에도 public_http_cidrs를 사용한다.
+`front_ingress`는 이전 frontend 역할의 HTTP 규칙이다. 현재 두 Front는 `front_https_ingress`에서 80·443을 전체 공개한다. 이전 edge 호환 분기만 game_client_cidrs를 사용한다. optional ALB의 HTTP에도 public_http_cidrs를 사용한다.
 
-이 규칙은 Private 서버에 인터넷 경로나 EC2 Instance Connect Endpoint를 만들지 않는다. 기존 Bastion→서버 SG 참조와 서비스 콘솔 SSH는 유지하며 IAM·키·OS 방화벽은 별도 검증 대상이다.
+이 규칙은 Private 서버에 인터넷 경로나 EC2 Instance Connect Endpoint를 만들지 않는다. 기존 Bastion→서버 SG 참조와 Account 2~5의 서비스 콘솔 SSH는 유지하며 IAM·키·OS 방화벽은 별도 검증 대상이다.
 
 ## mysql-3 증설과 ALB 복원 보류
 
@@ -127,17 +130,19 @@ account1의 최초 전체 Plan은 7개 추가였으며 MySQL 규칙 3개 외에 
 
 ## ALB 비활성화 설정
 
-2026-10-11 기본 및 current 설정의 ALB를 끄고 전용 연결 3개를 제거했다. 기존 local.alb_enabled·module.alb.count·model.flows 계산으로 처리하므로 workload 구현 파일은 변경하지 않았다. ALB 모듈·DNS와 ALB 전용 규칙은 생성하지 않으며 당시 서비스 EC2 17대와 Front EIP 두 개, 다른 서비스 연결을 유지했다. 이후 아래 edge-1 추가로 서비스 EC2는 18대, workload EIP는 3개다. 기존 foundation 출력에 ALB SG가 남은 전환 단계와 SG 정리 후를 모두 모의 검사한다. 실제 원격 상태 전환과 자원 삭제는 검증하지 않았다.
+2026-10-11 기본 및 current 설정의 ALB를 끄고 전용 연결 3개를 제거했다. 기존 local.alb_enabled·module.alb.count·model.flows 계산으로 처리하므로 workload 구현 파일은 변경하지 않았다. ALB 모듈·DNS와 ALB 전용 규칙은 생성하지 않으며 당시 서비스 EC2 17대와 Front EIP 두 개, 다른 서비스 연결을 유지했다. 이후 edge-1 도입 당시에는 서비스 EC2 18대·EIP 3개였으나, 현재 edge 제거 후 서비스 EC2 17대·EIP 2개다. 기존 foundation 출력에 ALB SG가 남은 전환 단계와 SG 정리 후를 모두 모의 검사한다. 실제 원격 상태 전환과 자원 삭제는 검증하지 않았다.
 
 foundation을 먼저 적용해 사용 중인 ALB SG를 삭제하지 않도록 [배포 순서](../../../deployment-runbook.md#alb-비활성화-적용-순서)를 따른다.
 
 ## 진입용 edge-1 추가
 
+아래는 과거 도입 기록이다. 현재 edge는 없고 Account 1 서비스는 네 대·Front EIP는 두 개다. edge.tftest.hcl은 독립 Front와 edge 미생성을 검사한다.
+
 기본 및 current topology는 edge-1을, traffic은 edge_front·SSH·Proxy 연결을 선언한다. account1 foundation의 edge SG를 먼저 준비해야 한다. 정규 workload 서비스 수는 5/3/4/3/3대이며 Front EIP 두 개와 edge EIP 한 개를 사용한다. main.tf의 edge_ingress는 외부 80(ACME), 사용자 CIDR 443, 관리자 CIDR 22를 만들고 internet_https_roles는 edge의 인터넷 443 송신을 허용한다. [edge.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/edge.tftest.hcl)은 Public A·EIP·SG 연결·외부 허용 및 초기 구축의 단일 노드를 검사한다.
 
 ## edge 단독 초기 구축
 
-edge_bootstrap_only는 기본 false다. [infra.ps1](../../scripts/infra.ps1.md)의 -EdgeBootstrapOnly를 쓰면 edge-1 한 대와 같은 계정의 edge 관련 연결만 생성하고 Bastion 콘솔/관리자 규칙·다른 계정 연결을 생략한다. 정규 workload와 자원 주소·backend를 공유하므로 나중에 일반 모드로 다른 서버를 추가한다. 기존 전체 상태에 사용하면 제거 계획이 생길 수 있어 실행기가 Plan·Apply 양쪽에서 삭제·교체와 edge-1(t3a.small) 외 EC2를 거부한다.
+edge_bootstrap_only는 기본 false인 기존 호환 기능이다. 현재 topology에는 edge가 없으므로 새 Front 구축에 사용하지 않는다. [infra.ps1](../../scripts/infra.ps1.md)의 -EdgeBootstrapOnly를 쓰면 edge-1 한 대와 같은 계정의 edge 관련 연결만 생성하고 Bastion 콘솔/관리자 규칙·다른 계정 연결을 생략한다. 정규 workload와 자원 주소·backend를 공유하므로 나중에 일반 모드로 다른 서버를 추가한다. 기존 전체 상태에 사용하면 제거 계획이 생길 수 있어 실행기가 Plan·Apply 양쪽에서 삭제·교체와 edge-1(t3a.small) 외 EC2를 거부한다.
 
 전체 삭제 실행기는 상태의 edge_bootstrap_guard[0] 표식을 읽어 같은 초기 구축 모드를 Delete Plan·Apply에도 전달한다. 일반 상태는 기존대로 다섯 foundation·connectivity를 읽는다. 이 선택은 생성 시의 삭제 차단을 없애는 옵션이 아니며, 삭제는 기존 전체 삭제 실행 ID·범위·태그·상태 해시 검사를 모두 통과해야 한다.
 

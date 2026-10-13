@@ -32,4 +32,4 @@
 
 ## Edge HTTPS
 
-Monitoring 직전에 hosts: edge, role: edge, tags: [edge] play가 실행된다. 실제 EIP·허용 사용자 CIDR이 필수다. 단일 진입 서버를 준비하려면 [edge.yml](edge.yml.md)을 사용한다. [edge 역할](roles/edge/README.md)은 Front 앱 설치를 포함하지 않는다.
+Monitoring 직전에 hosts: edge:game_frontend:ad_frontend, role: edge, tags: [edge] play가 실행된다. 실제 EIP·허용 사용자 CIDR이 필수다. Front HTTPS만 별도로 준비하려면 [edge.yml](edge.yml.md)을 사용한다. [edge 역할](roles/edge/README.md)은 Front 앱 설치를 포함하지 않는다.

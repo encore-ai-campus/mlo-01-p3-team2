@@ -78,7 +78,7 @@ flowchart TB
 ## 현재 구현의 범위
 
 - 계정 키는 account1~account5이며 shared는 connectivity 실행 구분이다.
-- workload의 서비스 서버는 5 / 3 / 4 / 3 / 3대, 전체 18대다. Bastion 한 대는 별도 bastion 단계에서 필요할 때 생성·삭제한다. ad-server는 Account 1의 Private A에 배치한다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW를 구성하며 ALB는 비활성화돼 있다. edge-1은 Public A의 신규 진입 노드 선언이다.
+- workload의 서비스 서버는 4 / 3 / 4 / 3 / 3대, 전체 17대다. Bastion 한 대는 별도 bastion 단계에서 필요할 때 생성·삭제한다. ad-server는 Account 1의 Private A에 배치한다. 현재 NAT는 0개이며 Account 1에만 Public 서브넷·IGW를 구성하며 ALB는 비활성화돼 있다. edge-1은 제거했으며 Public A의 두 Front가 Nginx·Certbot을 각각 사용한다. 두 Front는 t3.small, 두 Backend는 t3.large다.
 - 보안그룹 자체는 foundation, 통신 규칙은 workload가 소유한다. Peering과 상대 VPC 경로는 connectivity가 소유한다.
 - 서비스 콘솔 SSH는 해당 리전의 EC2 Instance Connect 관리형 IPv4 접두사 목록에서 TCP 22를 허용한다. 계정별 서비스 SG 4 / 3 / 4 / 3 / 3개, 총 17개가 대상이며 기존 Bastion 규칙과 별도로 선언한다. Private 접속 경로나 SSH 공개키를 준비하는 기능은 아니다.
 - ALB는 HTTP 80에서 요청을 받는다. `/static/*`는 Front 두 대의 HTTP 80으로, `/ads/*`는 ad-server의 HTTP 8000으로, 기본 경로는 game-server의 HTTP 8000으로 보낸다. HTTPS 리스너와 ACM 인증서 검사는 없다.

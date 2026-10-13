@@ -4,7 +4,7 @@
 
 기본 및 profiles/current의 front-a는 game_frontend, front-b는 ad_frontend이며 둘 다 Public A·t3.small·EIP다. game-server와 ad-server는 Private A·t3.large·공인 IP 없음이다. edge-1과 edge_front 연결, SSH·Proxy·인터넷 송신 목록의 edge 항목을 제거했다. 노드 키·디스크·다른 계정·공통 A/C 서브넷은 유지한다.
 
-front_game은 game_frontend→game, front_ad는 ad_frontend→ad TCP 8000으로 나뉜다. admin_nodes·forward_proxy는 새 Front 역할을 참조한다. Account 1의 외부 공개/SSH 및 추가 Backend 수신 제한은 workload에서 적용한다. 다른 계정 규칙 보존을 위해 traffic에 남은 MySQL→Backend 송신 선언을 지우지 않는다. 아래 과거 edge·공통 frontend 설명은 이 구성으로 대체된다.
+front_game은 game_frontend→game, front_ad는 ad_frontend→ad TCP 8000으로 나뉜다. admin_nodes·forward_proxy는 새 Front 역할을 참조한다. Account 1의 외부 공개/SSH 및 추가 Backend 수신 제한은 workload에서 적용한다. 다른 계정 규칙 보존을 위해 traffic에 남은 MySQL→Backend 송신 선언을 지우지 않는다. 현행 표는 이 구성을 따르며 별도로 표시한 이전 기록만 과거 구성을 설명한다.
 
 [탐색 시작점](../ROUTING-README.md) · [model 검증](../terraform/README.md#model) · [공통 입력 검사](../scripts/lib/infra-common.ps1.md)
 
@@ -37,7 +37,7 @@ JSON에는 주석이나 AWS 액세스 키·시크릿 키를 넣지 않는다. �
 
 | 계정 | VPC | 현재 노드 | Public 서브넷 / egress |
 | --- | --- | --- | --- |
-| account1 | 10.10.0.0/16 | bastion, front-a, front-b, game-server, ad-server, edge-1 | true / proxy |
+| account1 | 10.10.0.0/16 | bastion, front-a, front-b, game-server, ad-server | true / proxy |
 | account2 | 10.20.0.0/16 | mongo-1, spark-2, flatten-1 | false / proxy |
 | account3 | 10.30.0.0/16 | kafka-1, mysql-1, spark-1, mongo-2 | false / proxy |
 | account4 | 10.40.0.0/16 | kafka-2, mysql-3, spark-3 | false / proxy |
@@ -45,9 +45,9 @@ JSON에는 주석이나 AWS 액세스 키·시크릿 키를 넣지 않는다. �
 
 노드명과 data_disks의 키는 Terraform for_each 식별자다. 이름 변경이나 계정·AZ 이동은 단순 표시 변경이 아니며 생성·교체·이전 계획을 확인해야 한다. 세부 노드 사양표는 [기존 실행 안내](../../../infra/scripts/scripts.md)에 있다.
 
-nodes.bastion은 Account 1의 Public A, t3a.small, root_gib=20, public_ip=true를 유지한다. 이 정의는 foundation의 Bastion SG와 통신 역할 계산에 필요하지만 workload EC2에서는 role != bastion 조건으로 제외한다. [Bastion 전용 단계](../terraform/stacks/bastion.md)는 자동 공인 IP를 사용하고 EIP는 생성하지 않는다. EC2 삭제 시 OS 디스크도 삭제한다. Front 두 대와 edge-1은 workload에서 EIP를 각각 만든다. game-server는 Private A, t3a.large, public_ip=false다. 노드별 enabled 필드는 없다. [bastion.ps1](../scripts/bastion.ps1.md)은 생성·삭제와 기존 중지·시작을 구분해 제공한다.
+nodes.bastion은 Account 1의 Public A, t3a.small, root_gib=20, public_ip=true를 유지한다. 이 정의는 foundation의 Bastion SG와 통신 역할 계산에 필요하지만 workload EC2에서는 role != bastion 조건으로 제외한다. [Bastion 전용 단계](../terraform/stacks/bastion.md)는 자동 공인 IP를 사용하고 EIP는 생성하지 않는다. EC2 삭제 시 OS 디스크도 삭제한다. 게임·광고 Front 두 대만 workload에서 EIP를 각각 만든다. game-server는 Private A, t3.large, public_ip=false다. 노드별 enabled 필드는 없다. [bastion.ps1](../scripts/bastion.ps1.md)은 생성·삭제와 기존 중지·시작을 구분해 제공한다.
 
-광고 서버는 account1의 Private A에 배치하며 role=ad, t3a.large, root_gib=20, public_ip=false, data_disks={}를 유지한다. ALB 설정은 ad_role=ad, ad_path=/ads/*, ad_health_path=/이다. `/ads/`와 그 하위 경로는 원래 경로 그대로 광고 서버로 전달하며 Django URL 설정은 변경하지 않는다.
+광고 서버는 account1의 Private A에 배치하며 role=ad, t3.large, root_gib=20, public_ip=false, data_disks={}를 유지한다. ALB 설정은 ad_role=ad, ad_path=/ads/*, ad_health_path=/이다. ALB는 비활성 상태다. 현재 광고 Front는 모든 경로를 원래 경로 그대로 광고 Backend로 전달한다.
 
 flatten-1은 account2의 Private A(apne2-az1), t3a.medium, root_gib=20, public_ip=false, data_disks={}다. role=consumer로 전용 SG와 인벤토리 그룹을 만들고 Kafka·Spark 서비스 설치 대상과 분리한다. 기본 설정과 profiles/current 복사본을 함께 갱신했다.
 
@@ -71,8 +71,8 @@ AWS 적용은 실행하지 않았다. 기존 저장 Plan은 다시 만들고, �
 
 | 외부 접속 설정 | 현재 값과 소비 위치 |
 | --- | --- |
-| admin_public_cidrs | 222.112.208.69/32. Bastion·Private 역할별 SSH 22 및 edge SSH |
-| public_http_cidrs | 0.0.0.0/0. Public Front와 선택적 ALB의 HTTP 80 |
+| admin_public_cidrs | 222.112.208.69/32. Bastion·Account 2~5 Private 역할의 SSH 22. Account 1 네 서비스는 Bastion SG만 허용 |
+| public_http_cidrs | 0.0.0.0/0. 이전 frontend 역할 및 선택적 ALB의 HTTP 80. 현재 두 Front는 별도 공개 규칙 사용 |
 | game_client_cidrs | 222.112.208.69/32. 기존 edge HTTPS 443 및 public_http_cidrs 누락 시 HTTP 대체값 |
 
 public_http_cidrs는 model의 선택 입력이다. workload에서 누락·null이면 game_client_cidrs를 사용하고 빈 목록이면 해당 HTTP CIDR 규칙을 만들지 않는다. CIDR 형식은 model과 infra-common.ps1에서 검사한다. Private SSH 규칙은 인터넷 경로나 OS 방화벽 설정을 만들지 않는다.
@@ -83,15 +83,14 @@ connections는 소스 역할 목록·대상 역할 목록·시작 포트인 port
 
 | 연결 키 | 소스 → 대상 | 현재 TCP 포트 |
 | --- | --- | --- |
-| admin_nodes | bastion → edge 포함 나머지 서버 역할 | 22 |
+| admin_nodes | bastion → 게임·광고 Front를 포함한 서비스 역할 | 22 |
 | game_kafka / spark_kafka | game·ad / spark → kafka | 9092 |
 | kafka_replication / kafka_controller | kafka → kafka | 9092 / 9093 |
 | mongo_replication / mysql_replication | mongo → mongo / mysql → mysql | 27017 / 3306 |
 | spark_mongo / spark_mysql | spark → mongo / mysql | 27017 / 3306 |
 | game_mysql | game → mysql | 3306 |
-| edge_front | edge → frontend | 80 |
-| front_game | frontend → game | 8000 |
-| front_ad | frontend → ad | 8000 |
+| front_game | game_frontend → game | 8000 |
+| front_ad | ad_frontend → ad | 8000 |
 | game_ad | game → ad | 8000 |
 | ad_game | ad → game | 8000 |
 | consumer_mongo | consumer → mongo | 27017 |
@@ -103,11 +102,11 @@ connections는 소스 역할 목록·대상 역할 목록·시작 포트인 port
 | spark_master / spark_driver / spark_block | spark → spark | 7077 / 7078–7094 / 7079–7095 |
 | spark_worker / spark_master_ui | spark → spark | 7100 / 8080 |
 | zookeeper_client / zookeeper_peer / zookeeper_election | spark → spark | 2181 / 2888 / 3888 |
-| forward_proxy | frontend·game·mongo·spark·ad·kafka·mysql·consumer·edge → bastion | 3128 |
+| forward_proxy | game_frontend·ad_frontend·game·mongo·spark·ad·kafka·mysql·consumer → bastion | 3128 |
 
-admin_public_cidrs는 Bastion·edge의 관리자 SSH 22, game_client_cidrs는 edge의 사용자 HTTPS 443에 사용한다. 선택적으로 ALB를 활성화하면 game_client_cidrs를 ALB HTTP 80에도 사용한다. 빈 목록은 해당 CIDR 허용 규칙을 만들지 않는다. edge의 ACME HTTP 검증 80은 0.0.0.0/0에 개방하며 URL 경로 제한은 Nginx가 담당한다. 두 CIDR 목록은 서버 EIP가 아니라 접속하는 사람의 공인 IP 범위다.
+admin_public_cidrs는 Bastion과 Account 2~5 Private 역할의 SSH에 사용한다. 현재 두 Front의 80·443은 workload에서 전체 공개하며 game_client_cidrs로 제한하지 않는다. public_http_cidrs는 기존 frontend 및 선택 ALB의 HTTP 규칙에 사용한다. CIDR은 서버 EIP가 아니라 접속 출발지다.
 
-internet_https_roles에는 bastion과 edge가 있어 외부 TCP 443 egress를 만든다. edge는 인증서 발급·갱신과 HTTPS 패키지 다운로드에 사용한다. 이는 송신 규칙이며 HTTPS 리스너를 설치하거나 다른 Private 서버를 인터넷에 연결하지 않는다.
+internet_https_roles에는 bastion만 남아 외부 TCP 443 egress를 만든다. 현재 두 Front는 별도 front_all 규칙으로 전체 IPv4 송신을 허용한다. 이는 송신 규칙이며 HTTPS 리스너를 설치하거나 다른 Private 서버를 인터넷에 연결하지 않는다.
 
 ZooKeeper 세 포트는 Spark 노드의 클라이언트 접속·동기화·리더 선출에 사용한다. 기본 traffic과 현재 로컬 profiles/current/traffic 모두에 spark → spark 연결을 추가했다. model이 Spark 역할이 배치된 계정의 SG 쌍으로 펼치므로 현재 적용 대상은 account2·account3·account4의 workload다. 외부 CIDR 허용을 추가하는 설정이 아니며, 로컬 파일 변경 후 해당 구성의 새 Plan을 검토하고 Apply해야 AWS에 반영된다.
 
@@ -166,11 +165,15 @@ Front→게임·광고 8000 연결을 허용했지만 외부 사용자→Front 4
 
 ## 진입용 edge-1
 
+아래는 과거 도입 기록이다. 2026-10-13에 edge-1과 edge_front를 제거했으며 현재 생성 대상이 아니다.
+
 기본 및 profiles/current에 nodes.edge-1(account1, role=edge, Public A, t3a.small, root_gib=20, public_ip=true, data_disks={})을 추가했다. 기존 compute가 EIP를 생성·연결하며 기존 Front EIP 두 개는 유지한다. edge_front는 edge→frontend TCP 80이고 admin_nodes.targets·forward_proxy.sources에도 edge를 추가해 SSH 22와 Proxy 3128을 준비한다. 전체 connections는 31개, 역할 SG는 18개다. 새 EC2가 사용할 AMI·공개키는 기존 account1 설정을 따른다.
 
 edge의 외부 80은 ACME 검증, 443은 game_client_cidrs, 22는 admin_public_cidrs에 연결한다. 전용 edge SG는 게임·광고·DB에 직접 연결하지 않는다. Inventory는 edge 그룹에 public_ip와 edge_https_allowed_cidrs를 포함한다. Nginx·인증서·OS 방화벽은 플랫폼 설정과 맞춘다. 기존 ALB가 남아 있으면 [전환 순서](../../../docs/deployment-runbook.md#진입용-edge-1-추가)를 먼저 확인한다.
 
 ## 2026-10-12 학원 접속 범위
+
+이전 정책 기록이다. 2026-10-13부터 Account 1 네 서비스의 관리자 CIDR·콘솔 SSH는 제외하고 Bastion SSH만 허용한다. 두 Front의 80·443은 별도 규칙으로 전체 공개한다.
 
 - 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
 - `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
