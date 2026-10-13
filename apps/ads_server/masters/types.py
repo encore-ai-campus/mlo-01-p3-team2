@@ -50,6 +50,9 @@ class PolicyView:
     floor: int
     base: int
     cap: int
+    impression_share: int  # 반응 유형별 과금 비율(%), 합 100(6-10b)
+    click_share: int
+    conversion_share: int
     changed_by: uuid.UUID
     changed_at: datetime
     reason: str

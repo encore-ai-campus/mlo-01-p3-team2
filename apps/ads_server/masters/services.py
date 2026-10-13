@@ -12,25 +12,35 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, parse_uuid, parse_uuids, record_audit, require_admin
 
-from .models import Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
+from .models import MAX_SHARE, MIN_SHARE, SHARE_FIELDS, Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
 
 
-def _validate_policy(floor, base, cap):
+def _validate_policy(floor, base, cap, shares):
+    """`shares` = {비율 열 이름: 값}(노출·클릭·전환). 각각 정수 1~98, 합 100 — DB 제약과 같은 규칙을 읽기 쉬운 400 으로."""
     problems = []
     for pointer, value in (("/floor", floor), ("/base", base), ("/cap", cap)):
         if not is_int(value) or not (0 < value <= MAX_AMOUNT):
             problems.append({"pointer": pointer, "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."})
+    for name, value in shares.items():
+        if not is_int(value) or not (MIN_SHARE <= value <= MAX_SHARE):
+            problems.append({"pointer": f"/{name}", "message": f"{MIN_SHARE} 이상 {MAX_SHARE} 이하의 정수(%)여야 합니다."})
     if problems:
         raise errors.InvalidRequest(errors=problems)
     if not floor <= base <= cap:
         raise errors.InvalidRequest(errors=[{"pointer": "/base", "message": "하한 ≤ 기준가 ≤ 상한이어야 합니다."}])
+    if sum(shares.values()) != 100:
+        raise errors.InvalidRequest(errors=[{"pointer": "/shares", "message": f"노출·클릭·전환 비율의 합은 100이어야 합니다(지금 {sum(shares.values())})."}])
+
+
+def _shares(impression_share, click_share, conversion_share):
+    return dict(zip(SHARE_FIELDS, (impression_share, click_share, conversion_share)))
 
 
 def _policy_view(row):
     return PolicyView(
         bid_policy_id=row.bid_policy_id, slot_id=row.slot_id, policy_version=row.policy_version, floor=row.floor_amount, base=row.base_amount,
-        cap=row.cap_amount, changed_by=row.changed_by, changed_at=row.changed_at, reason=row.reason,
+        cap=row.cap_amount, **{name: getattr(row, name) for name in SHARE_FIELDS}, changed_by=row.changed_by, changed_at=row.changed_at, reason=row.reason,
     )
 
 
@@ -132,8 +142,9 @@ def _validate_audience(audience):
         raise errors.InvalidRequest(errors=[{"pointer": "/audience", "message": f"{', '.join(Audience.values)} 중 하나여야 합니다."}])
 
 
-def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, audience=Audience.INDIVIDUAL):
+def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, audience=Audience.INDIVIDUAL, *, impression_share, click_share, conversion_share):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
+    정책에는 반응 유형별 과금 비율(노출·클릭·전환 %)이 들어간다(6-10b).
 
     `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
     사유는 만들 때만 비워도 된다 — 비면 "없음"(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다.
@@ -146,24 +157,25 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
     if pricing_unit not in PricingUnit.values:
         raise errors.InvalidRequest(errors=[{"pointer": "/pricing_unit", "message": f"{', '.join(PricingUnit.values)} 중 하나여야 합니다."}])
     _validate_audience(audience)
-    _validate_policy(floor, base, cap)
+    shares = _shares(impression_share, click_share, conversion_share)
+    _validate_policy(floor, base, cap, shares)
     try:
         with transaction.atomic():
             media = _get_media(media_id)
             slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit, audience=audience)
             policy = BidPolicy.objects.create(
-                slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap,
+                slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap, **shares,
                 changed_by=actor.pk, reason=reason,
             )
             _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
-                   {"name": name, "pricing_unit": pricing_unit, "audience": audience, "floor": floor, "base": base, "cap": cap, "reason": reason})
+                   {"name": name, "pricing_unit": pricing_unit, "audience": audience, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason})
     except IntegrityError:
         raise errors.Conflict("이 매체에 같은 이름의 게재 위치가 이미 있습니다.")
     slot.media = media
     return _slot_view(slot, policy)
 
 
-def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
+def _add_version(actor, slot_id, floor, base, cap, shares, reason, expected_version):
     """`expected_version` 이 현재와 다르면 StaleVersion. 호출한 쪽이 바깥 트랜잭션을 연다."""
     slot = _get_slot(slot_id)
     current = BidPolicy.objects.filter(slot=slot).order_by("-policy_version").first()
@@ -173,34 +185,37 @@ def _add_version(actor, slot_id, floor, base, cap, reason, expected_version):
         with transaction.atomic():
             policy = BidPolicy.objects.create(
                 slot=slot, policy_version=current.policy_version + 1, floor_amount=floor, base_amount=base,
-                cap_amount=cap, changed_by=actor.pk, reason=reason,
+                cap_amount=cap, **shares, changed_by=actor.pk, reason=reason,
             )
     except IntegrityError:  # 같은 버전을 동시에 만든 쪽의 충돌은 유일 제약이 막는다(MySQL 은 쓰기가 병렬이라 실제로 이 경로를 탄다 — DB-1c 에서 동시 시험)
         raise errors.StaleVersion()
     _audit(actor, "masters.policy_added", ("masters.slot", slot.slot_id),
-           {"version": policy.policy_version, "floor": floor, "base": base, "cap": cap, "reason": reason,
-            "previous": {"floor": current.floor_amount, "base": current.base_amount, "cap": current.cap_amount}})
+           {"version": policy.policy_version, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason,
+            "previous": {"floor": current.floor_amount, "base": current.base_amount, "cap": current.cap_amount,
+                         **{name: getattr(current, name) for name in SHARE_FIELDS}}})
     return _policy_view(policy)
 
 
-def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_version):
+def add_policy_version(actor, slot_id, floor, base, cap, reason, expected_version, *, impression_share, click_share, conversion_share):
     require_admin(actor)
     reason = clean_text(reason, "사유", "/reason", 200)
-    _validate_policy(floor, base, cap)
+    shares = _shares(impression_share, click_share, conversion_share)
+    _validate_policy(floor, base, cap, shares)
     with transaction.atomic():
-        return _add_version(actor, slot_id, floor, base, cap, reason, expected_version)
+        return _add_version(actor, slot_id, floor, base, cap, shares, reason, expected_version)
 
 
-def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason):
-    """같은 값을 여러 슬롯에 새 버전으로. `expected_versions` = {slot_id: 본 버전}. 하나라도 어긋나면 전부 취소."""
+def add_policy_version_bulk(actor, expected_versions, floor, base, cap, reason, *, impression_share, click_share, conversion_share):
+    """같은 값(비율 포함)을 여러 슬롯에 새 버전으로. `expected_versions` = {slot_id: 본 버전}. 하나라도 어긋나면 전부 취소."""
     require_admin(actor)
     reason = clean_text(reason, "사유", "/reason", 200)
-    _validate_policy(floor, base, cap)
+    shares = _shares(impression_share, click_share, conversion_share)
+    _validate_policy(floor, base, cap, shares)
     if not expected_versions:
         raise errors.InvalidRequest(errors=[{"pointer": "/slots", "message": "슬롯을 하나 이상 고르세요."}])
     with transaction.atomic():
         return [
-            _add_version(actor, slot_id, floor, base, cap, reason, version)
+            _add_version(actor, slot_id, floor, base, cap, shares, reason, version)
             for slot_id, version in expected_versions.items()
         ]
 

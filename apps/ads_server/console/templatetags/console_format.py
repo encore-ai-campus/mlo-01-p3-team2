@@ -25,6 +25,12 @@ def audience_label(value):
 
 
 @register.filter
+def shares(policy):
+    """입찰 정책의 반응 유형별 과금 비율 → "노출 98% · 클릭 1% · 전환 1%"."""
+    return f"노출 {policy.impression_share}% · 클릭 {policy.click_share}% · 전환 {policy.conversion_share}%"
+
+
+@register.filter
 def points(value):
     """포인트 금액 표시(천 단위 쉼표 + 단위). 값이 없으면 빈 문자열. 포인트는 정수다."""
     if value is None or value == "":

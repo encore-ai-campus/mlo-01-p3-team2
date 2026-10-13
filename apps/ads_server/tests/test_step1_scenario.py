@@ -14,7 +14,7 @@ from foundation.models import AuditLog, User
 from masters import api as masters
 from records import api as records
 from records.models import Decision
-from tests.factories import DAY, NOW, PW, make_admin, png_file
+from tests.factories import DAY, NOW, PW, SHARES, make_admin, png_file
 
 IMP = "IMPRESSION"
 
@@ -35,7 +35,7 @@ class Step1ScenarioTests(TestCase):
         admin = make_admin()
         media = masters.create_media(admin, "메타버스")
         slots = {
-            name: masters.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 정책")
+            name: masters.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 정책", **SHARES)
             for name, unit, floor, base, cap in (("A", IMP, 10, 20, 50), ("B", IMP, 10, 15, 20), ("C", IMP, 40, 50, 100), ("D", "CLICK", 5, 8, 30))
         }
         sid = {name: s.slot_id for name, s in slots.items()}
@@ -86,7 +86,7 @@ class Step1ScenarioTests(TestCase):
         saved = records.get_decision(media.media_id, on_a.decision_id)
         raw = list(Decision.objects.filter(decision_id=on_a.decision_id).values())
         campaigns.add_bid(adv1, group1.ad_group_id, 90, expected_version=1, now=NOW)
-        masters.add_policy_version(admin, sid["A"], 1, 2, 3, "대폭 변경", expected_version=1)
+        masters.add_policy_version(admin, sid["A"], 1, 2, 3, "대폭 변경", expected_version=1, **SHARES)
         campaigns.update_creative(adv1, creative1.creative_id, {"title": "다른 제목"}, now=NOW)
         campaigns.suspend_campaign(admin, camp1.campaign_id, "부적절", now=NOW)
         with override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable"):

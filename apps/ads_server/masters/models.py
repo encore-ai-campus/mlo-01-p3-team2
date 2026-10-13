@@ -3,6 +3,7 @@ import uuid
 
 from django.db import models
 from django.db.models import F, Q
+from django.db.models.lookups import Exact
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
@@ -12,6 +13,11 @@ class PricingUnit(models.TextChoices):
     IMPRESSION = "IMPRESSION", "노출"
     CLICK = "CLICK", "클릭"
     CONVERSION = "CONVERSION", "전환"
+
+
+# 입찰 정책의 반응 유형별 과금 비율(설계 §10 "구성별 반응 비율 과금", 6-10). 각각 정수 1~98, 합 100.
+SHARE_FIELDS = ("impression_share", "click_share", "conversion_share")
+MIN_SHARE, MAX_SHARE = 1, 98
 
 
 class Audience(models.TextChoices):
@@ -108,6 +114,9 @@ class BidPolicy(AppendOnlyModel):
     floor_amount = models.PositiveBigIntegerField()
     base_amount = models.PositiveBigIntegerField()
     cap_amount = models.PositiveBigIntegerField()
+    impression_share = models.PositiveSmallIntegerField()  # 반응 유형별 과금 비율(%) — 과금 = 내림(적용 금액 × % ÷ 100)
+    click_share = models.PositiveSmallIntegerField()
+    conversion_share = models.PositiveSmallIntegerField()
     changed_by = models.UUIDField()  # FK 가 아니다: 사용자가 바뀌어도 이력은 그대로(감사 로그와 같은 이유)
     changed_at = models.DateTimeField(default=timezone.now)
     reason = models.CharField(max_length=200)
@@ -120,5 +129,11 @@ class BidPolicy(AppendOnlyModel):
                 condition=Q(floor_amount__gt=0, floor_amount__lte=F("base_amount"), base_amount__lte=F("cap_amount"),
                             cap_amount__lte=MAX_AMOUNT),
                 name="masters_policy_floor_base_cap_order",
+            ),
+            models.CheckConstraint(
+                condition=Q(**{f"{f}__range": (MIN_SHARE, MAX_SHARE) for f in SHARE_FIELDS}), name="masters_policy_share_range",
+            ),
+            models.CheckConstraint(
+                condition=Exact(F("impression_share") + F("click_share") + F("conversion_share"), 100), name="masters_policy_shares_sum_100",
             ),
         ]

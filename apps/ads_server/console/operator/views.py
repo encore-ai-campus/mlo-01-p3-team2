@@ -91,7 +91,8 @@ def slot_policy(request, slot_id):
     slot = fetch(masters.get_slot, slot_id)
     current = slot.policy
     form = PolicyForm(request.POST or None, initial={
-        "floor": current.floor, "base": current.base, "cap": current.cap, "expected_version": current.policy_version,
+        "floor": current.floor, "base": current.base, "cap": current.cap, "impression_share": current.impression_share, "click_share": current.click_share,
+        "conversion_share": current.conversion_share, "expected_version": current.policy_version,
     })
     status = 200
     if request.method == "POST" and form.is_valid():
@@ -105,7 +106,7 @@ def slot_policy(request, slot_id):
             return redirect("operator:slot_policy", slot_id=slot.slot_id)
     history = masters.list_policy_versions(request.user, slot.slot_id)
     return _render(request, "operator/slot_policy.html", f"입찰 정책: {slot.name}", status=400 if status == 200 and form.errors else status,
-                   slot=slot, form=form, history=history, people=profiles([p.changed_by for p in history]))
+                   slot=slot, form=form, history=history, people=profiles([p.changed_by for p in history]), stale=status == 409)
 
 
 def policy_bulk(request):
@@ -115,7 +116,7 @@ def policy_bulk(request):
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
         try:
-            changed = masters.add_policy_version_bulk(request.user, data["slots"], data["floor"], data["base"], data["cap"], data["reason"])
+            changed = masters.add_policy_version_bulk(request.user, data.pop("slots"), **data)
         except HANDLED as e:
             form_errors(form, e)
             status = status_of(e)
@@ -123,7 +124,7 @@ def policy_bulk(request):
             messages.success(request, f"게재 위치 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
             return redirect("operator:policy_bulk")
     return _render(request, "operator/policy_bulk.html", "입찰 정책 일괄 변경", status=400 if status == 200 and form.errors else status,
-                   slots=masters.list_slots(active_only=False), form=form)
+                   slots=masters.list_slots(active_only=False), form=form, stale=status == 409)
 
 
 def _issue_key(request, media_id, form_class, issue):

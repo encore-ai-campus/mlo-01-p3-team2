@@ -19,7 +19,7 @@ from foundation.errors import Forbidden, InvalidRequest
 from masters import api as masters
 from records import api as records
 from records.models import Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, png_file
+from tests.factories import DAY, NOW, SHARES, SUBJECT, World, make_admin, make_advertiser, png_file
 
 D7 = datetime(2026, 10, 7, tzinfo=timezone.utc)  # NOW 가 속한 예산 일의 시작
 SEC = timedelta(seconds=1)
@@ -187,7 +187,7 @@ class ConversionRateCohortTests(ReportBase):
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
 
     def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
         group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
@@ -250,7 +250,7 @@ class DailyReportScopeTests(ReportBase):
                 self.report_for(campaign_id=hidden)
 
     def new_slot(self, name):
-        return masters.create_slot(self.w.admin, self.media, name, "IMPRESSION", 10, 20, 50, "초기")
+        return masters.create_slot(self.w.admin, self.media, name, "IMPRESSION", 10, 20, 50, "초기", **SHARES)
 
     def test_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
         slot2 = self.new_slot("둘째 슬롯")
@@ -286,7 +286,7 @@ class DailyReportScopeTests(ReportBase):
         self.assertEqual(self.report_for(ad_group_id=self.w.group.ad_group_id).totals.spent, 10)
 
     def test_shared_slot_counts_every_viewer(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
         group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))

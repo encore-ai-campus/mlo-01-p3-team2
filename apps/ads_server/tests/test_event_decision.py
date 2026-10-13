@@ -11,7 +11,7 @@ from events.models import EventOutbox
 from masters import api as masters
 from records import api as records
 from records.models import Decision
-from tests.factories import NOW, SUBJECT, World, png_file
+from tests.factories import NOW, SHARES, SUBJECT, World, png_file
 from tests.test_serving_decisions import DecisionApiBase
 
 
@@ -55,7 +55,7 @@ class DecisionEventTests(TestCase):
 
     def test_shared_slot_decision_has_no_subject(self):
         w = World()
-        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
         records.decide(shared.media_id, shared.slot_id, now=NOW)
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload["audience"], row.payload["subject_id"]), ("shared", None))

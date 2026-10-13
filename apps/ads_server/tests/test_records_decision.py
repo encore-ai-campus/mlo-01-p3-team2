@@ -15,7 +15,7 @@ from foundation.models import AppendOnlyError
 from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, png_file
+from tests.factories import DAY, NOW, SHARES, SUBJECT, World, png_file
 
 UNIT = "IMPRESSION"
 
@@ -38,7 +38,7 @@ class DecisionSnapshotTests(TestCase):
         raw_before = list(Decision.objects.values())
 
         campaigns.add_bid(w.adv, w.group.ad_group_id, 99, expected_version=1, now=NOW)
-        masters.add_policy_version(w.admin, w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1, **SHARES)
         campaigns.update_creative(w.adv, w.creative.creative_id, {"title": "완전히 다른 제목", "redirect_url": "https://changed.example"}, now=NOW)
         campaigns.replace_creative_image(w.adv, w.creative.creative_id, png_file((1, 2, 3)), now=NOW)
         campaigns.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
@@ -78,7 +78,7 @@ class DecisionSnapshotTests(TestCase):
 
     def test_decision_records_both_versions_and_policy_name(self):
         w = World()
-        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1, **SHARES)
         campaigns.add_bid(w.adv, w.group.ad_group_id, 35, expected_version=1, now=NOW)
         d = decide(w)
         self.assertEqual((d.chosen.bid_version, d.chosen.policy_version, d.chosen.bid_amount, d.chosen.applied_amount), (2, 2, 35, 35))
@@ -270,7 +270,7 @@ class VersionRowIdentityTests(TestCase):
         from masters.models import BidPolicy
 
         w = World()
-        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1, **SHARES)
         new_bid = campaigns.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
         d = decide(w)
         self.assertEqual(d.chosen.bid_id, new_bid.bid_id)
@@ -287,7 +287,7 @@ class VersionRowIdentityTests(TestCase):
         self.assertNotEqual(v1.bid_id, v2.bid_id)
         self.assertEqual(campaigns.get_ad_group(w.adv, w.group.ad_group_id).current_bid.bid_id, v2.bid_id)
         p1 = masters.get_slot(w.slot.slot_id).policy
-        p2 = masters.add_policy_version(w.admin, w.slot.slot_id, 11, 21, 51, "v2", expected_version=1)
+        p2 = masters.add_policy_version(w.admin, w.slot.slot_id, 11, 21, 51, "v2", expected_version=1, **SHARES)
         self.assertNotEqual(p1.bid_policy_id, p2.bid_policy_id)
         self.assertEqual(masters.get_slot(w.slot.slot_id).policy.bid_policy_id, p2.bid_policy_id)
         facts = campaigns.candidate_facts_for_slot(w.slot.slot_id)

@@ -19,6 +19,7 @@ def make_advertiser(username=None):
 
 NOW = datetime(2026, 10, 7, 12, 0, 0, tzinfo=timezone.utc)
 DAY = timedelta(days=1)
+SHARES = {"impression_share": 98, "click_share": 1, "conversion_share": 1}  # 입찰 정책의 반응 유형별 과금 비율(6-10b) — 시험 기본값
 SUBJECT = "0197a5c0-0000-7000-8000-000000000001"  # 개인(individual) 슬롯의 결정에 쓰는 가명 UUID
 
 
@@ -41,7 +42,7 @@ def make_slot(admin, unit="IMPRESSION", floor=10, base=20, cap=50, name=None):
     from masters import api as masters
 
     media = masters.create_media(admin, f"매체-{next(_counter)}")
-    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", unit, floor, base, cap, "초기")
+    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", unit, floor, base, cap, "초기", **SHARES)
 
 
 class World:

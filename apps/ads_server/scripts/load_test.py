@@ -40,6 +40,7 @@ from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RETRYABLE = (0, 429, 503)
+LOAD_SHARES = {"impression_share": 98, "click_share": 1, "conversion_share": 1}  # 부하 슬롯의 반응 유형별 과금 비율(6-10b)
 
 
 # ---------------------------------------------------------------- 불변식 검사 (Django 가 설정된 프로세스에서 호출)
@@ -376,8 +377,8 @@ def seed(advertisers=5, premade=0):
 
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
-    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 10, 20, 50, "초기")
-    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 10, 20, 50, "초기", **LOAD_SHARES)
+    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **LOAD_SHARES)
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)
     wallets = []

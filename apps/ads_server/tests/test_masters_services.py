@@ -13,12 +13,12 @@ from foundation.models import AuditLog
 from masters import api
 from masters.models import BidPolicy, Media, MediaDeactivation, Slot
 from tests.concurrency import run_together
-from tests.factories import make_admin, make_advertiser
+from tests.factories import SHARES, make_admin, make_advertiser
 
 
 def new_slot(admin, media=None, name="메인 배너", unit="IMPRESSION", floor=10, base=20, cap=50):
     media = media or api.create_media(admin, f"매체-{uuid.uuid4().hex[:6]}")
-    return api.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 설정")
+    return api.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 설정", **SHARES)
 
 
 def versions(slot_id):
@@ -37,7 +37,7 @@ class PolicyServiceTests(TestCase):
         media = api.create_media(self.admin, "원자성 매체")
         with mock.patch.object(BidPolicy._default_manager, "create", side_effect=IntegrityError("boom")):
             with self.assertRaises(Conflict):
-                api.create_slot(self.admin, media.media_id, "배너", "CLICK", 1, 2, 3, "사유")
+                api.create_slot(self.admin, media.media_id, "배너", "CLICK", 1, 2, 3, "사유", **SHARES)
         self.assertFalse(Slot.objects.filter(media_id=media.media_id).exists())
 
     def test_policy_service_rejects_zero_negative_and_order_violation(self):
@@ -45,8 +45,32 @@ class PolicyServiceTests(TestCase):
         cases = [(0, 5, 9), (-1, 5, 9), (10, 5, 9), (1, 9, 5), (1, 2, 2**53), (1.5, 2, 3), (True, 2, 3), ("1", 2, 3), (None, 2, 3)]
         for floor, base, cap in cases:
             with self.assertRaises(InvalidRequest, msg=(floor, base, cap)):
-                api.create_slot(self.admin, media.media_id, "배너", "CLICK", floor, base, cap, "사유")
+                api.create_slot(self.admin, media.media_id, "배너", "CLICK", floor, base, cap, "사유", **SHARES)
         self.assertFalse(Slot.objects.exists())
+
+    def test_charge_shares_are_checked_the_same_way_in_all_three_places(self):
+        """반응 유형별 과금 비율(설계 §10 "구성별 반응 비율 과금", 6-10b): 각각 정수 1~98, 합 100. 만들기·정책 변경·일괄 변경이 같은 검사를 쓰고, 거절하면 아무것도 남지 않는다."""
+        slot = new_slot(self.admin)
+        media = api.create_media(self.admin, "비율 매체")
+        bad = [(0, 2, 98), (99, 1, 0), (97, 1, 1), (98, 2, 1), (50.0, 25, 25), (True, 1, 98), ("98", 1, 1), (None, 1, 99)]
+        good = [(1, 1, 98), (1, 98, 1), (98, 1, 1), (34, 33, 33)]
+        places = {
+            "만들기": lambda i, s: api.create_slot(self.admin, media.media_id, f"배너{i}", "CLICK", 1, 2, 3, "사유", **s).policy,
+            "정책 변경": lambda i, s: api.add_policy_version(self.admin, slot.slot_id, 1, 2, 3, "사유", expected_version=versions(slot.slot_id)[-1], **s),
+            "일괄 변경": lambda i, s: api.add_policy_version_bulk(self.admin, {slot.slot_id: versions(slot.slot_id)[-1]}, 1, 2, 3, "사유", **s)[0],
+        }
+        for place, call in places.items():
+            for i, values in enumerate(bad):
+                before = (Slot.objects.count(), BidPolicy.objects.count())
+                with self.assertRaises(InvalidRequest, msg=(place, values)):
+                    call(i, dict(zip(("impression_share", "click_share", "conversion_share"), values)))
+                self.assertEqual((Slot.objects.count(), BidPolicy.objects.count()), before, (place, values))
+            for i, values in enumerate(good):
+                policy = call(f"ok{i}", dict(zip(("impression_share", "click_share", "conversion_share"), values)))
+                self.assertEqual((policy.impression_share, policy.click_share, policy.conversion_share), values, place)
+        with self.assertRaises(InvalidRequest) as caught:
+            api.create_slot(self.admin, media.media_id, "합", "CLICK", 1, 2, 3, "사유", impression_share=97, click_share=1, conversion_share=1)
+        self.assertEqual(caught.exception.errors, [{"pointer": "/shares", "message": "노출·클릭·전환 비율의 합은 100이어야 합니다(지금 99)."}])
 
     def test_create_slot_validates_name_unit_reason_and_media(self):
         media = api.create_media(self.admin, "입력 매체")
@@ -55,28 +79,28 @@ class PolicyServiceTests(TestCase):
             args = dict(name="배너", unit="CLICK", reason="사유")
             args.update(kwargs)
             with self.assertRaises(InvalidRequest, msg=kwargs):
-                api.create_slot(self.admin, media.media_id, args["name"], args["unit"], 1, 2, 3, args["reason"])
+                api.create_slot(self.admin, media.media_id, args["name"], args["unit"], 1, 2, 3, args["reason"], **SHARES)
         with self.assertRaises(NotFound):
-            api.create_slot(self.admin, uuid.uuid4(), "배너", "CLICK", 1, 2, 3, "사유")
+            api.create_slot(self.admin, uuid.uuid4(), "배너", "CLICK", 1, 2, 3, "사유", **SHARES)
 
     def test_a_slot_may_be_created_without_a_reason_but_a_policy_change_may_not(self):
         """만들 때만 빈 사유를 "없음"으로 채운다(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다."""
         media = api.create_media(self.admin, "사유 매체")
         for i, blank in enumerate(("", "   ", None)):
-            slot = api.create_slot(self.admin, media.media_id, f"배너{i}", "CLICK", 1, 2, 3, blank)
+            slot = api.create_slot(self.admin, media.media_id, f"배너{i}", "CLICK", 1, 2, 3, blank, **SHARES)
             self.assertEqual(slot.policy.reason, "없음")
         for blank in ("", "   ", None):
             with self.assertRaises(InvalidRequest, msg=blank):
-                api.add_policy_version(self.admin, slot.slot_id, 1, 2, 3, blank, expected_version=1)
+                api.add_policy_version(self.admin, slot.slot_id, 1, 2, 3, blank, expected_version=1, **SHARES)
             with self.assertRaises(InvalidRequest, msg=blank):
-                api.add_policy_version_bulk(self.admin, {slot.slot_id: 1}, 1, 2, 3, blank)
+                api.add_policy_version_bulk(self.admin, {slot.slot_id: 1}, 1, 2, 3, blank, **SHARES)
 
     def test_slot_name_unique_per_media_in_service(self):
         slot = new_slot(self.admin, name="상단")
         with self.assertRaises(Conflict):
-            api.create_slot(self.admin, slot.media_id, "상단", "CLICK", 1, 2, 3, "사유")
+            api.create_slot(self.admin, slot.media_id, "상단", "CLICK", 1, 2, 3, "사유", **SHARES)
         other = api.create_media(self.admin, "다른 매체")
-        api.create_slot(self.admin, other.media_id, "상단", "CLICK", 1, 2, 3, "사유")  # 다른 매체는 가능
+        api.create_slot(self.admin, other.media_id, "상단", "CLICK", 1, 2, 3, "사유", **SHARES)  # 다른 매체는 가능
 
     def test_media_name_conflict(self):
         api.create_media(self.admin, "중복")
@@ -85,8 +109,8 @@ class PolicyServiceTests(TestCase):
 
     def test_add_policy_version_increments_per_slot(self):
         a, b = new_slot(self.admin), new_slot(self.admin)
-        api.add_policy_version(self.admin, a.slot_id, 11, 21, 51, "인상", expected_version=1)
-        p = api.add_policy_version(self.admin, a.slot_id, 12, 22, 52, "또 인상", expected_version=2)
+        api.add_policy_version(self.admin, a.slot_id, 11, 21, 51, "인상", expected_version=1, **SHARES)
+        p = api.add_policy_version(self.admin, a.slot_id, 12, 22, 52, "또 인상", expected_version=2, **SHARES)
         self.assertEqual(p.policy_version, 3)
         self.assertEqual(versions(a.slot_id), [1, 2, 3])
         self.assertEqual(versions(b.slot_id), [1])  # 슬롯끼리 영향 없음
@@ -94,44 +118,44 @@ class PolicyServiceTests(TestCase):
 
     def test_policy_stale_expected_version_rejected(self):
         slot = new_slot(self.admin)
-        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "A 관리자", expected_version=1)
+        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "A 관리자", expected_version=1, **SHARES)
         with self.assertRaises(StaleVersion):
-            api.add_policy_version(self.admin, slot.slot_id, 99, 99, 99, "B 관리자(옛 화면)", expected_version=1)
+            api.add_policy_version(self.admin, slot.slot_id, 99, 99, 99, "B 관리자(옛 화면)", expected_version=1, **SHARES)
         self.assertEqual(versions(slot.slot_id), [1, 2])  # B 의 변경은 저장되지 않았다
         self.assertEqual(api.get_slot(slot.slot_id).policy.floor, 11)
 
     def test_policy_invalid_values_not_saved_and_version_not_consumed(self):
         slot = new_slot(self.admin)
         with self.assertRaises(InvalidRequest):
-            api.add_policy_version(self.admin, slot.slot_id, 30, 20, 50, "잘못", expected_version=1)
+            api.add_policy_version(self.admin, slot.slot_id, 30, 20, 50, "잘못", expected_version=1, **SHARES)
         self.assertEqual(versions(slot.slot_id), [1])
-        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "정상", expected_version=1)
+        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "정상", expected_version=1, **SHARES)
         self.assertEqual(versions(slot.slot_id), [1, 2])
 
     def test_unknown_slot_is_not_found(self):
         for bad in (uuid.uuid4(), "not-a-uuid"):
             with self.assertRaises(NotFound):
-                api.add_policy_version(self.admin, bad, 1, 2, 3, "사유", expected_version=1)
+                api.add_policy_version(self.admin, bad, 1, 2, 3, "사유", expected_version=1, **SHARES)
             with self.assertRaises(NotFound):
                 api.get_slot(bad)
 
     def test_bulk_policy_applies_per_slot_versions(self):
         a, b = new_slot(self.admin), new_slot(self.admin)
-        api.add_policy_version(self.admin, b.slot_id, 11, 21, 51, "b 만 한 번 더", expected_version=1)
-        out = api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 2}, 5, 6, 7, "일괄")
+        api.add_policy_version(self.admin, b.slot_id, 11, 21, 51, "b 만 한 번 더", expected_version=1, **SHARES)
+        out = api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 2}, 5, 6, 7, "일괄", **SHARES)
         self.assertEqual([p.policy_version for p in out], [2, 3])  # 슬롯마다 자기 버전이 쌓인다
         self.assertEqual((api.get_slot(a.slot_id).policy.cap, api.get_slot(b.slot_id).policy.cap), (7, 7))
 
     def test_bulk_policy_is_all_or_nothing(self):
         a, b = new_slot(self.admin), new_slot(self.admin)
         with self.assertRaises(StaleVersion):  # 두 번째 슬롯의 본 버전이 틀림
-            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 5}, 5, 6, 7, "일괄")
+            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 5}, 5, 6, 7, "일괄", **SHARES)
         self.assertEqual((versions(a.slot_id), versions(b.slot_id)), ([1], [1]))
         with self.assertRaises(NotFound):  # 없는 슬롯이 섞임
-            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, uuid.uuid4(): 1}, 5, 6, 7, "일괄")
+            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, uuid.uuid4(): 1}, 5, 6, 7, "일괄", **SHARES)
         self.assertEqual(versions(a.slot_id), [1])
         with self.assertRaises(InvalidRequest):
-            api.add_policy_version_bulk(self.admin, {}, 5, 6, 7, "빈 목록")
+            api.add_policy_version_bulk(self.admin, {}, 5, 6, 7, "빈 목록", **SHARES)
 
     def test_inactive_flags_hide_slots_from_default_listing(self):
         slot = new_slot(self.admin)
@@ -174,7 +198,7 @@ class PolicyServiceTests(TestCase):
 
     def test_policy_history_newest_first(self):
         slot = new_slot(self.admin)
-        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "버전 2", expected_version=1)
+        api.add_policy_version(self.admin, slot.slot_id, 11, 21, 51, "버전 2", expected_version=1, **SHARES)
         history = api.list_policy_versions(self.admin, slot.slot_id)
         self.assertEqual([(p.policy_version, p.floor, p.reason) for p in history], [(2, 11, "버전 2"), (1, 10, "초기 설정")])
         with self.assertRaises(NotFound):
@@ -184,7 +208,7 @@ class PolicyServiceTests(TestCase):
         """일괄 변경이 충돌로 전부 취소될 때 어느 게재 위치 때문인지 알 수 있다."""
         a, b = new_slot(self.admin, name="첫 배너"), new_slot(self.admin, name="둘째 배너")
         with self.assertRaises(StaleVersion) as e:
-            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 5}, 5, 6, 7, "일괄")
+            api.add_policy_version_bulk(self.admin, {a.slot_id: 1, b.slot_id: 5}, 5, 6, 7, "일괄", **SHARES)
         self.assertIn("둘째 배너", str(e.exception.detail))
 
     def test_list_slots_filters_by_media(self):
@@ -193,7 +217,7 @@ class PolicyServiceTests(TestCase):
 
     def test_get_slots_with_policy_single_query(self):
         slots = [new_slot(self.admin) for _ in range(3)]
-        api.add_policy_version(self.admin, slots[0].slot_id, 11, 21, 51, "버전 2", expected_version=1)
+        api.add_policy_version(self.admin, slots[0].slot_id, 11, 21, 51, "버전 2", expected_version=1, **SHARES)
         ids = [s.slot_id for s in slots] + [uuid.uuid4()]  # 없는 ID 는 결과에 없다
         with self.assertNumQueries(1):
             result = api.get_slots_with_policy(ids)
@@ -228,9 +252,9 @@ class MastersAuthorizationAndAuditTests(TestCase):
         return [
             lambda: api.create_media(actor, "새 매체"),
             lambda: api.set_media_active(actor, s.media_id, False),
-            lambda: api.create_slot(actor, s.media_id, "다른 배너", "CLICK", 1, 2, 3, "사유"),
-            lambda: api.add_policy_version(actor, s.slot_id, 1, 2, 3, "사유", expected_version=1),
-            lambda: api.add_policy_version_bulk(actor, {s.slot_id: 1}, 1, 2, 3, "사유"),
+            lambda: api.create_slot(actor, s.media_id, "다른 배너", "CLICK", 1, 2, 3, "사유", **SHARES),
+            lambda: api.add_policy_version(actor, s.slot_id, 1, 2, 3, "사유", expected_version=1, **SHARES),
+            lambda: api.add_policy_version_bulk(actor, {s.slot_id: 1}, 1, 2, 3, "사유", **SHARES),
             lambda: api.set_slot_active(actor, s.slot_id, False),
             lambda: api.list_media(actor),
             lambda: api.list_policy_versions(actor, s.slot_id),
@@ -255,7 +279,7 @@ class MastersAuthorizationAndAuditTests(TestCase):
         AuditLog.objects.all()  # 시작 상태 기준: setUp 의 슬롯 생성 기록은 이미 있다
         token = request_id_var.set("11111111-2222-3333-4444-555555555555")
         try:
-            api.add_policy_version(self.admin, self.slot.slot_id, 12, 22, 52, "정책 상향", expected_version=1)
+            api.add_policy_version(self.admin, self.slot.slot_id, 12, 22, 52, "정책 상향", expected_version=1, impression_share=1, click_share=98, conversion_share=1)
             api.set_slot_active(self.admin, self.slot.slot_id, False)
         finally:
             request_id_var.reset(token)
@@ -263,8 +287,12 @@ class MastersAuthorizationAndAuditTests(TestCase):
         self.assertEqual((entry.actor_id, entry.target_type, entry.target_id), (self.admin.pk, "masters.slot", str(self.slot.slot_id)))
         self.assertEqual(entry.request_id, "11111111-2222-3333-4444-555555555555")
         self.assertEqual(entry.detail["version"], 2)
-        self.assertEqual(entry.detail["previous"], {"floor": 10, "base": 20, "cap": 50})
+        self.assertEqual({k: entry.detail[k] for k in ("impression_share", "click_share", "conversion_share")},
+                         {"impression_share": 1, "click_share": 98, "conversion_share": 1})  # 바꾼 비율과 이전 비율이 감사 기록에 남는다(6-10b)
+        self.assertEqual(entry.detail["previous"], {"floor": 10, "base": 20, "cap": 50, **SHARES})
         self.assertEqual(entry.detail["reason"], "정책 상향")
+        created = AuditLog.objects.get(action="masters.slot_created", target_id=str(self.slot.slot_id))
+        self.assertEqual({k: created.detail[k] for k in SHARES}, SHARES)  # 처음 비율도 감사 기록에 남는다
         self.assertTrue(AuditLog.objects.filter(action="masters.slot_active_changed", target_id=str(self.slot.slot_id)).exists())
         self.assertTrue(AuditLog.objects.filter(action__in=["masters.media_created", "masters.slot_created"]).count() >= 2)
 
@@ -278,7 +306,7 @@ class ConcurrentPolicyTests(TransactionTestCase):
         """같은 `expected_version` 으로 동시에 저장하면 정확히 한쪽만 성공한다."""
         admin_a, admin_b = make_admin(), make_admin()
         slot = new_slot(admin_a)
-        results, errors = run_together([lambda a=a, cap=cap: api.add_policy_version(a, slot.slot_id, 11, 21, cap, "동시 변경", expected_version=1)
+        results, errors = run_together([lambda a=a, cap=cap: api.add_policy_version(a, slot.slot_id, 11, 21, cap, "동시 변경", expected_version=1, **SHARES)
                                         for a, cap in ((admin_a, 60), (admin_b, 70))])
         self.assertEqual(([type(e).__name__ for e in errors], sum(r is not None for r in results)), (["StaleVersion"], 1), errors)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
         self.assertEqual(versions(slot.slot_id), [1, 2])  # 두 번째 버전이 정확히 하나

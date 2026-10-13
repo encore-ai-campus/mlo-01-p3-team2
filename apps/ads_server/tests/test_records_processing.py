@@ -20,7 +20,7 @@ from records import api as records
 from records.models import Reaction
 from records.rules import UnknownRule
 from tests.concurrency import run_together
-from tests.factories import DAY, NOW, SUBJECT, World, media_api
+from tests.factories import DAY, NOW, SHARES, SUBJECT, World, media_api
 
 
 class ProcessingBase(TestCase):
@@ -75,7 +75,7 @@ class RuleChainTests(ProcessingBase):
     def test_the_amount_is_the_decisions_not_a_recomputation(self):
         """결정 뒤에 입찰·정책이 바뀌어도 과금액은 결정 때의 적용 금액이다."""
         self.w.api.add_bid(self.w.adv, self.w.group.ad_group_id, 99, expected_version=1, now=NOW)
-        masters.add_policy_version(self.w.admin, self.w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1)
+        masters.add_policy_version(self.w.admin, self.w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1, **SHARES)
         self.process(self.receive("IMPRESSION"))
         self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").amount, -30)
 

@@ -14,6 +14,9 @@ class PolicyValuesForm(forms.Form):
     floor = forms.IntegerField(label="하한")
     base = forms.IntegerField(label="기준가")
     cap = forms.IntegerField(label="상한")
+    impression_share = forms.IntegerField(label="노출 비율(%)")
+    click_share = forms.IntegerField(label="클릭 비율(%)")
+    conversion_share = forms.IntegerField(label="전환 비율(%)", help_text="세 비율은 각각 1~98, 합 100. 반응 하나의 과금 = 적용 금액 × 그 반응의 비율(내림).")
     reason = forms.CharField(label="사유", max_length=200, strip=False)
 
 
