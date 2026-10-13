@@ -1,6 +1,5 @@
 """Step 3-1c 관리자 화면: 광고 모니터링(소재 썸네일·이동 주소 도메인·광고주), 중단(사유 필수)·해제, 재검토 대기 목록(해제/반려+답변), 관리자 전용 이미지 경로."""
 import uuid
-from unittest import mock
 
 from django.core.paginator import Paginator
 from django.db import connection
@@ -9,6 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from campaigns import api as campaigns
+from campaigns.models import Campaign
 from foundation.api import errors
 from foundation.models import AuditLog
 from tests.factories import DAY, NOW, World, make_advertiser, png_file
@@ -48,6 +48,11 @@ class MonitoringServiceTests(TestCase):
         (item,) = campaigns.open_review_queue(self.w.admin, now=NOW)
         self.assertEqual([c.creative_id for c in item.creatives], expected)
 
+    def creatives_read_for(self, queries):
+        """소재 연결을 읽은 질의(하나)가 실은 캠페인들 — 다른 캠페인의 소재까지 읽으면 그 ID 도 실린다."""
+        (sql,) = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("SELECT `campaigns_ad_group_creative`.")]
+        return {c for c in Campaign.objects.values_list("campaign_id", flat=True) if c.hex in sql}
+
     def test_a_page_reads_only_its_own_campaigns(self):
         """P3-4 2단계(외부 검토 00d3067): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
         쪽 하나는 질의 네 번(개수·그 쪽 캠페인·그 소재·그 요청) — 캠페인이 늘어도 같다."""
@@ -56,15 +61,14 @@ class MonitoringServiceTests(TestCase):
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW + 2 * DAY)
         review = campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW + 2 * DAY)
         rows = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
-        from campaigns import services
-        with mock.patch.object(services, "_creative_view", wraps=services._creative_view) as converted, CaptureQueriesContext(connection) as queries:
+        with CaptureQueriesContext(connection) as queries:
             items = list(Paginator(rows, 2).get_page(1))
         self.assertEqual(len(queries), 4)
         (reviews,) = [q["sql"] for q in queries.captured_queries if "FROM `campaigns_review_request`" in q["sql"]]
         self.assertIn("`campaign_id` IN (", reviews)  # 열린 요청도 이 쪽 캠페인의 것만
         self.assertEqual([i.campaign.campaign_id for i in items], [self.w.campaign.campaign_id, self.later.campaign_id])  # 중단으로 바뀐 캠페인이 맨 위
         self.assertEqual(items[0].campaign.suspension.open_review_request_id, review.review_request_id)
-        self.assertEqual(converted.call_count, 1)  # 이 쪽의 소재 하나(다른 캠페인 넷의 소재는 읽지 않는다)
+        self.assertEqual(self.creatives_read_for(queries), {i.campaign.campaign_id for i in items})  # 이 쪽 캠페인의 소재만(다른 캠페인 넷의 소재는 읽지 않는다)
 
     def test_pages_split_one_order_without_overlap(self):
         """마지막 변경이 같으면 캠페인 ID 역순(나중에 만든 것 먼저)으로 끊는다 — 쪽마다 따로 읽어도 겹치거나 빠지는 줄이 없다."""
@@ -84,11 +88,10 @@ class MonitoringServiceTests(TestCase):
             World()  # 소재가 있는 다른 캠페인들
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유", now=NOW)
         campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW)
-        from campaigns import services
-        with mock.patch.object(services, "_creative_view", wraps=services._creative_view) as converted:
+        with CaptureQueriesContext(connection) as queries:
             (item,) = campaigns.open_review_queue(self.w.admin, now=NOW)
         self.assertEqual([c.creative_id for c in item.creatives], [self.w.creative.creative_id])
-        self.assertEqual(converted.call_count, 1)
+        self.assertEqual(self.creatives_read_for(queries), {self.w.campaign.campaign_id})
 
     def test_review_queue_and_admin_only(self):
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "부적절한 소재", now=NOW)

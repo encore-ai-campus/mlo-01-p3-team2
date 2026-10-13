@@ -52,11 +52,20 @@ class QuotaRaceTests(TransactionTestCase):
         return b
 
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)  # 이미 1개
-    def test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit(self):
+    def test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit(self):
         """캠페인 만들기(6-9d — 광고와 따로) 두 개가 겹쳐도 캠페인 상한을 넘지 않는다."""
         second = self.overlap(self.campaign("k1"), "INSERT", "campaigns_campaign", self.campaign("k2"))
         self.assertEqual([type(e) for e in second.errors], [api.LimitExceeded])
         self.assertEqual(Campaign.objects.filter(owner=self.w.adv).count(), 2)
+
+    @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=2)  # 이미 1개
+    def test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit(self):
+        """R11(6-13d): 서로 다른 캠페인에 광고를 겹쳐 만들어도 광고 상한을 넘지 않는다(같은 캠페인이면 캠페인 행 잠금이 광고주 잠금을 가린다)."""
+        other = api.create_campaign(self.w.adv, "둘째", NOW, None, 1000)
+        group = lambda campaign_id: lambda: api.create_ad_group(self.w.adv, campaign_id, "그룹", [self.w.slot.slot_id], bid_amount=300)  # noqa: E731
+        second = self.overlap(group(self.w.campaign.campaign_id), "INSERT", "campaigns_ad_group", group(other.campaign_id))
+        self.assertEqual([type(e) for e in second.errors], [api.LimitExceeded])
+        self.assertEqual(AdGroup.objects.filter(campaign__owner=self.w.adv).count(), 2)
 
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)
     def test_an_overlapping_resubmission_of_the_same_campaign_form_creates_once(self):

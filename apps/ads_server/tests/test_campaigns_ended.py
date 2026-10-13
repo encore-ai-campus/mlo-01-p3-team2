@@ -5,7 +5,7 @@ from django.test import TestCase, tag
 from campaigns import api
 from campaigns.models import Campaign, ReviewRequest
 from foundation.errors import InvalidRequest
-from tests.factories import DAY, NOW, World, make_advertiser, png_file
+from tests.factories import DAY, NOW, World, png_file
 
 LATER = NOW + 11 * DAY  # World 의 캠페인은 NOW + 10일에 끝난다
 
@@ -156,4 +156,6 @@ class EndedGuardTests(TestCase):
         w, other = World(), World()
         api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         api.update_campaign(other.adv, other.campaign.campaign_id, {"name": "계속 됨"}, now=NOW)
-        self.assertEqual(make_advertiser().pk != w.adv.pk, True)
+        self.assertEqual(api.get_campaign(w.adv, w.campaign.campaign_id, now=NOW).status, "ENDED")
+        changed = api.get_campaign(other.adv, other.campaign.campaign_id, now=NOW)
+        self.assertEqual((changed.status, changed.name), ("ACTIVE", "계속 됨"))  # 다른 광고주의 캠페인은 끝나지 않고 계속 고칠 수 있다

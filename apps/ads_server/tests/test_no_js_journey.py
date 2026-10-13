@@ -139,8 +139,8 @@ class NoJsJourneyTests(TestCase):
         self.assertContains(self.go(self.adv, detail), "바꾼 이름")
 
         # 광고: 새 입찰(화면이 본 버전을 싣는다)
-        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="40"), group_url)
-        self.assertEqual(group.bids.order_by("-bid_version").first().amount, 40)
+        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="350"), group_url)
+        self.assertEqual(group.bids.order_by("-bid_version").first().amount, 350)  # 하한(100) 위 — 하한 미만 경로가 아니다
 
         # 소재 목록에 올린 이미지를 광고 상세의 "이미지"에서 고른다(재사용 — 연결은 고를 때 함께, 6-11)
         done = submit(self.adv, self.go(self.adv, reverse("creative_list")), lambda a: a.get("enctype") == "multipart/form-data",

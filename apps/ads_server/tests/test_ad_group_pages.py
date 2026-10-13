@@ -45,6 +45,8 @@ class DetailTests(AdGroupPageBase):
         self.assertIn(reverse("creative_image_file", args=[self.crid]), html)
         self.assertIn("<strong>example.com</strong>", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}" checked')
+        campaigns.add_bid(self.w.adv, self.gid, 350, 1)
+        self.assertRegex(self.html(), r'(?s)입찰 변경 이력</caption>.*?<td class="num">2</td><td class="num">350 포인트</td>.*?<td class="num">1</td><td class="num">300 포인트</td>')  # 최신부터
 
     def test_the_page_reads_slot_policies_once(self):
         """계획 3-4g B1: 위치 정보와 위치별 결과가 같은 읽기를 본다(전에는 슬롯 정책을 두 번 읽었다)."""
@@ -140,6 +142,16 @@ class ImageSectionTests(AdGroupPageBase):
         self.assertEqual(self.group().creative_id, mine.creative_id)  # 올리기만 한다 — 선택은 그대로
         self.assertNotIn(uploaded.creative_id, {c.creative_id for c in campaigns.list_creatives(self.w.adv, self.gid)})  # 연결도 하지 않는다
         self.assertIn(f'value="{uploaded.creative_id}"', self.html().split('aria-label="이미지 업로드"', 1)[0])  # 위 목록에서 고를 수 있다
+
+
+    def test_a_refused_choice_says_why_and_keeps_the_image(self):
+        """R13(6-13d): 고르기가 거절되면(끝난 캠페인) 이유를 알리고, 나가는 이미지는 그대로다."""
+        mine = campaigns.create_creative(self.w.adv, None, "목록의 이미지", "https://example.com/2", png_file((9, 9, 9)))
+        campaigns.end_campaign(self.w.adv, self.w.campaign.campaign_id)
+        r = self.client.post(reverse("ad_group_creative_select", args=[self.gid]), {"creative_id": str(mine.creative_id)}, follow=True)
+        self.assertRedirects(r, self.detail)
+        self.assertContains(r, "종료된 캠페인은 수정할 수 없습니다")
+        self.assertEqual(self.group().creative_id, self.crid)
 
 
 class IsolationTests(AdGroupPageBase):

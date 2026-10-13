@@ -60,6 +60,8 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertIn("④ 확인 후 집행", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 98% · 클릭 1% · 전환 1%</span>')
         self.assertRegex(html, rf'value="{self.click_slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 1% · 클릭 98% · 전환 1%</span>')
+        for slot in (self.w.slot, self.click_slot):  # 구성은 그 매체 이름 아래에
+            self.assertRegex(html, rf'<p class="media">{re.escape(slot.media_name)}</p>\s*<label class="slot"><input type="checkbox" name="slot_ids" value="{slot.slot_id}"')
         self.assertIn("console/ad_create.js", html)
         self.assertRegex(html, r'<button[^>]*value="create"[^>]*data-confirm=')  # 집행 버튼만 확인 창
         self.assertNotRegex(html, r"\sstyle=")
