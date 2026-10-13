@@ -686,13 +686,14 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     return _creative_view(c)
 
 
-def _link(group, creative, now):
-    """연결하고(이미 있으면 그대로), 광고그룹에 선택된 소재가 없으면 이것을 선택한다. 광고그룹·소재 행을 잠근 트랜잭션 안에서만."""
+def _link(group, creative, now, select=False):
+    """연결하고(이미 있으면 그대로), `select` 이거나 광고그룹에 선택된 소재가 없으면 이것을 선택한다. 선택이 바뀌면 광고그룹의 변경 시각도 올린다 —
+    화면이 본 시각 대조(`_assert_seen`)가 자동 선택도 보게(6-13b R4). 광고그룹·소재 행을 잠근 트랜잭션 안에서만."""
     if not AdGroupCreative.objects.filter(ad_group=group, creative=creative).exists():
         AdGroupCreative.objects.create(ad_group=group, creative=creative, linked_at=now)
-    if group.creative_id is None:
-        AdGroup.objects.filter(pk=group.pk).update(creative=creative)
-        group.creative = creative
+    if (select or group.creative_id is None) and group.creative_id != creative.creative_id:
+        AdGroup.objects.filter(pk=group.pk).update(creative=creative, updated_at=now)
+        group.creative, group.updated_at = creative, now
 
 
 def link_creative(user, ad_group_id, creative_id, now=None, select=False):
@@ -705,11 +706,9 @@ def link_creative(user, ad_group_id, creative_id, now=None, select=False):
     with transaction.atomic():
         g = _locked_group(user, ad_group_id, now)
         c = _locked_creative(user, creative_id)
-        _link(g, c, now)
-        if select and g.creative_id != c.creative_id:
-            g.creative, g.updated_at = c, now
-            g.save(update_fields=["creative", "updated_at"])
-        _audit(user, "creative.linked", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "selected": select})
+        _link(g, c, now, select)
+        # selected: 이 연결 뒤 이것이 광고에 나가는 소재인지(요청 플래그가 아니라 결과 — 자동 선택도, 6-13b R3)
+        _audit(user, "creative.linked", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "selected": g.creative_id == c.creative_id})
     return _ad_group_view(g, _current_bid(g))
 
 
@@ -761,17 +760,18 @@ def create_ad(user, campaign_id, ad_group, creative=None, creative_id=None, now=
     """**이미 있는** 캠페인에 광고(광고그룹 + 입찰)와 소재를 한 트랜잭션으로 만든다(6-9c·6-9d, 설계 §10 "광고 만들기 흐름" — 캠페인은 `create_campaign` 으로 따로). 소재는 `creative`(새로 올리기 —
     `create_creative` 의 인자) 또는 `creative_id`(등록된 소재 재사용) 중 하나이고, 광고그룹에 연결·선택된다. 입력 오류의 위치는 `/ad_group/…`·`/creative/…`.
     `request_key` 는 광고그룹 행에 저장한다 — 같은 키로는 한 번만 만든다(두 번 누름·동시 제출·응답 실패 뒤 재시도는 처음 것을 `duplicate=True` 로)."""
+    require_advertiser(user)  # 입력 검사·요청 키 조회보다 먼저 — 광고주가 아니면 입력과 상관없이 403(6-13b R9)
     now = _now(now)
     request_key = clean_request_key(request_key)
     if (creative is None) == (creative_id is None):
         raise _problem("/creative", "새 소재를 올리거나 등록된 소재를 하나 고르세요.")
-    done = _created_by_key(user, request_key)
+    done = _created_by_key(user, request_key, now)
     if done is not None:
         return done
     try:
         with transaction.atomic():
             _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
-            done = _created_by_key(user, request_key)
+            done = _created_by_key(user, request_key, now)
             if done is not None:
                 return done
             g = _part("/ad_group", create_ad_group, user, campaign_id, now=now, **ad_group)
@@ -782,7 +782,7 @@ def create_ad(user, campaign_id, ad_group, creative=None, creative_id=None, now=
             if request_key is not None:
                 AdGroup.objects.filter(pk=g.ad_group_id).update(request_key=request_key)  # 동시에 같은 키가 오면 여기서 유일 제약이 막는다
     except IntegrityError:
-        done = _created_by_key(user, request_key)
+        done = _created_by_key(user, request_key, now)
         if done is None:
             raise
         return done
@@ -793,16 +793,16 @@ def _created_ad(group, now, duplicate=False):
     return CreatedAd(_campaign_view(group.campaign, now), _ad_group_view(group, _current_bid(group)), _creative_view(group.creative), duplicate=duplicate)
 
 
-def ad_created_by_key(user, request_key):
+def ad_created_by_key(user, request_key, now=None):
     """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
     이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 41d2288). 남의 키면 409."""
     require_advertiser(user)
     if not is_request_key(request_key):
         return None
-    return _created_by_key(user, request_key)
+    return _created_by_key(user, request_key, _now(now))
 
 
-def _created_by_key(user, request_key):
+def _created_by_key(user, request_key, now):
     """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 키는 광고그룹 행에 있다. 남의 것에 붙은 키(위조한 폼)면 409."""
     if request_key is None:
         return None
@@ -811,7 +811,7 @@ def _created_by_key(user, request_key):
         return None
     if g.campaign.owner_id != user.pk:
         raise errors.Conflict("이 광고 만들기 폼은 이미 처리됐습니다. 새로 불러와 다시 만드세요.")
-    return _created_ad(g, _now(), duplicate=True)
+    return _created_ad(g, now, duplicate=True)
 
 
 def bid_effects(amount, slot_ids, slots=None):

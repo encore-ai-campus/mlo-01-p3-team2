@@ -8,6 +8,7 @@ from django.test import TestCase, TransactionTestCase, override_settings, tag
 from campaigns import api
 from campaigns.models import AdGroupCreative, CampaignStatus
 from foundation.api import errors
+from foundation.models import AuditLog
 from tests.concurrency import overlap
 from tests.factories import DAY, NOW, World, make_advertiser, png_file
 
@@ -26,6 +27,30 @@ class CreativeLibraryTests(TestCase):
 
     def titles(self):
         return sorted(f.title for f in api.candidate_facts_for_slot(self.w.slot.slot_id))
+
+    def test_a_link_that_also_selects_is_recorded_and_moves_the_seen_time(self):
+        """R3·R4(6-13b): 선택된 소재가 없는 광고에 연결하면 함께 선택된다(명시적 선택이든 아니든). 감사 기록의 `selected` 는 그 결과를 남기고,
+        광고의 변경 시각도 올라 화면이 본 시각 대조(옛 탭의 이름 바꾸기)가 이 변경을 본다. 이미 선택된 소재가 있으면 연결만, 이미 나가는 소재를 다시 골라도 — 시각 그대로."""
+        later, mine = NOW + DAY, upload(self.w)
+        for select in (False, True):
+            group = self.second_group()
+            returned = api.link_creative(self.w.adv, group.ad_group_id, mine.creative_id, now=later, select=select)
+            after = api.get_ad_group(self.w.adv, group.ad_group_id)
+            self.assertEqual(returned.updated_at, later, select)
+            self.assertEqual((after.creative_id, after.updated_at), (mine.creative_id, later), select)
+            with self.assertRaises(errors.StaleVersion):
+                api.update_ad_group(self.w.adv, group.ad_group_id, {"name": "옛 탭"}, expected_updated_at=group.updated_at)
+            self.assertTrue(self.linked(group)["selected"], select)
+        group = self.second_group()
+        upload(self.w, "새로 연결", (5, 5, 5), group=group.ad_group_id, now=later)  # 새 소재를 올려 연결하는 길(광고 만들기)도 같다
+        self.assertEqual(api.get_ad_group(self.w.adv, group.ad_group_id).updated_at, later)
+        api.link_creative(self.w.adv, self.w.group.ad_group_id, self.w.creative.creative_id, now=later, select=True)  # 이미 나가는 소재를 다시 고름 — 바뀐 것 없음
+        api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=later)
+        self.assertEqual(api.get_ad_group(self.w.adv, self.w.group.ad_group_id).updated_at, self.w.group.updated_at)
+        self.assertFalse(self.linked(self.w.group)["selected"])
+
+    def linked(self, group):
+        return AuditLog.objects.filter(action="creative.linked", detail__ad_group_id=str(group.ad_group_id)).order_by("log_id").last().detail
 
     def test_a_library_creative_is_reused_by_another_ad_group(self):
         mine = upload(self.w)  # 목록에만 올린다
@@ -174,6 +199,22 @@ class CreativeLibraryTests(TestCase):
         for creative, creative_id in ((None, None), ({"title": "x"}, self.w.creative.creative_id)):
             with self.assertRaises(errors.InvalidRequest):
                 api.create_ad(self.w.adv, cid, self.ad_group(), creative=creative, creative_id=creative_id, now=NOW)
+
+    def test_a_repeated_key_answers_with_the_campaign_as_of_the_given_time(self):
+        """R5(6-13b): 같은 키의 다시 보냄은 받은 `now` 기준의 캠페인으로 답한다(실제 시계가 아니라) — 처음 응답과 같다."""
+        short = api.create_campaign(self.w.adv, "짧은 캠페인", NOW - DAY, NOW + DAY, 1000, now=NOW)  # 실제 시계로는 이미 끝났다
+        make = lambda: api.create_ad(self.w.adv, short.campaign_id, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-short")
+        first, again = make(), make()
+        self.assertEqual((again.duplicate, again.campaign), (True, first.campaign))
+        self.assertEqual(api.ad_created_by_key(self.w.adv, "k-short", now=NOW).campaign, first.campaign)
+
+    def test_only_an_advertiser_may_create_an_ad_whatever_the_input(self):
+        """R9(6-13b): 역할 검사가 입력 검사·요청 키 조회보다 먼저다 — 광고주가 아니면 입력과 상관없이 403."""
+        cid = self.w.campaign.campaign_id
+        api.create_ad(self.w.adv, cid, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-taken")
+        for kwargs in ({}, {"creative_id": self.w.creative.creative_id, "request_key": "k-taken"}):  # 소재 없음(400 이던 것)·남의 키(409 이던 것)
+            with self.assertRaises(errors.Forbidden):
+                api.create_ad(self.w.admin, cid, self.ad_group(), now=NOW, **kwargs)
 
 
 @tag("security")
