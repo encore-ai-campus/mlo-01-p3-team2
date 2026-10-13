@@ -1,0 +1,5 @@
+# 광고 서버 프론트(화면). DB 가 없다 — 그리기와 전달만 한다(설계 §6.6 "6-15 분리"). 고정 방식은 백엔드(apps/ads_server/requirements.txt)와 같다.
+
+Django~=6.1.2
+python-dotenv~=1.2.4     # 로컬 .env 로드 (config/settings.py)
+whitenoise~=6.12.0       # 정적 파일(/static/ — 콘솔·운영 화면·Django admin 의 CSS·JS)을 프론트가 서빙
