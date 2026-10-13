@@ -42,6 +42,20 @@ class CreativePageTests(TestCase):
                              {f"{prefix}-title": " ", f"{prefix}-redirect_url": "https://spare.example/", f"{prefix}-updated_at": updated_at})
         self.assertContains(r, f'id="id_{prefix}-title_error"', status_code=400)  # 상세 화면을 오류와 함께 다시 그린다
 
+    def test_inputs_the_forms_reject_redraw_the_detail_page_and_change_nothing(self):
+        """폼이 거른 입력(빈 제목·변경 시각 없음·파일 없음)은 서비스까지 가지 않고, 입력한 값을 지닌 채 상세를 400 으로 다시 그린다."""
+        prefix, before = str(self.spare.creative_id), campaigns.get_creative(self.w.adv, self.spare.creative_id)
+        edit, image, seen = reverse("creative_edit", args=[prefix]), reverse("creative_image", args=[prefix]), before.updated_at.isoformat()
+        r = self.client.post(edit, {f"{prefix}-title": "", f"{prefix}-redirect_url": "https://typed.example/", f"{prefix}-updated_at": seen})
+        self.assertContains(r, f'id="id_{prefix}-title_error"', status_code=400)
+        self.assertContains(r, 'value="https://typed.example/"', status_code=400)  # 새 폼이 아니라 제출한 폼을 다시 그린다
+        r = self.client.post(edit, {f"{prefix}-title": "고친 제목", f"{prefix}-redirect_url": "https://spare.example/"})  # 변경 시각 없음
+        self.assertContains(r, 'value="고친 제목"', status_code=400)
+        r = self.client.post(image, {f"{prefix}-updated_at": seen})  # 파일 없음
+        self.assertContains(r, f'id="image_{prefix}-image_error"', status_code=400)
+        after = campaigns.get_creative(self.w.adv, self.spare.creative_id)
+        self.assertEqual((after.title, after.redirect_url, after.image_name, after.updated_at), (before.title, before.redirect_url, before.image_name, before.updated_at))
+
     def test_a_deleted_creative_is_read_only(self):
         campaigns.archive_creative(self.w.adv, self.spare.creative_id, now=NOW)
         html = self.client.get(reverse("creative_detail", args=[self.spare.creative_id])).content.decode()
