@@ -20,7 +20,7 @@ python manage.py runserver 127.0.0.1:8001
 - 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 `.env`의 설정 모듈을 따르지 않고 실제 환경변수가 없으면 prod다(아래 "운영 배포").
 - prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`·`TRUSTED_PROXY_COUNT`(1 이상)·`CSRF_TRUSTED_ORIGINS`가 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
-- dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
+- 정적 파일(CSS·JS)은 Django가 WhiteNoise로 서빙한다(설계 §10 "정적 파일 서빙"). dev에서 `DJANGO_DEBUG=1`이면 `runserver`가 앱 폴더에서 바로 서빙하고, `DEBUG`가 꺼져 있으면(기본) `python manage.py collectstatic --noinput`을 한 번 돌린 뒤 다시 시작해야 화면에 CSS가 붙는다.
 
 ## MySQL 시험 환경
 
@@ -85,7 +85,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 - **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 **`.env`의 설정 모듈을 따르지 않는다** — 실제 환경변수에 있으면 그 값, 없으면 prod다(`.env`의 다른 값은 그대로 읽는다, Step 6-3a). 그래서 `.env`에 dev가 남아 있어도 웹은 dev로 뜨지 않는다.
 - **배포 구성**(설계 §10 "배포 구성"): 광고 서버 앞 nginx(certbot)가 TLS·80→443 리다이렉트·HSTS·접속 허용 목록(강의실 라우터 IP·메타버스 서버 IP)을 맡고, 요청을 같은 호스트의 Django로 HTTP로 넘기기만 한다. Django는 HTTPS 리다이렉트·HSTS를 하지 않고 `X-Forwarded-Proto`도 읽지 않는다. 세션·CSRF 쿠키는 Secure라 nginx가 HTTP로 열면 로그인이 되지 않는다. `CSRF_TRUSTED_ORIGINS`에는 브라우저가 여는 https 주소를 적는다(Django가 요청을 HTTP로 알아 브라우저의 출처와 맞지 않으므로 필수 — 없으면 기동하지 않는다). nginx 쪽 요구사항(허용 목록과 certbot 검증 경로, 넘길 헤더, 업로드 크기, 바인딩)은 계획 §7.3.4 #9.
-- **배포 순서**: `migrate` → `ensure_event_store` → 상시 프로세스(아래). 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
+- **배포 순서**: `migrate` → `collectstatic --noinput` → `ensure_event_store` → 웹과 상시 프로세스(아래). 웹은 `collectstatic` 뒤에 (다시) 시작한다 — WhiteNoise가 시작할 때 `STATIC_ROOT`를 읽는다. 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
 - **배포 점검 — 신뢰할 프록시 수 `TRUSTED_PROXY_COUNT`는 prod 필수이고 1 이상이다**(앞단 nginx 1단 = `1`, 설계 §10 "배포 구성"). 없거나 0 이하면 기동하지 않는다. 앱은 `X-Forwarded-For`의 오른쪽에서 이 수만큼째 값을 클라이언트 IP로 쓴다. 실제 프록시 수보다 적으면 모든 요청이 프록시 IP 하나로 보여 로그인 잠금(아이디 + IP 기준)이 아이디만 보는 것과 같아지고(남이 계정을 잠글 수 있다) 감사 로그의 IP가 모두 프록시 IP가 된다. 많으면 `X-Forwarded-For` 앞쪽의 위조 값을 믿게 된다. **Django 포트는 nginx 밖에 열지 않는다**(127.0.0.1 바인딩) — 열려 있으면 nginx를 거치지 않고 `X-Forwarded-For`를 위조해 IP를 고를 수 있다.
 - **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
 
@@ -161,7 +161,7 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 - 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다. 첫 화면에는 반응 처리 현황 카드(대기·보류·stuck·가장 오래된 대기, stuck이 있으면 강조)가 있다.
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
 - 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
-- 정적 파일(CSS)은 DEBUG 에서만 `runserver` 가 서빙한다. 운영에서는 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 웹서버(인프라)가 서빙한다. 웹서버 설정은 배포 단계의 일이다.
+- 정적 파일(CSS·JS)은 운영에서도 Django가 서빙한다: `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 WhiteNoise가 내준다(시작할 때 읽으므로 모은 뒤 재시작). 앞단 nginx는 통로만 맡는다(6-5e, 설계 §10 "정적 파일 서빙" — 전에는 웹서버가 서빙하기로 했다). 파일 이름에 해시를 붙이지 않아 캐시는 WhiteNoise 기본값(짧은 유효 시간)이다.
 
 ## 매체 키 (C1 인증)
 

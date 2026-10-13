@@ -9,6 +9,7 @@ python-dotenv~=1.2.4     # 로컬 .env 로드 (config/env.py)
 django-axes~=8.3.1       # 로그인 5회 실패 시 5분 잠금 (0-2). Django 6.1 호환 게이트
 argon2-cffi~=25.1.0      # Argon2 비밀번호 해시 (Django Argon2PasswordHasher 가 요구)
 Pillow~=12.3.0           # 이미지 판별·재인코딩 (assets, 0-5)
+whitenoise~=6.12.0       # 운영에서 Django 가 정적 파일(/static/)을 서빙 (설계 §10 "정적 파일 서빙", 6-5e). Django 6.1 호환 게이트(설계 §9)
 pip-audit~=2.10.1        # 의존성 취약점 점검 (scripts/check.sh, 0-6)
 bandit~=1.9.4            # 정적 보안 점검 (scripts/check.sh, 0-6)
 packaging~=26.3.0        # scripts/pinned_requirements.py 가 사용

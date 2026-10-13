@@ -967,7 +967,8 @@ def cleanup(res, keep):
 
 
 def run(args, count, tmp, db_name, res):
-    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MONGO_DB=res["mongo_db"], MEDIA_ROOT=str(tmp / "media"))
+    (tmp / "static").mkdir(exist_ok=True)  # 빈 정적 파일 폴더(WhiteNoise 가 시작할 때 읽는다, 6-5e)
+    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MONGO_DB=res["mongo_db"], MEDIA_ROOT=str(tmp / "media"), STATIC_ROOT=str(tmp / "static"))
     os.environ.pop("DJANGO_DEBUG", None)
 
     import django

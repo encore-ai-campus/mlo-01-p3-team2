@@ -12,6 +12,7 @@ ADMIN_URL_PATH = validate_admin_path(env_str("ADMIN_URL_PATH", default="dev-admi
 ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 
 MEDIA_ROOT = env_str("MEDIA_ROOT", default=BASE_DIR / "media")
+STATIC_ROOT = env_str("STATIC_ROOT", default=str(BASE_DIR / "staticfiles"))  # prod 와 같게 환경변수로(부하 시험은 임시 폴더를 넘긴다 — WhiteNoise 는 없는 폴더를 경고한다)
 ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", default="http://127.0.0.1:8001")
 ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"  # 중단·종료된 캠페인의 이미지는 404 (campaigns 가 판정, assets 는 모른다)
 SIGNUP_GRANT_POINTS = env_int("SIGNUP_GRANT_POINTS", 50_000)

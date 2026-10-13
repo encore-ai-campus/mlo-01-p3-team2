@@ -31,6 +31,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",  # 가장 먼저: 모든 응답·로그에 요청 ID
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # 정적 파일(/static/)은 Django 가 서빙한다 — 앞단 nginx 는 통로만(설계 §10 "정적 파일 서빙", 6-5e). 보안 헤더(nosniff) 안쪽, 로그인·역할 검사 앞(공개 CSS·JS)
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "foundation.middleware.RequestBodyLimitMiddleware",  # 본문을 읽는 모든 미들웨어(CSRF 등)보다 앞
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -204,7 +205,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영 웹서버가 서빙한다(prod 는 환경변수로 바꿀 수 있다).
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영에서는 WhiteNoise 가 시작할 때 읽어 Django 가 서빙한다 — 모은 뒤 재시작(prod 는 환경변수로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 def mysql_config(name, user, password, host, port, isolation_level="read committed"):
