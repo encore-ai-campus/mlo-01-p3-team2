@@ -191,9 +191,9 @@ class CampaignServiceTests(TestCase):
 
     def test_update_creative_and_replace_image_keeps_old_file(self):
         cid = self.w.creative.creative_id
-        v = api.update_creative(self.w.adv, cid, {"title": "새 제목", "redirect_url": "https://b.example", "enabled": False}, now=NOW)
-        self.assertEqual((v.title, v.redirect_url, v.enabled), ("새 제목", "https://b.example", False))
-        for bad in ({}, {"image_name": "x"}, {"redirect_url": "http://b.example"}, {"enabled": "no"}):
+        v = api.update_creative(self.w.adv, cid, {"title": "새 제목", "redirect_url": "https://b.example"}, now=NOW)
+        self.assertEqual((v.title, v.redirect_url), ("새 제목", "https://b.example"))
+        for bad in ({}, {"image_name": "x"}, {"redirect_url": "http://b.example"}, {"enabled": False}):  # 소재 끄기는 없다(6-9b) — 광고를 끈다
             with self.assertRaises(InvalidRequest, msg=bad):
                 api.update_creative(self.w.adv, cid, bad, now=NOW)
         old = self.w.creative.image_name
@@ -391,8 +391,6 @@ class CandidateFactsTests(TestCase):
         for change, view in (
             (lambda: api.update_ad_group(w.adv, w.group.ad_group_id, {"enabled": False}, now=NOW), "광고그룹 꺼짐"),
             (lambda: api.update_ad_group(w.adv, w.group.ad_group_id, {"enabled": True}, now=NOW), None),
-            (lambda: api.update_creative(w.adv, w.creative.creative_id, {"enabled": False}, now=NOW), "소재 꺼짐"),
-            (lambda: api.update_creative(w.adv, w.creative.creative_id, {"enabled": True}, now=NOW), None),
             (lambda: api.update_campaign(w.adv, w.campaign.campaign_id, {"status": "PAUSED"}, now=NOW), "캠페인 일시 중지"),
             (lambda: api.update_campaign(w.adv, w.campaign.campaign_id, {"status": "ACTIVE"}, now=NOW), None),
             (lambda: api.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW), "관리자 중단"),

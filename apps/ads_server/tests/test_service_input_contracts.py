@@ -73,11 +73,9 @@ class RequestKeyContractTests(TestCase):
 class EnabledValueContractTests(TestCase):
     def test_enabled_must_be_a_boolean(self):
         w = World()
-        for call in (lambda: campaigns.update_ad_group(w.adv, w.group.ad_group_id, {"enabled": "1"}, now=NOW),
-                     lambda: campaigns.update_creative(w.adv, w.creative.creative_id, {"enabled": "1"}, now=NOW)):
-            with self.subTest(call), self.assertRaises(errors.InvalidRequest) as caught:
-                call()
-            self.assertEqual(caught.exception.errors, [{"pointer": "/enabled", "message": "true 또는 false 여야 합니다."}])
+        with self.assertRaises(errors.InvalidRequest) as caught:
+            campaigns.update_ad_group(w.adv, w.group.ad_group_id, {"enabled": "1"}, now=NOW)
+        self.assertEqual(caught.exception.errors, [{"pointer": "/enabled", "message": "true 또는 false 여야 합니다."}])
 
 
 class SeenVersionContractTests(TestCase):

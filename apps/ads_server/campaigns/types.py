@@ -56,7 +56,6 @@ class CreativeView:
     redirect_url: str
     image_name: str
     image_bytes: int
-    enabled: bool
     created_at: datetime
     updated_at: datetime
 

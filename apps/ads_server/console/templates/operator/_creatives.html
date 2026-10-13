@@ -4,7 +4,7 @@
   <div class="creative">
     {% url 'operator:asset' cr.image_name as asset %}<a href="{{ asset }}" target="_blank" rel="noopener noreferrer"><img src="{{ asset }}" alt="소재 이미지: {{ cr.title }}" width="96" height="54" loading="lazy"></a>
     <div>
-      {{ cr.title }}{% if not cr.enabled %} (꺼짐){% endif %}<br>
+      {{ cr.title }}<br>
       <strong>{{ cr.redirect_url|domain }}</strong><br>
       {% if cr.redirect_url|slice:":8" == "https://" %}<a href="{{ cr.redirect_url }}" target="_blank" rel="noopener noreferrer nofollow">{{ cr.redirect_url|truncatechars:80 }}</a>{% else %}{{ cr.redirect_url|truncatechars:80 }}{% endif %}
     </div>

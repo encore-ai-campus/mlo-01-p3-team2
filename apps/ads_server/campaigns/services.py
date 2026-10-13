@@ -163,7 +163,7 @@ def _ad_group_view(g, bid=None, slot_ids=None):
 def _creative_view(c):
     return CreativeView(
         creative_id=c.creative_id, ad_group_id=c.ad_group_id, title=c.title, redirect_url=c.redirect_url,
-        image_name=c.image_name, image_bytes=c.image_bytes, enabled=c.enabled, created_at=c.created_at, updated_at=c.updated_at,
+        image_name=c.image_name, image_bytes=c.image_bytes, created_at=c.created_at, updated_at=c.updated_at,
     )
 
 
@@ -740,11 +740,11 @@ def list_creatives(user, ad_group_id):
     return [_creative_view(c) for c in Creative.objects.filter(ad_group=g).order_by("created_at")]
 
 
-CREATIVE_FIELDS = {"title", "redirect_url", "enabled"}
+CREATIVE_FIELDS = {"title", "redirect_url"}
 
 
 def update_creative(user, creative_id, changes, now=None, expected_updated_at=None):
-    """제목·이동 주소·켜기/끄기. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 다르면 409 — 옛 폼이 그 사이의 변경(이미지 교체 포함)을 덮지 않게."""
+    """제목·이동 주소. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 다르면 409 — 옛 폼이 그 사이의 변경(이미지 교체 포함)을 덮지 않게."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CREATIVE_FIELDS
@@ -758,8 +758,6 @@ def update_creative(user, creative_id, changes, now=None, expected_updated_at=No
             c.title = clean_text(changes["title"], "제목", "/title", 200)
         if "redirect_url" in changes:
             c.redirect_url = _redirect_url(changes["redirect_url"])
-        if "enabled" in changes:
-            c.enabled = _flag(changes["enabled"])
         c.updated_at = now
         c.save()
         _audit(user, "creative.updated", ("campaigns.creative", c.creative_id), {"changed": sorted(changes)})
@@ -798,7 +796,7 @@ def candidate_facts_for_slot(slot_id):
     latest = Bid.objects.filter(ad_group=OuterRef("ad_group")).order_by("-bid_version")
     rows = (
         Creative.objects.filter(
-            enabled=True, ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__campaign__owner__is_active=True,
+            ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__campaign__owner__is_active=True,
             ad_group__slot_links__slot_id=slot_id,
         )
         .select_related("ad_group", "ad_group__campaign")

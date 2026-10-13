@@ -91,11 +91,7 @@
   {% for c, edit, image in creatives %}
   <div class="creative">
     <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 소재 이미지">
-    <p><strong>{{ c.title }}</strong> → <strong>{{ c.redirect_url|domain }}</strong> <span class="status{% if not c.enabled %} paused{% endif %}">{% if c.enabled %}켜짐{% else %}꺼짐{% endif %}</span></p>
-    <form method="post" action="{% url 'creative_enabled' c.creative_id %}">{% csrf_token %}
-      <input type="hidden" name="enabled" value="{% if c.enabled %}0{% else %}1{% endif %}">
-      <button type="submit" class="secondary">{% if c.enabled %}끄기{% else %}켜기{% endif %}</button>
-    </form>
+    <p><strong>{{ c.title }}</strong> → <strong>{{ c.redirect_url|domain }}</strong></p>
     <form method="post" action="{% url 'creative_edit' c.creative_id %}">{% csrf_token %}
       {% if edit.non_field_errors %}<div class="notice error" role="alert">{{ edit.non_field_errors }}</div>{% endif %}
       {{ edit.updated_at }}

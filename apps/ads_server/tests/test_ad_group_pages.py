@@ -143,10 +143,8 @@ class CreativeTests(AdGroupPageBase):
         self.assertContains(r, f'id="id_{self.crid}-redirect_url_error"', status_code=400)
         self.assertEqual(self.creative().redirect_url, "https://example.com/landing")
 
-    def test_toggle_and_image_replacement_keeps_the_old_file(self):
+    def test_image_replacement_keeps_the_old_file(self):
         old = self.creative().image_name
-        self.client.post(reverse("creative_enabled", args=[self.crid]), {"enabled": "0"})
-        self.assertFalse(self.creative().enabled)
         self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((5, 6, 7)))), self.detail)
         self.assertNotEqual(self.creative().image_name, old)
         self.assertEqual(set(CreativeImage.objects.filter(creative_id=self.crid).values_list("image_name", flat=True)), {old, self.creative().image_name})
@@ -193,13 +191,13 @@ class IsolationTests(AdGroupPageBase):
         self.assertEqual(self.client.get(reverse("ad_group_detail", args=[gid])).status_code, 404)
         posts = (("ad_group_bid", gid, {"amount": 1, "expected_version": 1}), ("ad_group_name", gid, {"name": "x"}),
                  ("ad_group_slots", gid, {"slot_ids": [str(other.slot.slot_id)]}), ("ad_group_enabled", gid, {"enabled": "0"}),
-                 ("creative_edit", crid, {}), ("creative_enabled", crid, {"enabled": "0"}), ("creative_image", crid, {"image": png_file()}))
+                 ("creative_edit", crid, {}), ("creative_image", crid, {"image": png_file()}))
         for name, target, data in posts:
             self.assertEqual(self.client.post(reverse(name, args=[target]), data).status_code, 404, name)
         self.assertEqual(self.client.get(reverse("creative_image_file", args=[crid])).status_code, 404)
         group = campaigns.get_ad_group(other.adv, gid)
         self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 30))
-        self.assertTrue(campaigns.get_creative(other.adv, crid).enabled)
+        self.assertEqual(campaigns.get_creative(other.adv, crid).title, "제목")
 
 
 class StaleSameFieldTests(AdGroupPageBase):

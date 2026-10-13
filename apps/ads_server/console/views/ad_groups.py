@@ -121,14 +121,6 @@ def creative_edit(request, creative_id):
 
 
 @require_POST
-def creative_enabled(request, creative_id):
-    group_id = fetch(campaigns.get_creative, request.user, creative_id).ad_group_id  # 남의 소재는 404
-    enabled = request.POST.get("enabled") == "1"
-    run_action(request, campaigns.update_creative, request.user, creative_id, {"enabled": enabled}, success="소재를 켰습니다." if enabled else "소재를 껐습니다.")
-    return redirect("ad_group_detail", ad_group_id=group_id)
-
-
-@require_POST
 def creative_image(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     group_id = current.ad_group_id

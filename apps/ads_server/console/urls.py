@@ -4,7 +4,7 @@ from django.urls import path
 from .views.account import my_account, my_password
 from .views.auth import ConsoleLoginView, ConsoleLogoutView, SignupView
 from .views.ad_groups import (
-    ad_group_bid, ad_group_detail, ad_group_enabled, ad_group_name, ad_group_slots, creative_edit, creative_enabled, creative_image, creative_image_file,
+    ad_group_bid, ad_group_detail, ad_group_enabled, ad_group_name, ad_group_slots, creative_edit, creative_image, creative_image_file,
 )
 from .views.ads import ad_create
 from .views.campaigns import campaign_detail, campaign_end, campaign_list, campaign_review, campaign_status
@@ -25,7 +25,6 @@ urlpatterns = [
     path("advertiser/ad-groups/<str:ad_group_id>/slots", ad_group_slots, name="ad_group_slots"),
     path("advertiser/ad-groups/<str:ad_group_id>/enabled", ad_group_enabled, name="ad_group_enabled"),
     path("advertiser/creatives/<str:creative_id>/edit", creative_edit, name="creative_edit"),
-    path("advertiser/creatives/<str:creative_id>/enabled", creative_enabled, name="creative_enabled"),
     path("advertiser/creatives/<str:creative_id>/image", creative_image, name="creative_image"),
     path("advertiser/creatives/<str:creative_id>/image-file", creative_image_file, name="creative_image_file"),
     path("advertiser/campaigns/", campaign_list, name="campaign_list"),

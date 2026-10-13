@@ -86,8 +86,7 @@ class Creative(models.Model):
     title = models.CharField(max_length=200)
     redirect_url = models.CharField(max_length=2048)
     image_name = models.CharField(max_length=80, db_index=True)  # assets 의 `<sha256>.<ext>`
-    image_bytes = models.PositiveIntegerField()
-    enabled = models.BooleanField(default=True)
+    image_bytes = models.PositiveIntegerField()  # 소재 끄기는 없다 — 광고를 멈추는 것은 광고그룹 ON/OFF 하나(6-9b, 설계 §10 "소재 목록")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
 
