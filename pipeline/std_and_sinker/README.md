@@ -41,14 +41,18 @@ export MONGODB_DATABASE='std_sinker'
 | 선택 환경변수 | 기본값·역할 |
 |---|---|
 | `STD_SINKER_CONTRACTS_DIR`, `STD_SINKER_ROUTES_FILE` | 이 디렉터리의 `contracts/`, `contracts/routes.json`. 다른 경로를 사용할 때는 절대경로 권장 |
-| `KAFKA_AUTO_OFFSET_RESET` | `earliest`. 유효한 커밋 위치가 없을 때 적용 |
+| `KAFKA_AUTO_OFFSET_RESET` | `earliest`. 유효한 커밋 위치가 없을 때 적용. `earliest` 또는 `error`만 허용 |
 | `KAFKA_DELIVERY_TIMEOUT_SECONDS` | `120`. Std 메시지 발행 ACK 대기 시간 |
 | `STD_SINKER_RECORD_RETRIES` | `3`. 한 입력의 I/O 처리 시도 횟수 |
 | `STD_SINKER_RETRY_BACKOFF_SECONDS` | `1`. 시도 사이 대기 초 |
+| `STD_SINKER_RECOVERY_BACKOFF_SECONDS` | `5`. 연결을 다시 만들기 전 최초 대기 초 |
+| `STD_SINKER_RECOVERY_BACKOFF_MAX_SECONDS` | `60`. 복구 대기 상한 초. 유한한 값으로 `0 < 최초 대기 <= 상한 <= 600`이어야 함 |
 | `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SSL_CA_LOCATION` | 연결 보안 방식과 CA 경로. 기본 보안 방식은 `PLAINTEXT` |
 | `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` | SASL을 사용하는 서버의 접속 설정 |
 
 상대 계약 경로는 `--env-file`로 지정한 파일의 디렉터리를 기준으로 해석한다. 설정·계약은 시작할 때 읽으며 변경 후 재시작한다. `raw.points`도 계약에 등록되어 있으므로 실제 발행·토픽이 준비되면 구독 목록에 추가할 수 있다.
+
+`latest`는 최초 커밋이 없는 파티션에서 장애 후 재연결할 때 미처리 입력을 건너뛸 수 있어 허용하지 않는다. 기존 설정이 `latest`라면 `earliest`로 변경한다. `error`는 유효한 커밋 위치가 없으면 종료하므로, 처음 실행하는 소비자 그룹에는 기본값인 `earliest`를 사용한다.
 
 ## 토픽 준비와 서비스 실행
 
@@ -63,16 +67,45 @@ pipeline/std_and_sinker/.venv/bin/python pipeline/std_and_sinker/std_and_sinker.
 
 서비스 실행 명령은 지속적으로 입력을 처리한다. 프로세스 관리 도구에서 같은 명령과 환경변수를 사용해 실행·재시작을 관리한다. 짧은 확인 실행에는 `--max-messages N`과 `--idle-timeout 초`를 사용할 수 있으며 지속 실행에서는 생략한다.
 
+Linux 서버의 systemd 서비스 예시는 다음과 같다. 실행 파일과 설정 파일의 절대경로는 실제 설치 경로로 바꾼다. 설정 파일에는 위 환경변수를 작성한다.
+
+```ini
+[Unit]
+Description=Std and Sinker
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/절대경로/std_and_sinker/.venv/bin/python /절대경로/std_and_sinker/std_and_sinker.py --env-file /절대경로/std_sinker.env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+내부 복구 루프는 실행 중인 프로세스의 I/O 장애를 처리한다. 프로세스 강제 종료·비정상 종료에는 위와 같은 재시작 관리가 필요하고, 서버 재부팅 후에도 시작하려면 서비스를 활성화해야 한다. 인증·설정 오류가 지속되면 재시작만으로 해결되지 않으므로 오류 로그를 확인하고 원인을 수정한다.
+
 ## 저장·발행 규칙
 
 - MongoDB `raw_logs`는 최초 Raw 메시지, `std_logs`는 성공·실패 결과를 저장한다.
 - JSON·이벤트 ID·MongoDB 표현이 불가능한 입력은 `raw_wrong_receipts`, 같은 ID의 다른 Raw 메시지는 `raw_conflict_receipts`에 보관한다.
 - Raw·Std 메시지의 이벤트 ID는 유지한다. `raw_logs._id`와 `std_logs._id`는 `event_uuid`, Std 메시지의 추적 ID는 `std_data.event_uuid`다.
 - 성공한 Std 메시지만 라우팅 계약의 출력 토픽으로 발행한다. Kafka key는 `user_uuid`, value는 `{std_manifest, std_data}`다.
-- 성공은 MongoDB 저장과 Kafka ACK 후, 검증 실패·격리는 필요한 저장 후에만 Raw offset을 커밋한다. I/O 장애는 현재 입력을 재시도하고 한도를 소진하면 종료한다.
+- 성공은 MongoDB 저장과 Kafka ACK 후, 검증 실패·격리는 필요한 저장 후에만 Raw offset을 커밋한다. 재시도 가능한 I/O 장애는 현재 입력을 최대 3회 시도하고, 소진하면 연결을 다시 만들며 복구를 계속한다.
 - Kafka 재발행은 가능하므로 후속 소비자도 `event_uuid`로 중복을 처리해야 한다.
 - 정수 필드는 정수만, 불리언 필드는 불리언만 허용한다. 좌표 `x`, `y`만 유한한 정수·실수를 받아 실수로 표현한다.
 - 같은 Raw 메시지와 같은 파서 버전의 결과는 유지한다. 높은 파서 버전은 기존 `FAIL`을 `SUCCESS`로 복구할 때만 결과를 교체한다.
+
+시작 시 연결, Kafka poll, MongoDB 저장, Kafka 발행·offset 커밋에서 발생하는 재시도 가능한 장애는 복구 대상이다. 네트워크 단절·타임아웃·일시적인 브로커 또는 MongoDB 장애는 자동으로 다시 시도한다. 인증·권한·설정·계약 오류, 같은 파서 버전에서 서로 다른 결과가 나온 `ResultConflict` 등은 자동 복구 대상이 아니며 오류로 종료한다.
+
+복구할 때는 Consumer를 먼저 닫아 소비자 그룹을 떠나고 다른 연결도 정리한 뒤 대기한다. 기본 대기는 `5 → 10 → 20 → 40 → 60초`이며 이후에는 60초를 유지한다. 새 연결과 Consumer는 그룹에 커밋된 offset부터 미완료 입력을 다시 처리한다. 입력 처리와 offset 커밋이 성공하면 대기를 최초 값으로 되돌린다. 실패한 입력을 건너뛰거나 같은 파티션의 뒤 입력을 먼저 커밋하지 않는다.
+
+Raw 메시지가 Kafka에 보존되어 있고 Kafka·MongoDB가 복구되면 처리를 다시 진행할 수 있다. 외부 서비스가 계속 중단되거나 Raw 보존 기간이 지난 경우까지 처리 완료를 보장할 수는 없다. 재처리 시 MongoDB는 `event_uuid` 기준으로 기존 결과를 유지하며, 이미 발행된 Std 메시지는 다시 발행될 수 있으므로 후속 소비자도 같은 ID로 중복을 처리해야 한다.
+
+운영에서는 프로세스 실행 상태와 함께 Kafka 소비 지연(lag), Raw 토픽 보존 기간, `I/O recovery waiting` 로그의 지속 발생을 확인하고 알림을 설정한다. `I/O recovered` 로그는 처리·커밋이 다시 성공했음을 나타낸다. 프로세스가 살아 있다는 사실만으로 파이프라인 진행을 판단하지 않는다.
 
 ## 발행자와 계약 대조
 

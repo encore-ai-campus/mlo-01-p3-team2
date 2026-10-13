@@ -1,7 +1,9 @@
 import json
 import time
 
-from confluent_kafka import Producer
+from confluent_kafka import KafkaException, Producer
+
+from .errors import RetryableIOError
 
 
 class KafkaPublisher:
@@ -21,22 +23,29 @@ class KafkaPublisher:
             reports.append(error)
 
         manifest = value["std_manifest"]
-        self.producer.produce(
-            topic=topic, key=key.encode("utf-8"),
-            value=json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8"),
-            headers=[
-                ("event_type", manifest["event_type"].encode("utf-8")),
-                ("std_schema_version", manifest["std_schema_version"].encode("utf-8")),
-            ],
-            on_delivery=delivered,
-        )
+        try:
+            self.producer.produce(
+                topic=topic, key=key.encode("utf-8"),
+                value=json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8"),
+                headers=[
+                    ("event_type", manifest["event_type"].encode("utf-8")),
+                    ("std_schema_version", manifest["std_schema_version"].encode("utf-8")),
+                ],
+                on_delivery=delivered,
+            )
+        except BufferError as error:
+            raise RetryableIOError("Std Kafka producer queue is full") from error
         deadline = time.monotonic() + self.timeout + 2
         while not reports and time.monotonic() < deadline:
             self.producer.poll(0.1)
         if not reports:
-            raise TimeoutError("Std Kafka delivery acknowledgement timed out")
+            raise RetryableIOError("Std Kafka delivery acknowledgement timed out")
         if reports[0] is not None:
-            raise RuntimeError("Std Kafka delivery failed")
+            raise KafkaException(reports[0])
 
     def close(self):
-        self.producer.flush(5)
+        if self.producer is not None:
+            try:
+                self.producer.flush(5)
+            finally:
+                self.producer = None

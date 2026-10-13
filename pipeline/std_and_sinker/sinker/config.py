@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -20,11 +21,24 @@ class Settings:
     delivery_timeout: float = 120.0
     record_retries: int = 3
     retry_backoff: float = 1.0
+    recovery_backoff: float = 5.0
+    recovery_backoff_max: float = 60.0
     security_protocol: str = "PLAINTEXT"
     ssl_ca_location: str | None = None
     sasl_mechanism: str | None = None
     sasl_username: str | None = None
     sasl_password: str | None = None
+
+    def __post_init__(self):
+        if self.offset_reset not in ("earliest", "error"):
+            raise ValueError("KAFKA_AUTO_OFFSET_RESET must be earliest or error for safe replay")
+        if (not 0 < self.delivery_timeout <= 120 or type(self.record_retries) is not int
+                or not 1 <= self.record_retries <= 3 or not 0 <= self.retry_backoff <= 10):
+            raise ValueError("Invalid timeout/retry settings")
+        if (not isfinite(self.recovery_backoff)
+                or not isfinite(self.recovery_backoff_max)
+                or not 0 < self.recovery_backoff <= self.recovery_backoff_max <= 600):
+            raise ValueError("Invalid recovery backoff settings")
 
     @classmethod
     def from_env(cls, env_file):
@@ -51,13 +65,11 @@ class Settings:
             return candidate if candidate.is_absolute() else env_file.parent / candidate
 
         reset = values.get("KAFKA_AUTO_OFFSET_RESET", "earliest")
-        if reset not in ("earliest", "latest", "error"):
-            raise ValueError("Invalid KAFKA_AUTO_OFFSET_RESET")
         timeout = float(values.get("KAFKA_DELIVERY_TIMEOUT_SECONDS", "120"))
         retries = int(values.get("STD_SINKER_RECORD_RETRIES", "3"))
         backoff = float(values.get("STD_SINKER_RETRY_BACKOFF_SECONDS", "1"))
-        if not 0 < timeout <= 120 or not 1 <= retries <= 3 or not 0 <= backoff <= 10:
-            raise ValueError("Invalid timeout/retry settings")
+        recovery_backoff = float(values.get("STD_SINKER_RECOVERY_BACKOFF_SECONDS", "5"))
+        recovery_backoff_max = float(values.get("STD_SINKER_RECOVERY_BACKOFF_MAX_SECONDS", "60"))
         return cls(
             bootstrap_servers=",".join(csv("KAFKA_BOOTSTRAP_SERVERS")),
             input_topics=csv("STD_SINKER_INPUT_TOPICS"),
@@ -68,6 +80,7 @@ class Settings:
             routes_file=path("STD_SINKER_ROUTES_FILE", SRC / "contracts/routes.json"),
             offset_reset=reset, delivery_timeout=timeout,
             record_retries=retries, retry_backoff=backoff,
+            recovery_backoff=recovery_backoff, recovery_backoff_max=recovery_backoff_max,
             security_protocol=values.get("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT"),
             ssl_ca_location=values.get("KAFKA_SSL_CA_LOCATION"),
             sasl_mechanism=values.get("KAFKA_SASL_MECHANISM"),
