@@ -94,7 +94,7 @@ AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]  # 아이디만 기준이
 AXES_RESET_ON_SUCCESS = True
 AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False  # 잠금 중 시도가 잠금을 연장하지 않는다("5분 뒤 재시도")
 AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 감사 로그와 같은 IP 판정을 쓴다
-AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
+AXES_LOCKOUT_CALLABLE = "foundation.http.lockout"  # 잠금 화면(429)의 화면 데이터 — 프론트가 console/lockout.html 로 그린다(6-15)
 AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 화면)을 끄고 foundation/admin.py 가 읽기 전용으로 다시 등록한다(위협 모델 T44)
 
 # 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다). prod 는 필수·1 이상(앞단 nginx, 6-5c)

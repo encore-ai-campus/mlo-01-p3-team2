@@ -2,14 +2,9 @@ from urllib.parse import urlsplit
 
 from django import template
 
-from billing.api import EntryType
-from campaigns.api import CampaignStatus, ReviewStatus
-from masters.api import Audience
-from records import api as records
+from ..labels import AUDIENCES as _AUDIENCES, CAMPAIGN_STATUSES as _STATUSES, ENTRY_TYPES as _ENTRIES, REVIEW_STATUSES as _REVIEWS
 
 register = template.Library()
-_AUDIENCES, _STATUSES, _ENTRIES = dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
-_REVIEWS = dict(ReviewStatus.choices)
 
 
 @register.filter
@@ -117,9 +112,3 @@ _EFFECTS = {"within_range": "그대로 적용", "capped_at_cap": "상한으로 �
 def effect_label(value):
     """위치별 적용 결과(C6 `SlotEffect.reason`) → 화면 문구. 모르는 값은 그대로(계약: 알 수 없는 값을 오류로 다루지 않는다)."""
     return _EFFECTS.get(value, value)
-
-
-@register.simple_tag
-def reaction_status():
-    """반응 처리 현황(관리자 첫 화면 카드, 설계 §10 "반응 처리 현황 노출", 6-3i) — `records.api.inbox_status()`, 질의 한 번."""
-    return records.inbox_status()

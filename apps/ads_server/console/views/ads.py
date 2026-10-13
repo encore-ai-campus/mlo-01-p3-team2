@@ -10,10 +10,11 @@ import secrets
 
 from django.conf import settings
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 
 from billing import api as billing
 from campaigns import api as campaigns
+from foundation.api import present
 from masters import api as masters
 
 from ..errors import HANDLED, message_of, submit
@@ -22,7 +23,7 @@ from ..forms import EXISTING, NEW, AdCreateForm
 
 def _render(request, form, choices, effects=None, status=200):
     slots = {str(s.slot_id): s for s in choices["slots"]}
-    return render(request, "console/ad_create.html", {
+    return present(request, "console/ad_create.html", {
         "form": form, "slots": choices["slots"],
         "effects": [effect_row(slots.get(str(e.slot_id)), e) for e in effects] if effects else None,
         "max_bytes": settings.ASSET_MAX_BYTES,
@@ -51,7 +52,7 @@ def _form(choices, data=None, files=None, initial=None):
 def ad_create(request):
     choices = _choices(request.user)
     if not choices["campaigns"]:
-        return render(request, "console/ad_create.html", {"no_campaign": True})
+        return present(request, "console/ad_create.html", {"no_campaign": True})
     if request.method != "POST":
         campaign = request.GET.get("campaign")
         initial = {"creative_source": NEW, "request_key": secrets.token_urlsafe(16),

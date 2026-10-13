@@ -5,10 +5,11 @@
 뷰는 서비스를 부르고 그리기만 한다. 입찰은 추가만 된다(서비스 규칙). 위치별 결과에는 반응 유형별 예상 과금을 함께 보인다(6-10d).
 """
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
+from foundation.api import present
 
 from ..errors import fetch, run_action, submit
 from ..forms import BidForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm
@@ -27,7 +28,7 @@ def ad_group_detail(request, ad_group_id, status=200, **bound):
         "upload_form": CreativeUploadForm(prefix="new"),
         **bound,
     }
-    return render(request, "console/ad_group_detail.html", {
+    return present(request, "console/ad_group_detail.html", {
         "page": page, "group": group, "effects": [effect_row(page.linked.get(e.slot_id), e) for e in page.effects], **forms,
     }, status=status)
 

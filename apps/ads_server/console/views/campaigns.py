@@ -3,11 +3,12 @@
 import secrets
 
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
+from foundation.api import present
 
 from ..errors import HANDLED, fetch, message_of, run_action, submit
 from ..forms import CampaignCreateForm, CampaignEditForm, ReviewRequestForm
@@ -19,14 +20,14 @@ def _now():
 
 
 def campaign_list(request):
-    return render(request, "console/campaign_list.html", {"rows": campaign_rows(request.user, _now())})
+    return present(request, "console/campaign_list.html", {"rows": campaign_rows(request.user, _now())})
 
 
 def campaign_create(request):
     """캠페인만 만든다(이름·기간·일예산). 폼마다 새 요청 키를 실어 두 번 누름·동시 제출·응답 실패 뒤 재시도도 하나만 만든다(키가 캠페인 행에 저장된다)."""
     if request.method != "POST":
         initial = {"starts_at": _now().replace(second=0, microsecond=0), "request_key": secrets.token_urlsafe(16)}
-        return render(request, "console/campaign_create.html", {"form": CampaignCreateForm(initial=initial)})
+        return present(request, "console/campaign_create.html", {"form": CampaignCreateForm(initial=initial)})
     if not request.POST.get("request_key"):
         messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 만드세요.")
         return redirect("campaign_create")
@@ -41,7 +42,7 @@ def campaign_create(request):
     form = CampaignCreateForm(request.POST)
     c, status = submit(form, lambda d: campaigns.create_campaign(request.user, d["name"], d["starts_at"], d["ends_at"], d["daily_budget"], request_key=d["request_key"]))
     if status is not None:
-        return render(request, "console/campaign_create.html", {"form": form}, status=status)
+        return present(request, "console/campaign_create.html", {"form": form}, status=status)
     messages.success(request, "캠페인을 만들었습니다. 이제 이 캠페인에 광고를 만드세요.")
     return redirect("campaign_detail", campaign_id=c.campaign_id)
 
@@ -67,7 +68,7 @@ def campaign_detail(request, campaign_id):
             return redirect("campaign_detail", campaign_id=campaign.campaign_id)
     elif request.method == "POST":
         status = 400
-    return render(request, "console/campaign_detail.html", {
+    return present(request, "console/campaign_detail.html", {
         "campaign": campaign, "today": today, "reviews": reviews, "form": form, "review_form": ReviewRequestForm(),
         "groups": [(g, placement_summary(g)) for g in groups],
     }, status=status)

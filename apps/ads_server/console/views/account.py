@@ -1,9 +1,9 @@
 """광고주 내 정보(Step 3-2f): 닉네임·반 수정과 비밀번호 변경. 규칙은 foundation 서비스(S2), 예외의 화면 변환은 console/errors."""
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
-from foundation.api import change_password, update_profile
+from foundation.api import change_password, present, update_profile
 
 from ..errors import submit
 from ..forms import PasswordChangeForm, ProfileForm
@@ -11,7 +11,7 @@ from ..forms import PasswordChangeForm, ProfileForm
 
 def _page(request, profile_form=None, password_form=None, status=200):
     profile_form = profile_form or ProfileForm(initial={"nickname": request.user.nickname, "class_label": request.user.class_label})
-    return render(request, "console/my_account.html", {"profile_form": profile_form, "password_form": password_form or PasswordChangeForm()}, status=status)
+    return present(request, "console/my_account.html", {"profile_form": profile_form, "password_form": password_form or PasswordChangeForm()}, status=status)
 
 
 def my_account(request):

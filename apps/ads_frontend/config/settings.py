@@ -56,6 +56,7 @@ STATIC_ROOT = env("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 STATICFILES_DIRS = [("admin", Path(django.__file__).parent / "contrib/admin/static/admin")]  # 통과시키는 관리 사이트도 이 정적 파일을 쓴다
 
 LANGUAGE_CODE = "ko-kr"  # 백엔드와 같게(관리 템플릿의 번역 문구)
+LOCALE_PATHS = [Path(django.__file__).parent / "contrib/admin/locale"]  # 운영 화면이 상속하는 관리 템플릿의 한국어 문구(admin 앱 없이)
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True

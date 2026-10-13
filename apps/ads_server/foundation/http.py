@@ -1,18 +1,20 @@
 """HTTP 계층 도우미 (설계 §3, 위협 T9~T14).
 
 - parse_json: 본문 크기·깊이 제한, NaN/Infinity·중복 키·범위 밖 숫자 거부, 최상위는 객체. 실패는 모두 ApiError → 4xx.
-- 오류 응답: `/api/` 는 application/problem+json, 그 외는 HTML. **입력 오류는 500 이 되지 않고 내부 정보를 싣지 않는다.**
+- 오류 응답: `/api/` 는 application/problem+json, 그 외는 오류 화면의 화면 데이터(프론트가 그린다, 6-15). **입력 오류는 500 이 되지 않고 내부 정보를 싣지 않는다.**
 """
 import json
 import math
 import re
 
-from django.http import HttpResponse, JsonResponse
-from django.template.loader import render_to_string
+from axes.helpers import get_failure_limit
+from django.conf import settings
+from django.http import JsonResponse
 
 from .errors import (
     ApiError, Forbidden, InvalidRequest, NotFound, PayloadTooLarge, Unavailable, UnsupportedMediaType,
 )
+from .presentation import present
 from .validators import MAX_AMOUNT
 
 API_PREFIX = "/api/"
@@ -155,11 +157,15 @@ def problem_response(request, error):
 
 
 def error_response(request, error, message):
-    """API 경로는 problem+json, 화면 경로는 HTML 오류 화면."""
+    """API 경로는 problem+json, 화면 경로는 오류 화면의 화면 데이터(프론트가 그린다 — 설계 §6.6 "6-15 분리")."""
     if request.path.startswith(API_PREFIX):
         return problem_response(request, error)
-    html = render_to_string("foundation/error.html", {"status": error.status, "title": error.title, "message": message})
-    return HttpResponse(html, status=error.status)
+    return present(request, "foundation/error.html", {"status": error.status, "title": error.title, "message": message}, status=error.status, csrf=False)
+
+
+def lockout(request, original_response=None, credentials=None):
+    """로그인 잠금(axes, 429)의 화면 데이터. axes 가 템플릿을 직접 그리던 것(`AXES_LOCKOUT_TEMPLATE`)을 대신한다."""
+    return present(request, "console/lockout.html", {"failure_limit": get_failure_limit(request, credentials)}, status=settings.AXES_HTTP_RESPONSE_CODE)
 
 
 def bad_request(request, exception=None):

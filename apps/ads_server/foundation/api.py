@@ -10,9 +10,11 @@ from . import errors
 from .http import json_depth, parse_json
 from .models import AppendOnlyError, AppendOnlyModel, Role, User
 from .net import client_ip
+from .presentation import present
 from .validators import MAX_AMOUNT, clean_request_key, clean_text, is_int, is_request_key, parse_uuid, parse_uuids
 
 __all__ = [
+    "present",  # 화면 데이터(설계 §6.6 "6-15 분리")
     "create_advertiser", "ProfileView", "update_profile", "change_password", "profiles", "AdvertiserAccount", "list_advertisers", "get_advertiser",
     "set_advertiser_active", "Role", "User", "client_ip",
     "owned_or_404", "require_admin", "require_advertiser", "is_unique_violation", "is_transient_lock_error", "json_depth", "parse_json",

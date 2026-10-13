@@ -29,7 +29,9 @@ class FakeBackend(BaseHTTPRequestHandler):
         pass
 
 
-class TransportTests(SimpleTestCase):
+class BackendCase(SimpleTestCase):
+    """가짜 백엔드를 띄우고 프론트가 그쪽으로 넘기게 한다."""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -49,6 +51,8 @@ class TransportTests(SimpleTestCase):
         FakeBackend.seen = []
         FakeBackend.reply = (200, [("Content-Type", "text/plain")], b"ok")
 
+
+class TransportTests(BackendCase):
     def test_the_request_goes_to_the_backend_unchanged_with_the_forwarded_address_appended(self):
         r = self.client.get("/advertiser/campaigns/?page=2", HTTP_COOKIE="sessionid=abc; csrftoken=t", HTTP_X_CSRFTOKEN="t",
                             HTTP_AUTHORIZATION="Bearer x", HTTP_X_FORWARDED_FOR="203.0.113.7", REMOTE_ADDR="127.0.0.1")
@@ -118,6 +122,45 @@ class RouteTests(SimpleTestCase):
 
 @override_settings(WHITENOISE_USE_FINDERS=True)
 class StaticTests(SimpleTestCase):
-    def test_the_admin_static_files_are_served_by_the_frontend(self):
-        r = self.client.get("/static/admin/css/base.css")
-        self.assertEqual((r.status_code, r["Content-Type"].split(";")[0], r["X-Content-Type-Options"]), (200, "text/css", "nosniff"))
+    def test_the_console_and_admin_static_files_are_served_by_the_frontend(self):
+        for path, kind in (("/static/console/app.css", "text/css"), ("/static/console/confirm.js", "text/javascript"), ("/static/admin/css/base.css", "text/css")):
+            r = self.client.get(path)
+            self.assertEqual((r.status_code, r["Content-Type"].split(";")[0], r["X-Content-Type-Options"]), (200, kind, "nosniff"), path)
+
+
+class RenderingTests(BackendCase):
+    """화면 데이터를 받으면 그린다(설계 §6.6 "6-15 분리"). 백엔드의 쿠키·캐시 헤더는 옮기고, 보안 헤더는 이 응답의 것(CSP nonce)이다."""
+
+    def presentation(self, template, context, status=200, headers=()):
+        import json
+
+        body = json.dumps({"presentation": {"template": template, "context": {"user": {"is_authenticated": False}, "messages": [],
+                                                                                "csrf_token": "", **context}}}).encode()
+        FakeBackend.reply = (status, [("Content-Type", "application/json"), *headers], body)
+
+    def test_screen_data_is_drawn_with_the_backends_cookies_and_status(self):
+        self.presentation("foundation/error.html", {"status": 404, "title": "없는 화면", "message": "찾을 수 없습니다."}, status=404,
+                          headers=[("Set-Cookie", "sessionid=s; HttpOnly; Path=/"), ("Cache-Control", "private, no-store"),
+                                   ("Content-Security-Policy", "default-src 'self'; style-src 'self' 'nonce-backend'")])
+        r = self.client.get("/advertiser/nowhere/")
+        self.assertEqual((r.status_code, r["Content-Type"]), (404, "text/html; charset=utf-8"))
+        self.assertContains(r, "<h1>없는 화면</h1>", status_code=404)
+        self.assertEqual((r.cookies["sessionid"].value, r["Cache-Control"]), ("s", "private, no-store"))
+        self.assertNotIn("nonce-backend", r["Content-Security-Policy"])  # 백엔드 응답의 nonce 가 아니라 이 응답의 CSP
+
+    def test_the_operator_layout_speaks_korean_without_the_admin_app(self):
+        """운영 화면은 Django admin 의 템플릿을 상속한다 — 그 문구의 번역(admin 앱의 locale)을 프론트가 직접 읽는다."""
+        self.presentation("operator/_base.html", {
+            "title": "매체", "site_header": "광고 서버 관리", "site_title": "광고 서버", "site_url": "/", "has_permission": True, "is_popup": False,
+            "is_nav_sidebar_enabled": False, "available_apps": [],
+            "user": {"is_authenticated": True, "is_active": True, "is_staff": True, "get_username": "admin", "has_usable_password": True},
+        })
+        r = self.client.get("/dev-admin/operator/media/")
+        self.assertContains(r, "로그아웃")
+        self.assertContains(r, 'href="/dev-admin/"')  # {% url 'admin:index' %}
+
+    def test_a_too_large_body_gets_the_same_error_screen(self):
+        with override_settings(MAX_BODY_BYTES=64 * 1024 + 2 * 1024 * 1024):
+            r = self.client.generic("POST", "/advertiser/creatives/", b"x" * (64 * 1024 + 2 * 1024 * 1024 + 1), content_type="application/octet-stream")
+        self.assertContains(r, "이미지는 2MB까지 올릴 수 있습니다.", status_code=413)
+        self.assertEqual(FakeBackend.seen, [])
