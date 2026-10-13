@@ -14,7 +14,7 @@ from django.db.models import Q
 from billing import api as billing
 from events import api as events
 
-from .models import Decision, Reaction
+from .models import Decision, Reaction, charge_shares
 from .processing import parse_reaction_ref, reaction_ref
 
 
@@ -76,13 +76,13 @@ def unresolved_charges(batch=2000, examples=10):
 
 def _document(item):
     event_id, (name, _key, produced_at, payload) = item
-    return events.normal_document(event_id, name, events.SCHEMA_VERSION, produced_at, payload)
+    return events.normal_document(event_id, name, events.SCHEMA_VERSIONS[name], produced_at, payload)
 
 
 def _decision_event(d):
     name = events.NAMES["decision"]
     selected = None if d.creative_id is None else {
-        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
+        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "charge_shares": charge_shares(d), "bid_id": d.bid_id,
         "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
     }
     return events.event_id_for(name, d.decision_id), (name, d.decision_id, d.decided_at, events.decision_payload(

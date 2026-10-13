@@ -30,7 +30,8 @@ class DecisionEventTests(TestCase):
         p = row.payload
         self.assertEqual((p["decision_id"], p["media_id"], p["slot_id"], p["audience"], p["subject_id"]), (str(d.decision_id), str(d.media_id), str(d.slot_id), "individual", SUBJECT))
         self.assertEqual(p["selected"], {
-            "campaign_id": str(d.campaign_id), "ad_group_id": str(d.ad_group_id), "creative_id": str(d.creative_id), "pricing_unit": d.pricing_unit,
+            "campaign_id": str(d.campaign_id), "ad_group_id": str(d.ad_group_id), "creative_id": str(d.creative_id),
+            "charge_shares": {"IMPRESSION": d.impression_share, "CLICK": d.click_share, "CONVERSION": d.conversion_share},
             "bid_id": str(d.bid_id), "bid_version": d.bid_version, "bid_policy_id": str(d.bid_policy_id), "policy_version": d.policy_version,
             "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
         })
@@ -40,11 +41,11 @@ class DecisionEventTests(TestCase):
     def test_bid_and_applied_amounts_are_reported_separately(self):
         """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액)."""
         w = World()
-        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", "IMPRESSION", [w.slot.slot_id], bid_amount=80, now=NOW)
+        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", "IMPRESSION", [w.slot.slot_id], bid_amount=800, now=NOW)
         w.api.create_creative(w.adv, group.ad_group_id, "고가 광고", "https://example.com/high", png_file(), now=NOW)
         decide(w)
         selected = EventOutbox.objects.get().payload["selected"]
-        self.assertEqual((selected["bid_amount"], selected["applied_amount"]), (80, 50))
+        self.assertEqual((selected["bid_amount"], selected["applied_amount"]), (800, 500))
 
     def test_a_decision_without_an_ad_is_still_an_event(self):
         w = World(with_creative=False)
@@ -55,7 +56,7 @@ class DecisionEventTests(TestCase):
 
     def test_shared_slot_decision_has_no_subject(self):
         w = World()
-        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
+        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
         records.decide(shared.media_id, shared.slot_id, now=NOW)
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload["audience"], row.payload["subject_id"]), ("shared", None))

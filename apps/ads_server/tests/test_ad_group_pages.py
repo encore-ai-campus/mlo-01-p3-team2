@@ -57,8 +57,8 @@ class DetailTests(AdGroupPageBase):
         html = self.html()
         self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
         self.assertIn("만든 뒤에는 바꿀 수 없습니다", html)  # 과금 단위 불변 안내
-        self.assertIn("현재 입찰 <strong>30 포인트</strong>", html)
-        self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">30 포인트")
+        self.assertIn("현재 입찰 <strong>300 포인트</strong>", html)
+        self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">300 포인트")
         self.assertIn(reverse("creative_image_file", args=[self.crid]), html)
         self.assertIn("<strong>example.com</strong>", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}" checked')
@@ -80,22 +80,22 @@ class DetailTests(AdGroupPageBase):
 
 class BidTests(AdGroupPageBase):
     def test_a_new_bid_is_added_as_a_new_version(self):
-        self.assertRedirects(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 60, "expected_version": 1}), self.detail)
-        self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [60, 30])  # 추가만
+        self.assertRedirects(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1}), self.detail)
+        self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [600, 300])  # 추가만
         html = self.html()
-        self.assertRegex(html, r"상한으로 적용</td>\s*<td class=\"num\">50 포인트")
+        self.assertRegex(html, r"상한으로 적용</td>\s*<td class=\"num\">500 포인트")
         self.assertRegex(html, r'name="expected_version" value="2"')
 
     def test_a_concurrent_bid_is_explained_and_nothing_is_overwritten(self):
-        campaigns.add_bid(self.w.adv, self.gid, 40, expected_version=1)  # 다른 탭에서 먼저
-        r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 60, "expected_version": 1})
+        campaigns.add_bid(self.w.adv, self.gid, 400, expected_version=1)  # 다른 탭에서 먼저
+        r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1})
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다(현재 버전 2)", status_code=409)  # 다른 낙관적 잠금 충돌과 같은 안내
-        self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [40, 30])
+        self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [400, 300])
 
     def test_bad_amount_and_ended_campaign_are_refused_by_the_service(self):
         self.assertEqual(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 0, "expected_version": 1}).status_code, 400)
         campaigns.end_campaign(self.w.adv, self.w.campaign.campaign_id)
-        r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 60, "expected_version": 1})
+        r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1})
         self.assertIn(r.status_code, (400, 409))
         self.assertEqual(len(campaigns.list_bids(self.w.adv, self.gid)), 1)
 
@@ -196,7 +196,7 @@ class IsolationTests(AdGroupPageBase):
             self.assertEqual(self.client.post(reverse(name, args=[target]), data).status_code, 404, name)
         self.assertEqual(self.client.get(reverse("creative_image_file", args=[crid])).status_code, 404)
         group = campaigns.get_ad_group(other.adv, gid)
-        self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 30))
+        self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 300))
         self.assertEqual(campaigns.get_creative(other.adv, crid).title, "제목")
         forged = {**self.edit_fields(title="위조"), "ad_group_id": str(gid)}  # 내 소재의 맞는 수정이어도 돌아갈 곳(숨김 칸)이 남의 광고면 404(6-9d)
         self.assertEqual(self.client.post(reverse("creative_edit", args=[self.crid]), forged).status_code, 404)

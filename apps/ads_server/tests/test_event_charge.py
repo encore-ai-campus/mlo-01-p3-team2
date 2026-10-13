@@ -3,8 +3,9 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
-from django.test import TransactionTestCase, tag
+from django.test import TransactionTestCase, override_settings, tag
 
+from billing import api as billing
 from billing.models import EntryType, LedgerEntry, Wallet
 from events import schemas
 from events.models import EventOutbox
@@ -38,18 +39,27 @@ class ChargeEventTests(ProcessingBase):
         self.assertEqual(len(events_of(schemas.CHARGE)), len(entries))
 
     def test_a_shortfall_is_reported(self):
-        Wallet.objects.update(balance=10)  # 적용 금액(30)보다 모자란 잔액
+        Wallet.objects.update(balance=10)  # 과금액(300 × 노출 98% = 294)보다 모자란 잔액
         self.process(self.receive("IMPRESSION"))
         p = events_of(schemas.CHARGE)[0].payload
-        self.assertEqual((p["requested_amount"], p["charged_amount"], p["shortfall"]), (30, 10, 20))
+        self.assertEqual((p["requested_amount"], p["charged_amount"], p["shortfall"]), (294, 10, 284))
 
     def test_no_charge_no_event(self):
-        """과금 단위와 다른 반응(노출 단위 캠페인의 클릭)은 정책이 0 이라 원장도 이벤트도 없다."""
+        """과금 정책이 0 을 돌려준 반응은 인정되지만 원장도 이벤트도 없다(하한 100 · 비율 1 이상이면 `share/v1` 은 0 을 내지 않는다 — 0 을 내는 정책으로 본다)."""
+        class Zero:
+            name = "zero/v1"
+
+            def amount_for(self, reaction_type, shares, applied_amount):
+                return 0
+
+        billing.register_charge_policy(Zero())
+        self.addCleanup(billing.unregister_charge_policy, "zero/v1")
         imp = self.receive("IMPRESSION")
         self.process(imp)
         before = len(events_of(schemas.CHARGE))
         click = self.click()
-        self.assertEqual(records.process_reaction(click.inbox_id, now=NOW + timedelta(seconds=1)), "ACCEPTED")
+        with override_settings(BILLING_CHARGE_POLICY="zero/v1"):
+            self.assertEqual(records.process_reaction(click.inbox_id, now=NOW + timedelta(seconds=1)), "ACCEPTED")
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), before)
         self.assertEqual(len(events_of(schemas.CHARGE)), before)
 

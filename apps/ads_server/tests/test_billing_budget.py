@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
-from tests.factories import DAY, make_advertiser, utc
+from tests.factories import DAY, WHOLE, make_advertiser, utc
 
 
 class BudgetDayTests(TestCase):
@@ -37,7 +37,7 @@ class SpendTests(TestCase):
         self.camp, self.other = uuid.uuid4(), uuid.uuid4()
         self.instants = [utc(2026, 10, 7, 1), utc(2026, 10, 7, 14, 59, 59), utc(2026, 10, 7, 15), utc(2026, 10, 7, 23, 59, 59), utc(2026, 10, 8, 0, 0, 1)]
         for i, t in enumerate(self.instants):
-            api.charge_for_reaction(self.adv.pk, self.camp if i % 2 == 0 else self.other, "IMPRESSION", "IMPRESSION", 10 * (i + 1), f"r{i}", now=t)
+            api.charge_for_reaction(self.adv.pk, self.camp if i % 2 == 0 else self.other, "IMPRESSION", WHOLE, 10 * (i + 1), f"r{i}", now=t)
 
     def expected_from_ledger(self):
         totals = {}

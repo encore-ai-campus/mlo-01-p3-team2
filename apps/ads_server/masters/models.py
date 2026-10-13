@@ -18,6 +18,7 @@ class PricingUnit(models.TextChoices):
 # 입찰 정책의 반응 유형별 과금 비율(설계 §10 "구성별 반응 비율 과금", 6-10). 각각 정수 1~98, 합 100.
 SHARE_FIELDS = ("impression_share", "click_share", "conversion_share")
 MIN_SHARE, MAX_SHARE = 1, 98
+MIN_FLOOR = 100  # 하한 최소: 비율 ≥ 1% 와 함께 반응 하나의 과금(내림)이 0 이 되지 않게 한다(100 × 1 ÷ 100 = 1)
 
 
 class Audience(models.TextChoices):
@@ -130,6 +131,7 @@ class BidPolicy(AppendOnlyModel):
                             cap_amount__lte=MAX_AMOUNT),
                 name="masters_policy_floor_base_cap_order",
             ),
+            models.CheckConstraint(condition=Q(floor_amount__gte=MIN_FLOOR), name="masters_policy_floor_min"),
             models.CheckConstraint(
                 condition=Q(**{f"{f}__range": (MIN_SHARE, MAX_SHARE) for f in SHARE_FIELDS}), name="masters_policy_share_range",
             ),

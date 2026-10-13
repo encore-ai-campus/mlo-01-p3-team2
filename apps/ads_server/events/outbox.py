@@ -15,7 +15,7 @@ def enqueue(event_name, source_id, aggregate_id, payload, produced_at=None):
     if not connection.in_atomic_block:
         raise OutsideTransaction("outbox 는 업무 데이터와 같은 트랜잭션 안에서 써야 한다")
     row = EventOutbox(
-        event_id=schemas.event_id_of(event_name, source_id), event_name=event_name, schema_version=schemas.SCHEMA_VERSION,
+        event_id=schemas.event_id_of(event_name, source_id), event_name=event_name, schema_version=schemas.SCHEMA_VERSIONS[event_name],
         aggregate_id=aggregate_id, payload=payload, created_at=produced_at or timezone.now(),
     )
     # 이미 있으면 아무것도 바꾸지 않는다(ON DUPLICATE KEY UPDATE 로 같은 값을 다시 쓴다). INSERT IGNORE 는 쓰지 않는다: STRICT 모드의 다른 오류(길이·형식)까지 경고로 삼킨다

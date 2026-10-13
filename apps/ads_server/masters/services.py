@@ -12,16 +12,16 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, parse_uuid, parse_uuids, record_audit, require_admin
 
-from .models import MAX_SHARE, MIN_SHARE, SHARE_FIELDS, Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
+from .models import MAX_SHARE, MIN_FLOOR, MIN_SHARE, SHARE_FIELDS, Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
 
 
 def _validate_policy(floor, base, cap, shares):
     """`shares` = {비율 열 이름: 값}(노출·클릭·전환). 각각 정수 1~98, 합 100 — DB 제약과 같은 규칙을 읽기 쉬운 400 으로."""
     problems = []
-    for pointer, value in (("/floor", floor), ("/base", base), ("/cap", cap)):
-        if not is_int(value) or not (0 < value <= MAX_AMOUNT):
-            problems.append({"pointer": pointer, "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."})
+    for pointer, value, minimum in (("/floor", floor, MIN_FLOOR), ("/base", base, 1), ("/cap", cap, 1)):  # 기준가·상한은 하한 이상이라 하한 최소를 따른다
+        if not is_int(value) or not (minimum <= value <= MAX_AMOUNT):
+            problems.append({"pointer": pointer, "message": f"{minimum} 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."})
     for name, value in shares.items():
         if not is_int(value) or not (MIN_SHARE <= value <= MAX_SHARE):
             problems.append({"pointer": f"/{name}", "message": f"{MIN_SHARE} 이상 {MAX_SHARE} 이하의 정수(%)여야 합니다."})

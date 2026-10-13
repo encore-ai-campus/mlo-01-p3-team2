@@ -57,8 +57,8 @@ class AlertTests(TestCase):
         self.assertEqual(self.alerts(NOW + 8 * DAY), [])
 
     def test_budget_exhausted_when_the_rest_is_below_the_applied_amount(self):
-        campaigns.update_campaign(self.w.adv, self.cid, {"daily_budget": 50}, now=NOW)
-        impression(self.w, NOW)  # 30 소진, 남은 20 < 적용 30
+        campaigns.update_campaign(self.w.adv, self.cid, {"daily_budget": 500}, now=NOW)
+        impression(self.w, NOW)  # 294 소진, 남은 206 < 적용 300
         self.assertEqual(codes(self.alerts()), [("budget_exhausted", "warning")])
         decision = records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         self.assertIsNone(decision.chosen)  # 엔진도 내보내지 않는다(같은 비교)
@@ -66,26 +66,26 @@ class AlertTests(TestCase):
 
     def test_bid_below_the_floor_and_above_the_cap(self):
         group = self.w.group.ad_group_id
-        campaigns.add_bid(self.w.adv, group, 5, expected_version=1, now=NOW)
+        campaigns.add_bid(self.w.adv, group, 50, expected_version=1, now=NOW)
         self.assertEqual(codes(self.alerts()), [("bid_below_floor", "warning")])
-        campaigns.add_bid(self.w.adv, group, 60, expected_version=2, now=NOW)
+        campaigns.add_bid(self.w.adv, group, 600, expected_version=2, now=NOW)
         self.assertEqual(codes(self.alerts()), [("bid_capped", "info")])
 
     def test_balance_low_and_insufficient_follow_the_engine(self):
-        cheap = make_slot(self.w.admin, floor=10, base=15, cap=20)  # 입찰 30 → 상한 20 으로 적용
+        cheap = make_slot(self.w.admin, floor=100, base=150, cap=200)  # 입찰 300 → 상한 200 으로 적용
         campaigns.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"slot_ids": [self.w.slot.slot_id, cheap.slot_id]}, now=NOW)
-        billing.adjust(self.w.admin, self.w.adv.pk, -(50_000 - 25), "잔액 25 로", now=NOW)
+        billing.adjust(self.w.admin, self.w.adv.pk, -(50_000 - 250), "잔액 250 으로", now=NOW)
         self.assertEqual(codes(self.alerts()), [("balance_low", "warning"), ("bid_capped", "info")])
         decide = lambda slot: records.decide(slot.media_id, slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1)).chosen  # noqa: E731
-        self.assertIsNone(decide(self.w.slot))  # 25 < 30: 이 위치에는 안 나간다
-        self.assertIsNotNone(decide(cheap))  # 25 >= 20: 이 위치에는 나간다
-        billing.adjust(self.w.admin, self.w.adv.pk, -15, "잔액 10 으로", now=NOW)
+        self.assertIsNone(decide(self.w.slot))  # 250 < 300: 이 위치에는 안 나간다
+        self.assertIsNotNone(decide(cheap))  # 250 >= 200: 이 위치에는 나간다
+        billing.adjust(self.w.admin, self.w.adv.pk, -150, "잔액 100 으로", now=NOW)
         self.assertEqual(codes(self.alerts())[0], ("balance_insufficient", "critical"))
         self.assertIsNone(decide(cheap))
 
     def test_effects_per_slot_follow_the_policy_and_an_inactive_slot_is_not_a_candidate(self):
         """`ad_group_effects`: 현재 입찰을 위치마다 현재 정책에 대어 본 결과(C6 `SlotEffect`). 꺼진 위치는 하한 미만이어도 `slot_inactive` 다."""
-        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 5, expected_version=1, now=NOW)
+        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 50, expected_version=1, now=NOW)
         (group,) = campaigns.ad_group_effects(self.w.adv)
         self.assertEqual([(e.reason, e.eligible, e.applied_amount, e.policy_version) for e in group.effects], [("below_floor", False, None, 1)])
         self.assertEqual(codes(self.alerts()), [("bid_below_floor", "warning")])
@@ -95,7 +95,7 @@ class AlertTests(TestCase):
         self.assertEqual(self.alerts(), [])  # 꺼진 위치는 입찰 안내의 대상이 아니다
 
     def test_paused_campaigns_and_disabled_groups_raise_no_bid_or_balance_alerts(self):
-        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 5, expected_version=1, now=NOW)
+        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 50, expected_version=1, now=NOW)
         campaigns.update_campaign(self.w.adv, self.cid, {"status": "PAUSED"}, now=NOW)
         self.assertEqual(self.alerts(), [])
 
@@ -109,7 +109,7 @@ class AlertTests(TestCase):
             self.alerts()
         for i in range(3):
             c = campaigns.create_campaign(self.w.adv, f"더 {i}", NOW - DAY, None, 1000, now=NOW)
-            campaigns.create_ad_group(self.w.adv, c.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=5, now=NOW)
+            campaigns.create_ad_group(self.w.adv, c.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=50, now=NOW)
         with CaptureQueriesContext(connection) as many:
             alerts = self.alerts()
         self.assertEqual(len(few), len(many))
@@ -117,10 +117,10 @@ class AlertTests(TestCase):
 
     def test_the_panel_escapes_and_orders_by_severity(self):
         campaigns.update_campaign(self.w.adv, self.cid, {"name": "<b>캠페인</b>"}, now=NOW)
-        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 60, expected_version=1, now=NOW)
+        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 600, expected_version=1, now=NOW)
         campaigns.suspend_campaign(self.w.admin, self.cid, "<script>x</script>", now=NOW)
         other = campaigns.create_campaign(self.w.adv, "둘째", NOW - DAY, None, 1000, now=NOW)
-        campaigns.create_ad_group(self.w.adv, other.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=60, now=NOW)
+        campaigns.create_ad_group(self.w.adv, other.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=600, now=NOW)
         self.client.force_login(self.w.adv)
         with mock.patch("console.views.dashboard._now", return_value=NOW):
             html = self.client.get(reverse("advertiser_home")).content.decode()

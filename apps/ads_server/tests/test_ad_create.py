@@ -35,7 +35,7 @@ class AdCreateBase:
         """화면이 싣는 요청 키와 함께, 집행할 수 있는 값(새 소재를 올린다)."""
         data = {
             "request_key": request_key(self.client.get(URL).content.decode()), "action": "create", "campaign_id": str(self.w.campaign.campaign_id),
-            "pricing_unit": "IMPRESSION", "group_name": "새 그룹", "slot_ids": [str(self.w.slot.slot_id)], "bid_amount": "25",
+            "pricing_unit": "IMPRESSION", "group_name": "새 그룹", "slot_ids": [str(self.w.slot.slot_id)], "bid_amount": "250",
             "creative_source": "new", "title": "제목", "redirect_url": "https://example.com/new", "image": png_file((10, 20, 30)),
         }
         data.update(over)
@@ -77,13 +77,13 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertFalse(self.created().exists())
 
     def test_preview_shows_what_the_server_computes_per_slot(self):
-        cheap = make_slot(self.w.admin, floor=30, base=35, cap=40, name="비싼 하한")
-        capped = make_slot(self.w.admin, floor=5, base=10, cap=20, name="낮은 상한")
+        cheap = make_slot(self.w.admin, floor=300, base=350, cap=400, name="비싼 하한")
+        capped = make_slot(self.w.admin, floor=100, base=150, cap=200, name="낮은 상한")
         r = self.client.post(URL, self.fields(action="preview", image="", slot_ids=[str(self.w.slot.slot_id), str(cheap.slot_id), str(capped.slot_id)]))
         table = r.content.decode().split("지금 정책 기준")[1]
-        self.assertRegex(table, r"그대로 적용</td><td class=\"num\">25 포인트")
+        self.assertRegex(table, r"그대로 적용</td><td class=\"num\">250 포인트")
         self.assertRegex(table, r"하한 미만 — 노출 안 됨</td><td class=\"num\">—")
-        self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">20 포인트")
+        self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">200 포인트")
         self.assertFalse(self.created().exists())
 
     def test_create_makes_the_ad_and_its_creative_in_the_chosen_campaign(self):

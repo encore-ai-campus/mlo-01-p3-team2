@@ -6,7 +6,7 @@ from billing import api
 from billing.models import CampaignSpend, LedgerEntry
 from foundation.errors import InvalidRequest, NotFound
 from tests.concurrency import run_together
-from tests.factories import NOW, make_advertiser
+from tests.factories import NOW, WHOLE, make_advertiser
 
 IMPRESSION, CLICK = "IMPRESSION", "CLICK"
 
@@ -18,8 +18,8 @@ def funded(points=10_000):
     return adv
 
 
-def charge(adv, amount, ref, campaign, rtype=IMPRESSION, unit=IMPRESSION, now=NOW):
-    return api.charge_for_reaction(adv.pk, campaign, rtype, unit, amount, ref, now=now)
+def charge(adv, amount, ref, campaign, rtype=IMPRESSION, shares=WHOLE, now=NOW):
+    return api.charge_for_reaction(adv.pk, campaign, rtype, shares, amount, ref, now=now)
 
 
 @tag("security")
@@ -37,28 +37,32 @@ class ChargeTests(TestCase):
         self.assertEqual(charge(adv, 999, "m1:r1", camp).charged, 40)  # 금액이 달라도 처음 결과(재전송은 같은 내용이어야 한다는 것은 Step 2 의 몫)
         self.assertEqual(api.check_ledger(quiescent=True), [])
 
-    def test_charge_policy_by_unit(self):
+    def test_charge_policy_by_share(self):
+        """`share/v1`: 반응 하나의 과금 = 내림(적용 금액 × 결정에 남긴 그 유형의 비율 ÷ 100)(설계 §10 "구성별 반응 비율 과금"). 정책 이름이 원장에 남는다."""
         adv, camp = funded(), uuid.uuid4()
-        self.assertIsNone(charge(adv, 40, "r-click", camp, rtype=CLICK, unit=IMPRESSION))  # 단위가 다른 반응은 과금 없음
-        self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 0)
-        hit = charge(adv, 55, "r-imp", camp, rtype=CLICK, unit=CLICK)
-        self.assertEqual((hit.charged, hit.entry.charge_policy), (55, "by-unit/v1"))  # 정책 이름 기록
-        self.assertEqual(hit.entry.campaign_id, camp)
-        conversion = charge(adv, 9, "r-conv", camp, rtype="CONVERSION", unit="CONVERSION")
-        self.assertEqual(conversion.charged, 9)
+        shares = {IMPRESSION: 98, CLICK: 1, "CONVERSION": 1}
+        got = [charge(adv, 333, f"r-{t}", camp, rtype=t, shares=shares).charged for t in shares]
+        self.assertEqual(got, [326, 3, 3])  # 326.34 → 326, 3.33 → 3: 결정 하나의 합 332 ≤ 적용 금액 333
+        hit = LedgerEntry.objects.get(reaction_ref=f"r-{IMPRESSION}")
+        self.assertEqual((hit.charge_policy, hit.campaign_id), ("share/v1", camp))
+        even = {IMPRESSION: 34, CLICK: 33, "CONVERSION": 33}
+        self.assertEqual([charge(adv, 100, f"e-{t}", camp, rtype=t, shares=even).charged for t in even], [34, 33, 33])  # 하한 100 · 비율 1 이상이면 0 이 없다
+        before = LedgerEntry.objects.count()
+        self.assertIsNone(charge(adv, 99, "zero", camp, rtype=CLICK, shares=shares))  # 99 × 1 ÷ 100 = 0 → 과금 없음(하한 100 이상인 결정에서는 생기지 않는다)
+        self.assertEqual(LedgerEntry.objects.count(), before)
 
     def test_charge_policy_swappable_by_setting(self):
         class FlatOne:
             name = "flat-one/v1"
 
-            def amount_for(self, reaction_type, pricing_unit, applied_amount):
+            def amount_for(self, reaction_type, shares, applied_amount):
                 return 1
 
         api.register_charge_policy(FlatOne())
         self.addCleanup(api.unregister_charge_policy, "flat-one/v1")
         adv, camp = funded(), uuid.uuid4()
         with override_settings(BILLING_CHARGE_POLICY="flat-one/v1"):
-            result = charge(adv, 500, "flat-r1", camp, rtype=CLICK, unit=IMPRESSION)  # 기본 정책이면 과금 없는 조합
+            result = charge(adv, 500, "flat-r1", camp, rtype=CLICK)  # 기본 정책이면 500
         self.assertEqual((result.charged, result.entry.charge_policy), (1, "flat-one/v1"))
         with override_settings(BILLING_CHARGE_POLICY="no-such/v9"):
             with self.assertRaises(api.UnknownChargePolicy):
@@ -81,7 +85,7 @@ class ChargeTests(TestCase):
             with self.assertRaises(InvalidRequest, msg=ref):
                 charge(adv, 5, ref, camp)
         with self.assertRaises(NotFound):
-            api.charge_for_reaction(uuid.uuid4(), camp, IMPRESSION, IMPRESSION, 5, "no-wallet", now=NOW)
+            api.charge_for_reaction(uuid.uuid4(), camp, IMPRESSION, WHOLE, 5, "no-wallet", now=NOW)
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 10_000)
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 0)  # 실패한 시도는 흔적이 없다
 
@@ -135,12 +139,12 @@ class ChargeInputValidationTests(TestCase):
             def __init__(self, value):
                 self.value = value
 
-            def amount_for(self, reaction_type, pricing_unit, applied_amount):
+            def amount_for(self, reaction_type, shares, applied_amount):
                 return self.value
 
         adv, camp = funded(), uuid.uuid4()
         before = self.snapshot(adv)
-        for i, bad in enumerate((0.5, True, -3, 2**53, "9", None)):
+        for i, bad in enumerate((0.5, True, -3, 6, 2**53, "9", None)):  # 6: 적용 금액(5)을 넘는다
             api.register_charge_policy(Broken(bad))
             try:
                 with override_settings(BILLING_CHARGE_POLICY="broken/v1"):

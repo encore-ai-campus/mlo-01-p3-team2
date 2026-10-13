@@ -2,7 +2,8 @@
 import uuid
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.lookups import Exact
 from django.utils import timezone
 
 from foundation.api import AppendOnlyModel
@@ -23,7 +24,9 @@ class Decision(AppendOnlyModel):
     campaign_id = models.UUIDField(null=True, blank=True)
     ad_group_id = models.UUIDField(null=True, blank=True)
     creative_id = models.UUIDField(null=True, blank=True)
-    pricing_unit = models.CharField(max_length=20, null=True, blank=True)
+    impression_share = models.PositiveSmallIntegerField(null=True, blank=True)  # 판정에 쓴 정책 버전의 반응 유형별 과금 비율(%) — 과금은 이 값으로(6-10c)
+    click_share = models.PositiveSmallIntegerField(null=True, blank=True)
+    conversion_share = models.PositiveSmallIntegerField(null=True, blank=True)
     bid_amount = models.PositiveBigIntegerField(null=True, blank=True)
     applied_amount = models.PositiveBigIntegerField(null=True, blank=True)  # 과금액의 근거: 다시 계산하지 않는다(설계 §4.4-10)
     bid_version = models.PositiveIntegerField(null=True, blank=True)
@@ -42,14 +45,22 @@ class Decision(AppendOnlyModel):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(creative_id__isnull=True, campaign_id__isnull=True, ad_group_id__isnull=True, owner_id__isnull=True,
-                      pricing_unit__isnull=True, bid_amount__isnull=True, applied_amount__isnull=True, bid_version__isnull=True,
+                    Q(creative_id__isnull=True, campaign_id__isnull=True, ad_group_id__isnull=True, owner_id__isnull=True, impression_share__isnull=True,
+                      click_share__isnull=True, conversion_share__isnull=True, bid_amount__isnull=True, applied_amount__isnull=True, bid_version__isnull=True,
                       policy_version__isnull=True, bid_id__isnull=True, bid_policy_id__isnull=True, snapshot__isnull=True)
-                    | Q(creative_id__isnull=False, campaign_id__isnull=False, ad_group_id__isnull=False, owner_id__isnull=False,
-                        pricing_unit__isnull=False, bid_amount__isnull=False, applied_amount__isnull=False, bid_version__isnull=False,
+                    | Q(creative_id__isnull=False, campaign_id__isnull=False, ad_group_id__isnull=False, owner_id__isnull=False, impression_share__isnull=False,
+                        click_share__isnull=False, conversion_share__isnull=False, bid_amount__isnull=False, applied_amount__isnull=False, bid_version__isnull=False,
                         policy_version__isnull=False, bid_id__isnull=False, bid_policy_id__isnull=False, snapshot__isnull=False)
                 ),
                 name="records_decision_chosen_all_or_none",
+            ),
+            models.CheckConstraint(  # 광고가 있으면 비율은 정책과 같은 규칙(각각 1~98, 합 100). 광고 없음이면 셋 다 비어 있다(위 제약)
+                condition=Q(impression_share__isnull=True) | Q(impression_share__range=(1, 98), click_share__range=(1, 98), conversion_share__range=(1, 98)),
+                name="records_decision_share_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(impression_share__isnull=True) | Q(Exact(F("impression_share") + F("click_share") + F("conversion_share"), 100)),
+                name="records_decision_shares_sum_100",
             ),
             models.CheckConstraint(  # 개인 슬롯의 결정은 사람이 있고, 일괄 슬롯의 결정은 사람이 없다(계약 C1 `subject_id`)
                 condition=(Q(audience=Audience.INDIVIDUAL, subject_id__isnull=False) | Q(audience=Audience.SHARED, subject_id__isnull=True)),
@@ -67,6 +78,14 @@ class ReactionType(models.TextChoices):
     IMPRESSION = "IMPRESSION", "노출"
     CLICK = "CLICK", "클릭"
     CONVERSION = "CONVERSION", "전환"
+
+
+SHARE_COLUMNS = {ReactionType.IMPRESSION: "impression_share", ReactionType.CLICK: "click_share", ReactionType.CONVERSION: "conversion_share"}
+
+
+def charge_shares(row):
+    """결정(또는 같은 열 이름을 가진 정책)의 반응 유형별 과금 비율 → {반응 유형: %}. 과금·C2 `charge_shares` 가 이 모양을 쓴다."""
+    return {str(t): getattr(row, column) for t, column in SHARE_COLUMNS.items()}
 
 
 class ReactionStatus(models.TextChoices):

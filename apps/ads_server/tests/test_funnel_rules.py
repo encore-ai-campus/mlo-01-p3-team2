@@ -28,7 +28,7 @@ SEC = timedelta(seconds=1)
 
 
 class FunnelMixin:
-    UNIT = "IMPRESSION"  # 광고그룹의 과금 단위 — 금전 영향을 보려면 시험 클래스가 바꾼다
+    UNIT = "IMPRESSION"  # 광고그룹의 과금 단위 — 그 단위에 98%, 나머지 1%씩(tests.factories.shares_for). 금전 영향을 보려면 시험 클래스가 바꾼다
 
     def setUp(self):
         self.w = World(unit=self.UNIT)
@@ -40,8 +40,8 @@ class FunnelMixin:
 
     def shared(self):
         """일괄 슬롯과 거기에 놓인 광고(같은 광고주·캠페인). 결정은 사람 없이 한 번 만든다."""
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((3, 3, 3)), now=NOW)
         return slot, self.decide(slot, None)
 
@@ -614,7 +614,7 @@ class EndToEndFunnelTests(TestCase):
         accepted = Reaction.objects.filter(decision_id=decision["decision_id"], status="ACCEPTED")
         self.assertEqual(sorted(accepted.values_list("type", flat=True)), ["CLICK", "CONVERSION", "IMPRESSION"])
         self.assertEqual({r.person_id for r in accepted}, {SUBJECT})
-        self.assertEqual(billing.get_wallet(self.w.adv, now=NOW).balance, 50_000 - 30)
+        self.assertEqual(billing.get_wallet(self.w.adv, now=NOW).balance, 50_000 - 300)  # 입찰 300: 노출 294 + 클릭 3 + 전환 3
 
     def test_a_click_that_beats_its_impression_waits_and_is_accepted_when_the_impression_lands(self):
         decision = self.decide(self.w.slot, subject_id=SUBJECT)
@@ -627,8 +627,8 @@ class EndToEndFunnelTests(TestCase):
         self.assertEqual(click.status, "ACCEPTED")
 
     def test_in_a_shared_slot_each_viewer_reports_their_own_funnel(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = self.decide(slot)
         self.assertTrue(decision["ad"]["click_url"].endswith("?s={subject_id}"))
@@ -653,7 +653,7 @@ class TimingBase(FunnelBase):
 class LatePrerequisiteTests(TimingBase):
     """검토 2-9 후속 #1: 보류 기한이 지난 뒤에 도착한 노출이 클릭을 되살려 과금시키면 안 된다. 단, 제때 도착했는데 처리만 늦은 경우는 거부하면 안 된다."""
 
-    UNIT = "CLICK"  # 클릭이 과금 단위라 인정되면 곧바로 원장에 나타난다
+    UNIT = "CLICK"  # 클릭에 98%(입찰 300 → 294), 노출·전환은 1%(3)
 
     def test_a_prerequisite_that_first_arrived_after_the_hold_window_does_not_rescue_a_held_click(self):
         click = self.click(when=1)
@@ -662,7 +662,7 @@ class LatePrerequisiteTests(TimingBase):
         self.assertEqual(self.judge(late, 302), "ACCEPTED")  # 노출 자체는 정상이다
         self.assertEqual(self.judge(click, 303), "REJECTED")
         self.assertEqual(self.verdict(click), ("REJECTED", "missing_prerequisite", "funnel-order"))
-        self.assertEqual(self.balance(), 50_000)  # 과금 없음
+        self.assertEqual(self.balance(), 50_000 - 3)  # 노출만 과금(3), 클릭은 과금 없음
 
     def test_the_deadline_is_inclusive_to_the_microsecond(self):
         click = self.click(when=1)
@@ -670,7 +670,7 @@ class LatePrerequisiteTests(TimingBase):
         on_time = self.report("IMPRESSION", when=301)  # 정확히 접수 + 300초
         self.judge(on_time, 400)
         self.assertEqual(self.judge(click, 401), "ACCEPTED")
-        self.assertEqual(self.balance(), 50_000 - 30)
+        self.assertEqual(self.balance(), 50_000 - 3 - 294)
 
         other = self.decide(self.w.slot, A)
         click2 = self.click(other, when=1)
@@ -679,7 +679,7 @@ class LatePrerequisiteTests(TimingBase):
         Reaction.objects.filter(pk=too_late.pk).update(received_at=at(301) + timedelta(microseconds=1))
         self.judge(too_late, 400)
         self.assertEqual(self.judge(click2, 401), "REJECTED")
-        self.assertEqual(self.balance(), 50_000 - 30)
+        self.assertEqual(self.balance(), 50_000 - 3 - 294 - 3)  # 둘째 결정은 노출(3)만, 늦은 클릭은 과금 없음
 
     def test_a_prerequisite_that_arrived_in_time_but_was_processed_late_still_counts(self):
         """처리 작업자가 늦게 돈 것은 매체의 잘못이 아니다 — 제때 도착한 노출이 기한 뒤에 인정돼도 클릭은 인정된다."""
@@ -688,7 +688,7 @@ class LatePrerequisiteTests(TimingBase):
         impression = self.report("IMPRESSION", when=250)  # 제때 도착
         self.assertEqual(self.judge(impression, 310), "ACCEPTED")  # 작업자가 기한 뒤에 처리
         self.assertEqual(self.judge(click, 311), "ACCEPTED")
-        self.assertEqual(self.balance(), 50_000 - 30)
+        self.assertEqual(self.balance(), 50_000 - 3 - 294)
 
     def test_a_prerequisite_that_arrived_in_time_but_is_still_unprocessed_keeps_the_click_waiting(self):
         click = self.click(when=1)
@@ -730,14 +730,14 @@ class ConversionBeforeClickTests(TimingBase):
         self.assertEqual(self.judge(conversion, 201), "PENDING")  # 클릭이 있어도 전환이 먼저였다
         self.assertEqual(self.judge(conversion, 301), "REJECTED")
         self.assertEqual(self.verdict(conversion), ("REJECTED", "missing_prerequisite", "funnel-order"))
-        self.assertEqual(self.balance(), 50_000)  # 전환 과금 없음
+        self.assertEqual(self.balance(), 50_000 - 3 - 3)  # 노출·클릭(1%씩)만, 전환 과금 없음
 
     def test_a_conversion_received_at_the_same_instant_or_later_is_accepted(self):
         self.accept_impression(when=0)
         self.judge(self.click(when=5), 5)
         same = self.report("CONVERSION", when=5)
         self.assertEqual(self.judge(same, 6), "ACCEPTED")
-        self.assertEqual(self.balance(), 50_000 - 30)
+        self.assertEqual(self.balance(), 50_000 - 300)  # 노출 3 + 클릭 3 + 전환 294
 
         other = self.decide(self.w.slot, A)
         self.accept_impression(other, subject=None, when=0)
@@ -786,7 +786,7 @@ class ProcessingOrderTests(TimingBase):
         self.assertEqual(outcome["click"], ("ACCEPTED", None, None))  # 제때 도착한 이른 노출이 전제다
         self.assertEqual(outcome["early"], ("ACCEPTED", None, None))
         self.assertEqual(outcome["late"], ("REJECTED", "duplicate_type", "once-per-type"))
-        self.assertEqual(outcome["balance"], 50_000 - 30)
+        self.assertEqual(outcome["balance"], 50_000 - 3 - 294)
 
     def test_a_later_duplicate_waits_for_the_earlier_one_instead_of_taking_its_place(self):
         early, late = self.report("IMPRESSION", when=250), self.report("IMPRESSION", when=302)

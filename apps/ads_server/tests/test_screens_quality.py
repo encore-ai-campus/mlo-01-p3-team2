@@ -27,7 +27,7 @@ from billing import api as billing
 from campaigns import api as campaigns
 from masters import api as masters
 from records import api as records
-from tests.factories import NOW, PW, SUBJECT, World, png_file
+from tests.factories import NOW, PW, SUBJECT, WHOLE, World, png_file
 from tests.helpers import ROUTE_PARAM, every_route
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
@@ -115,7 +115,7 @@ class ScreenQualityTests(TestCase):
         masters.issue_media_key(self.w.admin, self.w.slot.media_id, "점검")
         masters.set_media_active(self.w.admin, masters.create_media(self.w.admin, "끈 매체").media_id, False)  # 매체 비활성화 기록
         records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
-        billing.charge_for_reaction(self.w.adv.pk, self.w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, f"{self.w.slot.media_id}:{uuid.uuid4()}", now=NOW)
+        billing.charge_for_reaction(self.w.adv.pk, self.w.campaign.campaign_id, "IMPRESSION", WHOLE, 10, f"{self.w.slot.media_id}:{uuid.uuid4()}", now=NOW)
 
     def pages(self):
         adv = [reverse(n, args=a) for n, a in (

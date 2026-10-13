@@ -22,7 +22,7 @@ class CreativeLibraryTests(TestCase):
         self.w = World(ends_in=None)
 
     def second_group(self, campaign_id=None):
-        return api.create_ad_group(self.w.adv, campaign_id or self.w.campaign.campaign_id, "둘째 그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=30, now=NOW)
+        return api.create_ad_group(self.w.adv, campaign_id or self.w.campaign.campaign_id, "둘째 그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=300, now=NOW)
 
     def titles(self):
         return sorted(f.title for f in api.candidate_facts_for_slot(self.w.slot.slot_id))
@@ -142,7 +142,7 @@ class CreativeLibraryTests(TestCase):
         self.assertTrue(api.is_asset_servable(shared.image_name, now=NOW))  # 기간이 지나기 전에는 PAUSED 쪽 연결로 공개
 
     def ad_group(self, **over):
-        return {"name": "새 광고", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 40, **over}
+        return {"name": "새 광고", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 400, **over}
 
     def test_an_ad_is_made_in_an_existing_campaign_with_a_new_or_reused_creative(self):
         cid = self.w.campaign.campaign_id

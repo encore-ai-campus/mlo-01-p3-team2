@@ -31,12 +31,12 @@ def signup(username, ip):
 
 class Step1ScenarioTests(TestCase):
     def test_full_flow_through_services_only(self):
-        # 1. 관리자: 매체 1·슬롯(노출 A·B·C, 클릭 D)·정책 A 10~50, B 10~20, C 40~100
+        # 1. 관리자: 매체 1·슬롯(노출 A·B·C, 클릭 D)·정책 A 100~500, B 100~200, C 400~1,000
         admin = make_admin()
         media = masters.create_media(admin, "메타버스")
         slots = {
             name: masters.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 정책", **SHARES)
-            for name, unit, floor, base, cap in (("A", IMP, 10, 20, 50), ("B", IMP, 10, 15, 20), ("C", IMP, 40, 50, 100), ("D", "CLICK", 5, 8, 30))
+            for name, unit, floor, base, cap in (("A", IMP, 100, 200, 500), ("B", IMP, 100, 150, 200), ("C", IMP, 400, 500, 1_000), ("D", "CLICK", 100, 150, 300))
         }
         sid = {name: s.slot_id for name, s in slots.items()}
 
@@ -46,16 +46,16 @@ class Step1ScenarioTests(TestCase):
             self.assertEqual(billing.get_wallet(adv, now=NOW).balance, 50_000)
             self.assertEqual(AuditLog.objects.filter(actor_id=adv.pk, action__in=["account.signup", "billing.signup_grant"]).count(), 2)
 
-        # 3. 광고주 1: 캠페인 → 광고그룹(A·B·C) 입찰 30 → 소재(실제 PNG). 광고주 2: 입찰 25
+        # 3. 광고주 1: 캠페인 → 광고그룹(A·B·C) 입찰 300 → 소재(실제 PNG). 광고주 2: 입찰 250
         def launch(adv, name, bid, color):
             camp = campaigns.create_campaign(adv, f"{name} 캠페인", NOW - DAY, NOW + 30 * DAY, 5_000, now=NOW)
             group = campaigns.create_ad_group(adv, camp.campaign_id, f"{name} 그룹", IMP, [sid["A"], sid["B"], sid["C"]], bid_amount=bid, now=NOW)
             creative = campaigns.create_creative(adv, group.ad_group_id, f"{name} 광고", f"https://{name}.example/landing", png_file(color), now=NOW)
             return camp, group, creative
 
-        camp1, group1, creative1 = launch(adv1, "one", 30, (200, 30, 30))
-        camp2, group2, creative2 = launch(adv2, "two", 25, (30, 30, 200))
-        click_group = campaigns.create_ad_group(adv1, camp1.campaign_id, "클릭 그룹", "CLICK", [sid["D"]], bid_amount=10, now=NOW)
+        camp1, group1, creative1 = launch(adv1, "one", 300, (200, 30, 30))
+        camp2, group2, creative2 = launch(adv2, "two", 250, (30, 30, 200))
+        click_group = campaigns.create_ad_group(adv1, camp1.campaign_id, "클릭 그룹", "CLICK", [sid["D"]], bid_amount=100, now=NOW)
         campaigns.create_creative(adv1, click_group.ad_group_id, "클릭 광고", "https://one.example/click", png_file((9, 9, 9)), now=NOW)
         with self.assertRaises(campaigns.UnitMismatch):  # 단위가 섞인 광고그룹은 만들 수 없다
             campaigns.create_ad_group(adv1, camp1.campaign_id, "섞임", IMP, [sid["A"], sid["D"]], now=NOW)
@@ -63,30 +63,33 @@ class Step1ScenarioTests(TestCase):
         def decide(slot, seed=1, now=NOW):
             return records.decide(media.media_id, sid[slot], subject_id="learner-7", now=now, rng=Random(seed))
 
-        # 4. 슬롯별 결과: A 는 30 vs 25 로 광고주 1(적용 30), B 는 상한 20 으로 둘 다 20(동점), C 는 하한 40 이라 둘 다 제외
+        # 4. 슬롯별 결과: A 는 300 vs 250 으로 광고주 1(적용 300), B 는 상한 200 으로 둘 다 200(동점), C 는 하한 400 이라 둘 다 제외
         on_a = decide("A")
-        self.assertEqual((on_a.chosen.campaign_id, on_a.chosen.applied_amount, on_a.chosen.bid_amount), (camp1.campaign_id, 30, 30))
+        self.assertEqual((on_a.chosen.campaign_id, on_a.chosen.applied_amount, on_a.chosen.bid_amount), (camp1.campaign_id, 300, 300))
         on_c = decide("C")
         self.assertIsNone(on_c.chosen)
         self.assertEqual((on_c.candidate_count, on_c.rejected_counts), (2, {"below_floor": 2}))
         winners = set()
         for seed in range(40):
             on_b = decide("B", seed)
-            self.assertEqual(on_b.chosen.applied_amount, 20)
+            self.assertEqual(on_b.chosen.applied_amount, 200)
             winners.add(on_b.chosen.campaign_id)
         self.assertEqual(winners, {camp1.campaign_id, camp2.campaign_id})  # 동점이면 두 광고주가 고르게 뽑힌다
-        self.assertEqual(decide("D").chosen.pricing_unit, "CLICK")  # 슬롯 단위에 맞는 광고그룹만
+        self.assertEqual(decide("D").chosen.ad_group_id, click_group.ad_group_id)  # 슬롯 단위에 맞는 광고그룹만
 
-        # 노출 한 건 과금: 지갑·일 소진액·원장
-        charge = billing.charge_for_reaction(adv1.pk, camp1.campaign_id, IMP, IMP, on_a.chosen.applied_amount, f"{media.media_id}:reaction-1", now=NOW)
-        self.assertEqual((charge.charged, billing.get_wallet(adv1, now=NOW).balance, billing.get_wallet(adv1, now=NOW).spent_today), (30, 49_970, 30))
-        self.assertIsNone(billing.charge_for_reaction(adv1.pk, camp1.campaign_id, "CLICK", IMP, 30, "x:y", now=NOW))  # 단위가 다른 반응은 과금 없음
+        # 노출·클릭 한 건씩 과금(결정에 남긴 비율로): 지갑·일 소진액·원장
+        shares = on_a.chosen.charge_shares
+        self.assertEqual(shares, {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1})
+        charge = billing.charge_for_reaction(adv1.pk, camp1.campaign_id, IMP, shares, on_a.chosen.applied_amount, f"{media.media_id}:reaction-1", now=NOW)
+        click = billing.charge_for_reaction(adv1.pk, camp1.campaign_id, "CLICK", shares, on_a.chosen.applied_amount, f"{media.media_id}:reaction-2", now=NOW)
+        wallet = billing.get_wallet(adv1, now=NOW)
+        self.assertEqual((charge.charged, click.charged, wallet.balance, wallet.spent_today), (294, 3, 49_703, 297))
 
         # 5. 정책·입찰·소재를 고치고 중단해도 첫 결정은 그대로, 중단된 캠페인의 이미지는 서빙 404
         saved = records.get_decision(media.media_id, on_a.decision_id)
         raw = list(Decision.objects.filter(decision_id=on_a.decision_id).values())
-        campaigns.add_bid(adv1, group1.ad_group_id, 90, expected_version=1, now=NOW)
-        masters.add_policy_version(admin, sid["A"], 1, 2, 3, "대폭 변경", expected_version=1, **SHARES)
+        campaigns.add_bid(adv1, group1.ad_group_id, 900, expected_version=1, now=NOW)
+        masters.add_policy_version(admin, sid["A"], 400, 500, 600, "대폭 변경", expected_version=1, impression_share=1, click_share=1, conversion_share=98)
         campaigns.update_creative(adv1, creative1.creative_id, {"title": "다른 제목"}, now=NOW)
         campaigns.suspend_campaign(admin, camp1.campaign_id, "부적절", now=NOW)
         with override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable"):

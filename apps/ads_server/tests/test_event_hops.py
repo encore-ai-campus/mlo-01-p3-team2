@@ -23,7 +23,7 @@ from foundation.models import AuditLog
 from records import api as records
 from records.models import Decision, Reaction
 from records.processing import reaction_ref
-from tests.factories import DAY, NOW, SUBJECT, World
+from tests.factories import DAY, NOW, SUBJECT, WHOLE, World
 from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 
 UTC = timezone.utc
@@ -132,7 +132,7 @@ class WindowedSummaryTests(TestCase):
 
     def everything(self):
         """전부 읽은 기대 이벤트(예전 방식의 입력)."""
-        return [events.normal_document(i, name, events.SCHEMA_VERSION, at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
+        return [events.normal_document(i, name, events.SCHEMA_VERSIONS[name], at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
 
     def test_the_source_hop_matches_summarizing_everything_at_once(self):
         docs = self.everything()
@@ -163,7 +163,7 @@ class WindowedSummaryTests(TestCase):
                                               uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)  # 받았지만 판정 전
         refs = [f"{w.slot.media_id}:{uuid.uuid4()}", f"{w.slot.media_id}:{pending.reaction_id}", "형식이-틀린-키"]
         for ref in refs:
-            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, ref, now=NOW)
+            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 10, ref, now=NOW)
         entries = [e.entry_id for e in billing.charge_entries_for(refs)]
         count, examples = records.unresolved_charges()
         self.assertEqual((count, sorted(examples)), (3, sorted(str(e) for e in entries)))
@@ -249,7 +249,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         relay_batch()
         w = World()
         ref = f"{w.slot.media_id}:{uuid.uuid4()}"
-        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 30, ref, now=NOW)
         (orphan,) = billing.charge_entries_for([ref])
         self.assertEqual(billing.check_ledger(), [])  # 원장 자체는 맞다 — 이 점검만으로는 보이지 않는다
         ok, text = self.export()
@@ -269,7 +269,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         r = Reaction.objects.get()
         decision = Decision.objects.get(pk=r.decision_id)
         for ref in (f"{str(r.media_id).upper()}:{r.reaction_id}", f"{r.media_id.hex}:{r.reaction_id}", f"{{{r.media_id}}}:{r.reaction_id}"):
-            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", WHOLE, 30, ref, now=NOW)
         self.assertEqual(billing.check_ledger(), [])
         ok, text = self.export()
         self.assertFalse(ok, text)

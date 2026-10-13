@@ -31,17 +31,17 @@ class PointsPageTests(TestCase):
 
     def test_balance_today_and_entries_newest_first_with_campaign_names(self):
         campaigns.update_campaign(self.w.adv, self.w.campaign.campaign_id, {"name": "<b>캠페인</b>"})
-        impression(self.w, NOW)  # 과금 30
+        impression(self.w, NOW)  # 과금 294(입찰 300 × 노출 98%)
         decision = records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))  # 잔액이 있을 때 나간 광고
-        billing.adjust(self.w.admin, self.w.adv.pk, -(49_970 - 10), "잔액 10 으로", now=NOW)
+        billing.adjust(self.w.admin, self.w.adv.pk, -(49_706 - 10), "잔액 10 으로", now=NOW)
         view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
-        self.assertEqual(records.process_reaction(view.inbox_id, now=NOW), "ACCEPTED")  # 10 만 받고 20 은 못 받음
+        self.assertEqual(records.process_reaction(view.inbox_id, now=NOW), "ACCEPTED")  # 10 만 받고 284 는 못 받음
         html = self.client.get(URL).content.decode()
-        self.assertIn("잔액 <strong>0 포인트</strong> · 오늘 소진 40 포인트", html)
-        self.assertEqual(self.rows(html), [("반응 과금", "-10 포인트"), ("관리자 조정", "-49,960 포인트"), ("반응 과금", "-30 포인트"), ("가입 지급", "50,000 포인트")])
+        self.assertIn("잔액 <strong>0 포인트</strong> · 오늘 소진 304 포인트", html)
+        self.assertEqual(self.rows(html), [("반응 과금", "-10 포인트"), ("관리자 조정", "-49,696 포인트"), ("반응 과금", "-294 포인트"), ("가입 지급", "50,000 포인트")])
         self.assertIn("&lt;b&gt;캠페인&lt;/b&gt;", html)  # 과금 줄의 캠페인 이름(이스케이프)
         self.assertNotIn("<b>캠페인</b>", html)
-        self.assertRegex(html, r"<td class=\"num\">20 포인트</td>")  # 못 받은 포인트
+        self.assertRegex(html, r"<td class=\"num\">284 포인트</td>")  # 못 받은 포인트
 
     def test_cursor_paging_and_bad_cursors(self):
         for i in range(54):

@@ -45,7 +45,7 @@ class TypeTests(unittest.TestCase):
         bad = [
             dict(bid_amount=30.0), dict(bid_amount=True), dict(bid_amount=-1), dict(floor=1.5), dict(wallet_balance="1"),
             dict(remaining_daily_budget=None), dict(bid_version=0), dict(policy_version=0),
-            dict(floor=30, base=20, cap=50), dict(base=60), dict(pricing_unit="DAILY"), dict(campaign_status="DONE"),
+            dict(floor=30, base=20, cap=50), dict(base=60), dict(campaign_status="DONE"),
             dict(ad_group_enabled=1), dict(period_start=naive), dict(period_end=naive), dict(bid_created_at=kst),
             dict(campaign_id="not-a-uuid"), dict(slot_id=None),
         ]

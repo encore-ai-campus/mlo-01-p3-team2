@@ -1,7 +1,7 @@
 """C2 이벤트의 모양(DRD §5.6). **이벤트 필드 이름과 형식은 이 파일에서만 정한다** — 호출하는 쪽(records·billing)은 값을 넘기기만 한다.
 
 공통 봉투는 `event_id`·`event_name`·`schema_version`·`produced_at`·`payload` 이고, 여기서는 `payload` 를 만든다.
-JSON 이므로 UUID 는 문자열, 시각은 UTC ISO 8601(`records/basis.py` 와 같은 형식)이다. 스키마가 바뀌면 `schema_version` 을 올린다.
+JSON 이므로 UUID 는 문자열, 시각은 UTC ISO 8601(`records/basis.py` 와 같은 형식)이다. 모양이 바뀌면 **그 종류의** `schema_version` 을 올린다(종류별, 6-10c).
 """
 import uuid
 from datetime import timezone
@@ -10,7 +10,7 @@ DECISION = "ad.decision"
 REACTION_RECEIVED = "ad.reaction_received"
 REACTION = "ad.reaction"
 CHARGE = "ad.charge"
-SCHEMA_VERSION = 1
+SCHEMA_VERSIONS = {DECISION: 2, REACTION_RECEIVED: 1, REACTION: 1, CHARGE: 1}  # ad.decision 2: selected.pricing_unit → charge_shares(6-10c)
 
 _NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "events.ads-server")
 
@@ -35,7 +35,7 @@ def decision_payload(*, decision_id, media_id, slot_id, decided_at, audience, su
         "audience": audience, "subject_id": subject_id,
         "selected": None if selected is None else {
             "campaign_id": _id(selected["campaign_id"]), "ad_group_id": _id(selected["ad_group_id"]), "creative_id": _id(selected["creative_id"]),
-            "pricing_unit": selected["pricing_unit"], "bid_id": _id(selected["bid_id"]), "bid_version": selected["bid_version"],
+            "charge_shares": dict(selected["charge_shares"]), "bid_id": _id(selected["bid_id"]), "bid_version": selected["bid_version"],
             "bid_policy_id": _id(selected["bid_policy_id"]), "policy_version": selected["policy_version"],
             "bid_amount": selected["bid_amount"], "applied_amount": selected["applied_amount"],
         },

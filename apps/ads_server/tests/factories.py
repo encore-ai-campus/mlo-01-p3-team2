@@ -20,6 +20,14 @@ def make_advertiser(username=None):
 NOW = datetime(2026, 10, 7, 12, 0, 0, tzinfo=timezone.utc)
 DAY = timedelta(days=1)
 SHARES = {"impression_share": 98, "click_share": 1, "conversion_share": 1}  # 입찰 정책의 반응 유형별 과금 비율(6-10b) — 시험 기본값
+
+
+WHOLE = {"IMPRESSION": 100, "CLICK": 100, "CONVERSION": 100}  # 원장 동작만 보는 시험의 과금 비율: 적용 금액 전부(정책·결정의 비율은 1~98 — masters·DB 가 지킨다)
+
+
+def shares_for(unit):
+    """구성 단위 쪽에 98%, 나머지에 1%씩(6-10c). 과금 단위가 없어지기 전(6-10d)까지 단위로 만든 시험 세계가 그 단위에 주로 과금되게."""
+    return {f"{t.lower()}_share": 98 if t == unit else 1 for t in ("IMPRESSION", "CLICK", "CONVERSION")}
 SUBJECT = "0197a5c0-0000-7000-8000-000000000001"  # 개인(individual) 슬롯의 결정에 쓰는 가명 UUID
 
 
@@ -38,15 +46,15 @@ def png_file(color=(200, 30, 30)):
     return io.BytesIO(image_factory.png_bytes(color=color))
 
 
-def make_slot(admin, unit="IMPRESSION", floor=10, base=20, cap=50, name=None):
+def make_slot(admin, unit="IMPRESSION", floor=100, base=200, cap=500, name=None):
     from masters import api as masters
 
     media = masters.create_media(admin, f"매체-{next(_counter)}")
-    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", unit, floor, base, cap, "초기", **SHARES)
+    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", unit, floor, base, cap, "초기", **shares_for(unit))
 
 
 class World:
-    """광고주 한 명이 캠페인·광고그룹(입찰 30)·소재까지 가진 상태. 모든 호출은 고정 시각 NOW 기준."""
+    """광고주 한 명이 캠페인·광고그룹(입찰 300)·소재까지 가진 상태. 모든 호출은 고정 시각 NOW 기준."""
 
     def __init__(self, unit="IMPRESSION", with_creative=True, ends_in=10 * DAY):
         from billing import api as billing
@@ -57,8 +65,8 @@ class World:
         self.adv = make_advertiser()
         billing.grant_signup(self.adv, now=NOW)  # 가입하면 지급된다(기본 50,000)
         self.slot = make_slot(self.admin, unit=unit)
-        self.campaign = campaigns.create_campaign(self.adv, "캠페인", NOW - DAY, None if ends_in is None else NOW + ends_in, 5000, now=NOW)
-        self.group = campaigns.create_ad_group(self.adv, self.campaign.campaign_id, "그룹", unit, [self.slot.slot_id], bid_amount=30, now=NOW)
+        self.campaign = campaigns.create_campaign(self.adv, "캠페인", NOW - DAY, None if ends_in is None else NOW + ends_in, 50_000, now=NOW)
+        self.group = campaigns.create_ad_group(self.adv, self.campaign.campaign_id, "그룹", unit, [self.slot.slot_id], bid_amount=300, now=NOW)
         self.creative = (
             campaigns.create_creative(self.adv, self.group.ad_group_id, "제목", "https://example.com/landing", png_file(), now=NOW)
             if with_creative else None

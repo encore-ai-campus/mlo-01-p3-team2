@@ -98,7 +98,7 @@ class SuspendedStateTests(TestCase):
             api.end_campaign(w.adv, cid, now=NOW)
         # 고쳐서 다시 집행할 수 있도록 그 밖의 수정은 허용한다
         api.update_campaign(w.adv, cid, {"name": "고침", "daily_budget": 10}, now=NOW)
-        api.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
+        api.add_bid(w.adv, w.group.ad_group_id, 400, expected_version=1, now=NOW)
         api.update_creative(w.adv, w.creative.creative_id, {"title": "고친 제목"}, now=NOW)
         self.assertEqual(api.get_campaign(w.adv, cid, now=NOW).status, "SUSPENDED")
         with self.assertRaises(api.CampaignSuspended):  # 이름과 상태를 함께 보내면 전부 취소

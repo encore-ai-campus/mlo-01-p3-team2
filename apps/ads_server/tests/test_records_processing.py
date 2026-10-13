@@ -27,7 +27,7 @@ class ProcessingBase(TestCase):
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
-        self.decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))  # 입찰 30, 노출 과금 단위
+        self.decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))  # 입찰 300, 비율 노출 98 · 클릭 1 · 전환 1 → 노출 294 · 클릭 3 · 전환 3
         self.assertIsNotNone(self.decision.chosen)
 
     def receive(self, rtype="IMPRESSION", decision_id=None, media_id=None, at=NOW, reaction_id=None):
@@ -61,29 +61,34 @@ class ProcessingBase(TestCase):
 
 @tag("security")
 class RuleChainTests(ProcessingBase):
-    def test_a_valid_report_in_the_billing_unit_is_accepted_and_charged_the_recorded_amount(self):
+    def test_a_valid_report_is_accepted_and_charged_by_the_recorded_share(self):
+        """인정된 반응은 결정의 적용 금액 × 결정에 남긴 그 유형의 비율(내림)로 과금된다(설계 §10 "구성별 반응 비율 과금")."""
         view = self.receive("IMPRESSION")
         self.assertEqual(self.process(view), "ACCEPTED")
         row = self.row(view)
         self.assertEqual((row.status, row.reason_code, row.applied_rule, row.processed_at), ("ACCEPTED", None, None, NOW))
         entry = LedgerEntry.objects.get(entry_type="CHARGE")
-        self.assertEqual((entry.amount, entry.reaction_ref, entry.charge_policy), (-30, f"{self.media}:{view.reaction_id}", "by-unit/v1"))
-        self.assertEqual(self.balance(), 50_000 - 30)
-        self.assertEqual(billing.spend_today([self.w.campaign.campaign_id], now=NOW), {self.w.campaign.campaign_id: 30})
+        self.assertEqual((entry.amount, entry.reaction_ref, entry.charge_policy), (-294, f"{self.media}:{view.reaction_id}", "share/v1"))
+        self.assertEqual(self.balance(), 50_000 - 294)
+        self.assertEqual(billing.spend_today([self.w.campaign.campaign_id], now=NOW), {self.w.campaign.campaign_id: 294})
         self.assertEqual(billing.check_ledger(quiescent=True), [])
 
     def test_the_amount_is_the_decisions_not_a_recomputation(self):
-        """결정 뒤에 입찰·정책이 바뀌어도 과금액은 결정 때의 적용 금액이다."""
-        self.w.api.add_bid(self.w.adv, self.w.group.ad_group_id, 99, expected_version=1, now=NOW)
-        masters.add_policy_version(self.w.admin, self.w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1, **SHARES)
+        """결정 뒤에 입찰·정책(비율 포함)이 바뀌어도 과금액은 결정 때의 적용 금액 × 결정에 남긴 비율이다."""
+        self.w.api.add_bid(self.w.adv, self.w.group.ad_group_id, 990, expected_version=1, now=NOW)
+        masters.add_policy_version(self.w.admin, self.w.slot.slot_id, 100, 200, 300, "정책 대폭 변경", expected_version=1,
+                                  impression_share=1, click_share=1, conversion_share=98)
         self.process(self.receive("IMPRESSION"))
-        self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").amount, -30)
+        self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").amount, -294)
 
-    def test_a_type_other_than_the_billing_unit_is_accepted_but_not_charged(self):
-        self.assertEqual(self.process(self.receive("IMPRESSION")), "ACCEPTED")  # 과금 단위(노출)는 과금된다
+    def test_every_type_is_charged_by_its_share(self):
+        """노출·클릭·전환이 각각 자기 비율로 과금된다(6-10c). 결정 하나의 합은 적용 금액 이하다."""
+        self.assertEqual(self.process(self.receive("IMPRESSION")), "ACCEPTED")
         self.assertEqual(self.process(self.click()), "ACCEPTED")
         self.assertEqual(self.process(self.receive("CONVERSION")), "ACCEPTED")
-        self.assertEqual((self.charges(), self.balance(), CampaignSpend.objects.count()), (1, 50_000 - 30, 1))  # 클릭·전환은 인정만 되고 과금은 노출 한 번뿐
+        charged = sorted(-amount for amount in LedgerEntry.objects.filter(entry_type="CHARGE").values_list("amount", flat=True))
+        self.assertEqual(charged, [3, 3, 294])  # 300 × 1% · 300 × 1% · 300 × 98%
+        self.assertEqual((self.balance(), CampaignSpend.objects.count()), (50_000 - 300, 1))
 
     def test_unknown_decision_is_rejected_and_kept(self):
         view = self.receive(decision_id=uuid.uuid4())
@@ -113,7 +118,7 @@ class RuleChainTests(ProcessingBase):
         click = self.click()
         self.assertEqual([self.process(v) for v in (second, click)], ["REJECTED", "ACCEPTED"])
         self.assertEqual((self.row(second).reason_code, self.row(second).applied_rule), ("duplicate_type", "once-per-type"))
-        self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 30))  # 중복은 과금되지 않는다
+        self.assertEqual((self.charges(), self.balance()), (2, 50_000 - 294 - 3))  # 중복은 과금되지 않는다(노출 한 번 + 클릭)
 
     def test_rules_come_from_settings_and_unknown_names_fail_loudly(self):
         view = self.receive(decision_id=uuid.uuid4())
@@ -151,7 +156,7 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
     def test_processing_twice_charges_once(self):
         view = self.receive()
         self.assertEqual((self.process(view), self.process(view)), ("ACCEPTED", None))
-        self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 30))
+        self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 294))
 
     def test_a_failure_after_the_charge_rolls_everything_back_and_the_retry_charges_once(self):
         view = self.receive()
@@ -161,17 +166,17 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
         self.assertEqual((row.status, row.attempts, self.charges(), self.balance()), ("RECEIVED", 1, 0, 50_000))  # 과금도 되돌려졌다
         self.assertEqual(CampaignSpend.objects.count(), 0)
         self.assertEqual(self.process(view), "ACCEPTED")
-        self.assertEqual((self.charges(), self.balance(), billing.check_ledger(quiescent=True)), (1, 50_000 - 30, []))
+        self.assertEqual((self.charges(), self.balance(), billing.check_ledger(quiescent=True)), (1, 50_000 - 294, []))
 
     def test_a_charge_that_already_exists_is_not_repeated(self):
         """과금이 먼저 일어나 있고 상태만 못 바꾼 상황(다른 경로·수동 조치)에서도 같은 키로 한 번만 차감된다."""
         view = self.receive()
         billing.charge_for_reaction(
-            self.decision.chosen.owner_id, self.decision.chosen.campaign_id, "IMPRESSION", "IMPRESSION", 30,
+            self.decision.chosen.owner_id, self.decision.chosen.campaign_id, "IMPRESSION", self.decision.chosen.charge_shares, 300,
             f"{self.media}:{view.reaction_id}", now=NOW,
         )
         self.assertEqual(self.process(view), "ACCEPTED")
-        self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 30))
+        self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 294))
 
     def test_a_late_reprocess_after_midnight_keeps_the_received_day_and_time(self):
         """자정 뒤에 처리해도 예산 일·원장 시각은 처리 시각이 아니라 접수 시각(`received_at`) 기준이다."""
@@ -180,7 +185,7 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
         late = received + timedelta(seconds=10)  # 다음 예산 일(UTC 자정 뒤)
         self.assertEqual(self.process(view, now=late), "ACCEPTED")
         campaign = self.w.campaign.campaign_id
-        self.assertEqual(billing.spend_today([campaign], now=received), {campaign: 30})
+        self.assertEqual(billing.spend_today([campaign], now=received), {campaign: 294})
         self.assertEqual(billing.spend_today([campaign], now=late), {})
         entry = LedgerEntry.objects.get(entry_type="CHARGE")
         self.assertEqual(entry.created_at, received)
@@ -406,7 +411,7 @@ class ConcurrentProcessingTests(TransactionTestCase):
         self.assertEqual(Reaction.objects.filter(status="RECEIVED").count(), 0)
         self.assertEqual(Reaction.objects.filter(status="ACCEPTED").count(), 6)
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 6)
-        self.assertEqual(billing.get_wallet(w.adv, now=NOW).balance, 50_000 - 6 * 30)
+        self.assertEqual(billing.get_wallet(w.adv, now=NOW).balance, 50_000 - 6 * 294)
         self.assertEqual(billing.check_ledger(), [])
 
 

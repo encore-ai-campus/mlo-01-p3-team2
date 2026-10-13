@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta
 
-PRICING_UNITS = ("IMPRESSION", "CLICK", "CONVERSION")
 CAMPAIGN_STATUSES = ("ACTIVE", "PAUSED", "SUSPENDED", "ENDED")
 CAMPAIGN_ACTIVE = "ACTIVE"
 
@@ -40,8 +39,6 @@ class Candidate:
     ad_group_id: uuid.UUID
     creative_id: uuid.UUID
     slot_id: uuid.UUID
-    # 과금
-    pricing_unit: str
     # 입찰
     bid_amount: int
     bid_version: int
@@ -62,8 +59,6 @@ class Candidate:
     def __post_init__(self):
         for name in ("campaign_id", "ad_group_id", "creative_id", "slot_id"):
             _uuid(name, getattr(self, name))
-        if self.pricing_unit not in PRICING_UNITS:
-            raise ValueError(f"pricing_unit 이 올바르지 않다: {self.pricing_unit!r}")
         if self.campaign_status not in CAMPAIGN_STATUSES:
             raise ValueError(f"campaign_status 가 올바르지 않다: {self.campaign_status!r}")
         if not isinstance(self.ad_group_enabled, bool):

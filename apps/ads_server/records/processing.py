@@ -22,7 +22,7 @@ from foundation.api import is_transient_lock_error
 from . import basis as judgment_basis
 from . import ordering
 from . import facts as fact_gathering
-from .models import Decision, Reaction, ReactionStatus
+from .models import Decision, Reaction, ReactionStatus, charge_shares
 from .rules import MANDATORY_RULES, Hold, run_rules
 
 logger = logging.getLogger(__name__)
@@ -103,8 +103,8 @@ def _process(inbox_id, now):
         basis = judgment_basis.build(facts, rule=verdict[0], reason=verdict[1], person=person, judged_at=now)
         _finish(row, ReactionStatus.REJECTED, now, basis, reason=verdict[1], rule=verdict[0])
         return ReactionStatus.REJECTED
-    charge = billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
-        decision.owner_id, decision.campaign_id, row.type, decision.pricing_unit, decision.applied_amount,
+    charge = billing.charge_for_reaction(  # 결정에 남긴 비율로(6-10c). 정책이 0 을 돌려주면 기록만 남는다(`None`)
+        decision.owner_id, decision.campaign_id, row.type, charge_shares(decision), decision.applied_amount,
         reaction_ref(row.media_id, row.reaction_id), now=row.received_at,
     )
     if charge is not None:

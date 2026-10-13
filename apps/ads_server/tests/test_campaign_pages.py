@@ -51,7 +51,7 @@ class CampaignListTests(CampaignPagesBase):
         row = re.search(rf'<a href="{re.escape(self.detail)}">.*?</tr>', html, re.S).group(0)
         self.assertIn("집행 중", row)
         self.assertIn("끄기", row)
-        self.assertRegex(row, r'<td class="num">30 포인트</td>\s*<td class="num">1</td>')  # 오늘 소진 30 · 최근 7일 노출 1
+        self.assertRegex(row, r'<td class="num">294 포인트</td>\s*<td class="num">1</td>')  # 오늘 소진 294(입찰 300 × 노출 98%) · 최근 7일 노출 1
 
     def test_a_suspended_campaign_has_no_toggle_and_shows_the_reason_escaped(self):
         campaigns.update_campaign(self.w.adv, self.cid, {"name": "<b>캠페인</b>"})
@@ -98,7 +98,7 @@ class EditTests(CampaignPagesBase):
         r = self.client.post(self.detail, fields)
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
         view = self.view()
-        self.assertEqual((view.name, view.daily_budget), ("다른 탭에서 바꾼 이름", 5000))  # 옛 이름으로 되돌리지 않았다
+        self.assertEqual((view.name, view.daily_budget), ("다른 탭에서 바꾼 이름", 50_000))  # 옛 이름으로 되돌리지 않았다
 
     def test_service_rules_are_shown_next_to_the_fields(self):
         r = self.client.post(self.detail, self.edit_fields(ends_at="2020-01-01T09:00"))
@@ -134,7 +134,7 @@ class EndTests(CampaignPagesBase):
         self.assertEqual(self.client.post(reverse("campaign_end", args=[self.cid])).status_code, 302)  # 두 번째는 서비스 오류를 보일 뿐(500 아님)
         r = self.client.post(self.detail, {"name": "x", "daily_budget": "1", "ends_at": "", "updated_at": self.view().updated_at.isoformat()})
         self.assertIn(r.status_code, (400, 409))  # 끝난 캠페인은 서비스가 수정을 거절한다
-        self.assertEqual(self.view().daily_budget, 5000)
+        self.assertEqual(self.view().daily_budget, 50_000)
 
 
 class SuspensionTests(CampaignPagesBase):
@@ -158,10 +158,10 @@ class SuspensionTests(CampaignPagesBase):
 
 class AdGroupTableTests(CampaignPagesBase):
     def test_groups_with_bid_and_placement_summary(self):
-        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 60, expected_version=1)  # 상한 50 초과
+        campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 600, expected_version=1)  # 상한 500 초과
         html = self.client.get(self.detail).content.decode()
         table = html[html.index('aria-label="광고"'):]
-        self.assertIn("60 포인트", table)
+        self.assertIn("600 포인트", table)
         self.assertIn("노출 가능 1곳 · 상한 적용 1곳", table)
 
 
@@ -175,4 +175,4 @@ class IsolationTests(CampaignPagesBase):
         self.assertEqual(self.client.post(reverse("campaign_detail", args=[oid]), {"name": "x", "daily_budget": "1", "updated_at": "2026-01-01T00:00:00+00:00"}).status_code, 404)
         self.assertEqual(self.client.get(reverse("campaign_detail", args=["not-a-uuid"])).status_code, 404)
         view = campaigns.get_campaign(other.adv, oid)
-        self.assertEqual((view.status, view.name, view.daily_budget), ("ACTIVE", "캠페인", 5000))
+        self.assertEqual((view.status, view.name, view.daily_budget), ("ACTIVE", "캠페인", 50_000))

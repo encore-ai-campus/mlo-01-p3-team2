@@ -41,8 +41,8 @@ class ClickBase(ProviderContractMixin, TestCase):
         return response.json()
 
     def shared_slot(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((7, 7, 7)), now=NOW)
         return slot
 

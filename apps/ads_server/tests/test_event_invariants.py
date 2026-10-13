@@ -39,7 +39,7 @@ class EventInvariantTests(MongoDatabaseMixin, TestCase):
     def test_a_missing_event_is_caught_for_each_kind(self):
         for name in (schemas.DECISION, schemas.REACTION_RECEIVED, schemas.REACTION, schemas.CHARGE):
             row = EventOutbox.objects.get(event_name=name)
-            kept = dict(event_id=row.event_id, event_name=row.event_name, schema_version=1, aggregate_id=row.aggregate_id, payload=row.payload, created_at=row.created_at)
+            kept = dict(event_id=row.event_id, event_name=row.event_name, schema_version=row.schema_version, aggregate_id=row.aggregate_id, payload=row.payload, created_at=row.created_at)
             row.delete()  # (삭제하면 인스턴스의 pk 가 지워진다 — 복원용 값은 미리 챙겨 둔다)
             self.assertEqual(len(load_test.verify_events()), 1, name)
             self.assertIn("이벤트가 없는 원본 행 1건", load_test.verify_events()[0])
@@ -135,7 +135,7 @@ class EventContentTests(MongoDatabaseMixin, TestCase):
 
     def test_a_changed_envelope_in_mongodb_is_caught(self):
         row = EventOutbox.objects.get(event_name="ad.decision")
-        store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": 2}})
+        store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": 9}})
         self.assertIn("MongoDB 문서가 outbox 와 내용이 다른 이벤트 1건", " ".join(self.problems()))
 
     def test_envelope_changed_identically_in_outbox_and_mongodb_is_caught(self):
@@ -151,8 +151,8 @@ class EventContentTests(MongoDatabaseMixin, TestCase):
                 self.assertIn(f"원본 행과 내용이 다른 {name} 이벤트 1건", problems)
                 self.assertIn("schema_version", problems)
                 self.assertNotIn("MongoDB 문서가 outbox 와", problems)  # 두 사본은 서로 같다
-                EventOutbox.objects.filter(pk=row.pk).update(schema_version=schemas.SCHEMA_VERSION)
-                store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": schemas.SCHEMA_VERSION}})
+                EventOutbox.objects.filter(pk=row.pk).update(schema_version=schemas.SCHEMA_VERSIONS[name])
+                store.collection().update_one({"_id": row.event_id}, {"$set": {"schema_version": schemas.SCHEMA_VERSIONS[name]}})
                 self.assertEqual(self.problems(), [])
             with self.subTest(name=name, field="produced_at"):
                 row = EventOutbox.objects.get(event_name=name)

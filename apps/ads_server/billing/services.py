@@ -157,8 +157,9 @@ def _add_spend(campaign_id, day, charged):
         CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged)
 
 
-def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, applied_amount, reaction_ref, now=None):
+def charge_for_reaction(owner_id, campaign_id, reaction_type, shares, applied_amount, reaction_ref, now=None):
     """반응 하나의 과금(Step 2-5 가 부른다). 정책이 0 이라고 하면 `None`(과금 없음).
+    `shares` = {반응 유형: 비율(%)} — 그 반응의 결정에 남긴 값이다(6-10c, 지금 정책을 다시 읽지 않는다).
 
     **멱등**: 같은 `reaction_ref` 는 몇 번을 불러도 한 번만 차감하고 처음 결과를 돌려준다(최소 한 번 전달 + 멱등 처리).
     한 트랜잭션에서 ① 원장 `CHARGE` ② 지갑 잔액 ③ 그날 소진액을 함께 바꾼다.
@@ -167,8 +168,8 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, pricing_unit, appl
     if not is_int(applied_amount) or not 1 <= applied_amount <= MAX_AMOUNT:  # 소수·bool·범위 밖은 원장·잔액·소진액 어디에도 닿기 전에 거절
         raise errors.InvalidRequest(errors=[{"pointer": "/applied_amount", "message": f"1 이상 {MAX_AMOUNT} 이하의 정수여야 합니다."}])
     policy = get_charge_policy(settings.BILLING_CHARGE_POLICY)
-    amount = policy.amount_for(reaction_type, pricing_unit, applied_amount)
-    if not is_int(amount) or not 0 <= amount <= MAX_AMOUNT:  # 정책이 잘못된 값을 돌려주는 것은 서버 쪽 결함이다
+    amount = policy.amount_for(reaction_type, shares, applied_amount)
+    if not is_int(amount) or not 0 <= amount <= applied_amount:  # 정책이 잘못된 값(음수·적용 금액 초과)을 돌려주는 것은 서버 쪽 결함이다
         raise ValueError(f"과금 정책 {policy.name!r} 이(가) 올바르지 않은 과금액을 돌려줬다: {amount!r}")
     if amount == 0:
         return None

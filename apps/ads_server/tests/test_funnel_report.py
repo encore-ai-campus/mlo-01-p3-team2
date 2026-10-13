@@ -85,14 +85,14 @@ class DailyReportCountsTests(ReportBase):
 
     def test_counts_spent_and_every_day_of_the_window(self):
         report = self.report_for()
-        self.assertEqual(self.by_date(report), {date(2026, 10, 7): (2, 1, 1, 60), date(2026, 10, 8): (1, 0, 0, 30), date(2026, 10, 9): (0, 0, 0, 0)})
+        self.assertEqual(self.by_date(report), {date(2026, 10, 7): (2, 1, 1, 594), date(2026, 10, 8): (1, 0, 0, 294), date(2026, 10, 9): (0, 0, 0, 0)})
         self.assertEqual((report.start, report.end), window())
         t = report.totals
-        self.assertEqual((t.impressions, t.clicks, t.conversions, t.spent), (3, 1, 1, 90))  # 클릭·전환은 인정만 되고 과금은 노출(과금 단위)뿐
+        self.assertEqual((t.impressions, t.clicks, t.conversions, t.spent), (3, 1, 1, 888))  # 입찰 300 · 비율 98/1/1: 노출 294 · 클릭 3 · 전환 3
 
     def test_the_previous_period_of_the_same_length_is_totalled_for_comparison(self):
         previous = self.report_for().previous_totals
-        self.assertEqual((previous.impressions, previous.clicks, previous.conversions, previous.spent), (1, 0, 0, 30))
+        self.assertEqual((previous.impressions, previous.clicks, previous.conversions, previous.spent), (1, 0, 0, 294))
         longer = self.report_for(window(5)).previous_totals  # 10/2~10/6
         self.assertEqual(longer.impressions, 1)
         shifted = self.report_for(window(1, D7 + DAY))  # 10/8 하루 → 직전은 10/7 하루
@@ -138,7 +138,7 @@ class DailyReportCountsTests(ReportBase):
         b = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=B, now=datetime(2026, 10, 7, 14, 30, tzinfo=timezone.utc), rng=Random(1))
         self.report(b, "IMPRESSION", datetime(2026, 10, 7, 15, 0, tzinfo=timezone.utc))  # KST 10/8 00:00
         report = records.daily_report(w.adv, start, start + 2 * DAY)
-        self.assertEqual(self.by_date(report), {date(2026, 10, 7): (1, 0, 0, 30), date(2026, 10, 8): (1, 0, 0, 30)})
+        self.assertEqual(self.by_date(report), {date(2026, 10, 7): (1, 0, 0, 294), date(2026, 10, 8): (1, 0, 0, 294)})
         with self.assertRaises(InvalidRequest):  # UTC 자정은 이 설정에서 일 경계가 아니다
             records.daily_report(w.adv, D7, D7 + DAY)
 
@@ -187,8 +187,8 @@ class ConversionRateCohortTests(ReportBase):
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
 
     def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B):
@@ -231,39 +231,39 @@ class DailyReportScopeTests(ReportBase):
         self.impression(NOW + HOUR, world=other)
         self.impression(NOW + 2 * HOUR, world=other, subject=A)
         mine, theirs = self.report_for().totals, records.daily_report(other.adv, *window()).totals
-        self.assertEqual((mine.impressions, mine.clicks, mine.spent), (1, 1, 30))
-        self.assertEqual((theirs.impressions, theirs.clicks, theirs.spent), (2, 0, 60))
+        self.assertEqual((mine.impressions, mine.clicks, mine.spent), (1, 1, 300))  # 노출 294 + 클릭 3 + 전환 3
+        self.assertEqual((theirs.impressions, theirs.clicks, theirs.spent), (2, 0, 588))
 
     def test_campaign_scope_and_ownership(self):
         second = self.w.api.create_campaign(self.w.adv, "두 번째", NOW - DAY, NOW + 10 * DAY, 5000, now=NOW)
         slot2 = self.new_slot("둘째 슬롯")
-        group2 = self.w.api.create_ad_group(self.w.adv, second.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=40, now=NOW)
+        group2 = self.w.api.create_ad_group(self.w.adv, second.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group2.ad_group_id, "광고2", "https://example.com/two", png_file((9, 9, 9)), now=NOW)
-        self.impression(NOW)  # 첫 캠페인(입찰 30)
-        self.impression(NOW + HOUR, slot=slot2, subject=A)  # 두 번째 캠페인(입찰 40)
+        self.impression(NOW)  # 첫 캠페인(입찰 300 → 노출 294)
+        self.impression(NOW + HOUR, slot=slot2, subject=A)  # 두 번째 캠페인(입찰 400 → 노출 392)
         first_id = self.w.campaign.campaign_id
-        self.assertEqual(self.report_for().totals.spent, 70)
-        self.assertEqual(self.report_for(campaign_id=first_id).totals.spent, 30)
-        self.assertEqual(self.report_for(campaign_id=second.campaign_id).totals.spent, 40)
+        self.assertEqual(self.report_for().totals.spent, 686)
+        self.assertEqual(self.report_for(campaign_id=first_id).totals.spent, 294)
+        self.assertEqual(self.report_for(campaign_id=second.campaign_id).totals.spent, 392)
         for hidden in (World().campaign.campaign_id, uuid.uuid4()):  # 남의 캠페인은 없는 것과 같다
             with self.assertRaises(Http404):
                 self.report_for(campaign_id=hidden)
 
     def new_slot(self, name):
-        return masters.create_slot(self.w.admin, self.media, name, "IMPRESSION", 10, 20, 50, "초기", **SHARES)
+        return masters.create_slot(self.w.admin, self.media, name, "IMPRESSION", 100, 200, 500, "초기", **SHARES)
 
     def test_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
         slot2 = self.new_slot("둘째 슬롯")
-        group2 = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=40, now=NOW)
+        group2 = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group2.ad_group_id, "광고2", "https://example.com/two", png_file((9, 9, 9)), now=NOW)
-        self.impression(NOW)
+        self.full_funnel(NOW)  # 광고의 소진액은 모든 유형의 과금이다(6-10c): 노출 294 + 클릭 3 + 전환 3
         self.impression(NOW + DAY, subject=A)
         self.impression(NOW + HOUR, slot=slot2, subject=B)
         g1, g2 = self.report_for(ad_group_id=self.w.group.ad_group_id), self.report_for(ad_group_id=group2.ad_group_id)
-        self.assertEqual((g1.totals.impressions, g1.totals.spent, g2.totals.impressions, g2.totals.spent), (2, 60, 1, 40))
-        self.assertEqual(self.by_date(g1)[date(2026, 10, 8)], (1, 0, 0, 30))
+        self.assertEqual((g1.totals.impressions, g1.totals.spent, g2.totals.impressions, g2.totals.spent), (2, 594, 1, 392))
+        self.assertEqual(self.by_date(g1)[date(2026, 10, 8)], (1, 0, 0, 294))
         whole = self.report_for(campaign_id=self.w.campaign.campaign_id)
-        self.assertEqual((whole.totals.impressions, whole.totals.spent), (3, 100))  # 광고그룹 합 = 캠페인 (원장 ↔ 일 소진액)
+        self.assertEqual((whole.totals.impressions, whole.totals.spent), (3, 986))  # 광고그룹 합 = 캠페인 (원장 ↔ 일 소진액)
         for day in whole.rows:
             self.assertEqual(day.totals.spent, self.by_date(g1)[day.date][3] + self.by_date(g2)[day.date][3])
 
@@ -282,18 +282,18 @@ class DailyReportScopeTests(ReportBase):
         view, _ = records.receive_reaction(self.media, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW + SEC)
         billing.adjust(self.w.admin, self.w.adv.pk, -(50_000 - 10), "잔액 부족 시험", now=NOW)
         self.assertEqual(records.process_reaction(view.inbox_id, now=NOW + SEC), "ACCEPTED")
-        self.assertEqual(self.report_for().totals.spent, 10)  # 적용 금액 30 이 아니라 받은 10
+        self.assertEqual(self.report_for().totals.spent, 10)  # 과금액 294 가 아니라 받은 10
         self.assertEqual(self.report_for(ad_group_id=self.w.group.ad_group_id).totals.spent, 10)
 
     def test_shared_slot_counts_every_viewer(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B, C):
             self.report(decision, "IMPRESSION", NOW + SEC, subject=person)
         totals = self.report_for(ad_group_id=group.ad_group_id).totals
-        self.assertEqual((totals.impressions, totals.spent), (3, 120))  # 결정은 하나, 과금은 사람마다 한 번
+        self.assertEqual((totals.impressions, totals.spent), (3, 1176))  # 결정은 하나, 과금은 사람마다 한 번(400 × 98% = 392)
 
 
 @tag("security")

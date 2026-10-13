@@ -17,7 +17,7 @@ from masters import api as masters
 
 from .assemble import assemble
 from . import ordering
-from .models import Decision, Reaction, ReactionSource, ReactionType
+from .models import SHARE_COLUMNS, Decision, Reaction, ReactionSource, ReactionType, charge_shares
 from .processing import process_after_receipt
 from .types import ChosenView, DecisionView, ReactionView
 
@@ -34,7 +34,7 @@ def _view(d):
         s = d.snapshot
         chosen = ChosenView(
             owner_id=d.owner_id, campaign_id=d.campaign_id, ad_group_id=d.ad_group_id, creative_id=d.creative_id,
-            pricing_unit=d.pricing_unit, bid_amount=d.bid_amount, applied_amount=d.applied_amount, bid_version=d.bid_version,
+            charge_shares=charge_shares(d), bid_amount=d.bid_amount, applied_amount=d.applied_amount, bid_version=d.bid_version,
             policy_version=d.policy_version, bid_id=d.bid_id, bid_policy_id=d.bid_policy_id, title=s["title"], redirect_url=s["redirect_url"], image_name=s["image_name"],
             image_url=asset_url(s["image_name"]),
         )
@@ -57,7 +57,7 @@ def _atomic_if_needed():
 
 def _record_decision_event(d, now):
     selected = None if d.creative_id is None else {
-        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
+        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "charge_shares": charge_shares(d), "bid_id": d.bid_id,
         "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
     }
     events.record_decision(
@@ -107,7 +107,8 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
         fact = facts_by_creative[chosen.creative_id]
         values = dict(
             owner_id=fact.owner_id, campaign_id=chosen.campaign_id, ad_group_id=chosen.ad_group_id, creative_id=chosen.creative_id,
-            pricing_unit=chosen.pricing_unit, bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
+            bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
+            **{column: getattr(slot.policy, column) for column in SHARE_COLUMNS.values()},  # 판정에 쓴 정책 버전의 비율 — 과금은 이 값으로
             bid_version=chosen.bid_version, policy_version=chosen.policy_version,
             bid_id=fact.bid_id, bid_policy_id=slot.policy.bid_policy_id,  # 판정에 쓴 바로 그 버전 행
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},

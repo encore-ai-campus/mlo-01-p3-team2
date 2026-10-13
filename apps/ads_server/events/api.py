@@ -33,7 +33,7 @@ write_ndjson, verify_ndjson, read_manifest, NdjsonError = ndjson.write, ndjson.v
 manifest_digest, verify_chain, manifest_path = ndjson.manifest_digest, ndjson.verify_chain, ndjson.manifest_path
 run_lock = ndjson.run_lock
 
-SCHEMA_VERSION, event_id_for = schemas.SCHEMA_VERSION, schemas.event_id_of
+SCHEMA_VERSIONS, event_id_for = schemas.SCHEMA_VERSIONS, schemas.event_id_of
 decision_payload, reaction_received_payload, reaction_payload, charge_payload = (
     schemas.decision_payload, schemas.reaction_received_payload, schemas.reaction_payload, schemas.charge_payload)
 normal_document, summarize = hops.normal_document, hops.summarize
@@ -42,7 +42,7 @@ summarize_windows, table_stream, outbox_streams, mongo_streams, unsent_counts, W
 HOP_SCHEMA_VERSION, window_label, format_time, parse_time = hops.HOP_SCHEMA_VERSION, hops.window_label, hops.format_time, hops.parse_time
 
 __all__ = [
-    "SCHEMA_VERSION", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
+    "SCHEMA_VERSIONS", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
     "normal_document", "summarize", "summarize_windows", "table_stream", "outbox_streams", "mongo_streams", "unsent_counts", "WINDOWS", "HOP_SCHEMA_VERSION", "window_label", "format_time", "parse_time",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
     "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured", "mongo_error_text",

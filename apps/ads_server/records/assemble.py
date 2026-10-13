@@ -20,7 +20,7 @@ def assemble(slot, now):
     return [
         Candidate(
             campaign_id=f.campaign_id, ad_group_id=f.ad_group_id, creative_id=f.creative_id, slot_id=f.slot_id,
-            pricing_unit=f.pricing_unit, bid_amount=f.bid_amount, bid_version=f.bid_version, bid_created_at=f.bid_created_at,
+            bid_amount=f.bid_amount, bid_version=f.bid_version, bid_created_at=f.bid_created_at,
             floor=policy.floor, base=policy.base, cap=policy.cap, policy_version=policy.policy_version,
             campaign_status=f.campaign_status, ad_group_enabled=f.ad_group_enabled, period_start=f.period_start,
             period_end=f.period_end, wallet_balance=wallets.get(f.owner_id, 0),

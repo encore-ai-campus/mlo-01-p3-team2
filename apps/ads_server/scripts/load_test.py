@@ -126,13 +126,15 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     }
     problems += [f"{funnel_labels[key]}: {count}건" for key, count in funnel.items() if count]
 
-    expected_refs = set()
+    share_column = {"IMPRESSION": "impression_share", "CLICK": "click_share", "CONVERSION": "conversion_share"}
+    expected_amount = {}  # 반응 → 결정에 남긴 적용 금액 × 그 유형의 비율 ÷ 100(내림, 설계 §10 "구성별 반응 비율 과금") — 과금 코드와 따로 계산한다
     for r in accepted:
         decision = decisions.get(str(r.decision_id))
         if decision is None or decision.creative_id is None:
             problems.append(f"근거 없는 결정에 대한 반응이 인정됐다: {r.reaction_id}")
-        elif r.type == decision.pricing_unit:
-            expected_refs.add(f"{r.media_id}:{r.reaction_id}")
+        elif amount := decision.applied_amount * getattr(decision, share_column[r.type]) // 100:
+            expected_amount[f"{r.media_id}:{r.reaction_id}"] = amount
+    expected_refs = set(expected_amount)
     charges = list(LedgerEntry.objects.filter(entry_type="CHARGE").select_related("wallet"))
     refs = [c.reaction_ref for c in charges]
     if len(refs) != len(set(refs)):
@@ -146,13 +148,13 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
             continue  # 아래의 '인정되지 않은 반응에 대한 과금'이 잡는다
         wrong["owner"] += charge.wallet.owner_id != decision.owner_id
         wrong["campaign"] += charge.campaign_id != decision.campaign_id
-        wrong["amount"] += not (charge.amount <= 0 and -charge.amount + charge.shortfall == decision.applied_amount)  # 받은 금액 + 부족분 = 적용 금액
+        wrong["amount"] += not (charge.amount <= 0 and -charge.amount + charge.shortfall == expected_amount.get(charge.reaction_ref))  # 받은 금액 + 부족분 = 적용 금액 × 비율
         wrong["shortfall"] += bool(charge.shortfall) and charge.balance_after != 0  # 부족분은 잔액을 다 받았을 때만 생긴다
         wrong["time"] += charge.created_at != reaction.received_at
         wrong["policy"] += charge.charge_policy != settings.BILLING_CHARGE_POLICY
     labels = {
         "owner": "과금 대상 광고주가 결정의 광고주와 다르다", "campaign": "과금의 캠페인이 결정의 캠페인과 다르다",
-        "amount": "과금액(+부족분)이 결정의 적용 금액과 다르다", "shortfall": "잔액이 남았는데 부족분이 기록됐다",
+        "amount": "과금액(+부족분)이 결정의 적용 금액 × 그 유형의 비율(내림)과 다르다", "shortfall": "잔액이 남았는데 부족분이 기록됐다",
         "time": "과금 시각이 반응의 접수 시각과 다르다", "policy": "과금 정책 이름이 설정과 다르다",
     }
     problems += [f"{labels[key]}: {count}건" for key, count in wrong.items() if count]
@@ -250,7 +252,7 @@ def verify_events(relayed=False):
     for event_id in expected.keys() & outbox.keys():
         name, key, produced_at, payload = expected[event_id]
         row = outbox[event_id]
-        envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSION), "produced_at": (row.created_at, produced_at)}
+        envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSIONS[name]), "produced_at": (row.created_at, produced_at)}
         bad_envelope = [k for k, (got, want) in envelope.items() if got != want]
         same = relay.same_document({"p": row.payload}, {"p": payload})
         if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not same:
@@ -377,22 +379,23 @@ def seed(advertisers=5, premade=0):
 
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
-    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 10, 20, 50, "초기", **LOAD_SHARES)
-    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 10, 20, 50, "초기", audience="shared", **LOAD_SHARES)
+    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 100, 200, 500, "초기", **LOAD_SHARES)
+    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **LOAD_SHARES)
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)
     wallets = []
     for i in range(advertisers):
         adv = create_advertiser(f"load_adv_{i}", "Tr0ub4dor-horse-staple-9", f"광고주{i}", "1반")
         billing.grant_signup(adv)
+        billing.adjust(admin, adv.pk, 450_000, "부하 시험 충전")  # 금액을 하한 100 기준으로 10배 올린 만큼(6-10c) 지갑도 10배 — 시험 중 잔액이 바닥나지 않게
         campaign = campaigns.create_campaign(adv, f"캠페인{i}", now - timedelta(days=1), now + timedelta(days=30), 10**9)
-        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", "IMPRESSION", [slot.slot_id], bid_amount=30)
+        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", "IMPRESSION", [slot.slot_id], bid_amount=300)
         image = io.BytesIO()
         Image.new("RGB", (32, 32), (20 * i, 80, 200)).save(image, "PNG")
         image.seek(0)
         campaigns.create_creative(adv, group.ad_group_id, f"제목{i}", "https://example.com/landing", image)
-        if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 40)
-            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", "IMPRESSION", [shared.slot_id], bid_amount=40)
+        if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 400)
+            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", "IMPRESSION", [shared.slot_id], bid_amount=400)
             image2 = io.BytesIO()
             Image.new("RGB", (32, 32), (200, 80, 20)).save(image2, "PNG")
             image2.seek(0)

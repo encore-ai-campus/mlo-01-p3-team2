@@ -18,8 +18,8 @@ DECISION = uuid.UUID("0199ee00-0000-7000-8000-000000000001")
 def decision_fields(**override):
     fields = dict(
         decision_id=DECISION, media_id=uuid.uuid4(), slot_id=uuid.uuid4(), decided_at=NOW, audience="individual", subject_id="s1",
-        selected={"campaign_id": uuid.uuid4(), "ad_group_id": uuid.uuid4(), "creative_id": uuid.uuid4(), "pricing_unit": "IMPRESSION",
-                  "bid_id": uuid.uuid4(), "bid_version": 1, "bid_policy_id": uuid.uuid4(), "policy_version": 2, "bid_amount": 30, "applied_amount": 30},
+        selected={"campaign_id": uuid.uuid4(), "ad_group_id": uuid.uuid4(), "creative_id": uuid.uuid4(), "charge_shares": {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1},
+                  "bid_id": uuid.uuid4(), "bid_version": 1, "bid_policy_id": uuid.uuid4(), "policy_version": 2, "bid_amount": 300, "applied_amount": 300},
         selection_policy="highest-bid/v1", candidate_count=3, rejected_counts={"budget": 1},
     )
     return {**fields, **override}
@@ -44,7 +44,7 @@ class EnqueueTests(TestCase):
     def test_writes_one_row_with_the_envelope(self):
         event_id = events.record_decision(now=NOW, **decision_fields())
         row = EventOutbox.objects.get()
-        self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 1, DECISION, None))
+        self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 2, DECISION, None))
         self.assertEqual(row.created_at, NOW)  # produced_at = outbox 에 쓴 시각
         self.assertEqual(row.payload["decision_id"], str(DECISION))
         json.dumps(row.payload)  # JSON 으로 직렬화된다
@@ -56,6 +56,12 @@ class EnqueueTests(TestCase):
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload, row.created_at), (first.payload, first.created_at))  # 처음 것이 그대로다
 
+    def test_schema_version_is_per_event_kind(self):
+        """봉투의 `schema_version` 은 이벤트 종류별이다(6-10c): `ad.decision` 은 2(단위 → `charge_shares`), 모양이 그대로인 나머지는 1."""
+        self.assertEqual(schemas.SCHEMA_VERSIONS, {"ad.decision": 2, "ad.reaction_received": 1, "ad.reaction": 1, "ad.charge": 1})
+        events.record_decision(now=NOW, **decision_fields())
+        self.assertEqual(EventOutbox.objects.get().schema_version, 2)
+
     def test_sent_rows_stay_sent_when_re_enqueued(self):
         events.record_decision(now=NOW, **decision_fields())
         EventOutbox.objects.update(sent_at=NOW)
@@ -66,6 +72,9 @@ class EnqueueTests(TestCase):
         p = schemas.decision_payload(**decision_fields(audience="shared", subject_id=None, selected=None))
         self.assertEqual((p["selected"], p["subject_id"], p["decided_at"]), (None, None, "2026-10-10T03:00:00.123456+00:00"))
         self.assertNotIn("owner_id", json.dumps(schemas.decision_payload(**decision_fields())))  # 광고주 계정은 싣지 않는다
+        selected = schemas.decision_payload(**decision_fields())["selected"]
+        self.assertEqual(selected["charge_shares"], {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1})  # ad.decision 2: 단위 대신 반응 유형별 비율(6-10c)
+        self.assertNotIn("pricing_unit", selected)
         basis = {"person": "p1", "audience": "individual", "v": 2}
         r = schemas.reaction_payload(
             inbox_id=uuid.uuid4(), reaction_id=uuid.uuid4(), media_id=uuid.uuid4(), decision_id=DECISION, type="CLICK", occurred_at=NOW, received_at=NOW,
@@ -79,7 +88,7 @@ class EnqueueTests(TestCase):
         )
         self.assertEqual((r["person_id"], r["audience"]), (None, None))  # null 규칙
         c = schemas.charge_payload(
-            entry_id=uuid.uuid4(), campaign_id=uuid.uuid4(), charge_policy="by-unit/v1", created_at=NOW, reaction_ref="m:r", decision_id=DECISION,
+            entry_id=uuid.uuid4(), campaign_id=uuid.uuid4(), charge_policy="share/v1", created_at=NOW, reaction_ref="m:r", decision_id=DECISION,
             requested_amount=30, charged_amount=20, shortfall=10, budget_day=datetime.date(2026, 10, 10),
         )
         self.assertEqual((c["budget_day"], c["requested_amount"], c["shortfall"]), ("2026-10-10", 30, 10))

@@ -92,7 +92,7 @@ class EndedGuardTests(TestCase):
             "end": lambda: api.end_campaign(w.adv, cid, now=now),
             "create_ad_group": lambda: api.create_ad_group(w.adv, cid, "g", "IMPRESSION", [w.slot.slot_id], now=now),
             "update_ad_group": lambda: api.update_ad_group(w.adv, gid, {"enabled": False}, now=now),
-            "add_bid": lambda: api.add_bid(w.adv, gid, 99, expected_version=1, now=now),
+            "add_bid": lambda: api.add_bid(w.adv, gid, 990, expected_version=1, now=now),
             "create_creative": lambda: api.create_creative(w.adv, gid, "t", "https://a.example", png_file(), now=now),
             "link_creative": lambda: api.link_creative(w.adv, gid, crid, now=now),
             "select_creative": lambda: api.update_ad_group(w.adv, gid, {"creative_id": crid}, now=now),
@@ -119,7 +119,7 @@ class EndedGuardTests(TestCase):
         self.check_all_rejected(w, NOW)
         self.assertEqual(api.get_campaign(w.adv, w.campaign.campaign_id, now=NOW).status, "ENDED")
         self.assertEqual(len(api.list_bids(w.adv, w.group.ad_group_id)), 1)
-        self.assertEqual(api.get_ad_group(w.adv, w.group.ad_group_id).current_bid.amount, 30)
+        self.assertEqual(api.get_ad_group(w.adv, w.group.ad_group_id).current_bid.amount, 300)
         self.assertEqual(api.get_creative(w.adv, w.creative.creative_id).title, "제목")
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id), [])  # 저장된 상태가 ENDED 라 구조상 후보가 아니다
         # 소재는 캠페인 밖에 있다 — 고치면 그 소재를 쓰는 다른 광고그룹에 다음 결정부터 적용된다(6-9c). 과거 결정은 스냅샷이라 그대로다

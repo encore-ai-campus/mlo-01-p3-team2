@@ -14,7 +14,7 @@ from campaigns.models import ReviewRequest
 from records import api as records
 from records.models import Reaction
 from tests.concurrency import run_together
-from tests.factories import NOW, SUBJECT, World, make_admin, make_advertiser
+from tests.factories import NOW, SUBJECT, WHOLE, World, make_admin, make_advertiser
 
 
 @tag("security")
@@ -34,7 +34,7 @@ class WalletConcurrencyTests(TransactionTestCase):
             billing.grant_signup(adv, now=NOW)
 
         def charges(n):
-            return lambda: [billing.charge_for_reaction(adv.pk, camp, "IMPRESSION", "IMPRESSION", 10, f"w{n}-{i}", now=NOW) for i in range(4)]
+            return lambda: [billing.charge_for_reaction(adv.pk, camp, "IMPRESSION", WHOLE, 10, f"w{n}-{i}", now=NOW) for i in range(4)]
 
         def adjustments():
             return [billing.adjust(admin, adv.pk, 7, "보정", now=NOW) for _ in range(4)]
@@ -54,7 +54,7 @@ class WalletConcurrencyTests(TransactionTestCase):
                 billing.grant_signup(adv, now=NOW)
 
         def charges(adv, camp, n):
-            return lambda: [billing.charge_for_reaction(adv.pk, camp, "IMPRESSION", "IMPRESSION", 5, f"a{n}-{i}", now=NOW) for i in range(6)]
+            return lambda: [billing.charge_for_reaction(adv.pk, camp, "IMPRESSION", WHOLE, 5, f"a{n}-{i}", now=NOW) for i in range(6)]
 
         jobs = [charges(adv, camp, n) for n, (adv, camp) in enumerate(zip(advertisers, campaigns_))] + [billing.recompute_spend, billing.recompute_spend]
         _, errors = run_together(jobs)
