@@ -144,7 +144,7 @@ def _open_review_id(campaign):
 
 
 def _bid_view(b):
-    return BidView(bid_id=b.bid_id, ad_group_id=b.ad_group_id, bid_version=b.bid_version, amount=b.amount, created_by=b.created_by, created_at=b.created_at)
+    return BidView(bid_id=b.bid_id, ad_group_id=b.ad_group_id, bid_version=b.bid_version, amount=b.amount, created_at=b.created_at)
 
 
 def _current_bid(ad_group):

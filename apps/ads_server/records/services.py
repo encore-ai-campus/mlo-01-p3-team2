@@ -126,13 +126,17 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     return _view(decision)
 
 
+def _get(model, message, **ids):
+    """ID 들로 행 하나. 형식이 틀린 ID·없는 행·다른 매체의 행은 같은 404(`message`)다."""
+    try:
+        return model.objects.get(**{field: parse_uuid(value, field) for field, value in ids.items()})
+    except (model.DoesNotExist, errors.NotFound):
+        raise errors.NotFound(message)
+
+
 def get_decision(media_id, decision_id):
     """결정 조회. **그 결정을 만든 매체만** 볼 수 있고, 아니면 없는 것과 같다(404)."""
-    try:
-        d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"), media_id=parse_uuid(media_id, "매체"))
-    except (Decision.DoesNotExist, errors.NotFound):  # 형식이 틀린 ID·없는 결정·다른 매체의 결정은 같은 응답이다
-        raise errors.NotFound("결정을 찾을 수 없습니다.")
-    return _view(d)
+    return _view(_get(Decision, "결정을 찾을 수 없습니다.", decision_id=decision_id, media_id=media_id))
 
 
 # ---------------------------------------------------------------- 반응 수신함 (C1 PUT /reactions)
@@ -215,10 +219,7 @@ def observe_click(decision_id, viewer_id=None, now=None):
     - 기록의 실패는 이동을 막지 않는다(최종 사용자 경험이 우선이다). 실패는 로그로만 남긴다.
     판정(인정·거부)은 하지 않는다 — 수신함에 `CLICK` 으로 넣으면 처리 단계가 판정한다.
     """
-    try:
-        d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"))
-    except (Decision.DoesNotExist, errors.NotFound):
-        raise errors.NotFound("결정을 찾을 수 없습니다.")
+    d = _get(Decision, "결정을 찾을 수 없습니다.", decision_id=decision_id)
     if d.creative_id is None:
         raise errors.NotFound("결정을 찾을 수 없습니다.")  # 광고가 없던 결정에는 클릭이 있을 수 없다
     person = d.subject_id if d.audience == masters.Audience.INDIVIDUAL else viewer_id
@@ -252,10 +253,4 @@ def _record_click(d, person, now):
 
 def get_reaction(media_id, decision_id, reaction_id):
     """반응 조회. **이 매체가 보고했고 이 결정 아래에 있는 것만** 보이고, 아니면 없는 것과 같다(404)."""
-    try:
-        r = Reaction.objects.get(
-            media_id=parse_uuid(media_id, "매체"), decision_id=parse_uuid(decision_id, "결정"), reaction_id=parse_uuid(reaction_id, "반응")
-        )
-    except (Reaction.DoesNotExist, errors.NotFound):
-        raise errors.NotFound("반응을 찾을 수 없습니다.")
-    return _reaction_view(r)
+    return _reaction_view(_get(Reaction, "반응을 찾을 수 없습니다.", media_id=media_id, decision_id=decision_id, reaction_id=reaction_id))

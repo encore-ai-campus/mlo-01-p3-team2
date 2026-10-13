@@ -32,7 +32,6 @@ class BidView:
     ad_group_id: uuid.UUID
     bid_version: int
     amount: int
-    created_by: uuid.UUID
     created_at: datetime
 
 

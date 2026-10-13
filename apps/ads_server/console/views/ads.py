@@ -19,10 +19,6 @@ from ..errors import HANDLED, form_errors, message_of, status_of
 from ..forms import AdCreateForm
 
 
-def _now():
-    return timezone.now()
-
-
 def _form(slots, data=None, files=None, initial=None):
     return AdCreateForm(data, files, initial=initial, units=masters.PricingUnit.choices, slots=slots)
 
@@ -40,7 +36,7 @@ def ad_create(request):
     slots = masters.list_slots(active_only=True)  # 켜진 위치만(매체 포함). 단위가 다른 위치는 화면이 고를 수 없게 그린다
     if request.method != "POST":
         unit = request.GET.get("unit")
-        initial = {"pricing_unit": unit if unit in masters.PricingUnit.values else None, "starts_at": _now().replace(second=0, microsecond=0),
+        initial = {"pricing_unit": unit if unit in masters.PricingUnit.values else None, "starts_at": timezone.now().replace(second=0, microsecond=0),
                    "request_key": secrets.token_urlsafe(16)}
         return _render(request, _form(slots, initial=initial), slots)
     if not request.POST.get("request_key"):

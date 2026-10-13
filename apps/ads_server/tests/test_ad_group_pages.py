@@ -55,6 +55,7 @@ class AdGroupPageBase(TestCase):
 class DetailTests(AdGroupPageBase):
     def test_shows_bid_effects_history_slots_and_the_creative(self):
         html = self.html()
+        self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
         self.assertIn("만든 뒤에는 바꿀 수 없습니다", html)  # 과금 단위 불변 안내
         self.assertIn("현재 입찰 <strong>30 포인트</strong>", html)
         self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">30 포인트")
@@ -219,6 +220,7 @@ class StaleSameFieldTests(AdGroupPageBase):
         campaigns.update_ad_group(self.w.adv, self.gid, {"name": "다른 탭"})
         self.assertContains(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "옛 탭", "updated_at": seen}),
                             "다른 곳에서 먼저 바뀌었습니다", status_code=409)
+        self.assertEqual(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "", "updated_at": self.seen()}).status_code, 400)  # 폼이 거른 입력
         self.assertEqual(self.group().name, "다른 탭")
 
     def test_a_stale_image_form_does_not_replace_a_newer_image(self):

@@ -102,8 +102,7 @@ def display_signal(decision):
     다른 매체가 보낸 노출, 개인 슬롯에서 다른 사람이라고 보고된 노출은 신호가 아니다(`scoped_reactions`). 질의 한 번(이후 결정을 부분 질의로 묶는다).
     """
     later = later_decisions(decision)
-    first = scoped_reactions(decision, later.values("decision_id")).filter(type=ReactionType.IMPRESSION).order_by("received_at", "inbox_id").values_list("received_at", "inbox_id").first()
-    return first
+    return scoped_reactions(decision, later.values("decision_id")).filter(type=ReactionType.IMPRESSION).order_by("received_at", "inbox_id").values_list("received_at", "inbox_id").first()
 
 
 def gather(row, decision, now):
@@ -119,13 +118,11 @@ def gather(row, decision, now):
             evidence=_evidence([], [], None),
         )
     person = person_of(decision, row.subject_id)
-    accepted = frozenset()
+    accepted, earlier_unprocessed = frozenset(), False
     if person is not None:
         accepted = frozenset(
             scoped_reactions(decision).filter(person_id=person, status=ReactionStatus.ACCEPTED).values_list("type", flat=True)
         )
-    earlier_unprocessed = False
-    if person is not None:
         earlier_unprocessed = _of_person(scoped_reactions(decision), decision, person).filter(
             type=row.type, status=ReactionStatus.RECEIVED,
         ).filter(Q(received_at__lt=row.received_at) | Q(received_at=row.received_at, inbox_id__lt=row.inbox_id)).exists()

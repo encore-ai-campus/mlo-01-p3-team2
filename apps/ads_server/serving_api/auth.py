@@ -31,17 +31,13 @@ GROUPS = ("decisions", "reactions", "reads")
 _KEY_ID = re.compile(r"[0-9a-f]{32}")
 
 
-def _unauthorized():
-    return errors.Unauthorized("유효한 X-Media-Key 가 필요합니다.", headers={"WWW-Authenticate": CHALLENGE})
-
-
 def authenticate(request):
     raw = request.headers.get("X-Media-Key", "").strip()
     identity = masters.authenticate_media_key(raw) if raw else None
     if identity is None:
         prefix = raw.split(".", 1)[0]  # 공개 식별자만 기록한다(비밀 부분은 절대 기록하지 않는다)
         logger.warning("매체 키 거절 key_id=%s", prefix if _KEY_ID.fullmatch(prefix) else "-")
-        raise _unauthorized()
+        raise errors.Unauthorized("유효한 X-Media-Key 가 필요합니다.", headers={"WWW-Authenticate": CHALLENGE})
     if not identity.media_is_active:
         raise errors.Forbidden("이 매체는 비활성입니다.")
     return identity

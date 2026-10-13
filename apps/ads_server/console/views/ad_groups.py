@@ -57,44 +57,41 @@ def _done(request, ad_group_id, message):
     return redirect("ad_group_detail", ad_group_id=ad_group_id)
 
 
+def _submit(request, ad_group_id, form, call, done, image_field=None, **redraw):
+    """폼 하나의 제출: 입력이 맞으면 `call(cleaned_data)` 하고 완료 메시지와 함께 상세로 돌아간다. 서비스가 거절하면 그 폼에 오류를 붙여(`status_of`),
+    폼이 거르면 400 으로 상세를 다시 그린다(`redraw` = 다시 그릴 폼)."""
+    status = 400
+    if form.is_valid():
+        try:
+            call(form.cleaned_data)
+        except HANDLED as e:
+            form_errors(form, e, image_field=image_field)
+            status = status_of(e)
+        else:
+            return _done(request, ad_group_id, done)
+    return _page(request, ad_group_id, status=status, **redraw)
+
+
 @require_POST
 def ad_group_bid(request, ad_group_id):
     form = BidForm(request.POST)
-    if form.is_valid():
-        try:
-            campaigns.add_bid(request.user, ad_group_id, form.cleaned_data["amount"], form.cleaned_data["expected_version"])
-        except HANDLED as e:
-            form_errors(form, e, pointers={"/amount": "amount"})
-            return _page(request, ad_group_id, status=status_of(e), bid_form=form)
-        return _done(request, ad_group_id, "새 입찰을 넣었습니다. 위치별 결과가 바뀌었을 수 있습니다.")
-    return _page(request, ad_group_id, status=400, bid_form=form)
+    return _submit(request, ad_group_id, form, lambda d: campaigns.add_bid(request.user, ad_group_id, d["amount"], d["expected_version"]),
+                   "새 입찰을 넣었습니다. 위치별 결과가 바뀌었을 수 있습니다.", bid_form=form)
 
 
 @require_POST
 def ad_group_name(request, ad_group_id):
     form = GroupNameForm(request.POST)
-    if form.is_valid():
-        try:
-            campaigns.update_ad_group(request.user, ad_group_id, {"name": form.cleaned_data["name"]}, expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e)
-            return _page(request, ad_group_id, status=status_of(e), name_form=form)
-        return _done(request, ad_group_id, "이름을 바꿨습니다.")
-    return _page(request, ad_group_id, status=400, name_form=form)
+    return _submit(request, ad_group_id, form, lambda d: campaigns.update_ad_group(request.user, ad_group_id, {"name": d["name"]}, expected_updated_at=d["updated_at"]),
+                   "이름을 바꿨습니다.", name_form=form)
 
 
 @require_POST
 def ad_group_slots(request, ad_group_id):
     page = fetch(ad_group_page, request.user, ad_group_id)
     form = GroupSlotsForm(request.POST, slots=page.choices)
-    if form.is_valid():
-        try:
-            campaigns.update_ad_group(request.user, ad_group_id, {"slot_ids": form.cleaned_data["slot_ids"]}, expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e)
-            return _page(request, ad_group_id, status=status_of(e), slots_form=form)
-        return _done(request, ad_group_id, "게재 위치를 바꿨습니다.")
-    return _page(request, ad_group_id, status=400, slots_form=form)
+    return _submit(request, ad_group_id, form, lambda d: campaigns.update_ad_group(request.user, ad_group_id, {"slot_ids": d["slot_ids"]}, expected_updated_at=d["updated_at"]),
+                   "게재 위치를 바꿨습니다.", slots_form=form)
 
 
 @require_POST
@@ -102,10 +99,6 @@ def ad_group_enabled(request, ad_group_id):
     enabled = request.POST.get("enabled") == "1"
     run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"enabled": enabled}, success="광고그룹을 켰습니다." if enabled else "광고그룹을 껐습니다.")
     return redirect("ad_group_detail", ad_group_id=ad_group_id)
-
-
-def _creative_group(request, creative_id):
-    return fetch(campaigns.get_creative, request.user, creative_id).ad_group_id  # 남의 소재는 404
 
 
 @require_POST
@@ -129,7 +122,7 @@ def creative_edit(request, creative_id):
 
 @require_POST
 def creative_enabled(request, creative_id):
-    group_id = _creative_group(request, creative_id)
+    group_id = fetch(campaigns.get_creative, request.user, creative_id).ad_group_id  # 남의 소재는 404
     enabled = request.POST.get("enabled") == "1"
     run_action(request, campaigns.update_creative, request.user, creative_id, {"enabled": enabled}, success="소재를 켰습니다." if enabled else "소재를 껐습니다.")
     return redirect("ad_group_detail", ad_group_id=group_id)
@@ -140,14 +133,8 @@ def creative_image(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     group_id = current.ad_group_id
     form = _image_form(current, request.POST, request.FILES)
-    if form.is_valid():
-        try:
-            campaigns.replace_creative_image(request.user, creative_id, form.cleaned_data["image"], expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e, image_field="image")
-            return _page(request, group_id, status=status_of(e), image=(current.creative_id, form))
-        return _done(request, group_id, "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.")
-    return _page(request, group_id, status=400, image=(current.creative_id, form))
+    return _submit(request, group_id, form, lambda d: campaigns.replace_creative_image(request.user, creative_id, d["image"], expected_updated_at=d["updated_at"]),
+                   "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.", image_field="image", image=(current.creative_id, form))
 
 
 @require_safe
