@@ -94,7 +94,7 @@ class AdRequest:
 
     slot_id: uuid.UUID
     now: datetime
-    subject_id: str | None = None  # V1 알고리즘은 읽지 않는다. 이후 알고리즘이 시그니처 변경 없이 쓰도록 항상 전달한다
+    subject_id: str | None = None  # 지금 알고리즘은 읽지 않는다. 이후 알고리즘이 시그니처 변경 없이 쓰도록 항상 전달한다
 
     def __post_init__(self):
         _uuid("slot_id", self.slot_id)

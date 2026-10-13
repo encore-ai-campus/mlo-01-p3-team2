@@ -70,7 +70,7 @@ class LedgerLookupChunkTests(TestCase):
 
 class EventGapsChunkTests(MongoDatabaseMixin, TestCase):
     def test_event_gaps_reports_every_row_across_the_2000_row_chunks(self):
-        decisions = [Decision(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="highest-bid/v1",
+        decisions = [Decision(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="weighted-by-bid/v1",
                               trace={}, candidate_count=0, rejected_counts={}, decided_at=T0) for _ in range(2003)]
         Decision.objects.bulk_create(decisions)
         stats = {}

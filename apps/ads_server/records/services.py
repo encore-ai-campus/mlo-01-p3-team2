@@ -97,7 +97,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     _check_subject(slot, subject_id)
     candidates, facts_by_creative = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
     result = engine_decide(
-        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 동점 광고를 고르게 노출하려는 추첨이다. 보안 값(키·토큰)을 만들지 않는다
+        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 노출 광고의 가중 추첨이다(설계 §4.3). 보안 값(키·토큰)을 만들지 않는다
         policy=settings.ADS_SELECTION_POLICY, filters=tuple(settings.ADS_ENGINE_FILTERS),
     )
     chosen = result.selection.chosen

@@ -61,7 +61,7 @@ class Step1ScenarioTests(TestCase):
         def decide(slot, seed=1, now=NOW):
             return records.decide(media.media_id, sid[slot], subject_id="learner-7", now=now, rng=Random(seed))
 
-        # 4. 슬롯별 결과: A 는 300 vs 250 으로 광고주 1(적용 300), B 는 상한 200 으로 둘 다 200(동점), C 는 하한 400 이라 둘 다 제외
+        # 4. 슬롯별 결과(가중 추첨, 6-14): A 는 300 vs 250 — 둘 다 나갈 수 있고 이 시드에서는 광고주 1(적용 300), B 는 상한 200 으로 둘 다 200(같은 확률), C 는 하한 400 이라 둘 다 제외
         on_a = decide("A")
         self.assertEqual((on_a.chosen.campaign_id, on_a.chosen.applied_amount, on_a.chosen.bid_amount), (camp1.campaign_id, 300, 300))
         on_c = decide("C")
@@ -72,7 +72,7 @@ class Step1ScenarioTests(TestCase):
             on_b = decide("B", seed)
             self.assertEqual(on_b.chosen.applied_amount, 200)
             winners.add(on_b.chosen.campaign_id)
-        self.assertEqual(winners, {camp1.campaign_id, camp2.campaign_id})  # 동점이면 두 광고주가 고르게 뽑힌다
+        self.assertEqual(winners, {camp1.campaign_id, camp2.campaign_id})  # 같은 적용 금액이면 두 광고주가 같은 확률로 뽑힌다
         self.assertEqual(decide("D").chosen.ad_group_id, click_group.ad_group_id)  # D 에 놓인 광고는 클릭 그룹뿐이다
 
         # 노출·클릭 한 건씩 과금(결정에 남긴 비율로): 지갑·일 소진액·원장

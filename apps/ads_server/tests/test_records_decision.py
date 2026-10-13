@@ -99,8 +99,9 @@ class DecisionSnapshotTests(TestCase):
         campaigns.add_bid(w.adv, w.group.ad_group_id, 350, expected_version=1, now=NOW)
         d = decide(w)
         self.assertEqual((d.chosen.bid_version, d.chosen.policy_version, d.chosen.bid_amount, d.chosen.applied_amount), (2, 2, 350, 350))
-        self.assertEqual(d.selection_policy, "highest-bid/v1")
-        self.assertEqual((d.trace["policy"], d.trace["picked"]), ("highest-bid/v1", str(w.group.ad_group_id)))
+        self.assertEqual(d.selection_policy, "weighted-by-bid/v1")
+        self.assertEqual((d.trace["policy"], d.trace["picked"]), ("weighted-by-bid/v1", str(w.group.ad_group_id)))
+        self.assertEqual((d.trace["total"], d.trace["weight"]), (900, 900))  # 판정에 쓴 정책 v2(하한 100·상한 500)의 가중치: 400 + 2 × (350 − 100)
         self.assertEqual((d.candidate_count, d.rejected_counts), (1, {}))
         self.assertEqual(d.chosen.owner_id, w.adv.pk)
         self.assertTrue(d.chosen.image_url.endswith(f"/assets/{w.creative.image_name}"))
@@ -206,7 +207,7 @@ class GatingTests(TestCase):
         d = decide(w)
         self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (5000, 500))  # 입찰 원금액과 적용 금액이 함께 남는다
 
-    def test_two_advertisers_compete_and_tie_is_random_but_reproducible(self):
+    def test_two_advertisers_at_the_same_amount_both_get_picked_reproducibly(self):
         w = World()
         slot_id = w.slot.slot_id
         from tests.factories import make_advertiser  # 같은 슬롯에 경쟁 광고주를 하나 더 둔다
@@ -216,9 +217,9 @@ class GatingTests(TestCase):
         camp2 = campaigns.create_campaign(adv2, "경쟁", NOW - DAY, None, 5_000, now=NOW)
         group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", [slot_id], bid_amount=5000, now=NOW)  # 상한 500 으로 적용
         campaigns.create_creative(adv2, group2.ad_group_id, "경쟁 광고", "https://rival.example", png_file((3, 3, 3)), now=NOW)
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 4000, expected_version=1, now=NOW)  # 둘 다 상한 500 → 동점
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 4000, expected_version=1, now=NOW)  # 둘 다 상한 500 → 같은 가중치
         winners = {decide(w, rng=Random(seed)).chosen.campaign_id for seed in range(40)}
-        self.assertEqual(winners, {w.campaign.campaign_id, camp2.campaign_id})  # 동점이면 고르게 뽑힌다
+        self.assertEqual(winners, {w.campaign.campaign_id, camp2.campaign_id})  # 같은 가중치면 둘 다 뽑힌다
         self.assertEqual(decide(w, rng=Random(5)).chosen.campaign_id, decide(w, rng=Random(5)).chosen.campaign_id)  # 시드 고정이면 재현
 
 
@@ -236,7 +237,7 @@ class PolicySwapTests(TestCase):
         default = decide(w)
         with override_settings(ADS_SELECTION_POLICY="lowest-bid/v1"):
             swapped = decide(w)
-        self.assertEqual((default.selection_policy, swapped.selection_policy), ("highest-bid/v1", "lowest-bid/v1"))
+        self.assertEqual((default.selection_policy, swapped.selection_policy), ("weighted-by-bid/v1", "lowest-bid/v1"))
         a, b = Decision.objects.get(decision_id=default.decision_id), Decision.objects.get(decision_id=swapped.decision_id)
         self.assertEqual({k for k in vars(a) if not k.startswith("_")}, {k for k in vars(b) if not k.startswith("_")})  # 열 구조가 같다
         self.assertEqual((a.applied_amount, b.applied_amount), (300, 300))

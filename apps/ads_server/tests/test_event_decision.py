@@ -39,8 +39,9 @@ class DecisionEventTests(TestCase):
         self.assertNotIn(str(d.owner_id), str(p))  # 광고주 계정은 싣지 않는다
 
     def test_bid_and_applied_amounts_are_reported_separately(self):
-        """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액)."""
-        w = World()
+        """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액).
+        후보는 이 광고 하나다(World 의 광고는 소재가 없어 후보가 아니다) — 가중 추첨(6-14)이라 후보가 둘이면 어느 쪽이든 뽑힌다."""
+        w = World(with_creative=False)
         group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", [w.slot.slot_id], bid_amount=800, now=NOW)
         w.api.create_creative(w.adv, group.ad_group_id, "고가 광고", "https://example.com/high", png_file(), now=NOW)
         decide(w)

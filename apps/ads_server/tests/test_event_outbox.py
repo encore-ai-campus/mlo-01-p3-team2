@@ -20,7 +20,7 @@ def decision_fields(**override):
         decision_id=DECISION, media_id=uuid.uuid4(), slot_id=uuid.uuid4(), decided_at=NOW, audience="individual", subject_id="s1",
         selected={"campaign_id": uuid.uuid4(), "ad_group_id": uuid.uuid4(), "creative_id": uuid.uuid4(), "charge_shares": {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1},
                   "bid_id": uuid.uuid4(), "bid_version": 1, "bid_policy_id": uuid.uuid4(), "policy_version": 2, "bid_amount": 300, "applied_amount": 300},
-        selection_policy="highest-bid/v1", candidate_count=3, rejected_counts={"budget": 1},
+        selection_policy="weighted-by-bid/v1", candidate_count=3, rejected_counts={"budget": 1},
     )
     return {**fields, **override}
 
