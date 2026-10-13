@@ -124,9 +124,10 @@ class CampaignMonitorPageTests(OperatorBase):
     def test_list_shows_thumbnail_domain_and_advertiser(self):
         campaigns.update_creative(self.w.adv, self.w.creative.creative_id, {"title": "<script>x</script>"}, now=NOW)
         html = self.client.get(self.monitor).content.decode()
-        self.assertIn(reverse("operator:asset", args=[self.w.creative.image_name]), html)  # 관리자 전용 경로의 썸네일
+        asset = reverse("operator:asset", args=[self.w.creative.image_name])  # 관리자 전용 경로의 썸네일
+        self.assertIn(f'<a href="{asset}" target="_blank" rel="noopener noreferrer"><img src="{asset}"', html)  # 누르면 원본 이미지를 새 탭으로(6-8b)
         self.assertIn("<strong>example.com</strong>", html)  # 이동 주소의 도메인을 눈에 띄게
-        self.assertIn('rel="noopener noreferrer nofollow"', html)
+        self.assertIn(f'<a href="{self.w.creative.redirect_url}" target="_blank" rel="noopener noreferrer nofollow">', html)  # 목적지는 새 탭 — 운영 화면은 남는다(6-8b)
         self.assertIn(f"{self.w.adv.nickname}({self.w.adv.class_label})", html)
         self.assertIn("&lt;script&gt;x&lt;/script&gt;", html)
         self.assertNotIn("<script>x</script>", html)
