@@ -1,10 +1,5 @@
 # 게임 서버의 Python 환경에 포함해 실행하는 ad-bridge 런타임 의존성이다.
 # 기존 게임 서버와 같은 Django 5.2 버전 범위를 사용한다. Python 3.12에서 검증했다.
 # DB 드라이버와 운영 웹 서버 패키지는 게임 서버의 배포 의존성에서 관리한다.
-Django>=5.2.8,<5.3
-channels[daphne]>=4.3.2,<4.4
-Pillow>=12.0,<13.0
-python-dotenv>=1.0,<2.0
-confluent-kafka>=2.6,<3.0
-xxhash>=3.5,<4.0
-mysqlclient>=2.2.7,<3.0
+-r backend/requirements.txt
+-r frontend/requirements.txt

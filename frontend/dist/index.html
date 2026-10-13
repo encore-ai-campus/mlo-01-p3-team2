@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <link rel="stylesheet" href="raffle.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#167d79">
+  <meta name="description" content="실제 설계도와 사진을 반영한 PLAYDATA 캠퍼스. 캐릭터로 라운지, 강의실, 상담실을 둘러보세요.">
+  <title>PLAYDATA · 캠퍼스 메타버스</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23167d79'/%3E%3Cpath d='M9 24V8h8a6 6 0 0 1 0 12h-4v4zm4-8h4a2 2 0 0 0 0-4h-4z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="avatars.css">
+  <link rel="stylesheet" href="social.css">
+  <link rel="stylesheet" href="board-shortcut.css">
+  <link rel="stylesheet" href="community.css">
+  <link rel="stylesheet" href="session-policy.css">
+  <link rel="stylesheet" href="floor-transition.css">
+  <link rel="stylesheet" href="lunch-wheel.css">
+  <link rel="preload" href="assets/fonts/PressStart2P-Regular.ttf" as="font" type="font/ttf" crossorigin>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="PLAYDATA 캠퍼스 처음 화면"><span class="brand-mark">P<span></span></span><span>PLAYDATA<small>VIRTUAL CAMPUS</small></span></a>
+    <div class="campus-name"><span class="divider"></span><span>플레이데이터 캠퍼스</span><span class="badge">2.5D 맵</span></div>
+    <div class="top-actions"><button id="referenceBtn" class="btn quiet">설계도 보기</button><a id="exportBtn" class="btn solid" href="assets/campus-map.png" download="PLAYDATA-campus-map.png">맵 PNG 저장</a></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-heading"><span class="eyebrow">CAMPUS GUIDE</span><h1>공간 둘러보기</h1><p>공간 안내를 확인하고 키보드로 이동하세요.</p></div>
+      <nav id="roomNav" aria-label="캠퍼스 공간"></nav>
+      <div class="side-footer"><img id="avatarPreview" class="avatar-preview" src="assets/characters/male-1-preview.png" alt="나의 캐릭터"><div><strong>나의 캐릭터</strong><span id="avatarName">민트 후드</span></div></div>
+    </aside>
+    <section class="map-shell" aria-label="메타버스 캠퍼스">
+      <div class="map-toolbar"><div class="map-title"><span class="map-symbol">⌘</span><strong id="mapHeading">2.5D 캠퍼스</strong><span id="currentRoom">라운지 1</span></div><div class="view-buttons"><span id="currentFloor" class="floor-badge">18F 캠퍼스</span><span id="cameraStatus" class="camera-badge">내 위치 고정</span><button id="followBtn" class="toolbtn" type="button" aria-pressed="true" hidden>화면 고정: 켬</button><button id="settingsBtn" class="toolbtn settings-button" type="button" aria-haspopup="dialog" aria-controls="settingsDialog" title="설정 (Esc)"><span aria-hidden="true">⚙</span> 설정</button><button id="fullscreenBtn" class="toolbtn" aria-label="맵 전체 화면">⛶</button></div></div>
+      <div id="viewport" class="viewport">
+        <canvas id="mapCanvas" tabindex="0" role="img" aria-label="PLAYDATA 캠퍼스 지도. 복도 오른쪽은 라운지 1, 왼쪽은 라운지 2입니다. 방향키 또는 WASD로 이동하고 가까운 시설에서 E로 상호작용합니다.">방향키로 움직이는 PLAYDATA 캠퍼스 지도</canvas>
+        <div class="map-caption"><span class="caption-icon">P</span><div><strong>PLAYDATA CAMPUS</strong><span>함께 배우는 공간</span></div></div>
+        <div class="map-status-tools">
+          <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
+          <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
+        </div>
+        <ul id="presencePeers" class="sr-only" aria-label="다른 접속자"></ul>
+        <div id="speechBubbles" class="speech-bubbles" aria-hidden="true"></div>
+        <section id="chatPanel" class="chat-panel" aria-labelledby="chatTitle" hidden>
+          <div class="chat-heading"><strong id="chatTitle">캠퍼스 채팅</strong><span>전체 채팅</span></div>
+          <div class="chat-history"><p id="chatEmpty" class="chat-empty">캠퍼스에 있는 사람들과 이야기해 보세요.</p><ul id="chatMessages" class="chat-messages" role="log" aria-label="채팅 메시지" aria-live="polite" aria-relevant="additions"></ul></div>
+          <form id="chatForm" class="chat-compose" hidden><label for="chatInput" class="sr-only">채팅 메시지</label><input id="chatInput" type="text" maxlength="400" placeholder="메시지를 입력하세요" autocomplete="off" aria-describedby="chatStatus chatCount" disabled><button id="chatSend" type="submit" disabled>전송</button></form>
+          <div class="chat-composer-meta" hidden><span id="chatStatus" role="status">채팅 연결 중…</span><span id="chatCount">0/200</span></div>
+        </section>
+        <section id="boardShortcut" class="board-shortcut" aria-labelledby="boardShortcutTitle" hidden>
+          <div class="board-shortcut-heading"><span class="board-shortcut-mark" aria-hidden="true">P</span><strong id="boardShortcutTitle">18F 게시판</strong></div>
+          <div class="board-shortcut-previews">
+            <div class="board-shortcut-preview"><span class="board-shortcut-menu" aria-hidden="true"><svg viewBox="0 0 80 48" fill="none"><rect x="2" y="2" width="76" height="44" rx="10" fill="#fffdf5"/><circle cx="40" cy="24" r="16" stroke="#a6bba1" stroke-width="2"/><circle cx="40" cy="24" r="11" fill="#d5e1c6"/><path d="M15 13v10m4-10v10m-4-2c0 5 4 5 4 0m-2 5v9m46-22v22m0-22c-5 4-5 12 0 13" stroke="#829584" stroke-width="2" stroke-linecap="round"/></svg></span><span>구내식당 메뉴</span></div>
+            <div class="board-shortcut-preview"><span class="board-shortcut-logo"><img src="assets/encore-time-logo.png" width="1927" height="816" alt="엔코아 타임 로고"></span><span>엔코아 타임</span></div>
+          </div>
+          <button id="openBoardShortcut" class="board-shortcut-open" type="button" aria-haspopup="dialog" aria-controls="boardDialog">게시판 열기 <span aria-hidden="true">↗</span></button>
+        </section>
+        <div id="interactionPrompt" class="interaction-prompt" hidden><kbd>E</kbd><span></span><button aria-label="가까운 시설 안내 보기">보기</button></div>
+        <div id="toast" class="toast" role="status" hidden></div>
+      </div>
+      <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+        <div class="dialog-top"><div><span class="eyebrow">CAMPUS SETTINGS</span><h2 id="settingsTitle">설정</h2></div><button id="closeSettings" type="button" class="close-button" aria-label="설정 닫기">×</button></div>
+        <div class="settings-content">
+          <p class="settings-hint">내 화면에 표시할 항목을 선택하세요.</p>
+          <h3>화면 표시</h3>
+          <label class="setting-row"><span class="setting-copy"><strong>다른 사람 닉네임</strong><small>캐릭터 머리 위 이름 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingNicknames" type="checkbox" role="switch" checked></span></label>
+          <label class="setting-row"><span class="setting-copy"><strong>채팅창</strong><small>Enter로 입력 · 새 메시지 후 10초 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingChat" type="checkbox" role="switch" checked></span></label>
+          <label class="setting-row"><span class="setting-copy"><strong>말풍선</strong><small>캐릭터 위에 5초 동안 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingBubbles" type="checkbox" role="switch" checked></span></label>
+          <div id="settingsAccount" class="settings-account"></div>
+        </div>
+      </dialog>
+      <dialog id="floorTransitionDialog" aria-label="층 이동 중" aria-busy="true" tabindex="-1">
+        <div id="floorTransitionContent">
+          <p class="floor-transition-label" role="status" aria-live="polite">loading...</p>
+          <section id="floorTransitionAdSlot" aria-label="층 전환 광고" hidden></section>
+        </div>
+      </dialog>
+      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span><button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span></div></footer>
+    </section>
+  </main>
+  <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-top"><div><span id="detailEyebrow" class="eyebrow">SPACE GUIDE</span><h2 id="detailTitle"></h2></div><button id="closeDialog" class="close-button" aria-label="안내 닫기">×</button></div><img id="detailImage" alt="" hidden><div class="dialog-content"><p id="detailText"></p><div id="detailTags" class="detail-tags"></div><div class="dialog-actions"><button id="detailClose" class="btn quiet">닫기</button></div></div></dialog>
+  <dialog id="boardDialog" aria-labelledby="boardTitle" aria-describedby="boardDescription">
+    <div class="dialog-top"><div><span id="boardEyebrow" class="eyebrow">CAMPUS BOARD</span><h2 id="boardTitle">PLAYDATA 게시판</h2></div><button id="closeBoardDialog" type="button" class="close-button" aria-label="게시판 닫기">×</button></div>
+    <div class="dialog-content">
+      <p id="boardDescription">확인할 카드를 선택해 주세요.</p>
+      <div id="boardChoices" class="board-cards" role="group" aria-label="게시판 카드 선택">
+        <button id="boardMenuCard" type="button" class="board-card" data-board-choice="구내식당 메뉴" aria-label="구내식당 메뉴 선택" aria-pressed="false">
+          <span class="board-card-media board-card-menu" aria-hidden="true">
+            <svg viewBox="0 0 160 110" width="160" height="110" fill="none"><rect x="21" y="20" width="118" height="74" rx="18" fill="#fffdf5" stroke="#dbd6bd" stroke-width="2"/><circle cx="80" cy="55" r="25" fill="#f0eddb"/><circle cx="80" cy="55" r="18" fill="#fffdf5" stroke="#d9d4be" stroke-width="2"/><path d="M79 41c-14 1-17 11-10 16 9 6 22-1 25-10-6-6-11-7-15-6Z" fill="#7eaa7f"/><path d="m74 53 11-7" stroke="#fffdf5" stroke-width="2" stroke-linecap="round"/><circle cx="87" cy="61" r="6" fill="#e7a26d"/><path d="M40 39v13m5-13v13m5-13v13m-10-2c0 7 10 7 10 0m-5 6v17m73-35c-6 6-6 17 0 18v17m0-35v18" stroke="#829584" stroke-width="3" stroke-linecap="round"/></svg>
+          </span>
+          <span class="board-card-label"><strong>구내식당 메뉴</strong><span class="board-card-indicator" aria-hidden="true">✓</span></span>
+          <span class="board-card-state" aria-hidden="true">선택하기</span>
+        </button>
+        <button id="boardEncoreCard" type="button" class="board-card" data-board-choice="엔코아 타임" aria-label="엔코아 타임 선택" aria-pressed="false">
+          <span class="board-card-media board-card-encore"><img src="assets/encore-time-logo.png" width="1927" height="816" alt="함께하는 부트캠프 엔코아 타임 로고"></span>
+          <span class="board-card-label"><strong>엔코아 타임</strong><span class="board-card-indicator" aria-hidden="true">✓</span></span>
+          <span class="board-card-state" aria-hidden="true">선택하기</span>
+        </button>
+      </div>
+      <section id="boardMenuView" class="board-menu-view" aria-labelledby="boardMenuTitle" hidden>
+        <div class="board-menu-heading"><div><h3 id="boardMenuTitle">구내식당 메뉴</h3><span id="boardMenuSource">더좋은밥상 · 카카오 채널 프로필</span></div><button id="boardMenuBack" type="button" class="toolbtn">← 카드 선택</button></div>
+        <p id="boardMenuStatus" class="board-menu-status" role="status" aria-live="polite"></p>
+        <img id="boardMenuImage" alt="더좋은밥상 구내식당 식단 사진" hidden>
+        <div class="board-menu-caption"><span id="boardMenuUpdated"></span><a id="boardMenuOpen" class="toolbtn" target="_blank" rel="noopener" hidden>사진 크게 보기 ↗</a></div>
+        <section id="lunchWheel" class="lunch-wheel-panel" aria-labelledby="lunchWheelTitle">
+          <header class="lunch-wheel-heading"><h4 id="lunchWheelTitle">결정장애를 위한 오늘의 점메추</h4><p>오늘 점심 고민 끝! 돌림판으로 골라보세요.</p></header>
+          <div class="lunch-wheel-layout">
+            <div class="lunch-wheel-stage" aria-hidden="true">
+              <span class="lunch-wheel-pointer"></span>
+              <svg class="lunch-wheel-disc" data-lunch-wheel viewBox="0 0 320 320"></svg>
+              <span class="lunch-wheel-hub"><span>오늘 점심</span><strong>점메추</strong></span>
+            </div>
+            <div class="lunch-wheel-controls">
+              <div class="lunch-wheel-result" role="status" aria-live="polite" aria-atomic="true"><span class="lunch-wheel-result-label">오늘의 추천</span><strong data-lunch-choice>돌림판을 돌려보세요</strong><span data-lunch-message>8가지 메뉴 중 하나를 골라드릴게요.</span></div>
+              <button class="lunch-wheel-spin" data-lunch-spin type="button">돌림판 돌리기</button>
+              <ul class="lunch-wheel-options" data-lunch-options aria-label="추천 메뉴 종류"></ul>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section id="communityPanel" class="community-panel" aria-label="엔코아 타임 커뮤니티" hidden>
+        <div class="community-toolbar">
+          <button id="communityBack" type="button" class="toolbtn">← 카드 선택</button>
+          <div class="community-self"><span class="community-self-mark" aria-hidden="true">나</span><strong id="communityNickname"></strong><span id="communityRole" class="community-role"></span></div>
+        </div>
+        <div class="community-layout">
+          <aside class="community-sidebar">
+            <div class="community-brand"><img src="assets/encore-time-logo.png" width="1927" height="816" alt="엔코아 타임"><p>함께 배우고, 함께 나누는 공간</p></div>
+            <nav id="communityTabs" class="community-tabs" role="tablist" aria-label="커뮤니티 게시판" aria-orientation="vertical"></nav>
+            <div class="community-guide"><strong>작은 공유가 큰 도움이 돼요</strong><p>발견한 정보, 만든 프로젝트,<br>오늘의 질문을 편하게 남겨 주세요.</p></div>
+          </aside>
+          <section id="communityContent" class="community-main" role="tabpanel" aria-labelledby="communityHeading">
+            <header class="community-heading"><div><span class="community-kicker">ENCORE TIME</span><h3 id="communityHeading" tabindex="-1">전체글</h3><p id="communityDescription">캠퍼스의 모든 이야기를 한곳에서 만나보세요.</p></div><button id="communityWrite" type="button" class="btn solid">+ 글쓰기</button></header>
+            <p id="communityStatus" class="community-status" role="status" aria-live="polite" hidden></p>
+            <section id="communityListView" aria-label="게시글 목록">
+              <div class="community-list-tools"><span id="communityPostCount" class="community-count"></span><form id="communitySearch" class="community-search" role="search"><label class="community-sr" for="communitySearchInput">제목·내용 검색</label><input id="communitySearchInput" type="search" maxlength="100" placeholder="제목·내용 검색" autocomplete="off"><button type="submit" class="toolbtn">검색</button><button id="communitySearchReset" type="button" class="toolbtn" hidden>초기화</button></form></div>
+              <table class="community-post-table"><caption class="community-sr">게시글 목록</caption><thead><tr><th class="community-number" scope="col">번호</th><th class="community-subject" scope="col">제목</th><th class="community-author" scope="col">작성자</th><th class="community-date" scope="col">작성일</th><th class="community-replies" scope="col">댓글</th></tr></thead><tbody id="communityPostRows"></tbody></table>
+              <nav id="communityPagination" class="community-pagination" aria-label="게시글 페이지"></nav>
+            </section>
+            <section id="communityPostView" aria-label="게시글 상세" hidden>
+              <div class="community-detail-tools"><button id="communityListBack" type="button" class="toolbtn">← 목록</button><div><button id="communityEdit" type="button" class="toolbtn" hidden>수정</button><button id="communityDelete" type="button" class="toolbtn community-danger" hidden>삭제</button></div></div>
+              <article class="community-article"><span id="communityPostCategory" class="community-category"></span><h4 id="communityPostTitle" tabindex="-1"></h4><div id="communityPostMeta" class="community-post-meta"></div><div id="communityPostBody" class="community-post-body"></div></article>
+              <section class="community-comments" aria-labelledby="communityCommentsHeading"><header><h4 id="communityCommentsHeading">댓글 <span id="communityCommentCount">0</span></h4><button id="communityCommentsRefresh" type="button" class="toolbtn">새로고침</button></header><ul id="communityComments" class="community-comment-list"></ul><nav id="communityCommentPages" class="community-pagination" aria-label="댓글 페이지"></nav>
+                <form id="communityCommentForm" class="community-comment-form"><div class="community-comment-form-heading"><label id="communityCommentLabel" for="communityCommentBody">댓글 남기기</label><span id="communityCommentLength">0 / 2,000</span></div><textarea id="communityCommentBody" rows="3" maxlength="2000" placeholder="도움이 되는 답변이나 따뜻한 피드백을 남겨 주세요." required></textarea><div class="community-form-actions"><button id="communityCommentCancel" type="button" class="toolbtn" hidden>취소</button><button id="communityCommentSubmit" type="submit" class="btn solid">댓글 등록</button></div></form>
+              </section>
+            </section>
+            <form id="communityEditor" class="community-editor" hidden>
+              <label for="communityCategory">게시판</label><select id="communityCategory" required></select>
+              <div class="community-field-heading"><label for="communityTitle">제목</label><span id="communityTitleLength">0 / 140</span></div><input id="communityTitle" type="text" maxlength="140" placeholder="어떤 이야기를 나누고 싶나요?" required><span id="communityTitleError" class="community-field-error" hidden></span>
+              <div class="community-field-heading"><label for="communityBody">내용</label><span id="communityBodyLength">0 / 20,000</span></div><textarea id="communityBody" rows="12" maxlength="20000" placeholder="내용을 자유롭게 적어 주세요. 코드와 링크도 함께 남길 수 있어요." required></textarea><span id="communityBodyError" class="community-field-error" hidden></span>
+              <p class="community-editor-hint">입력한 코드의 줄바꿈을 유지하고, 웹 주소는 글 안에서 링크로 표시해요.</p>
+              <div class="community-form-actions"><button id="communityEditorCancel" type="button" class="btn quiet">취소</button><button id="communityEditorSubmit" type="submit" class="btn solid">등록하기</button></div>
+            </form>
+          </section>
+        </div>
+      </section>
+      <div class="board-dialog-footer"><span id="boardSelection" class="board-selection" role="status" aria-live="polite" aria-atomic="true"></span><button id="boardClose" type="button" class="btn quiet">닫기</button></div>
+    </div>
+  </dialog>
+  <dialog id="exitDialog" class="exit-dialog" aria-labelledby="exitTitle" aria-describedby="exitDescription">
+    <div class="dialog-top"><div><span class="eyebrow">캠퍼스 나가기</span><h2 id="exitTitle">나가시겠습니까?</h2></div></div>
+    <div class="dialog-content"><p id="exitDescription">예를 선택하면 로그아웃하고 로그인 화면으로 돌아갑니다.</p><div class="dialog-actions"><button id="exitNo" type="button" class="btn quiet" autofocus>아니오</button><button id="exitYes" type="button" class="btn solid">예</button></div></div>
+  </dialog>
+  <dialog id="transferDialog" class="exit-dialog" aria-labelledby="transferTitle" aria-describedby="transferDescription">
+    <div class="dialog-top"><div><span class="eyebrow">층간 이동</span><h2 id="transferTitle">이동하시겠습니까?</h2></div></div>
+    <div class="dialog-content"><p id="transferDescription"></p><div class="dialog-actions"><button id="transferNo" type="button" class="btn quiet">아니오</button><button id="transferYes" type="button" class="btn solid" autofocus>예</button></div></div>
+  </dialog>
+  <dialog id="boothDialog" aria-labelledby="boothTitle">
+    <section id="boothPanel" class="booth-panel" data-platform="basic">
+      <div class="booth-panel-heading"><div><span class="eyebrow">ROOFTOP STUDIO</span><h2 id="boothTitle">전시 부스</h2></div><div class="booth-window-actions"><button id="boothReturn" type="button" class="toolbtn" hidden>맵 팝업으로</button><button id="boothPiP" type="button" class="toolbtn">PiP로 띄우기</button><button id="boothClose" type="button" class="close-button" aria-label="부스 창 닫기">×</button></div></div>
+      <div class="booth-body">
+        <div class="booth-service-card">
+          <span class="booth-service-icon" aria-hidden="true"><svg class="booth-youtube-icon" viewBox="0 0 80 60"><rect x="0" y="3" width="80" height="54" rx="15" fill="#ff0033"/><path d="M32 17 55 30 32 43Z" fill="#fff"/></svg><svg class="booth-psych-icon" viewBox="0 0 80 80"><rect x="2" y="2" width="76" height="76" rx="23" fill="#e8e2f7"/><path d="M40 15c-8-8-23-2-23 10-8 5-7 18 1 22-3 10 6 18 15 15 3 6 11 6 14 0 9 3 18-5 15-15 8-4 9-17 1-22 0-12-15-18-23-10Z" fill="#fff" stroke="#8575b8" stroke-width="4" stroke-linejoin="round"/><path d="M40 16v46M28 25c7 1 8 6 8 11m-16 1c7-2 11 1 12 7m20-19c-7 1-8 6-8 11m16 1c-7-2-11 1-12 7M29 54c5-4 8-3 11 1m11-1c-5-4-8-3-11 1" fill="none" stroke="#a18fc9" stroke-width="3" stroke-linecap="round"/><circle cx="29" cy="42" r="3" fill="#8674b4"/><circle cx="51" cy="42" r="3" fill="#8674b4"/></svg><span class="booth-basic-icon">P</span></span>
+          <p id="boothIntro"></p>
+        </div>
+        <section id="boothGameChoices" class="booth-game-choices" hidden aria-label="게임 카드 선택">
+          <p class="booth-game-intro">플레이할 게임을 선택해 주세요.</p>
+          <div class="board-cards booth-game-cards" role="group" aria-label="게임 선택">
+            <button type="button" class="board-card booth-game-card" data-game="gomoku" aria-label="오목 게임 시작">
+              <span class="board-card-media game-card-gomoku" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><rect x="36" y="15" width="148" height="120" rx="12" fill="#e9bf83"/><path d="M50 29H170M50 44H170M50 59H170M50 74H170M50 89H170M50 104H170M50 119H170M50 29V119M65 29V119M80 29V119M95 29V119M110 29V119M125 29V119M140 29V119M155 29V119M170 29V119" stroke="#916b42" stroke-width="1.1"/><g fill="#263641"><circle cx="80" cy="44" r="6.5"/><circle cx="95" cy="59" r="6.5"/><circle cx="110" cy="74" r="6.5"/><circle cx="125" cy="89" r="6.5"/></g><g fill="#fffdf6" stroke="#d3cbbb"><circle cx="110" cy="59" r="6.5"/><circle cx="125" cy="59" r="6.5"/><circle cx="140" cy="74" r="6.5"/></g></svg></span>
+              <span class="board-card-label"><strong>오목</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">한 수씩 이어가는 두뇌 대결</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="war" aria-label="전쟁시대 게임 시작">
+              <span class="board-card-media game-card-war" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><circle cx="168" cy="37" r="21" fill="#fbd285"/><path d="m0 104 35-41 39 40 40-50 60 51 46-38v84H0Z" fill="#777ca8"/><path d="M0 121h220v29H0Z" fill="#353e60"/><path d="M27 121V66h12v9h10v-9h12v9h10v-9h12v55Z" fill="#e3e6f1"/><path d="M45 121V93h20v28" fill="#4b577b"/><path d="M174 123V93m-16 30 16-15 13 15m-28-20h34" stroke="#f7e6b9" stroke-width="5" stroke-linecap="round"/><circle cx="174" cy="83" r="8" fill="#f7e6b9"/><path d="M194 72v51m-5-51 5-14 5 14Z" stroke="#f7e6b9" stroke-width="3" stroke-linejoin="round"/><path d="M28 62h40" stroke="#cfd6ea" stroke-width="3"/></svg></span>
+              <span class="board-card-label"><strong>전쟁시대</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">시대를 발전시키며 기지를 지켜요</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="dad-and-me" aria-label="아빠와 나 게임 시작">
+              <span class="board-card-media game-card-dad" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><path d="M0 120h220v30H0Z" fill="#d6c8e8"/><path d="M20 119V68h30v51m138 0V52h21v67" stroke="#e2d7ee" stroke-width="12"/><rect x="54" y="65" width="49" height="54" rx="17" fill="#8060ac"/><circle cx="78" cy="42" r="25" fill="#9571bf"/><path d="m65 31 5-6 8 6 8-6 6 6" stroke="#604083" stroke-width="4" stroke-linejoin="round"/><ellipse cx="69" cy="42" rx="5" ry="7" fill="#f7efff"/><ellipse cx="87" cy="42" rx="5" ry="7" fill="#f7efff"/><path d="M73 55h10M65 119v12m27-12v12M54 77l-13 15m62-15 10 9" stroke="#604083" stroke-width="9" stroke-linecap="round"/><rect x="126" y="84" width="37" height="36" rx="13" fill="#9c76c7"/><circle cx="145" cy="66" r="19" fill="#b18cd7"/><ellipse cx="138" cy="66" rx="4" ry="5" fill="#f7efff"/><ellipse cx="151" cy="66" rx="4" ry="5" fill="#f7efff"/><path d="M140 76h10m-14 44v11m21-11v11m6-36 15-12" stroke="#765197" stroke-width="7" stroke-linecap="round"/><circle cx="180" cy="78" r="9" fill="#b18cd7"/><path d="m185 54 5-8m2 18 10-2" stroke="#e8b36c" stroke-width="4" stroke-linecap="round"/></svg></span>
+              <span class="board-card-label"><strong>아빠와 나</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">방향키와 A·S로 즐기는 액션 게임</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="minesweeper" aria-label="지뢰찾기 게임 시작">
+              <span class="board-card-media game-card-minesweeper" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><rect x="38" y="13" width="144" height="124" rx="12" fill="#b4c9bb"/><rect x="50" y="25" width="120" height="100" rx="4" fill="#f5f8f1"/><path d="M80 25v100m30-100v100m30-100v100M50 50h120M50 75h120M50 100h120" stroke="#c9d7cb" stroke-width="2"/><path d="M51 76h28v23H51Zm60-50h28v23h-28Zm30 25h28v23h-28Z" fill="#c7d9cd"/><text x="60" y="44" font-family="sans-serif" font-size="19" font-weight="700" fill="#5173b2">1</text><text x="90" y="69" font-family="sans-serif" font-size="19" font-weight="700" fill="#48855d">2</text><text x="118" y="94" font-family="sans-serif" font-size="19" font-weight="700" fill="#5173b2">1</text><path d="M65 79v16m-5 0h10" stroke="#3c5c4a" stroke-width="2.5" stroke-linecap="round"/><path d="m66 78 13 4-13 6Z" fill="#da7469"/><circle cx="155" cy="113" r="7" fill="#40594c"/><path d="M155 101v24m-12-12h24m-20-8 16 16m-16 0 16-16" stroke="#40594c" stroke-width="2.5"/><circle cx="153" cy="111" r="2" fill="#fff"/></svg></span>
+              <span class="board-card-label"><strong>지뢰찾기</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">숫자 힌트로 지뢰를 피하는 퍼즐</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="fruit-box" aria-label="사과게임 게임 시작">
+              <span class="board-card-media game-card-fruit-box" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><rect x="35" y="14" width="150" height="122" rx="16" fill="#fffaf1" stroke="#efceae" stroke-width="3"/><g fill="#e96458"><path d="M69 35c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M122 34c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M69 87c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/><path d="M122 85c-18-8-22 22-8 29 8 5 11 1 16-2 14-13 5-34-8-27Z"/></g><path d="m68 35 7-10m46 10 7-10M68 87l7-10m46 8 7-10" stroke="#648e54" stroke-width="5" stroke-linecap="round"/><g fill="#fff" font-family="sans-serif" font-size="18" font-weight="700" text-anchor="middle"><text x="69" y="57">3</text><text x="122" y="56">7</text><text x="69" y="109">4</text><text x="122" y="107">6</text></g><rect x="47" y="24" width="97" height="47" rx="10" stroke="#78a879" stroke-width="3" stroke-dasharray="6 4"/></svg></span>
+              <span class="board-card-label"><strong>사과게임</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">사과를 묶어 숫자 합계 10 만들기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="bubble-shooter" aria-label="버블슈터 게임 시작">
+              <span class="board-card-media game-card-bubble-shooter" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><g stroke="#fff" stroke-width="2"><g fill="#8a79ca"><circle cx="50" cy="31" r="17"/><circle cx="87" cy="31" r="17"/><circle cx="106" cy="65" r="17"/></g><g fill="#5eb6b7"><circle cx="124" cy="31" r="17"/><circle cx="161" cy="31" r="17"/><circle cx="143" cy="65" r="17"/></g><g fill="#eead63"><circle cx="68" cy="65" r="17"/><circle cx="87" cy="99" r="17"/></g><circle cx="180" cy="65" r="17" fill="#e48091"/></g><g fill="#fff" opacity=".65"><ellipse cx="45" cy="25" rx="5" ry="3"/><ellipse cx="119" cy="25" rx="5" ry="3"/><ellipse cx="138" cy="59" rx="5" ry="3"/><ellipse cx="63" cy="59" rx="5" ry="3"/></g><path d="m115 126 14-20m-11 3 11-3 1 11" stroke="#6b7e9c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="110" cy="135" r="13" fill="#5eb6b7" stroke="#fff" stroke-width="2"/></svg></span>
+              <span class="board-card-label"><strong>버블슈터</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">같은 색 버블을 모아 터뜨리기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="suika" aria-label="수박게임 게임 시작">
+              <span class="board-card-media game-card-suika" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><path d="M42 20v106q0 9 9 9h118q9 0 9-9V20" stroke="#b0c69b" stroke-width="4" stroke-linecap="round"/><circle cx="91" cy="99" r="34" fill="#84b46b"/><path d="M71 72q-10 26 0 53m16-58q-10 32 0 65m17-62q-7 29 2 57" stroke="#4f8c59" stroke-width="5"/><circle cx="143" cy="112" r="19" fill="#f1ab61"/><circle cx="143" cy="75" r="16" fill="#efd477"/><circle cx="57" cy="62" r="11" fill="#d77e6f"/><circle cx="109" cy="28" r="10" fill="#d9878e"/><path d="m109 13 4-8" stroke="#6c9960" stroke-width="3" stroke-linecap="round"/><path d="m107 49 5 6 5-6" stroke="#92ad80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="81" cy="97" r="3" fill="#315f42"/><circle cx="100" cy="97" r="3" fill="#315f42"/><path d="M85 107q6 5 12 0" stroke="#315f42" stroke-width="3" stroke-linecap="round"/></svg></span>
+              <span class="board-card-label"><strong>수박게임</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">같은 과일을 합쳐 커다란 수박 만들기</span><span class="board-card-state">게임 시작</span>
+            </button>
+            <button type="button" class="board-card booth-game-card" data-game="flashman" aria-label="후레시맨 게임 시작">
+              <span class="board-card-media game-card-flashman" aria-hidden="true"><svg viewBox="0 0 220 150" fill="none"><path d="m110 7 16 24 29-11-6 32 34 8-26 21 19 29-35-3-7 31-24-22-24 22-7-31-35 3 19-29-26-21 34-8-6-32 29 11Z" fill="#f4d9ad"/><g stroke="#fff" stroke-width="3"><path d="m66 89-17 34m17-34 18 34m-29-45-16 17m41-17 14 15" stroke="#6486ad" stroke-width="10" stroke-linecap="round"/><rect x="51" y="64" width="29" height="36" rx="9" fill="#6486ad"/><circle cx="66" cy="46" r="20" fill="#6486ad"/><path d="m59 68 7 12 7-12"/><path d="m155 89-17 34m17-34 18 34m-29-45-14 16m42-16 14 17" stroke="#89a577" stroke-width="10" stroke-linecap="round"/><rect x="140" y="64" width="29" height="36" rx="9" fill="#89a577"/><circle cx="155" cy="46" r="20" fill="#89a577"/><path d="m148 68 7 12 7-12"/><path d="m110 101-18 34m18-34 18 34m-32-47-20 17m47-18 20 17" stroke="#d97869" stroke-width="11" stroke-linecap="round"/><rect x="93" y="71" width="34" height="41" rx="10" fill="#d97869"/><circle cx="110" cy="51" r="24" fill="#d97869"/><path d="m101 77 9 13 9-13"/></g><path d="M52 39h28v11H52Zm89 0h28v11h-28ZM92 42h36v14H92Z" fill="#344457"/><path d="M96 46h9m-51-3h7m82 0h7" stroke="#cddfec" stroke-width="3" stroke-linecap="round"/></svg></span>
+              <span class="board-card-label"><strong>후레시맨</strong><span class="game-card-arrow" aria-hidden="true">↗</span></span><span class="game-card-description">세 명의 히어로와 함께하는 액션 게임</span><span class="board-card-state">게임 시작</span>
+            </button>
+          </div>
+        </section>
+        <section id="boothEmbeddedSection" class="booth-embedded-section" hidden aria-label="부스 콘텐츠">
+          <div class="booth-embedded-actions"><a id="boothExternalLink" class="toolbtn booth-external-link" href="https://simsimtest.com/" target="_blank" rel="noopener noreferrer">심심테스트 열기</a></div>
+          <p class="booth-embed-hint">콘텐츠는 별도 창에서 열립니다. 창을 닫으면 맵으로 돌아올 수 있어요.</p>
+        </section>
+        <p id="boothStatus" class="booth-status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+  </dialog>
+  <dialog id="raffleDialog" class="raffle-dialog" aria-labelledby="raffleTitle">
+    <div class="raffle-heading"><div><span class="eyebrow">ROOFTOP EVENT</span><h2 id="raffleTitle">옥상 기프티콘 이벤트</h2></div><button id="raffleClose" type="button" class="close-button" aria-label="이벤트 창 닫기">×</button></div>
+    <div class="raffle-content">
+      <p id="raffleSurveyNotice" class="raffle-survey-notice">설문 조사를 완료해야 이벤트에 등록됩니다.</p>
+      <div class="raffle-participation"><span id="raffleStatusBadge" class="raffle-badge">준비 중</span><h3>부저를 누르고 설문에 참여하세요</h3><p id="raffleParticipationHint">이벤트가 열리면 옥상 부저 옆에서 참여해 주세요.</p>
+        <button id="raffleJoin" class="raffle-buzzer-button" type="button" disabled><span aria-hidden="true">●</span><strong id="raffleJoinLabel">이벤트 준비 중</strong></button>
+        <a id="raffleSurveyLink" class="raffle-survey-link" target="_blank" rel="noopener noreferrer" hidden>설문 조사 열기 <span aria-hidden="true">↗</span></a>
+        <p id="raffleSurveyUnavailable" class="raffle-survey-unavailable" hidden>설문 제출 확인 연결을 준비 중입니다.</p>
+        <p id="raffleStatus" class="raffle-message" role="status" aria-live="polite"></p><p id="raffleScheduleLabel" class="raffle-schedule-label"></p><p id="raffleLastWinner" class="raffle-last-winner" hidden></p>
+      </div>
+      <section class="raffle-participants" aria-labelledby="raffleParticipantsTitle"><div class="raffle-list-heading"><h3 id="raffleParticipantsTitle">참가 완료</h3><span id="raffleParticipantCount">0명</span></div><p class="raffle-list-hint">이벤트마다 계정당 한 번 참여해요.</p><ul id="raffleParticipantList" class="raffle-participant-list"></ul><p id="raffleParticipantEmpty" class="raffle-empty">아직 참가자가 없어요.</p></section>
+      <section id="raffleAdmin" class="raffle-admin" hidden aria-labelledby="raffleAdminTitle"><h3 id="raffleAdminTitle">관리자 운영</h3><div class="raffle-admin-actions"><button id="rafflePrepare" type="button" class="toolbtn">새 이벤트 준비</button><button id="raffleOpen" type="button" class="btn solid">참여 시작</button><button id="raffleDraw" type="button" class="btn quiet">지금 추첨</button></div>
+        <details id="raffleSurveyConnectionDetails"><summary>설문 제출 확인 연결</summary><p id="raffleSurveyConnectionStatus" class="raffle-connection-status" role="status"></p><p>Google 연결 코드를 실행·배포한 뒤 표시된 주소와 연결 키를 입력해 주세요.</p><a href="/api/raffle/survey/script/" class="toolbtn">Google 연결 코드 다운로드</a><form id="raffleSurveyConnectionForm"><label for="raffleSurveyEndpoint">Google 연결 주소</label><input id="raffleSurveyEndpoint" type="url" maxlength="500" placeholder="https://script.google.com/macros/s/…/exec" required><label for="raffleSurveyKey">연결 키</label><input id="raffleSurveyKey" type="password" minlength="32" maxlength="128" autocomplete="off" required><button id="raffleSurveySave" type="submit" class="toolbtn">설문 연결</button></form></details>
+        <details id="raffleScheduleDetails"><summary>이벤트 이름 · 시간 설정</summary><form id="raffleScheduleForm"><label for="raffleEventName">이벤트 이름</label><input id="raffleEventName" maxlength="100" value="옥상 기프티콘 이벤트" required><div class="raffle-time-fields"><div><label for="raffleOpensAt">참여 시작 (한국 시간)</label><input id="raffleOpensAt" type="datetime-local" step="1"></div><div><label for="raffleDrawAt">추첨 (한국 시간)</label><input id="raffleDrawAt" type="datetime-local" step="1"></div></div><p>시간을 비우면 관리자 버튼으로 진행해요. 추첨 때는 참여한 계정 중 한 명을 뽑아요.</p><button id="raffleScheduleSave" type="submit" class="toolbtn">설정 저장</button></form></details>
+      </section>
+    </div>
+  </dialog>
+  <dialog id="raffleDrawDialog" class="raffle-draw-dialog" aria-labelledby="raffleDrawTitle" aria-describedby="raffleDrawStatus">
+    <button id="raffleDrawClose" class="raffle-draw-close" type="button" aria-label="추첨창 닫기">×</button>
+    <div class="raffle-draw-content"><span class="raffle-live-label">PLAYDATA · LIVE DRAW</span><p id="raffleDrawEventName" class="raffle-draw-event-name"></p><h2 id="raffleDrawTitle">오늘의 행운은 누구에게?</h2><p id="raffleDrawStatus" class="raffle-draw-status" role="status" aria-live="polite">추첨을 시작합니다.</p>
+      <div class="raffle-machine" aria-hidden="true"><div class="raffle-machine-top"><span>★</span><strong>LUCKY DRAW</strong><span>★</span></div><div class="raffle-slot-window"><div id="raffleReel" class="raffle-reel"><span id="raffleReelPrevious"></span><strong id="raffleReelCurrent"></strong><span id="raffleReelNext"></span></div><span class="raffle-slot-pointer">▶</span></div><div class="raffle-machine-footer"><i></i><span>ONE LUCKY WINNER</span><i></i></div></div>
+      <p id="raffleWinnerAnnouncement" class="raffle-winner-announcement" role="status" aria-live="polite"></p><button id="raffleShowResult" type="button" class="raffle-result-button">결과 먼저 보기</button><button id="raffleReturn" type="button" class="raffle-result-button" hidden>캠퍼스로 돌아가기</button>
+    </div>
+  </dialog>
+  <script src="raffle.js"></script>
+  <!-- learning-panels -->
+  <script src="booth-panel.js"></script>
+  <script src="classroom-doors.js"></script>
+  <script src="map-data.js"></script>
+  <script src="rooftop-data.js"></script>
+  <script src="stair-motion.js"></script>
+  <script src="avatars.js"></script>
+  <script src="session-policy.js"></script>
+  <script src="presence.js"></script>
+  <script src="social.js"></script>
+  <script src="community.js"></script>
+  <script src="rooftop-city.js"></script>
+  <script src="isometric.js"></script>
+  <script src="floor-transition.js"></script>
+  <script src="lunch-wheel.js"></script>
+  <!-- learning-assets -->
+  <script src="campus.js"></script>
+</body>
+</html>
