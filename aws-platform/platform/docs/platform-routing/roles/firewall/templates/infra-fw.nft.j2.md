@@ -1,5 +1,7 @@
 # roles/firewall/templates/infra-fw.nft.j2
 
+account1_service_restricted 호스트는 SSH의 Bastion 전용 분기와 Front 80/443·Backend별 8000 분기를 사용하며 일반 firewall_rules를 중복 적용하지 않는다. 다른 계정의 렌더링은 기존 규칙과 동일하다.
+
 [탐색 시작점](../../../../ROUTING-README.md) · [영역 안내](../README.md) · [원본 파일](../../../../../roles/firewall/templates/infra-fw.nft.j2)
 
 ## 역할

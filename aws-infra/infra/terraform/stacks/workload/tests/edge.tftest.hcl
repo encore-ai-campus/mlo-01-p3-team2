@@ -57,59 +57,27 @@ override_data {
   } }
 }
 
-# 모의 적용으로 Public A의 전용 진입 노드와 EIP 출력, 기존 노드 유지를 확인한다.
-run "account1_edge_public_a" {
+# 실제 AWS 없이 Front 두 대의 공개 범위·Backend 제한·EIP를 검증한다.
+run "account1_independent_frontends" {
   command = apply
   assert {
-    condition = (
-      toset(keys(output.inventory.instances)) == toset(["edge-1", "front-a", "front-b", "game-server", "ad-server"]) &&
-      local.nodes["edge-1"].role == "edge" && local.nodes["edge-1"].az == "a" &&
-      local.nodes["edge-1"].subnet_tier == "public" && local.nodes["edge-1"].public_ip &&
-      output.inventory.instances["edge-1"].public_ip == "203.0.113.20" &&
-      output.inventory.instances["edge-1"].instance_type == "t3a.small" &&
-      local.nodes["edge-1"].root_gib == 20 && length(output.inventory.instances["edge-1"].data_volumes) == 0 &&
-      output.inventory.alb_dns_name == null
-    )
-    error_message = "전용 edge 노드는 Public A·small·OS 20GiB·EIP만 추가하고 기존 서비스 서버와 ALB 비활성 상태를 유지해야 합니다."
-  }
-  # 내부 연결은 Front 80·Bastion SSH/프록시이며 인증서·패키지용 HTTPS 송신도 허용한다.
-  assert {
-    condition = (
-      module.rules.ingress["account1/edge/account1/frontend/80"].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.frontend &&
-      module.rules.ingress["account1/edge/account1/frontend/80"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge &&
-      module.rules.egress["account1/edge/account1/frontend/80"].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge &&
-      module.rules.egress["account1/edge/account1/frontend/80"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.frontend &&
-      module.rules.egress["account1/edge/account1/frontend/80"].port == 80 &&
-      module.rules.egress["account1/edge/account1/frontend/80"].port_end == 80 &&
-      module.rules.ingress["account1/bastion/account1/edge/22"].port == 22 &&
-      module.rules.egress["account1/edge/account1/bastion/3128"].port == 3128 &&
-      length([for f in values(module.model.flows) : f if endswith(f.source, "/edge")]) == 2 &&
-      contains(var.traffic.internet_https_roles, "edge")
-    )
-    error_message = "진입 서버는 Front 80·Bastion 프록시 3128·관리 SSH만 연결하고 DB나 게임·광고에 직접 접속하지 않아야 합니다."
-  }
-  # 전용 SG의 콘솔 SSH와 ACME 80·사용자 CIDR 443을 검사한다.
-  assert {
-    condition = (
-      aws_vpc_security_group_ingress_rule.service_console_ssh["edge"].security_group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge &&
-      module.rules.public_ingress["edge/acme/80"].cidr == "0.0.0.0/0" && module.rules.public_ingress["edge/https/222.112.208.69/32"].port == 443 &&
-      alltrue([for name in ["front-a", "front-b"] : output.inventory.instances[name].role == "frontend"]) &&
-      length([for n in values(local.nodes) : n if n.public_ip]) == 3
-    )
-    error_message = "edge 전용 SG·콘솔 SSH·세 EIP 대상과 ACME 80·사용자 CIDR 443을 유지해야 합니다."
-  }
-}
-
-# 원격 foundation은 Account 1만 필요하며 다른 EC2를 만들지 않는다.
-run "edge_only_bootstrap" {
-  command = apply
-  variables { edge_bootstrap_only = true }
-  assert {
-    condition     = toset(keys(output.inventory.instances)) == toset(["edge-1"]) && length(data.terraform_remote_state.foundation) == 1 && length(data.terraform_remote_state.connectivity) == 0
-    error_message = "초기 구축은 Account 1의 edge-1 한 대만 생성해야 합니다."
+    condition     = toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server"]) && length(module.alb) == 0
+    error_message = "Account 1은 edge 없이 네 서비스만 생성해야 합니다."
   }
   assert {
-    condition     = length(module.rules.public_ingress) == 3 && contains(var.traffic.internet_https_roles, "edge")
-    error_message = "초기 구축은 ACME·허용 HTTPS·관리 SSH와 HTTPS 송신만 공개해야 합니다."
+    condition     = alltrue([for name in ["front-a", "front-b"] : output.inventory.instances[name].public_ip == "203.0.113.20" && output.inventory.instances[name].instance_type == "t3.small"]) && alltrue([for name in ["game-server", "ad-server"] : output.inventory.instances[name].public_ip == null && output.inventory.instances[name].instance_type == "t3.large"])
+    error_message = "Front 두 대만 EIP를 사용하고 요청한 사양을 유지해야 합니다."
+  }
+  assert {
+    condition     = length(local.front_https_ingress) == 4 && alltrue([for rule in values(local.front_https_ingress) : rule.cidr == "0.0.0.0/0" && contains([80, 443], rule.port)]) && length(aws_vpc_security_group_egress_rule.front_all) == 2 && alltrue([for rule in aws_vpc_security_group_egress_rule.front_all : rule.ip_protocol == "-1" && rule.cidr_ipv4 == "0.0.0.0/0" && rule.from_port == null && rule.to_port == null])
+    error_message = "두 Front만 80/443 공개 및 전체 IPv4 송신을 허용해야 합니다."
+  }
+  assert {
+    condition     = toset([for key, rule in module.rules.ingress : key if rule.port == 8000]) == toset(["account1/game_frontend/account1/game/8000", "account1/ad_frontend/account1/ad/8000"]) && length(local.private_admin_ingress) == 0 && length(aws_vpc_security_group_ingress_rule.service_console_ssh) == 0 && alltrue([for key, rule in module.rules.ingress : startswith(key, "account1/bastion/") if rule.port == 22])
+    error_message = "Backend 8000은 각 Front만, 서비스 SSH는 Bastion만 허용해야 합니다."
+  }
+  assert {
+    condition     = length(local.edge_ingress) == 0 && length(local.front_ingress) == 0
+    error_message = "원격 상태에 옛 SG가 남아도 edge와 구 Front 공개 규칙을 만들면 안 됩니다."
   }
 }

@@ -1,5 +1,11 @@
 # infra/scripts/deploy.ps1
 
+## Account 1 Front 인벤토리 — 2026-10-13
+
+game_frontend·ad_frontend마다 현재 public_ip, edge_https_allowed_cidrs=[0.0.0.0/0], edge_http_redirect=true, edge_frontend_mode=true를 기록한다. account1의 game 또는 ad Backend가 정확히 한 대인지 검사하고 그 실제 사설 IP:8000을 edge_frontend_upstreams에 넣는다. 네 서비스에는 account1_service_restricted=true를 기록해 SSH를 Bastion으로 제한한다. 다른 계정의 호스트 변수는 유지한다.
+
+기존 hosts.current.yml을 수동 편집하는 대신 AWS 적용 후 Inventory를 다시 실행한다. 이 명령은 IP 수집만 수행하며 인증서 발급·서버 설치는 하지 않는다.
+
 [탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/deploy.ps1) · [실행 안내](../../../infra/scripts/scripts.md)
 
 ## 역할

@@ -36,10 +36,11 @@
       - "{{ edge_public_ip }}"
   changed_when: false
 
-- name: HTTP 일반 요청 차단 확인
+- name: HTTP 일반 요청 처리 확인
   ansible.builtin.uri:
     url: http://127.0.0.1/
-    status_code: 404
+    status_code: "{{ 308 if edge_http_redirect | bool else 404 }}"
+    follow_redirects: none
     use_proxy: false
   changed_when: false
 
@@ -50,6 +51,6 @@
 - name: 현재 서비스 연결 범위 안내
   ansible.builtin.debug:
     msg: >-
-      {{ 'HTTPS와 Front least_conn 연결을 구성했다. 앱 정상 동작은 별도 검증한다.'
+      {{ '이 서버의 HTTPS와 지정한 전달 대상을 구성했다. 앱 정상 동작은 별도 검증한다.'
          if edge_frontend_upstreams | length > 0
          else 'HTTPS 준비 화면만 제공한다. Front와 게임·광고 앱 연결은 아직 구성하지 않았다.' }}

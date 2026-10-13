@@ -54,7 +54,7 @@ override_data {
 run "account1_default_closed" {
   state_key = "account1"
   command   = apply
-  # ALB가 꺼져 있으면 사용자 CIDR이 있어도 웹 공개 규칙을 만들지 않는다.
+  # Front의 공개 80/443은 ALB 및 기존 사용자 CIDR과 독립적이다.
   variables {
     traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = ["203.0.113.10/32"], public_http_cidrs = [] })
   }
@@ -64,9 +64,9 @@ run "account1_default_closed" {
     error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
   }
   assert {
-    condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server", "edge-1"]) &&
-    length(module.rules.public_ingress) == 2 && alltrue([for rule in values(module.rules.public_ingress) : rule.group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge]))
-    error_message = "Account 1 서비스 5대를 유지하고 ALB 비활성화만으로 Front의 웹 포트를 공개하지 않아야 합니다."
+    condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server"]) &&
+    length(module.rules.public_ingress) == 4 && alltrue([for rule in values(module.rules.public_ingress) : contains([80, 443], rule.port) && rule.cidr == "0.0.0.0/0"]))
+    error_message = "Account 1 서비스 4대와 Front별 공개 80/443만 유지해야 합니다."
   }
   # 기존 foundation 상태에 ALB SG가 남아 있어도 ALB와 전용 연결은 생성하지 않는다.
   assert {
@@ -80,8 +80,8 @@ run "account1_default_closed" {
   }
   assert {
     condition = alltrue([for role in ["game", "ad"] :
-      contains(keys(module.rules.ingress), "account1/frontend/account1/${role}/8000") &&
-      contains(keys(module.rules.egress), "account1/frontend/account1/${role}/8000")
+      contains(keys(module.rules.ingress), "account1/${role}_frontend/account1/${role}/8000") &&
+      contains(keys(module.rules.egress), "account1/${role}_frontend/account1/${role}/8000")
     ])
     error_message = "Front에서 게임·광고로 전달하는 기존 TCP 8000 연결은 유지해야 합니다."
   }
@@ -171,8 +171,8 @@ run "account1_without_alb_sg" {
     }) } }
   }
   assert {
-    condition     = length(module.alb) == 0 && output.inventory.alb_dns_name == null && length(output.inventory.instances) == 5
-    error_message = "ALB SG 제거 후에도 기존 서비스 서버 4대와 진입 서버 1대를 유지해야 합니다."
+    condition     = length(module.alb) == 0 && output.inventory.alb_dns_name == null && length(output.inventory.instances) == 4
+    error_message = "ALB SG 제거 후에도 서비스 서버 4대를 유지해야 합니다."
   }
 }
 
@@ -180,15 +180,15 @@ run "account1_without_alb_sg" {
 run "account1_alb_opt_in" {
   command = plan
   variables {
-    topology = merge(var.topology, { alb = merge(var.topology.alb, { enabled = true }) })
+    topology = merge(var.topology, { alb = merge(var.topology.alb, { enabled = true, frontend_role = "game_frontend" }) })
     traffic = merge(var.traffic, { connections = merge(var.traffic.connections, {
-      alb_front = { sources = ["alb"], targets = ["frontend"], port = "frontend" }
+      alb_front = { sources = ["alb"], targets = ["game_frontend"], port = "frontend" }
       alb_game  = { sources = ["alb"], targets = ["game"], port = "game" }
       alb_ad    = { sources = ["alb"], targets = ["ad"], port = "ad" }
     }) })
   }
   assert {
-    condition = length(module.alb) == 1 && alltrue([for pair in ["frontend/80", "game/8000", "ad/8000"] :
+    condition = length(module.alb) == 1 && alltrue([for pair in ["game_frontend/80"] :
       contains(keys(module.rules.ingress), "account1/alb/account1/${pair}") &&
       contains(keys(module.rules.egress), "account1/alb/account1/${pair}")
     ])
@@ -222,7 +222,7 @@ run "all_service_nodes_use_a_subnets" {
   }
   assert {
     condition = (
-      length(aws_instance.this) == 18 &&
+      length(aws_instance.this) == 17 &&
       alltrue([for name, node in var.nodes :
         node.az == "a" &&
         aws_instance.this[name].subnet_id == (
@@ -230,6 +230,6 @@ run "all_service_nodes_use_a_subnets" {
         )
       ])
     )
-    error_message = "기존 서비스 18대는 모두 Public A 또는 Private A 서브넷을 선택해야 합니다."
+    error_message = "기존 서비스 17대는 모두 Public A 또는 Private A 서브넷을 선택해야 합니다."
   }
 }

@@ -9,7 +9,12 @@ locals {
     flow.source_account == var.account_key && flow.target_account == var.account_key &&
     (endswith(flow.source, "/edge") || endswith(flow.target, "/edge"))
   ) }
-  edge_sg_id = try(local.foundation.sg_ids["edge"], null)
+  # Account 1의 네 서비스에만 관리 SSH와 Backend 수신 제한을 적용한다.
+  restricted_roles = var.account_key == "account1" ? toset(["game_frontend", "ad_frontend", "game", "ad"]) : toset([])
+  front_sg_ids = { for role in ["game_frontend", "ad_frontend"] : role => local.foundation.sg_ids[role]
+    if var.account_key == "account1" && contains([for n in values(local.nodes) : n.role], role)
+  }
+  edge_sg_id = contains([for n in values(local.nodes) : n.role], "edge") ? try(local.foundation.sg_ids["edge"], null) : null
   edge_ingress = local.edge_sg_id != null ? merge(
     { "edge/acme/80" = { group_id = local.edge_sg_id, cidr = "0.0.0.0/0", port = 80 } },
     { for cidr in toset(var.traffic.game_client_cidrs) : "edge/https/${cidr}" => { group_id = local.edge_sg_id, cidr = cidr, port = 443 } },
@@ -17,11 +22,11 @@ locals {
   ) : {}
   # 서비스 EC2가 사용하는 역할만 선택해 Bastion·ALB를 제외하고 같은 SG는 한 번만 연다.
   service_console_ssh_sg_ids = {
-    for role in toset([for node in values(local.nodes) : node.role]) : role => local.foundation.sg_ids[role]
+    for role in toset([for node in values(local.nodes) : node.role]) : role => local.foundation.sg_ids[role] if !contains(local.restricted_roles, role)
   }
   # Private 서비스 SG에는 관리자 공인 IP의 SSH만 추가한다. 접속 경로는 별도로 필요하다.
   private_role_sg_ids = {
-    for role in toset([for node in values(local.nodes) : node.role if node.subnet_tier == "private"]) : role => local.foundation.sg_ids[role]
+    for role in toset([for node in values(local.nodes) : node.role if node.subnet_tier == "private"]) : role => local.foundation.sg_ids[role] if !contains(local.restricted_roles, role)
   }
   private_admin_ingress = merge({}, [for role, sg_id in local.private_role_sg_ids : {
     for cidr in toset(var.traffic.admin_public_cidrs) : "private-admin/${role}/${cidr}" => {
@@ -40,7 +45,11 @@ locals {
   ingress_grouped = { for flow in values(local.active_flows) :
     "${flow.source}/${flow.target}/${flow.port}" => {
       group_id = local.sg_ids[flow.target], peer_id = local.peer_sg_ids[flow.source], port = flow.port, port_end = flow.port_end
-    }... if flow.target_account == var.account_key
+      }... if flow.target_account == var.account_key && !(
+      var.account_key == "account1" && contains(["account1/game", "account1/ad"], flow.target) &&
+      flow.port <= 8000 && flow.port_end >= 8000 &&
+      flow.source != (flow.target == "account1/game" ? "account1/game_frontend" : "account1/ad_frontend")
+    )
   }
   egress_grouped = { for flow in values(local.active_flows) :
     "${flow.source}/${flow.target}/${flow.port}" => {
@@ -59,6 +68,10 @@ locals {
       group_id = local.foundation.sg_ids["frontend"], cidr = cidr, port = 80
     }
   } : {}
+  # 공개 Front는 HTTP 인증서 검증/리다이렉트와 HTTPS만 인터넷에 연다.
+  front_https_ingress = merge({}, [for role, sg in local.front_sg_ids : {
+    for port in [80, 443] : "${role}/${port}" => { group_id = sg, cidr = "0.0.0.0/0", port = port }
+  }]...)
   # 허용한 사용자 CIDR에서 ALB의 HTTP 80으로 들어오는 요청만 연다.
   alb_ingress = local.alb_enabled ? merge({}, [for port in [80] : {
     for cidr in toset(local.public_http_cidrs) : "alb/${port}/${cidr}" => {
@@ -106,13 +119,22 @@ module "rules" {
   egress = { for k, rules in local.egress_grouped : k => merge(rules[0], {
     port_end = max([for rule in rules : rule.port_end]...)
   }) }
-  public_ingress = merge(local.admin_ingress, local.alb_ingress, local.edge_ingress, local.front_ingress, local.private_admin_ingress)
+  public_ingress = merge(local.admin_ingress, local.alb_ingress, local.edge_ingress, local.front_ingress, local.front_https_ingress, local.private_admin_ingress)
   public_egress = {
     for role, id in local.foundation.sg_ids : "https/${role}" => {
       group_id = id, cidr = "0.0.0.0/0", port = 443
     } if contains(var.traffic.internet_https_roles, role) && (!var.edge_bootstrap_only || role == "edge")
   }
   depends_on = [terraform_data.connectivity_ready]
+}
+# 두 Front만 전체 IPv4 송신을 허용한다. 다른 역할의 송신 규칙은 유지한다.
+resource "aws_vpc_security_group_egress_rule" "front_all" {
+  for_each          = local.front_sg_ids
+  security_group_id = each.value
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+  description       = "Public frontend outbound"
+  depends_on        = [terraform_data.connectivity_ready]
 }
 module "compute" {
   source     = "../../modules/compute"

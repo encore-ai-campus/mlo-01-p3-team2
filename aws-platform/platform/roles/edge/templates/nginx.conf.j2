@@ -1,4 +1,4 @@
-# Ansible edge 역할이 관리한다. HTTP는 ACME 검증 경로만 제공한다.
+# Ansible edge 역할이 관리한다. Front는 ACME 경로 외 HTTP 요청을 HTTPS로 보낸다.
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -31,7 +31,12 @@ http {
             default_type text/plain;
             try_files $uri =404;
         }
+{% if edge_http_redirect | bool %}
+        # 인증서 검증 경로를 제외한 HTTP 요청은 이 서버의 HTTPS로 이동한다.
+        location / { return 308 https://{{ edge_public_ip }}$request_uri; }
+{% else %}
         location / { return 404; }
+{% endif %}
     }
 {% if edge_tls_ready %}
     server {
@@ -50,7 +55,7 @@ http {
 {% if edge_frontend_upstreams | length > 0 %}
             proxy_pass http://edge_frontends;
             proxy_http_version 1.1;
-            proxy_set_header Host $host;
+            proxy_set_header Host {{ "$http_host" if edge_frontend_mode | bool else "$host" }};
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto https;

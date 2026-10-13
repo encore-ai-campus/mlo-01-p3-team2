@@ -1,5 +1,9 @@
 # 인벤토리와 접속·Secret 지도
 
+## Front별 입력 — 2026-10-13
+
+deploy.ps1이 account1의 두 Front에 EIP·공개 HTTPS CIDR·HTTP 리다이렉트·단일 Backend 주소를 기록한다. 네 서비스의 account1_service_restricted는 Bastion 전용 SSH 및 Backend별 8000 제한을 켠다. 기존 생성 인벤토리는 자동 변경되지 않으며 실제 배포 후 Inventory를 다시 실행해야 한다.
+
 [탐색 시작점](../../ROUTING-README.md)
 
 | 소스 경로 | 대응 문서 | 책임 |

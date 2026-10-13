@@ -1,5 +1,13 @@
 # workload: 보안규칙·서버·디스크·ALB
 
+## 2026-10-13 Account 1 Front 독립 HTTPS
+
+Account 1의 game_frontend·ad_frontend에 각각 IPv4 전체 출처 TCP 80·443을 허용한다. front_all은 이 두 SG에만 ip_protocol=-1의 전체 IPv4 송신을 생성한다. 서비스 네 역할의 콘솔 SSH와 관리자 CIDR 직접 SSH는 제외하고 Bastion SG의 TCP 22를 유지한다.
+
+Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad만 남긴다. 기존 game↔ad·MySQL→Backend 수신은 이 계정에서 필터링한다. 다른 계정의 SG와 송신 규칙은 변경하지 않는다. 이전 SG가 foundation 출력에 남아도 실제 edge 노드가 없으면 edge_ingress를 생성하지 않는다.
+
+기본 구성은 edge 없이 서비스 네 대다. 아래 이전 기록의 frontend·edge 및 Account 1 직접 SSH 설명은 이번 정책으로 대체된다. 신규 SG를 먼저 준비하고 사용 중인 옛 SG 참조를 제거한 뒤 옛 SG를 정리해야 하므로, 기존 AWS 자원이 있으면 foundation/workload Plan의 삭제 순서를 함께 검토한다. 이 변경은 AWS 적용 결과가 아니다.
+
 [탐색 시작점](../../ROUTING-README.md) · [모듈 지도](../README.md) · [통신 설정](../../config/README.md)
 
 ## 파일과 책임

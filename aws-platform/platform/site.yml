@@ -76,7 +76,7 @@
     - { role: backend, tags: [backend, mysql_router] }
 
 - name: 진입 서버 HTTPS
-  hosts: edge
+  hosts: edge:game_frontend:ad_frontend
   become: true
   environment: "{{ proxy_environment }}"
   roles:

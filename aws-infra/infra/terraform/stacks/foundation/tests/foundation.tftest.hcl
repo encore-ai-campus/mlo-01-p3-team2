@@ -12,7 +12,7 @@ run "account1_proxy" {
     error_message = "Proxy 기본값은 NAT 0개, Account 1 서브넷 4개여야 합니다."
   }
   assert {
-    condition     = toset(keys(output.foundation.sg_ids)) == toset(["ad", "bastion", "frontend", "game", "edge"])
+    condition     = toset(keys(output.foundation.sg_ids)) == toset(["ad", "bastion", "game_frontend", "ad_frontend", "game"])
     error_message = "Account 1의 역할 SG가 잘못되었습니다."
   }
 }

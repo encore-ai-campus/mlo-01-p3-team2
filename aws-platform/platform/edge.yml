@@ -1,7 +1,7 @@
 ---
-# 단일 Public edge 인벤토리로도 실행한다. DB Vault나 Bastion은 필수가 아니다.
+# 각 Front에서 독립 인증서와 Nginx를 구성한다. SSH 경유는 인벤토리를 따른다.
 - name: 진입 서버 HTTPS 구축
-  hosts: edge
+  hosts: edge:game_frontend:ad_frontend
   become: true
   any_errors_fatal: true
   pre_tasks:

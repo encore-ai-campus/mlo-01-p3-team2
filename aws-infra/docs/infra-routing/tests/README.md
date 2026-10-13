@@ -1,5 +1,9 @@
 # 테스트 코드 탐색
 
+## Account 1 독립 HTTPS 회귀 — 2026-10-13
+
+workload 모의 검사 33개가 통과했다. edge.tftest.hcl은 파일명만 유지하며 현재는 edge 미생성·서비스 네 대·Front 두 EIP·t3 사양·외부 80/443·전체 송신·Backend별 8000·Bastion 전용 SSH를 검사한다. 기존 foundation fixture의 옛 SG가 남아도 edge 공개 규칙이 생기지 않는지 확인한다. 다른 계정의 console-ssh·school-access·application-flows·Spark·Consumer 검사는 유지했다. AWS API와 원격 상태는 모두 모의 처리했다.
+
 [탐색 시작점](../ROUTING-README.md) · [기존 검증 기록](../../../infra/tests/TEST-README.md) · [Python 구조 분석](test_runner.py.md)
 
 현재 테스트 파일과 확인된 실행 기록을 안내한다. 2026-10-10 서비스 콘솔 SSH 모의 테스트 5개는 통과했다. ALB 비활성화 검사에 맞춰 기존 workload의 Bastion 분리·MySQL 3대·계정 간 SG 참조 기대값도 현재 구현에 맞췄다. 테스트의 존재, 정적 대조와 실제 실행 결과는 각각 구분한다.

@@ -1,5 +1,13 @@
 # edge: Nginx와 공인 IP HTTPS
 
+## 현재 Front 두 대의 독립 설치 — 2026-10-13
+
+설치 코드 이름은 edge를 유지하지만 별도 edge EC2를 생성하지 않는다. site.yml·edge.yml은 game_frontend와 ad_frontend에도 이 역할을 각각 실행한다. 두 서버는 Nginx·Certbot·자기 EIP 인증서·갱신 타이머를 각각 갖는다.
+
+deploy.ps1이 Front마다 edge_frontend_mode=true, edge_http_redirect=true, 공개 CIDR 0.0.0.0/0과 Backend 사설 IP:8000 하나를 전달한다. HTTP ACME 경로는 검증 파일을 제공하고 다른 요청은 HTTPS로 308 이동한다. HTTPS의 모든 앱 경로는 자기 Backend로 전달한다. HSTS는 설정하지 않는다. Backend 앱 설치·바인딩·정적 파일 제공은 이 역할 범위 밖이다.
+
+아래의 404·빈 준비 화면·다중 Front 분산 설명은 기본값을 사용하는 기존 edge 호출에 해당한다. 현재 Front 모드에서는 목적지가 반드시 하나여야 한다. 로컬 YAML/Ansible 문법과 두 Front·방화벽 렌더링을 검증했으며 실제 인증서 발급 및 원격 nginx -t는 실행하지 않았다.
+
 [역할 지도](../README.md) · [단독 playbook](../../edge.yml.md) · [통합 playbook](../../site.yml.md)
 
 Ubuntu 24.04 진입 서버에 Nginx와 별도 Python 가상환경의 Certbot 5.8.0을 설치한다. 기존 Front 두 대의 배포나 앱 설치는 포함하지 않는다. site.yml --tags edge 또는 독립 edge.yml로 호출한다.

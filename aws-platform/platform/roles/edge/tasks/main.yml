@@ -6,6 +6,7 @@
       - edge_https_allowed_cidrs | length > 0
       - edge_https_allowed_cidrs is not string
       - edge_frontend_upstreams is not string
+      - not (edge_frontend_mode | bool) or edge_frontend_upstreams | length == 1
       - edge_certbot_version is version('5.4.0', '>=')
     fail_msg: 실제 EIP와 허용할 사용자 IPv4 CIDR, Certbot 5.4 이상을 지정한다.
 

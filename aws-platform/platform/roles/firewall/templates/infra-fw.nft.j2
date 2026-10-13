@@ -1,7 +1,8 @@
 # Ansible로 관리한다 (roles/firewall). 전용 테이블 하나만 관리하며 다른 도구의 규칙은 건드리지 않는다.
 # 테이블을 비우고 다시 만드는 것을 한 번의 트랜잭션으로 적용한다 (nft -f).
 {% set ssh_ips = [] %}
-{% for g in firewall_ssh_sources %}
+{% set restricted = account1_service_restricted | default(false) | bool %}
+{% for g in (['bastion'] if restricted else firewall_ssh_sources) %}
 {% for h in groups.get(g, []) %}
 {% set _ = ssh_ips.append(hostvars[h].ip) %}
 {% endfor %}
@@ -20,7 +21,7 @@ table inet infra_fw {
     icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
 
     # SSH
-{% if firewall_ssh_anywhere %}
+{% if firewall_ssh_anywhere and not restricted %}
     tcp dport 22 accept
 {% elif ssh_ips | length > 0 %}
     ip saddr { {{ ssh_ips | unique | join(', ') }} } tcp dport 22 accept
@@ -34,7 +35,19 @@ table inet infra_fw {
     # HTTPS 사용자 범위. 값이 없으면 443은 닫힌 상태로 유지한다.
     ip saddr { {{ edge_https_allowed_cidrs | join(', ') }} } tcp dport 443 accept
 {% endif %}
-{% for g in group_names if g in firewall_rules %}
+{% if restricted %}
+    # Account 1의 서비스만 제한한다. 응답 패킷은 위 established 규칙에서 허용한다.
+{% if 'game_frontend' in group_names or 'ad_frontend' in group_names %}
+    tcp dport { 80, 443 } accept
+{% else %}
+{% set front_group = 'game_frontend' if 'game' in group_names else 'ad_frontend' %}
+{% set front_ips = groups.get(front_group, []) | map('extract', hostvars, 'ip') | list %}
+{% if front_ips | length > 0 %}
+    ip saddr { {{ front_ips | join(', ') }} } tcp dport 8000 accept
+{% endif %}
+{% endif %}
+{% endif %}
+{% for g in group_names if g in firewall_rules and not restricted %}
 {% set rule = firewall_rules[g] %}
 {% set ips = [] %}
 {% for src in rule.get('from', []) %}

@@ -1,5 +1,7 @@
 # site.yml
 
+2026-10-13 HTTPS play의 대상은 edge:game_frontend:ad_frontend다. 기존 설치 역할을 각 Front 호스트에서 독립적으로 실행하며 Django나 광고 앱 배포를 추가하지 않는다.
+
 [탐색 시작점](../ROUTING-README.md) · [역할 지도](roles/README.md) · [원본 파일](../../site.yml)
 
 ## 역할

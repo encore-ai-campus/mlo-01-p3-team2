@@ -1,5 +1,9 @@
 # firewall: nftables 방화벽
 
+## Account 1 제한 — 2026-10-13
+
+생성 인벤토리의 account1_service_restricted=true인 네 서비스는 별도 분기한다. SSH는 Bastion 사설 IP만 허용하며 firewall_ssh_anywhere 및 monitoring 출처 예외를 적용하지 않는다. 두 Front는 외부 TCP 80·443을 받고, game/ad는 각각 game_frontend/ad_frontend IP의 TCP 8000만 받는다. established 응답과 기본 OS 네트워크 규칙은 유지한다. 다른 계정은 기존 역할 규칙을 그대로 렌더링한다. 송신을 막는 output 체인은 이 템플릿에 없다.
+
 [탐색 시작점](../../../ROUTING-README.md) · [역할 목록](../README.md) · [최상위 playbook](../../site.yml.md)
 
 ## 진입점과 대상

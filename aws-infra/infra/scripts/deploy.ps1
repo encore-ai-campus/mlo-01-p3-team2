@@ -162,6 +162,23 @@ function Write-DeploymentInventory {
             proxy_port = $traffic.ports.proxy
             proxy_client_cidrs = @($accountNames | ForEach-Object { $topology.accounts.$_.vpc_cidr })
         }
+        # Account 1 서비스는 Bastion SSH만 사용한다. Backend는 자기 Front의 8000만 수신한다.
+        if ($record.Account -eq 'account1' -and $record.Role -in @('game_frontend', 'ad_frontend', 'game', 'ad')) {
+            $hostVars.account1_service_restricted = $true
+        }
+        if ($record.Account -eq 'account1' -and $record.Role -in @('game_frontend', 'ad_frontend')) {
+            if (-not $instance.PublicIpAddress) { throw "$($record.Name)의 공인 IP가 없습니다." }
+            $backendRole = if ($record.Role -eq 'game_frontend') { 'game' } else { 'ad' }
+            $backendRecords = @($records | Where-Object { $_.Account -eq 'account1' -and $_.Role -eq $backendRole })
+            if ($backendRecords.Count -ne 1) { throw "$backendRole Backend는 정확히 한 대여야 합니다." }
+            $backendInstance = $live[$backendRecords[0].Id]
+            if (-not $backendInstance.PrivateIpAddress) { throw "$backendRole Backend 사설 IP가 없습니다." }
+            $hostVars.public_ip = $instance.PublicIpAddress
+            $hostVars.edge_https_allowed_cidrs = @('0.0.0.0/0')
+            $hostVars.edge_http_redirect = $true
+            $hostVars.edge_frontend_mode = $true
+            $hostVars.edge_frontend_upstreams = @(@{ host = $backendInstance.PrivateIpAddress; port = 8000 })
+        }
         if ($record.Role -eq 'edge') {
             if (-not $instance.PSObject.Properties['PublicIpAddress'] -or -not $instance.PublicIpAddress) { throw '진입 서버의 EIP가 없습니다.' }
             $hostVars.public_ip = $instance.PublicIpAddress

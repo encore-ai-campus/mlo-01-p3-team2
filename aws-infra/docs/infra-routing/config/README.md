@@ -1,5 +1,11 @@
 # 설정 파일 지도
 
+## 2026-10-13 현재 Account 1 구성
+
+기본 및 profiles/current의 front-a는 game_frontend, front-b는 ad_frontend이며 둘 다 Public A·t3.small·EIP다. game-server와 ad-server는 Private A·t3.large·공인 IP 없음이다. edge-1과 edge_front 연결, SSH·Proxy·인터넷 송신 목록의 edge 항목을 제거했다. 노드 키·디스크·다른 계정·공통 A/C 서브넷은 유지한다.
+
+front_game은 game_frontend→game, front_ad는 ad_frontend→ad TCP 8000으로 나뉜다. admin_nodes·forward_proxy는 새 Front 역할을 참조한다. Account 1의 외부 공개/SSH 및 추가 Backend 수신 제한은 workload에서 적용한다. 다른 계정 규칙 보존을 위해 traffic에 남은 MySQL→Backend 송신 선언을 지우지 않는다. 아래 과거 edge·공통 frontend 설명은 이 구성으로 대체된다.
+
 [탐색 시작점](../ROUTING-README.md) · [model 검증](../terraform/README.md#model) · [공통 입력 검사](../scripts/lib/infra-common.ps1.md)
 
 ## 파일별 책임

@@ -9,9 +9,9 @@ AWS EC2의 배치·네트워크·보안규칙·상태를 Terraform과 PowerShell
 - 서울 리전 ap-northeast-2, 모든 서버를 논리 A=apne2-az1에 배치한다. 네트워크의 A·C(apne2-az3) 서브넷과 공통 AZ 설정은 유지한다.
 - 독립 VPC 다섯 개를 모든 쌍의 직접 Peering 10개로 연결한다.
 - Account 1만 Public 서브넷·IGW를 사용하며, 기본 및 current 설정의 ALB는 비활성화돼 있다. 기본 NAT Gateway 수는 0개다.
-- 서비스 EC2 18대는 workload 상태에, 선택적으로 생성하는 Bastion 한 대는 별도 bastion 상태에 둔다.
-- Front 두 대와 진입용 edge-1은 EIP를 사용하고, Bastion은 실행 중 자동 공인 IP를 받는다. Bastion의 중지·시작 뒤 주소가 달라질 수 있다.
-- ALB와 전용 연결 3개를 기본 및 current 설정에서 제외했다. Front→게임·광고 TCP 8000은 유지하며 외부 사용자는 edge의 HTTPS로 진입한다. SG 허용과 실제 Nginx·인증서 설치 성공은 별도다.
+- 서비스 EC2 17대는 workload 상태에, 선택적으로 생성하는 Bastion 한 대는 별도 bastion 상태에 둔다.
+- 게임·광고 Front 두 대는 각각 EIP를 사용하고, Bastion은 실행 중 자동 공인 IP를 받는다. Bastion의 중지·시작 뒤 주소가 달라질 수 있다.
+- ALB와 전용 연결 3개를 기본 및 current 설정에서 제외했다. 게임 Front→게임 Backend, 광고 Front→광고 Backend TCP 8000을 사용하며 외부 사용자는 각 Front의 HTTPS로 진입한다. SG 허용과 실제 Nginx·인증서 설치 성공은 별도다.
 - 프라이빗 서버의 다운로드는 Bastion Squid:3128을 명시적으로 사용한다. Proxy 프로그램·APT·Ansible 다운로드 준비와 서비스 설치는 서로 다른 단계다.
 
 2026-10-10 광고 서버의 선언 배치를 account1 Private C에서 Private A로 변경했다. 기본 topology와 로컬 current 프로필을 함께 수정했으며 실제 AWS 이전은 아직 적용하지 않았다. EC2 교체 전 루트 디스크의 앱·설정·데이터 보존과 account1 workload의 전체 변경 계획을 확인해야 한다.
@@ -25,26 +25,25 @@ AWS EC2의 배치·네트워크·보안규칙·상태를 Terraform과 PowerShell
 | Spark·ZooKeeper | 3 | t3a.large | 100GiB/대 |
 | 평탄화 Consumer | 1 | t3a.medium | 없음 |
 | MySQL | 3 | t3a.small | 100GiB/대 |
-| Front | 2 | t3a.small | 없음 |
-| 진입 서버 edge-1 | 1 | t3a.small | 없음 |
-| game-server | 1 | t3a.large | 없음 |
-| ad-server | 1 | t3a.large | 없음 |
+| 게임·광고 Front | 2 | t3.small | 없음 |
+| game-server | 1 | t3.large | 없음 |
+| ad-server | 1 | t3.large | 없음 |
 | Bastion | 선택 1 | t3a.small | 없음 |
-| 합계 | Bastion 포함 19 | small 10 + medium 1 + large 8 | 3,900GiB |
+| 합계 | Bastion 포함 18 | small 9 + medium 1 + large 8 | 3,900GiB |
 
-OS 디스크는 20GiB/대다. Bastion을 포함한 전체 EBS 선언량은 4,280GiB이며, 데이터 디스크 생성·연결이 포맷·마운트나 서비스 데이터 저장 위치 설정을 수행하지는 않는다. 사양과 용량은 초기 설정값이며 실측 성능 권장치가 아니다.
+OS 디스크는 20GiB/대다. Bastion을 포함한 전체 EBS 선언량은 4,260GiB이며, 데이터 디스크 생성·연결이 포맷·마운트나 서비스 데이터 저장 위치 설정을 수행하지는 않는다. 사양과 용량은 초기 설정값이며 실측 성능 권장치가 아니다.
 
 ## 계정과 AZ 배치
 
 | 계정 / VPC | A | C | 서비스 / Bastion 포함 |
 | --- | --- | --- | ---: |
-| account1 · 10.10.0.0/16 | Public Bastion·front-a·front-b·edge-1, Private game-server·ad-server | 서버 없음 · 서브넷 유지 | 5 / 6 |
+| account1 · 10.10.0.0/16 | Public Bastion·front-a·front-b, Private game-server·ad-server | 서버 없음 · 서브넷 유지 | 4 / 5 |
 | account2 · 10.20.0.0/16 | Private mongo-1·spark-2·flatten-1 | 서버 없음 · 서브넷 유지 | 3 / 3 |
 | account3 · 10.30.0.0/16 | Private kafka-1·mysql-1·spark-1·mongo-2 | 서버 없음 · 서브넷 유지 | 4 / 4 |
 | account4 · 10.40.0.0/16 | Private kafka-2·mysql-3·spark-3 | 서버 없음 · 서브넷 유지 | 3 / 3 |
 | account5 · 10.50.0.0/16 | Private mongo-3·mysql-2·kafka-3 | 서버 없음 · 서브넷 유지 | 3 / 3 |
 
-선언상 A 19대·C 0대는 선택 Bastion 포함 수량이다. 계정 콘솔의 AZ 끝 글자는 물리 AZ ID와 구분한다. 상세 배치는 [계정 배치](docs/costs/account-allocation.md), SG 관계는 [보안규칙](docs/security-groups.md)에 있다.
+선언상 A 18대·C 0대는 선택 Bastion 포함 수량이다. 계정 콘솔의 AZ 끝 글자는 물리 AZ ID와 구분한다. 상세 배치는 [계정 배치](docs/costs/account-allocation.md), SG 관계는 [보안규칙](docs/security-groups.md)에 있다.
 
 2026-10-13 기본 topology와 로컬 profiles/current의 front-b·mongo-2·spark-3·mysql-2·kafka-3를 A로 변경했다. 서버 수·역할·Public/Private 구분·사양·디스크와 공통 az_ids는 유지하며 C 서브넷도 남긴다. 이 설명은 설정 변경이며 실제 AWS 이전 완료를 뜻하지 않는다. 기존 환경은 영향 계정의 새 workload Plan에서 EC2·데이터 EBS 교체 범위를 검토하고, 적용 후 인벤토리와 IP를 사용하는 서버 설정을 갱신한다.
 
@@ -62,7 +61,7 @@ OS 디스크는 20GiB/대다. Bastion을 포함한 전체 EBS 선언량은 4,280
 flowchart TB
     CONFIG["topology · traffic · backend"] --> F["foundation × 5"]
     F --> C["connectivity · shared"]
-    C --> W["workload × 5 · 서비스 18대"]
+    C --> W["workload × 5 · 서비스 17대"]
     F --> B["bastion · 선택 1대"]
     W --> I["Inventory · 현재 IP와 계정별 키"]
     B --> I
