@@ -222,6 +222,9 @@ erDiagram
         int floor_amount
         int base_amount
         int cap_amount
+        int impression_share "비율 %(6-10b)"
+        int click_share
+        int conversion_share
         uuid changed_by
         string reason
     }
@@ -455,6 +458,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `floor_amount` | 정수 | N | `CHECK 0 < floor ≤ base ≤ cap ≤ 2^53−1` | 하한. 미만이면 노출 안 됨 |
 | `base_amount` | 정수 | N | 〃 | 기준가. 입찰 화면 기본값(V1 선택 알고리즘은 쓰지 않음) |
 | `cap_amount` | 정수 | N | 〃 | 상한. 초과 입찰은 상한으로 적용 |
+| `impression_share`·`click_share`·`conversion_share` | 작은 정수 | N | `CHECK` 각각 1~98, `CHECK` 합 = 100 | 반응 유형별 과금 비율(%) [구현 6-10b]. 반응 하나의 과금 = 내림(적용 금액 × 그 유형의 % ÷ 100) — 과금 전환은 6-10c(설계서 §10 "구성별 반응 비율 과금"). 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음, 구현 계획 §8.4.11 K1) |
 | `changed_by` | UUID | N | FK 아님 | 바꾼 관리자 |
 | `changed_at` | 시각 | N | | |
 | `reason` | 문자 200 | N | | 사유 필수. 단 슬롯을 만들 때(버전 1)는 비워도 되고 "없음"이 들어간다(6-8c) — 가격을 바꾸는 새 버전·일괄 변경은 필수 |
@@ -703,6 +707,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 규칙 | DB 제약 | 서비스 규칙 | 테스트(대표) |
 |---|---|---|---|
 | 정책 `0 < 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증 | `test_policy_check_constraint_in_db` |
+| 정책 비율 각각 1~98, 합 100(6-10b) | `CHECK` 둘 | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `test_policy_check_constraint_in_db`, `test_charge_shares_are_checked_the_same_way_in_all_three_places` |
 | 입찰·정책·원장·결정·감사는 추가만 | — | `AppendOnlyModel` | `test_*_is_append_only*` |
 | 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
 | 과금 단위 불변(슬롯·광고그룹) | — | 모델 `save()` 거부, `unit_immutable` | `test_*_pricing_unit_immutable` |
@@ -1257,6 +1262,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.45 | 2026-10-13 | Step 6-10b(구현 계획 §8.4.11): M3 입찰 정책에 반응 유형별 과금 비율 `impression_share`·`click_share`·`conversion_share`(각각 1~98, 합 100 — DB `CHECK` 둘, 서비스 세 곳 같은 검사), ERD·무결성 표. 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음 — 데이터가 있으면 비율 제약에서 멈춘다). 과금은 아직 단위로 한다(6-10c에서 비율로) |
 | 0.44 | 2026-10-13 | Step 6-9d 화면(구현 계획 §8.4.10, 스키마 변화 없음): O1 `request_key`는 캠페인 만들기의 키, O2 `request_key`가 광고 만들기의 키(불변식·멱등 키 표, 구조도) |
 | 0.43 | 2026-10-13 | Step 6-9c 소재 목록(구현 계획 §8.4.10, 설계서 §10 "소재 목록", 마이그레이션 `campaigns/0007` — 기존 소재는 소유자 = 캠페인 주인, 붙어 있던 광고그룹에 연결·선택으로 옮김): O4 소재 `owner_id`·`archived_at`(광고그룹 FK 삭제), O2 광고그룹 `creative_id`(선택)·`request_key`, 새 O9 광고그룹-소재 연결(추가 전용), O7 보유량·서빙 판정 기준, R-6 보관, 구조도 |
 | 0.42 | 2026-10-13 | Step 6-9b(구현 계획 §8.4.10): 소재 `enabled` 열 삭제(마이그레이션 `campaigns/0006`) — 소재 끄기를 없앴다(광고그룹을 끈다). R-6·구조도·소재 표·팀 DRD 대응표 |
