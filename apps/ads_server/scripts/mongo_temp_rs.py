@@ -8,7 +8,6 @@
 포트·비밀번호는 무작위, 공유 컨테이너는 건드리지 않는다. 구성원 주소를 `127.0.0.1:<포트>` 로 정해 호스트에서 레플리카셋으로 접속할 수 있다.
 """
 import secrets
-import socket
 import sys
 import time
 import uuid
@@ -26,13 +25,10 @@ docker = partial(docker_cli.docker, timeout=120)  # 이 스크립트의 시간 �
 def start():
     if docker("image", "inspect", IMAGE, check=False).returncode != 0:
         raise SystemExit(f"이미지 {IMAGE} 가 없다. intake/db-standalone 에서 `docker compose build mongodb` 로 만든다.")
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+    port = docker_cli.free_port()
     name, password = f"ads-mongo-rs-{uuid.uuid4().hex[:10]}", secrets.token_urlsafe(24)
     # 컨테이너 안 포트도 같은 값으로 맞춘다 — 레플리카셋 구성원 주소가 호스트에서도 그대로 닿아야 한다.
     script = (f"rm -f /tmp/keyfile && openssl rand -base64 48 > /tmp/keyfile && chmod 400 /tmp/keyfile && "  # 재시작 때 읽기 전용 키 파일 위에 다시 쓰지 못해 죽지 않게 먼저 지운다
-              
               f"exec mongod --dbpath /data/db --bind_ip_all --port {port} --replSet {REPLICA_SET} --keyFile /tmp/keyfile")
     docker("run", "-d", "--name", name, "-p", f"127.0.0.1:{port}:{port}", "--entrypoint", "sh", IMAGE, "-c", script)
     try:

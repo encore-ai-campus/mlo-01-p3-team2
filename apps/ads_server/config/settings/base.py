@@ -1,4 +1,4 @@
-"""공통 설정. **환경변수를 읽지 않는다**(dev·prod 가 읽고, test 는 읽지 않는다)."""
+"""공통 설정. **환경변수를 읽지 않는다**(dev·prod 가 읽고, test 는 접속 값(DB_*·MONGO_*)만 읽는다)."""
 from datetime import timedelta
 from pathlib import Path
 
@@ -146,7 +146,7 @@ DATA_UPLOAD_MAX_NUMBER_FILES = 5
 ASSET_MAX_BYTES = 2 * 1024 * 1024  # 업로드 용량 상한. 1~2MB 범위에서 팀이 정한다(설계 §7-5). env 로 바꿀 수 있다.
 ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크기 규격 제한이 아니다)
 ASSET_STORAGE = "assets.storage.LocalFileStorage"
-ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
+ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. dev·prod 가 `campaigns.api.is_asset_servable` 로 연결한다(assets 는 campaigns 를 모른다).
 # 업로드 전체 크기 가드는 foundation.middleware.RequestBodyLimitMiddleware 가 맡는다(본문을 읽기 전에 413).
 
 # --- 포인트·예산 (설계 §4.7) ---
@@ -205,7 +205,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영에서는 WhiteNoise 가 시작할 때 읽어 Django 가 서빙한다 — 모은 뒤 재시작(prod 는 환경변수로 바꿀 수 있다).
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영에서는 WhiteNoise 가 시작할 때 읽어 Django 가 서빙한다 — 모은 뒤 재시작(dev·prod 는 환경변수 STATIC_ROOT 로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 def mysql_config(name, user, password, host, port, isolation_level="read committed"):

@@ -24,10 +24,6 @@ _JSON_CT = re.compile(r"^application/json\s*(;.*)?$", re.IGNORECASE)
 MAX_JSON_NUMBER = MAX_AMOUNT
 
 
-def is_api_path(path):
-    return path.startswith(API_PREFIX)
-
-
 # ---------- JSON 파싱 ----------
 
 def _reject_constant(name):
@@ -165,7 +161,7 @@ def _html_error(status, title, message):
 
 def error_response(request, error, message):
     """API 경로는 problem+json, 화면 경로는 HTML 오류 화면."""
-    if is_api_path(request.path):
+    if request.path.startswith(API_PREFIX):
         return problem_response(request, error)
     return _html_error(error.status, error.title, message)
 

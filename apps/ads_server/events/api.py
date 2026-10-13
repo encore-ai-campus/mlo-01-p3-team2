@@ -28,16 +28,12 @@ def record_charge(*, now=None, **fields):
     return enqueue(schemas.CHARGE, fields["entry_id"], fields["decision_id"], payload, now)
 
 
-def event_id_for(event_name, source_id):
-    return schemas.event_id_of(event_name, source_id)
-
-
 NAMES = {"decision": schemas.DECISION, "reaction_received": schemas.REACTION_RECEIVED, "reaction": schemas.REACTION, "charge": schemas.CHARGE}
 write_ndjson, verify_ndjson, read_manifest, NdjsonError = ndjson.write, ndjson.verify, ndjson.read_manifest, ndjson.NdjsonError
 manifest_digest, verify_chain, manifest_path = ndjson.manifest_digest, ndjson.verify_chain, ndjson.manifest_path
 run_lock = ndjson.run_lock
 
-SCHEMA_VERSION = schemas.SCHEMA_VERSION
+SCHEMA_VERSION, event_id_for = schemas.SCHEMA_VERSION, schemas.event_id_of
 decision_payload, reaction_received_payload, reaction_payload, charge_payload = (
     schemas.decision_payload, schemas.reaction_received_payload, schemas.reaction_payload, schemas.charge_payload)
 normal_document, summarize = hops.normal_document, hops.summarize

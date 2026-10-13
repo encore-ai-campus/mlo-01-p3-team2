@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # InnoDB Cluster(3노드 + Router, 자동 failover)에서 전체 점검과 150 동시 부하를 돌린다. 운영과 비슷한 환경에서의 시험이다(Docker 필요, 수 분).
 #
-#   scripts/cluster_check.sh            클러스터를 띄워 check.sh(전체 시험 977개·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
+#   scripts/cluster_check.sh            클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
 #   scripts/cluster_check.sh --failure  거기에 클러스터 장애 시험(primary 강제 종료·계획된 전환 등, 자체 클러스터를 따로 띄운다)까지
 #   PYTHON=/path/to/python              사용할 파이썬(기본: python)
 #

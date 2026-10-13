@@ -39,7 +39,7 @@ class ProdSettingsTests(SimpleTestCase):
             self.assertIn("TRUSTED_PROXY_COUNT", r.stderr, bad)
         r = run_python(show, "config.settings.prod", dict(PROD_ENV, TRUSTED_PROXY_COUNT="2"))
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "2"), r.stderr[-300:])
-        r = run_python(show, "config.settings.dev", DB_ENV)  # dev(로컬 runserver)는 지금처럼 0
+        r = run_python(show, "config.settings.dev", dict(DB_ENV, TRUSTED_PROXY_COUNT=""))  # dev(로컬 runserver)는 지금처럼 0(빈 값은 없는 것과 같다)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "0"), r.stderr[-300:])
 
     def test_prod_web_starts_without_an_event_store(self):

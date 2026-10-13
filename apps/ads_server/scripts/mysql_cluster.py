@@ -2,7 +2,6 @@
 """시험용 MySQL InnoDB Cluster(그룹 복제, 단일 primary, 자동 failover) 3노드 + MySQL Router 1대를 Docker 로 띄운다.
 
     python scripts/mysql_cluster.py start      클러스터를 만들고 접속 값을 셸 `export` 문으로 출력한다 → eval "$(python scripts/mysql_cluster.py start)"
-    python scripts/mysql_cluster.py status ID  클러스터 상태(AdminAPI `cluster.status()`)
     python scripts/mysql_cluster.py stop ID    컨테이너·네트워크를 지운다(ID 는 start 가 출력하는 MYSQL_CLUSTER_ID)
 
 운영과 비슷하게 맞춘 것: 서버 8.4.11 generic tarball(인프라의 이미지와 같은 방식), 노드 3개(GTID·ROW 바이너리 로그·`BEFORE_ON_PRIMARY_FAILOVER` 일관성), Router 는 클러스터 메타데이터로
@@ -11,7 +10,6 @@
 """
 import json
 import secrets
-import socket
 import sys
 import time
 import uuid
@@ -35,12 +33,6 @@ def ensure_image():
         docker("build", "-t", IMAGE, str(BASE_DIR / "docker" / "innodb-cluster"), timeout=1800)
 
 
-def free_port():
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 class Cluster:
     def __init__(self):
         self.id = uuid.uuid4().hex[:8]
@@ -48,7 +40,7 @@ class Cluster:
         self.nodes = [f"ads-ic-{self.id}-n{i}" for i in range(1, NODES + 1)]
         self.router = f"ads-ic-{self.id}-router"
         self.root_password, self.admin_password, self.dev_password = (secrets.token_urlsafe(18) for _ in range(3))
-        self.port = free_port()  # 호스트에서 본 Router 읽기·쓰기 포트
+        self.port = docker_cli.free_port()  # 호스트에서 본 Router 읽기·쓰기 포트
 
     # ------------------------------------------------------------------ 구성
     def start(self):

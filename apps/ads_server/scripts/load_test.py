@@ -52,7 +52,6 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
     from collections import defaultdict
-    from datetime import timedelta
 
     from django.conf import settings
     from django.utils import timezone
@@ -215,7 +214,6 @@ class LagSampler(threading.Thread):
 
     def report(self, grace_seconds):
         """{"events", "max_lag_s", "late", "unobserved"}. `late`: 지연이 여유보다 컸던 이벤트, `unobserved`: 훑는 범위 안에서 한 번도 못 본 이벤트(= 지연이 훑는 범위보다 컸다)."""
-        from django.conf import settings  # noqa: F401
         from events.models import EventOutbox
 
         every = set(EventOutbox.objects.filter(created_at__gte=self.started - timedelta(seconds=5)).values_list("event_id", flat=True))
@@ -253,8 +251,9 @@ def verify_events(relayed=False):
         row = outbox[event_id]
         envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSION), "produced_at": (row.created_at, produced_at)}
         bad_envelope = [k for k, (got, want) in envelope.items() if got != want]
-        if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not relay.same_document({"p": row.payload}, {"p": payload}):
-            wrong.setdefault(name, []).append((event_id, bad_envelope + (_differing_keys(row.payload, payload) if not relay.same_document({"p": row.payload}, {"p": payload}) else [])))
+        same = relay.same_document({"p": row.payload}, {"p": payload})
+        if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not same:
+            wrong.setdefault(name, []).append((event_id, bad_envelope + ([] if same else _differing_keys(row.payload, payload))))
     for name, items in sorted(wrong.items()):
         problems.append(f"원본 행과 내용이 다른 {name} 이벤트 {len(items)}건 (예: {items[0][0]} 의 {items[0][1]})")
     if relayed:
@@ -464,7 +463,7 @@ class Harness:
         return call(self.port, "GET", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key)
 
     def drain(self):
-        out = subprocess.run([sys.executable, "manage.py", "process_reactions", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
+        out = self._manage("process_reactions", "--once")
         if out.returncode != 0:
             raise RuntimeError(out.stderr[-500:])
         return out.stdout.strip()
@@ -497,14 +496,8 @@ class Harness:
         left = EventOutbox.objects.filter(sent_at__isnull=True).count()
         self.check("상시 중계 프로세스만으로 outbox 가 비워진다(별도 명령 없이)", left == 0, f"남은 미전송 {left}건")
         self.check("상시 중계 프로세스 둘이 살아 있다", all(p.poll() is None for p in relays), str([p.poll() for p in relays]))
-        for proc in relays:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-        out = subprocess.run([sys.executable, "manage.py", "relay_events", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
+        stop_processes(relays)
+        out = self._manage("relay_events", "--once")
         self.check("남은 이벤트를 --once 로 비운다", out.returncode == 0, out.stderr[-200:])
 
     # ------------------------------------------------------------ H. Step 4-3 (구간 manifest·백필)
@@ -538,8 +531,6 @@ class Harness:
 
     def backfill_drill(self, count=60):
         """백필 훈련: 이벤트를 일부러 지워(outbox 와 MongoDB 에서) '이벤트가 없는 원본 행'을 만들고, 목록 → 백필 → 중계 → 점검이 모두 맞물려 원래대로 돌아오는지 본다."""
-        import random
-
         from events import ndjson, store
         from events.models import EventOutbox
 
@@ -878,17 +869,23 @@ class Harness:
                     assert response.status_code == 201
                 samples_ms[label] = round(statistics.median(times), 2)
             buckets.reset()
-        for body_id in Decision_ids_since(samples * 2 + 1):
-            self.acked_decisions.add(body_id)
+        from records.models import Decision
+
+        self.acked_decisions.update(str(i) for i in Decision.objects.order_by("-decided_at").values_list("decision_id", flat=True)[: samples * 2 + 1])
         cost = round(samples_ms["with_slot_name"] - samples_ms["without_slot_name"], 2)
         self.cost = {"queries_per_decision_post": sum(kinds.values()), "by_kind": kinds, "median_ms": samples_ms, "slot_name_cost_ms": cost}
         self.log(f"G. 결정 요청 1건: 질의 {sum(kinds.values())}개 {kinds}, 서버 안쪽 중앙값 {samples_ms} ms, slot_name 조회 비용 ≈ {cost} ms")
 
 
-def Decision_ids_since(count):
-    from records.models import Decision
-
-    return [str(i) for i in Decision.objects.order_by("-decided_at").values_list("decision_id", flat=True)[:count]]
+def stop_processes(procs):
+    """살아 있는 하위 프로세스를 끝낸다(SIGTERM, 30초 안에 끝나지 않으면 SIGKILL)."""
+    for proc in procs:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 # ---------------------------------------------------------------- 실행
@@ -935,13 +932,7 @@ def cleanup(res, keep):
             sys.modules["django.db"].connections.close_all()
 
     def stop_relays():
-        for proc in res["relays"]:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+        stop_processes(res["relays"])
 
     def drop_mongo():
         name = res["mongo_db"]
