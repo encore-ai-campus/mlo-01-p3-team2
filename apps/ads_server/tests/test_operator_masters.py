@@ -50,8 +50,9 @@ class MediaPageTests(OperatorBase):
     def test_service_errors_are_shown_on_the_form(self):
         masters.create_media(self.admin, "같은 이름")
         r = self.client.post(reverse("operator:media_list"), {"name": "같은 이름"})
-        self.assertContains(r, "같은 이름의 매체가 이미 있습니다.", status_code=400)
+        self.assertContains(r, "같은 이름의 매체가 이미 있습니다.", status_code=409)  # 상태 충돌은 409, 입력 오류는 400(console.errors.status_of)
         self.assertContains(self.client.post(reverse("operator:media_list"), {"name": "  "}), "매체 이름", status_code=400)
+        self.assertEqual(self.client.post(reverse("operator:media_list"), {"name": ""}).status_code, 400)  # 서비스까지 가지 않는 폼 오류
 
     def test_toggle_media_active(self):
         media = masters.create_media(self.admin, "매체")
@@ -100,7 +101,13 @@ class SlotPageTests(OperatorBase):
     def test_policy_errors_go_next_to_the_fields(self):
         r = self.post_slot(floor=30, base=20)
         self.assertContains(r, "하한 ≤ 기준가 ≤ 상한이어야 합니다.", status_code=400)
+        self.assertEqual(self.post_slot(floor="").status_code, 400)  # 서비스까지 가지 않는 폼 오류
         self.assertEqual(masters.list_slots(active_only=False, media_id=self.media.media_id), [])
+
+    def test_a_name_already_in_the_media_is_a_conflict(self):
+        self.assertRedirects(self.post_slot(), self.detail)
+        self.assertContains(self.post_slot(), "이 매체에 같은 이름의 게재 위치가 이미 있습니다.", status_code=409)
+        self.assertEqual(len(masters.list_slots(active_only=False, media_id=self.media.media_id)), 1)
 
     def test_toggle_slot_active(self):
         slot = make_slot(self.admin)

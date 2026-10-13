@@ -29,15 +29,17 @@ def _render(request, template, title, status=200, **context):
 
 def media_list(request):
     form = MediaForm(request.POST or None)
+    status = 200
     if request.method == "POST" and form.is_valid():
         try:
             media = masters.create_media(request.user, form.cleaned_data["name"])
         except HANDLED as e:
             form_errors(form, e)
+            status = status_of(e)
         else:
             messages.success(request, f"매체 ‘{media.name}’을(를) 등록했습니다.")
             return redirect("operator:media_list")
-    return _render(request, "operator/media_list.html", "매체", status=400 if form.errors else 200,
+    return _render(request, "operator/media_list.html", "매체", status=400 if status == 200 and form.errors else status,
                    media=masters.list_media(request.user), form=form)
 
 
@@ -64,15 +66,17 @@ def media_active(request, media_id):
 @require_POST
 def slot_create(request, media_id):
     form = SlotForm(request.POST)
+    status = 400
     if form.is_valid():
         try:
             masters.create_slot(request.user, media_id, **form.cleaned_data)
         except HANDLED as e:
             form_errors(form, e)
+            status = status_of(e)
         else:
             messages.success(request, f"게재 위치 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
             return redirect("operator:media_detail", media_id=media_id)
-    return _detail(request, media_id, status=400, slot_form=form)
+    return _detail(request, media_id, status=status, slot_form=form)
 
 
 @require_POST
