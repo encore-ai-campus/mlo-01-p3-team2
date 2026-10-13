@@ -1,0 +1,98 @@
+name: pipeline-integration-test
+x-spark-common: &spark-common
+  image: pipeline-spark:4.2.0
+  build: .
+  volumes:
+    - ../:/opt/pipeline/srcs:ro
+  environment: &spark-environment
+    SPARK_DAEMON_MEMORY: 256m
+    PYSPARK_PYTHON: python3
+  networks: [pipeline]
+
+services:
+  kafka:
+    image: apache/kafka:4.3.1
+    entrypoint: ["/bin/bash", "/opt/pipeline/kafka/start.sh"]
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    volumes:
+      - ./kafka:/opt/pipeline/kafka:ro
+    ports: ["127.0.0.1:39092:39092"]
+    networks: [pipeline]
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "kafka:19092", "--list"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    ports: ["127.0.0.1:37028:27017"]
+    networks: [pipeline]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'try { rs.status() } catch (e) { rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"localhost:27017\"}]}) }; if (!db.hello().isWritablePrimary) quit(1)'"]
+      interval: 3s
+      timeout: 10s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    command: ["--innodb-buffer-pool-size=128M", "--max-connections=40"]
+    environment:
+      MYSQL_ROOT_PASSWORD: local-root-test
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: analysis_dev
+      MYSQL_USER: pipeline
+      MYSQL_PASSWORD: local-pipeline-test
+    ports: ["127.0.0.1:33306:3306"]
+    networks: [pipeline]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=local-root-test mysqladmin ping -h 127.0.0.1 -u root --silent"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  spark-master:
+    <<: *spark-common
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+    ports: ["127.0.0.1:38080:8080"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/json/', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  spark-worker-1: &spark-worker
+    <<: *spark-common
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--cores", "1", "--memory", "768M", "--webui-port", "8081", "spark://spark-master:7077"]
+    depends_on:
+      spark-master: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/json/', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  spark-worker-2:
+    <<: *spark-worker
+
+  spark-worker-3:
+    <<: *spark-worker
+
+  spark-driver:
+    <<: *spark-common
+    user: "0:0"
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ../:/opt/pipeline/srcs:ro
+      - ./artifacts:/opt/pipeline/artifacts
+    depends_on:
+      spark-worker-1: {condition: service_healthy}
+      spark-worker-2: {condition: service_healthy}
+      spark-worker-3: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      mysql: {condition: service_healthy}
+
+networks:
+  pipeline:
