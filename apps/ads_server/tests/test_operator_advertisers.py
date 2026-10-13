@@ -37,7 +37,7 @@ class AdvertiserServiceTests(TestCase):
 
     def test_usage_counts_like_the_limits(self):
         campaigns.replace_creative_image(self.w.adv, self.w.creative.creative_id, png_file((1, 2, 3)), now=NOW)  # 교체한 과거 파일도 보유량
-        group = campaigns.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "둘째", "IMPRESSION", [self.w.slot.slot_id], bid_amount=300, now=NOW)
+        group = campaigns.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "둘째", [self.w.slot.slot_id], bid_amount=300, now=NOW)
         campaigns.create_creative(self.w.adv, group.ad_group_id, "같은 그림", "https://example.com/", png_file(), now=NOW)  # 첫 파일과 같은 파일
         idle = make_advertiser()
         usage = campaigns.advertiser_usage(self.w.admin, [self.w.adv.pk, idle.pk, "not-a-uuid"])

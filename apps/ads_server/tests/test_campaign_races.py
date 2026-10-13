@@ -40,7 +40,7 @@ class QuotaRaceTests(TransactionTestCase):
     def ad(self, key, color):
         return lambda: api.create_ad(
             self.w.adv, self.w.campaign.campaign_id,
-            ad_group={"name": "그룹", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 300},
+            ad_group={"name": "그룹", "slot_ids": [self.w.slot.slot_id], "bid_amount": 300},
             creative={"title": "제목", "redirect_url": "https://example.com/", "image_file": png_file(color)},
             request_key=key,
         )
@@ -73,7 +73,7 @@ class QuotaRaceTests(TransactionTestCase):
 
     def test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota(self):
         other = api.create_campaign(self.w.adv, "둘째", NOW, None, 1000)
-        group = api.create_ad_group(self.w.adv, other.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=300)
+        group = api.create_ad_group(self.w.adv, other.campaign_id, "그룹", [self.w.slot.slot_id], bid_amount=300)
         creative = api.create_creative(self.w.adv, group.ad_group_id, "제목", "https://example.com/", png_file((9, 9, 9)))
         held = sum(dict(CreativeImage.objects.filter(creative__owner=self.w.adv).values_list("image_name", "image_bytes")).values())
         a_bytes, b_bytes = (len(validate_image(png_file(c)).data) for c in ((3, 3, 3), (4, 4, 4)))

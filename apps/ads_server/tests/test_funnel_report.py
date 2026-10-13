@@ -187,8 +187,8 @@ class ConversionRateCohortTests(ReportBase):
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
 
     def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B):
@@ -237,7 +237,7 @@ class DailyReportScopeTests(ReportBase):
     def test_campaign_scope_and_ownership(self):
         second = self.w.api.create_campaign(self.w.adv, "두 번째", NOW - DAY, NOW + 10 * DAY, 5000, now=NOW)
         slot2 = self.new_slot("둘째 슬롯")
-        group2 = self.w.api.create_ad_group(self.w.adv, second.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=400, now=NOW)
+        group2 = self.w.api.create_ad_group(self.w.adv, second.campaign_id, "그룹2", [slot2.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group2.ad_group_id, "광고2", "https://example.com/two", png_file((9, 9, 9)), now=NOW)
         self.impression(NOW)  # 첫 캠페인(입찰 300 → 노출 294)
         self.impression(NOW + HOUR, slot=slot2, subject=A)  # 두 번째 캠페인(입찰 400 → 노출 392)
@@ -250,11 +250,11 @@ class DailyReportScopeTests(ReportBase):
                 self.report_for(campaign_id=hidden)
 
     def new_slot(self, name):
-        return masters.create_slot(self.w.admin, self.media, name, "IMPRESSION", 100, 200, 500, "초기", **SHARES)
+        return masters.create_slot(self.w.admin, self.media, name, 100, 200, 500, "초기", **SHARES)
 
     def test_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
         slot2 = self.new_slot("둘째 슬롯")
-        group2 = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "그룹2", "IMPRESSION", [slot2.slot_id], bid_amount=400, now=NOW)
+        group2 = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "그룹2", [slot2.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group2.ad_group_id, "광고2", "https://example.com/two", png_file((9, 9, 9)), now=NOW)
         self.full_funnel(NOW)  # 광고의 소진액은 모든 유형의 과금이다(6-10c): 노출 294 + 클릭 3 + 전환 3
         self.impression(NOW + DAY, subject=A)
@@ -286,8 +286,8 @@ class DailyReportScopeTests(ReportBase):
         self.assertEqual(self.report_for(ad_group_id=self.w.group.ad_group_id).totals.spent, 10)
 
     def test_shared_slot_counts_every_viewer(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B, C):

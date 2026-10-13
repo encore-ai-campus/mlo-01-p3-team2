@@ -13,7 +13,7 @@ class AdGroupPage:
     creatives: list  # CreativeView — 이 광고그룹에 연결된 것(선택된 것은 group.creative_id)
     library: list  # CreativeView — 아직 연결하지 않은 내 소재(등록된 소재 연결, 6-9d)
     linked: dict  # {slot_id: SlotView} 지금 고른 위치(꺼진 위치 포함)
-    choices: list  # 고를 수 있는 위치(켜져 있고 단위가 같은 것)
+    choices: list  # 고를 수 있는 위치(켜진 것 — 과금 단위는 없다, 6-10d)
     effects: tuple  # 현재 입찰의 위치별 결과(SlotEffect), 입찰이 없으면 빈 튜플
 
     @property
@@ -33,5 +33,5 @@ def ad_group_page(user, ad_group_id):
     return AdGroupPage(
         group=group, campaign_name=campaigns.campaign_names([group.campaign_id])[group.campaign_id], bids=campaigns.list_bids(user, group.ad_group_id),
         creatives=creatives, library=[o.creative for o in campaigns.list_owned_creatives(user) if o.creative.creative_id not in attached], linked=linked,
-        choices=[s for s in masters.list_slots(active_only=True) if s.pricing_unit == group.pricing_unit], effects=effects,
+        choices=masters.list_slots(active_only=True), effects=effects,
     )

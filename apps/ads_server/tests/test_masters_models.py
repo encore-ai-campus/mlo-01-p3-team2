@@ -10,9 +10,9 @@ from tests.factories import SHARES
 USER_ID = uuid.uuid4()
 
 
-def make_slot(media=None, name="메인 배너", unit="IMPRESSION"):
+def make_slot(media=None, name="메인 배너"):
     media = media or Media.objects.create(name=f"매체-{uuid.uuid4().hex[:6]}")
-    slot = Slot.objects.create(media=media, name=name, pricing_unit=unit, audience="individual")
+    slot = Slot.objects.create(media=media, name=name, audience="individual")
     BidPolicy.objects.create(slot=slot, policy_version=1, floor_amount=100, base_amount=200, cap_amount=500, **SHARES, changed_by=USER_ID, reason="초기")
     return slot
 
@@ -77,12 +77,13 @@ class PolicyConstraintTests(TestCase):
 
 @tag("security")
 class SlotModelTests(TestCase):
-    def test_slot_pricing_unit_immutable(self):
-        slot = make_slot(unit="IMPRESSION")
-        slot.pricing_unit = "CLICK"
+    def test_slot_audience_immutable(self):
+        """슬롯 성격(개인/일괄)은 만든 뒤 바꿀 수 없다(집계 기준의 의미가 섞이지 않게). 과금 단위는 6-10d 에 없어져 이제 이것만 남았다."""
+        slot = make_slot()
+        slot.audience = "shared"
         with self.assertRaises(ValueError):
             slot.save()
-        self.assertEqual(Slot.objects.get(pk=slot.pk).pricing_unit, "IMPRESSION")
+        self.assertEqual(Slot.objects.get(pk=slot.pk).audience, "individual")
         slot = Slot.objects.get(pk=slot.pk)
         slot.is_active = False  # 다른 필드는 바꿀 수 있다
         slot.save()
@@ -92,7 +93,7 @@ class SlotModelTests(TestCase):
         make_slot(media_a, "상단")
         make_slot(media_b, "상단")  # 다른 매체에서는 같은 이름 가능
         with self.assertRaises(IntegrityError), transaction.atomic():
-            Slot.objects.create(media=media_a, name="상단", pricing_unit="CLICK", audience="individual")
+            Slot.objects.create(media=media_a, name="상단", audience="individual")
 
     def test_media_name_unique(self):
         Media.objects.create(name="같은 이름")

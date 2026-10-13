@@ -56,9 +56,10 @@ class DetailTests(AdGroupPageBase):
     def test_shows_bid_effects_history_slots_and_the_creative(self):
         html = self.html()
         self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
-        self.assertIn("만든 뒤에는 바꿀 수 없습니다", html)  # 과금 단위 불변 안내
+        self.assertNotIn("과금 단위", html)  # 과금 단위는 없다(6-10d)
         self.assertIn("현재 입찰 <strong>300 포인트</strong>", html)
-        self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">300 포인트")
+        self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">300 포인트</td>\s*<td>노출 294 · 클릭 3 · 전환 3</td>")  # 위치별 예상 과금(6-10d)
+        self.assertIn("노출 98% · 클릭 1% · 전환 1%", html)  # 고를 수 있는 위치의 비율
         self.assertIn(reverse("creative_image_file", args=[self.crid]), html)
         self.assertIn("<strong>example.com</strong>", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}" checked')
@@ -112,7 +113,9 @@ class GroupEditTests(AdGroupPageBase):
 
     def test_slot_rules_are_shown(self):
         click = make_slot(self.w.admin, unit="CLICK", name="클릭 위치")
-        self.assertNotIn(str(click.slot_id), self.html())  # 단위가 다른 위치는 고를 수 없다
+        self.assertIn(str(click.slot_id), self.html())  # 과금 단위가 없어 비율이 다른 위치도 고를 수 있다(6-10d)
+        masters.set_slot_active(self.w.admin, click.slot_id, False)
+        self.assertNotIn(str(click.slot_id), self.html())  # 꺼진 위치는 고를 수 없다
         self.assertEqual(self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(click.slot_id)], "updated_at": self.seen()}).status_code, 400)
         r = self.client.post(reverse("ad_group_slots", args=[self.gid]), {"updated_at": self.seen()})
         self.assertContains(r, "게재 위치를 하나 이상 고르세요", status_code=400)

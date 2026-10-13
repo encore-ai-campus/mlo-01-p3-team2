@@ -50,7 +50,7 @@ def make_slot(admin, unit="IMPRESSION", floor=100, base=200, cap=500, name=None)
     from masters import api as masters
 
     media = masters.create_media(admin, f"매체-{next(_counter)}")
-    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", unit, floor, base, cap, "초기", **shares_for(unit))
+    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", floor, base, cap, "초기", **shares_for(unit))
 
 
 class World:
@@ -66,7 +66,7 @@ class World:
         billing.grant_signup(self.adv, now=NOW)  # 가입하면 지급된다(기본 50,000)
         self.slot = make_slot(self.admin, unit=unit)
         self.campaign = campaigns.create_campaign(self.adv, "캠페인", NOW - DAY, None if ends_in is None else NOW + ends_in, 50_000, now=NOW)
-        self.group = campaigns.create_ad_group(self.adv, self.campaign.campaign_id, "그룹", unit, [self.slot.slot_id], bid_amount=300, now=NOW)
+        self.group = campaigns.create_ad_group(self.adv, self.campaign.campaign_id, "그룹", [self.slot.slot_id], bid_amount=300, now=NOW)
         self.creative = (
             campaigns.create_creative(self.adv, self.group.ad_group_id, "제목", "https://example.com/landing", png_file(), now=NOW)
             if with_creative else None

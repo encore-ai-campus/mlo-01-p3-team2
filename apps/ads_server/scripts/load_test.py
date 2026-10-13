@@ -379,8 +379,8 @@ def seed(advertisers=5, premade=0):
 
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
-    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 100, 200, 500, "초기", **LOAD_SHARES)
-    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **LOAD_SHARES)
+    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", 100, 200, 500, "초기", **LOAD_SHARES)
+    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", 100, 200, 500, "초기", audience="shared", **LOAD_SHARES)
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)
     wallets = []
@@ -389,13 +389,13 @@ def seed(advertisers=5, premade=0):
         billing.grant_signup(adv)
         billing.adjust(admin, adv.pk, 450_000, "부하 시험 충전")  # 금액을 하한 100 기준으로 10배 올린 만큼(6-10c) 지갑도 10배 — 시험 중 잔액이 바닥나지 않게
         campaign = campaigns.create_campaign(adv, f"캠페인{i}", now - timedelta(days=1), now + timedelta(days=30), 10**9)
-        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", "IMPRESSION", [slot.slot_id], bid_amount=300)
+        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", [slot.slot_id], bid_amount=300)
         image = io.BytesIO()
         Image.new("RGB", (32, 32), (20 * i, 80, 200)).save(image, "PNG")
         image.seek(0)
         campaigns.create_creative(adv, group.ad_group_id, f"제목{i}", "https://example.com/landing", image)
         if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 400)
-            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", "IMPRESSION", [shared.slot_id], bid_amount=400)
+            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", [shared.slot_id], bid_amount=400)
             image2 = io.BytesIO()
             Image.new("RGB", (32, 32), (200, 80, 20)).save(image2, "PNG")
             image2.seek(0)

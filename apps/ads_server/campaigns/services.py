@@ -18,7 +18,7 @@ from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is
 from masters import api as masters
 
 from . import transitions as tr
-from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
+from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending
 from .models import AdGroup, AdGroupCreative, AdGroupSlot, AdvertiserQuota, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
     AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeUse, CreativeView, MonitoredCampaign, OwnedCreative,
@@ -155,7 +155,7 @@ def _ad_group_view(g, bid=None, slot_ids=None):
     """`slot_ids`: 이미 읽은 게재 위치(목록이 한 번에 읽는다). 없으면 그 그룹의 것을 읽는다."""
     slot_ids = tuple(sorted(g.slot_links.values_list("slot_id", flat=True) if slot_ids is None else slot_ids, key=str))
     return AdGroupView(
-        ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, pricing_unit=g.pricing_unit, enabled=g.enabled, creative_id=g.creative_id,
+        ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, enabled=g.enabled, creative_id=g.creative_id,
         slot_ids=slot_ids, current_bid=_bid_view(bid) if bid else None, created_at=g.created_at, updated_at=g.updated_at,
     )
 
@@ -489,7 +489,7 @@ def open_review_queue(actor, now=None):
 
 # ---------------------------------------------------------------- 광고그룹·입찰
 
-def _validated_slots(slot_ids, pricing_unit):
+def _validated_slots(slot_ids):
     if not isinstance(slot_ids, (list, tuple)) or not slot_ids:
         raise _problem("/slot_ids", "게재 위치를 하나 이상 고르세요.")
     try:
@@ -503,18 +503,15 @@ def _validated_slots(slot_ids, pricing_unit):
         slot = views.get(slot_id)
         if slot is None or not slot.is_active or not slot.media_is_active:
             raise _problem("/slot_ids", "없거나 쓸 수 없는 게재 위치가 있습니다.")
-        if slot.pricing_unit != pricing_unit:
-            raise UnitMismatch(errors=[{"pointer": "/slot_ids", "message": f"{slot.name}: 과금 단위가 {pricing_unit} 이(가) 아닙니다."}])
     return ids
 
 
-def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=None, now=None):
+def create_ad_group(user, campaign_id, name, slot_ids, bid_amount=None, now=None):
+    """광고그룹(광고)을 만든다. 아무 게재 위치나 함께 고를 수 있다 — 과금은 위치마다 정책의 반응 비율로 나뉜다(6-10d, 과금 단위 없음)."""
     require_advertiser(user)
     now = _now(now)
     name = clean_text(name, "광고 이름", "/name")
-    if pricing_unit not in masters.PricingUnit.values:
-        raise _problem("/pricing_unit", f"{', '.join(masters.PricingUnit.values)} 중 하나여야 합니다.")
-    ids = _validated_slots(slot_ids, pricing_unit)
+    ids = _validated_slots(slot_ids)
     if bid_amount is not None:
         _amount(bid_amount, "/bid_amount")
     with transaction.atomic():
@@ -523,10 +520,10 @@ def create_ad_group(user, campaign_id, name, pricing_unit, slot_ids, bid_amount=
         tr.assert_open(c, now)
         if AdGroup.objects.filter(campaign__owner=user).count() >= settings.MAX_AD_GROUPS_PER_ADVERTISER:
             raise LimitExceeded("광고 개수 상한에 도달했습니다.")
-        group = AdGroup.objects.create(campaign=c, name=name, pricing_unit=pricing_unit, created_at=now, updated_at=now)
+        group = AdGroup.objects.create(campaign=c, name=name, created_at=now, updated_at=now)
         AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=group, slot_id=s) for s in ids])
         bid = Bid.objects.create(ad_group=group, bid_version=1, amount=bid_amount, created_by=user.pk, created_at=now) if bid_amount is not None else None
-        _audit(user, "ad_group.created", ("campaigns.ad_group", group.ad_group_id), {"name": name, "pricing_unit": pricing_unit, "slots": len(ids)})
+        _audit(user, "ad_group.created", ("campaigns.ad_group", group.ad_group_id), {"name": name, "slots": len(ids)})
     return _ad_group_view(group, bid, ids)  # 방금 넣은 게재 위치(검증한 ID, 중복 없음)를 다시 읽지 않는다
 
 
@@ -547,7 +544,7 @@ def list_ad_groups(user, campaign_id):
     return [_ad_group_view(g, bids.get(g.current_bid_id), slots.get(g.pk, ())) for g in groups]
 
 
-AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit", "creative_id"}
+AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "creative_id"}
 
 
 def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=None):
@@ -557,9 +554,7 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
     now = _now(now)
     unknown = set(changes) - AD_GROUP_FIELDS
     if unknown or not changes:
-        raise _problem("/", f"바꿀 수 있는 필드: {sorted(AD_GROUP_FIELDS - {'pricing_unit'})}")
-    if "pricing_unit" in changes:
-        raise UnitImmutable()  # 보내면 항상 거절한다(같은 값이어도)
+        raise _problem("/", f"바꿀 수 있는 필드: {sorted(AD_GROUP_FIELDS)}")
     with transaction.atomic():
         g = _locked_group(user, ad_group_id)
         tr.assert_open(g.campaign, now)
@@ -569,7 +564,7 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
         if "enabled" in changes:
             g.enabled = _flag(changes["enabled"])
         if "slot_ids" in changes:
-            ids = _validated_slots(changes["slot_ids"], g.pricing_unit)
+            ids = _validated_slots(changes["slot_ids"])
             g.slot_links.exclude(slot_id__in=ids).delete()
             have = set(g.slot_links.values_list("slot_id", flat=True))
             AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=g, slot_id=s) for s in ids if s not in have])
@@ -624,7 +619,7 @@ def ad_group_effects(user):
         if g.bid_amount is None:
             return ()
         return tuple(_effect(g.bid_amount, slot_id, policies.get(slot_id)) for slot_id in links.get(g.pk, []))
-    return [AdGroupEffects(g.ad_group_id, g.campaign_id, g.name, g.pricing_unit, g.enabled, g.bid_amount, g.bid_created_at, effects(g)) for g in groups]
+    return [AdGroupEffects(g.ad_group_id, g.campaign_id, g.name, g.enabled, g.bid_amount, g.bid_created_at, effects(g)) for g in groups]
 
 
 def _effect(amount, slot_id, slot):
@@ -923,7 +918,7 @@ def candidate_facts_for_slot(slot_id):
     return [
         CandidateFacts(
             owner_id=g.campaign.owner_id, campaign_id=g.campaign_id, ad_group_id=g.ad_group_id,
-            creative_id=g.creative_id, slot_id=slot_id, pricing_unit=g.pricing_unit,
+            creative_id=g.creative_id, slot_id=slot_id,
             bid_id=g.bid_id, bid_amount=g.bid_amount, bid_version=g.bid_version, bid_created_at=g.bid_created_at,
             campaign_status=g.campaign.status, ad_group_enabled=g.enabled,
             period_start=g.campaign.starts_at, period_end=g.campaign.ends_at,

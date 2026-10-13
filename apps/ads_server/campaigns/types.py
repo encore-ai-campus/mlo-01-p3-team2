@@ -40,7 +40,6 @@ class AdGroupView:
     ad_group_id: uuid.UUID
     campaign_id: uuid.UUID
     name: str
-    pricing_unit: str
     enabled: bool
     creative_id: uuid.UUID | None  # 선택된 소재(결정에 나가는 것). 연결된 소재 중 하나, 없으면 후보가 아니다(6-9c)
     slot_ids: tuple
@@ -125,7 +124,6 @@ class CandidateFacts:
     ad_group_id: uuid.UUID
     creative_id: uuid.UUID
     slot_id: uuid.UUID
-    pricing_unit: str
     bid_id: uuid.UUID
     bid_amount: int
     bid_version: int
@@ -180,7 +178,6 @@ class AdGroupEffects:
     ad_group_id: uuid.UUID
     campaign_id: uuid.UUID
     name: str
-    pricing_unit: str
     enabled: bool
     bid_amount: int | None
     bid_created_at: datetime | None

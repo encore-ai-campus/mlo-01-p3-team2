@@ -30,7 +30,7 @@ class RequestKeyContractTests(TestCase):
             "create_campaign": lambda key: campaigns.create_campaign(self.w.adv, "새 캠페인", NOW, None, 1000, now=NOW, request_key=key),
             "create_ad": lambda key: campaigns.create_ad(
                 self.w.adv, self.w.campaign.campaign_id,
-                ad_group={"name": "새 그룹", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 300},
+                ad_group={"name": "새 그룹", "slot_ids": [self.w.slot.slot_id], "bid_amount": 300},
                 creative={"title": "새 제목", "redirect_url": "https://example.com/new", "image_file": png_file()}, now=NOW, request_key=key),
         }
 

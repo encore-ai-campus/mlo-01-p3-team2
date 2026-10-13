@@ -4,18 +4,12 @@ from django import template
 
 from billing.api import EntryType
 from campaigns.api import CampaignStatus, ReviewStatus
-from masters.api import Audience, PricingUnit
+from masters.api import Audience
 from records import api as records
 
 register = template.Library()
-_UNITS, _AUDIENCES, _STATUSES, _ENTRIES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
+_AUDIENCES, _STATUSES, _ENTRIES = dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
 _REVIEWS = dict(ReviewStatus.choices)
-
-
-@register.filter
-def unit_label(value):
-    """과금 단위 코드 → 화면 이름(노출·클릭·전환)."""
-    return _UNITS.get(value, value)
 
 
 @register.filter
@@ -28,6 +22,14 @@ def audience_label(value):
 def shares(policy):
     """입찰 정책의 반응 유형별 과금 비율 → "노출 98% · 클릭 1% · 전환 1%"."""
     return f"노출 {policy.impression_share}% · 클릭 {policy.click_share}% · 전환 {policy.conversion_share}%"
+
+
+@register.filter
+def charges(amounts):
+    """반응 유형별 예상 과금 {유형: 포인트} → "노출 294 · 클릭 3 · 전환 3"(6-10d). 값이 없으면 빈 문자열."""
+    if not amounts:
+        return ""
+    return " · ".join(f"{label} {amounts[code]:,}" for code, label in (("IMPRESSION", "노출"), ("CLICK", "클릭"), ("CONVERSION", "전환")))
 
 
 @register.filter

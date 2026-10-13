@@ -35,7 +35,7 @@ class Step1ScenarioTests(TestCase):
         admin = make_admin()
         media = masters.create_media(admin, "메타버스")
         slots = {
-            name: masters.create_slot(admin, media.media_id, name, unit, floor, base, cap, "초기 정책", **SHARES)
+            name: masters.create_slot(admin, media.media_id, name, floor, base, cap, "초기 정책", **SHARES)
             for name, unit, floor, base, cap in (("A", IMP, 100, 200, 500), ("B", IMP, 100, 150, 200), ("C", IMP, 400, 500, 1_000), ("D", "CLICK", 100, 150, 300))
         }
         sid = {name: s.slot_id for name, s in slots.items()}
@@ -49,16 +49,16 @@ class Step1ScenarioTests(TestCase):
         # 3. 광고주 1: 캠페인 → 광고그룹(A·B·C) 입찰 300 → 소재(실제 PNG). 광고주 2: 입찰 250
         def launch(adv, name, bid, color):
             camp = campaigns.create_campaign(adv, f"{name} 캠페인", NOW - DAY, NOW + 30 * DAY, 5_000, now=NOW)
-            group = campaigns.create_ad_group(adv, camp.campaign_id, f"{name} 그룹", IMP, [sid["A"], sid["B"], sid["C"]], bid_amount=bid, now=NOW)
+            group = campaigns.create_ad_group(adv, camp.campaign_id, f"{name} 그룹", [sid["A"], sid["B"], sid["C"]], bid_amount=bid, now=NOW)
             creative = campaigns.create_creative(adv, group.ad_group_id, f"{name} 광고", f"https://{name}.example/landing", png_file(color), now=NOW)
             return camp, group, creative
 
         camp1, group1, creative1 = launch(adv1, "one", 300, (200, 30, 30))
         camp2, group2, creative2 = launch(adv2, "two", 250, (30, 30, 200))
-        click_group = campaigns.create_ad_group(adv1, camp1.campaign_id, "클릭 그룹", "CLICK", [sid["D"]], bid_amount=100, now=NOW)
+        click_group = campaigns.create_ad_group(adv1, camp1.campaign_id, "클릭 그룹", [sid["D"]], bid_amount=100, now=NOW)
         campaigns.create_creative(adv1, click_group.ad_group_id, "클릭 광고", "https://one.example/click", png_file((9, 9, 9)), now=NOW)
-        with self.assertRaises(campaigns.UnitMismatch):  # 단위가 섞인 광고그룹은 만들 수 없다
-            campaigns.create_ad_group(adv1, camp1.campaign_id, "섞임", IMP, [sid["A"], sid["D"]], now=NOW)
+        mixed = campaigns.create_ad_group(adv1, camp1.campaign_id, "섞임", [sid["A"], sid["D"]], now=NOW)  # 과금 단위가 없어 아무 위치나 함께(6-10d) — 입찰이 없어 후보는 아니다
+        self.assertEqual(set(mixed.slot_ids), {sid["A"], sid["D"]})
 
         def decide(slot, seed=1, now=NOW):
             return records.decide(media.media_id, sid[slot], subject_id="learner-7", now=now, rng=Random(seed))

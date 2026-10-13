@@ -117,12 +117,11 @@ NEW, EXISTING = "new", "existing"
 
 
 class AdCreateForm(forms.Form):
-    """광고 만들기(6-9d, 설계 §10 "광고 만들기 흐름"): 캠페인 고르기 + 광고(광고그룹) + 소재(새로 올리기 또는 등록된 소재). 입력 변환만 한다 — 단위와 위치가
-    맞는지·금액 범위·이미지 규격·남의 소재는 서비스(`create_ad`)가 판단한다. `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 광고그룹 행에 함께
+    """광고 만들기(6-9d, 설계 §10 "광고 만들기 흐름"): 캠페인 고르기 + 광고(광고그룹) + 소재(새로 올리기 또는 등록된 소재). 입력 변환만 한다 — 위치가
+    쓸 수 있는지·금액 범위·이미지 규격·남의 소재는 서비스(`create_ad`)가 판단한다. `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 광고그룹 행에 함께
     저장해 같은 폼의 다시 보냄으로는 하나만 만든다."""
 
     campaign_id = forms.ChoiceField(label="캠페인")
-    pricing_unit = forms.ChoiceField(label="과금 단위", widget=forms.RadioSelect)
     group_name = forms.CharField(label="광고 이름", max_length=100, strip=False)
     slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
     bid_amount = forms.IntegerField(label="입찰(포인트)")
@@ -135,14 +134,13 @@ class AdCreateForm(forms.Form):
 
     # 서비스 오류의 위치(`create_ad` 가 부분 이름을 붙인다) → 이 폼의 칸
     POINTERS = {
-        "/ad_group/name": "group_name", "/ad_group/pricing_unit": "pricing_unit", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
+        "/ad_group/name": "group_name", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
         "/creative": "creative_source", "/creative/title": "title", "/creative/redirect_url": "redirect_url",
     }
 
-    def __init__(self, *args, campaigns=(), units=(), slots=(), creatives=(), **kwargs):
+    def __init__(self, *args, campaigns=(), slots=(), creatives=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["campaign_id"].choices = [(str(c.campaign_id), c.name) for c in campaigns]
-        self.fields["pricing_unit"].choices = list(units)
         self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
         self.fields["creative_id"].choices = [("", "고르세요")] + [(str(c.creative_id), c.title) for c in creatives]
         self.fields["image"].widget.attrs["data-max-bytes"] = settings.ASSET_MAX_BYTES

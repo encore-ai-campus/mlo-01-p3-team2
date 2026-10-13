@@ -41,7 +41,7 @@ class DecisionEventTests(TestCase):
     def test_bid_and_applied_amounts_are_reported_separately(self):
         """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액)."""
         w = World()
-        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", "IMPRESSION", [w.slot.slot_id], bid_amount=800, now=NOW)
+        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", [w.slot.slot_id], bid_amount=800, now=NOW)
         w.api.create_creative(w.adv, group.ad_group_id, "고가 광고", "https://example.com/high", png_file(), now=NOW)
         decide(w)
         selected = EventOutbox.objects.get().payload["selected"]
@@ -56,7 +56,7 @@ class DecisionEventTests(TestCase):
 
     def test_shared_slot_decision_has_no_subject(self):
         w = World()
-        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
+        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", 100, 200, 500, "초기", audience="shared", **SHARES)
         records.decide(shared.media_id, shared.slot_id, now=NOW)
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload["audience"], row.payload["subject_id"]), ("shared", None))

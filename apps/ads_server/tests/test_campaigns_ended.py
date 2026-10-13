@@ -90,7 +90,7 @@ class EndedGuardTests(TestCase):
             "extend": lambda: api.update_campaign(w.adv, cid, {"ends_at": now + 30 * DAY}, now=now),
             "remove_end": lambda: api.update_campaign(w.adv, cid, {"ends_at": None}, now=now),
             "end": lambda: api.end_campaign(w.adv, cid, now=now),
-            "create_ad_group": lambda: api.create_ad_group(w.adv, cid, "g", "IMPRESSION", [w.slot.slot_id], now=now),
+            "create_ad_group": lambda: api.create_ad_group(w.adv, cid, "g", [w.slot.slot_id], now=now),
             "update_ad_group": lambda: api.update_ad_group(w.adv, gid, {"enabled": False}, now=now),
             "add_bid": lambda: api.add_bid(w.adv, gid, 990, expected_version=1, now=now),
             "create_creative": lambda: api.create_creative(w.adv, gid, "t", "https://a.example", png_file(), now=now),

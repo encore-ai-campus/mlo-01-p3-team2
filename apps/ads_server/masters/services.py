@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, parse_uuid, parse_uuids, record_audit, require_admin
 
-from .models import MAX_SHARE, MIN_FLOOR, MIN_SHARE, SHARE_FIELDS, Audience, BidPolicy, Media, MediaDeactivation, MediaKey, PricingUnit, Slot
+from .models import MAX_SHARE, MIN_FLOOR, MIN_SHARE, SHARE_FIELDS, Audience, BidPolicy, Media, MediaDeactivation, MediaKey, Slot
 from .types import IssuedKey, MediaIdentity, MediaKeyView, MediaView, PolicyView, SlotView
 
 
@@ -47,7 +47,7 @@ def _policy_view(row):
 def _slot_view(slot, policy):
     return SlotView(
         slot_id=slot.slot_id, media_id=slot.media_id, media_name=slot.media.name, media_is_active=slot.media.is_active, name=slot.name,
-        pricing_unit=slot.pricing_unit, audience=slot.audience, is_active=slot.is_active, policy=_policy_view(policy),
+        audience=slot.audience, is_active=slot.is_active, policy=_policy_view(policy),
     )
 
 
@@ -142,7 +142,7 @@ def _validate_audience(audience):
         raise errors.InvalidRequest(errors=[{"pointer": "/audience", "message": f"{', '.join(Audience.values)} 중 하나여야 합니다."}])
 
 
-def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, audience=Audience.INDIVIDUAL, *, impression_share, click_share, conversion_share):
+def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audience.INDIVIDUAL, *, impression_share, click_share, conversion_share):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
     정책에는 반응 유형별 과금 비율(노출·클릭·전환 %)이 들어간다(6-10b).
 
@@ -154,21 +154,19 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
     if reason is None or isinstance(reason, str) and not reason.strip():
         reason = "없음"
     reason = clean_text(reason, "사유", "/reason", 200)
-    if pricing_unit not in PricingUnit.values:
-        raise errors.InvalidRequest(errors=[{"pointer": "/pricing_unit", "message": f"{', '.join(PricingUnit.values)} 중 하나여야 합니다."}])
     _validate_audience(audience)
     shares = _shares(impression_share, click_share, conversion_share)
     _validate_policy(floor, base, cap, shares)
     try:
         with transaction.atomic():
             media = _get_media(media_id)
-            slot = Slot.objects.create(media=media, name=name, pricing_unit=pricing_unit, audience=audience)
+            slot = Slot.objects.create(media=media, name=name, audience=audience)
             policy = BidPolicy.objects.create(
                 slot=slot, policy_version=1, floor_amount=floor, base_amount=base, cap_amount=cap, **shares,
                 changed_by=actor.pk, reason=reason,
             )
             _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
-                   {"name": name, "pricing_unit": pricing_unit, "audience": audience, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason})
+                   {"name": name, "audience": audience, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason})
     except IntegrityError:
         raise errors.Conflict("이 매체에 같은 이름의 게재 위치가 이미 있습니다.")
     slot.media = media

@@ -10,7 +10,8 @@ from billing.models import EntryType
 from campaigns import api as campaigns
 from campaigns.models import CampaignStatus, ReviewStatus
 from foundation.api import MAX_AMOUNT, change_password, errors, update_profile
-from masters.models import Audience, PricingUnit
+from masters.models import MAX_SHARE, MIN_SHARE, Audience
+from records.models import ReactionType
 from tests.contract_support import Contract
 from tests.factories import NOW, PW, World
 
@@ -23,10 +24,12 @@ class ConsoleContractRuleTests(TestCase):
         return self.contract.spec["components"]["schemas"][name]
 
     def test_value_lists_and_amounts_match_the_models(self):
-        for schema, choices in (("PricingUnit", PricingUnit), ("CampaignStatus", CampaignStatus), ("LedgerType", EntryType), ("Audience", Audience),
+        for schema, choices in (("ReactionType", ReactionType), ("CampaignStatus", CampaignStatus), ("LedgerType", EntryType), ("Audience", Audience),
                                 ("ReviewRequestStatus", ReviewStatus)):
             self.assertEqual(set(self.schema(schema)["enum"]), set(choices.values), schema)
         self.assertEqual(self.schema("Money")["maximum"], MAX_AMOUNT)
+        self.assertEqual((self.schema("ChargeShare")["minimum"], self.schema("ChargeShare")["maximum"]), (MIN_SHARE, MAX_SHARE))  # 반응별 비율(6-10)
+        self.assertEqual(set(self.schema("ExpectedCharges")["required"]), set(ReactionType.values))
 
     def test_text_limits_match_the_services(self):
         """칸마다 계약의 `maxLength` 글자는 받고, 하나 넘거나 `minLength` 에 못 미치면 거절한다(400 — 서비스의 `InvalidRequest`, 계정 서비스는 `ValidationError`)."""
@@ -41,7 +44,7 @@ class ConsoleContractRuleTests(TestCase):
         cases = {
             ("CampaignCreate", "name"): lambda v: campaigns.create_campaign(w.adv, v, NOW, None, 1000, now=NOW),
             ("CampaignUpdate", "name"): lambda v: campaigns.update_campaign(w.adv, w.campaign.campaign_id, {"name": v}, now=NOW),
-            ("AdGroupCreate", "name"): lambda v: campaigns.create_ad_group(w.adv, w.campaign.campaign_id, v, "IMPRESSION", [w.slot.slot_id], now=NOW),
+            ("AdGroupCreate", "name"): lambda v: campaigns.create_ad_group(w.adv, w.campaign.campaign_id, v, [w.slot.slot_id], now=NOW),
             ("CreativeUpdate", "title"): lambda v: campaigns.update_creative(w.adv, w.creative.creative_id, {"title": v}, now=NOW),
             ("CreativeUpdate", "redirect_url"): lambda v: campaigns.update_creative(w.adv, w.creative.creative_id, {"redirect_url": url + v[len(url):]}, now=NOW),
             ("ReviewRequestCreate", "message"): lambda v: campaigns.create_review_request(w.adv, suspended.campaign_id, v, now=NOW),

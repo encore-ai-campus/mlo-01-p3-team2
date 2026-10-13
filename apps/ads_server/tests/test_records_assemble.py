@@ -41,7 +41,7 @@ class AssembleTests(TestCase):
             adv = make_advertiser()
             billing.grant_signup(adv, now=NOW)
             camp = campaigns.create_campaign(adv, f"c{i}", NOW, None, 1_000, now=NOW)
-            group = campaigns.create_ad_group(adv, camp.campaign_id, f"g{i}", UNIT, [w.slot.slot_id], bid_amount=200 + i, now=NOW)
+            group = campaigns.create_ad_group(adv, camp.campaign_id, f"g{i}", [w.slot.slot_id], bid_amount=200 + i, now=NOW)
             campaigns.create_creative(adv, group.ad_group_id, f"t{i}", "https://a.example", png_file((i, 2 * i % 256, 7)), now=NOW)
         with self.assertNumQueries(3):  # 후보가 1 → 26 이어도 질의 수는 같다
             self.assertEqual(len(assemble(slot, NOW)[0]), 26)

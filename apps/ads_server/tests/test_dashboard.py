@@ -110,7 +110,7 @@ class TopCampaignTests(TestCase):
         Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(starts_at=NOW - 30 * DAY)
         self.slot2 = make_slot(self.w.admin)
         self.second = campaigns.create_campaign(self.w.adv, "<b>둘째</b>", NOW - 30 * DAY, None, 5000, now=NOW)
-        group = campaigns.create_ad_group(self.w.adv, self.second.campaign_id, "그룹", "IMPRESSION", [self.slot2.slot_id], bid_amount=400, now=NOW)
+        group = campaigns.create_ad_group(self.w.adv, self.second.campaign_id, "그룹", [self.slot2.slot_id], bid_amount=400, now=NOW)
         campaigns.create_creative(self.w.adv, group.ad_group_id, "제목", "https://example.com/2", png_file((9, 9, 9)), now=NOW)
         self.window = (NOW.replace(hour=0) - 6 * DAY, NOW.replace(hour=0) + DAY)
 

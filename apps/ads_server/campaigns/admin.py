@@ -14,7 +14,7 @@ class CampaignAdmin(ReadOnlyAdmin):
 
 @admin.register(AdGroup)
 class AdGroupAdmin(ReadOnlyAdmin):
-    list_display = ("name", "campaign", "pricing_unit", "enabled")
+    list_display = ("name", "campaign", "enabled")
 
 
 @admin.register(Creative)

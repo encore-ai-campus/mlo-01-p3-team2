@@ -5,17 +5,23 @@
 World: 노출 단위 슬롯(하한 10·기준 20·상한 50), 끝나지 않는 캠페인 하나와 그 광고그룹·소재. 서비스는 실제 시계를 쓰므로 끝은 먼 미래로 둔다.
 """
 import re
+import uuid
+from datetime import timedelta
+from random import Random
 from unittest import mock
 
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 from django.urls import reverse
 
+from billing.models import LedgerEntry
 from campaigns import api as campaigns
 from campaigns.models import AdGroup, Campaign, Creative
 from foundation.models import AuditLog
 from masters import api as masters
+from records import api as records
+from records.models import Reaction
 from tests.concurrency import overlap
-from tests.factories import World, make_slot, png_file
+from tests.factories import NOW, SUBJECT, World, make_slot, png_file
 
 URL = reverse("ad_create")
 NEW_CAMPAIGN = reverse("campaign_create")
@@ -35,7 +41,7 @@ class AdCreateBase:
         """화면이 싣는 요청 키와 함께, 집행할 수 있는 값(새 소재를 올린다)."""
         data = {
             "request_key": request_key(self.client.get(URL).content.decode()), "action": "create", "campaign_id": str(self.w.campaign.campaign_id),
-            "pricing_unit": "IMPRESSION", "group_name": "새 그룹", "slot_ids": [str(self.w.slot.slot_id)], "bid_amount": "250",
+            "group_name": "새 그룹", "slot_ids": [str(self.w.slot.slot_id)], "bid_amount": "250",
             "creative_source": "new", "title": "제목", "redirect_url": "https://example.com/new", "image": png_file((10, 20, 30)),
         }
         data.update(over)
@@ -47,14 +53,14 @@ class AdCreateBase:
 
 @tag("security")
 class AdCreatePageTests(AdCreateBase, TestCase):
-    def test_page_groups_slots_by_media_and_only_the_chosen_units_slots_are_selectable(self):
+    def test_page_groups_slots_by_media_and_every_slot_is_selectable_with_its_shares(self):
+        """과금 단위를 고르는 단계가 없다(6-10d): 켜진 위치는 모두 고를 수 있고, 위치마다 반응 비율을 보인다."""
         html = self.client.get(URL).content.decode()
         self.assertIn("① 캠페인", html)
-        self.assertIn("⑤ 확인 후 집행", html)
-        self.assertRegex(html, rf'value="{self.w.slot.slot_id}" data-unit="IMPRESSION" disabled')  # 단위를 고르기 전에는 고를 수 없다
-        html = self.client.get(URL, {"unit": "IMPRESSION"}).content.decode()
-        self.assertRegex(html, rf'value="{self.w.slot.slot_id}" data-unit="IMPRESSION">')
-        self.assertRegex(html, rf'value="{self.click_slot.slot_id}" data-unit="CLICK" disabled')
+        self.assertIn("④ 확인 후 집행", html)
+        self.assertNotIn("과금 단위", html)
+        self.assertRegex(html, rf'value="{self.w.slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 98% · 클릭 1% · 전환 1%</span>')
+        self.assertRegex(html, rf'value="{self.click_slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 1% · 클릭 98% · 전환 1%</span>')
         self.assertIn("console/ad_create.js", html)
         self.assertRegex(html, r'<button[^>]*value="create"[^>]*data-confirm=')  # 집행 버튼만 확인 창
         self.assertNotRegex(html, r"\sstyle=")
@@ -67,30 +73,48 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertIn("data-confirm=", first)  # JS 가 있으면 확인 창
         self.assertIn(" hidden", first)
 
-    def test_choosing_a_unit_without_js_keeps_the_input_and_creates_nothing(self):
-        r = self.client.post(URL, self.fields(action="unit", pricing_unit="CLICK", image=""))
-        self.assertEqual(r.status_code, 200)
-        html = r.content.decode()
-        self.assertRegex(html, rf'value="{self.click_slot.slot_id}" data-unit="CLICK">')
-        self.assertIn('value="새 그룹"', html)
-        self.assertNotIn('class="errorlist', html)  # 저장하지 않는 동작이라 오류를 보이지 않는다
-        self.assertFalse(self.created().exists())
-
     def test_preview_shows_what_the_server_computes_per_slot(self):
         cheap = make_slot(self.w.admin, floor=300, base=350, cap=400, name="비싼 하한")
         capped = make_slot(self.w.admin, floor=100, base=150, cap=200, name="낮은 상한")
         r = self.client.post(URL, self.fields(action="preview", image="", slot_ids=[str(self.w.slot.slot_id), str(cheap.slot_id), str(capped.slot_id)]))
         table = r.content.decode().split("지금 정책 기준")[1]
-        self.assertRegex(table, r"그대로 적용</td><td class=\"num\">250 포인트")
-        self.assertRegex(table, r"하한 미만 — 노출 안 됨</td><td class=\"num\">—")
-        self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">200 포인트")
+        self.assertRegex(table, r"그대로 적용</td><td class=\"num\">250 포인트</td><td>노출 245 · 클릭 2 · 전환 2</td>")  # 예상 과금: 250 × 98% · 1% · 1%(내림)
+        self.assertRegex(table, r"하한 미만 — 노출 안 됨</td><td class=\"num\">—</td><td>—</td>")  # 나가지 않는 위치에는 예상 과금이 없다
+        self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">200 포인트</td><td>노출 196 · 클릭 2 · 전환 2</td>")
         self.assertFalse(self.created().exists())
+
+    def test_only_the_create_button_saves(self):
+        """저장은 '집행'(`action=create`)만 한다. 사라진 '단위 보기' 버튼(6-10d 전 화면)이나 모르는 값은 입력을 그대로 두고 다시 그리기만 한다."""
+        for action in ("unit", "", "made-up"):
+            r = self.client.post(URL, self.fields(action=action))
+            self.assertEqual(r.status_code, 200, action)
+            self.assertContains(r, 'value="새 그룹"')
+        self.assertFalse(self.created().exists())
+
+    def test_the_preview_charges_are_what_the_ad_is_actually_charged(self):
+        """미리보기의 예상 과금 = 그 입찰·정책으로 실제로 나간 광고의 과금(설계 §10 "구성별 반응 비율 과금" ⑦ — 같은 함수, 6-10d)."""
+        r = self.client.post(URL, self.fields(action="preview", image="", slot_ids=[str(self.click_slot.slot_id)]))
+        self.assertContains(r, "노출 2 · 클릭 245 · 전환 2")  # 클릭 98% 위치
+        self.client.post(URL, self.fields(slot_ids=[str(self.click_slot.slot_id)]))
+        group = self.created().get()  # 이 위치의 광고는 이것뿐이다
+        decision = records.decide(self.click_slot.media_id, self.click_slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
+        self.assertEqual(decision.chosen.ad_group_id, group.ad_group_id)
+        for second, rtype in enumerate(("IMPRESSION", "CLICK", "CONVERSION"), start=1):  # 반응마다 바로 판정한다(퍼널 순서: 노출 → 클릭 → 전환)
+            at = NOW + timedelta(seconds=second)
+            if rtype == "CLICK":
+                records.observe_click(decision.decision_id, None, now=at)
+                inbox = Reaction.objects.get(decision_id=decision.decision_id, type="CLICK").inbox_id
+            else:
+                inbox = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), rtype, at, {}, now=at)[0].inbox_id
+            records.process_reaction(inbox, now=at)
+        entries = LedgerEntry.objects.filter(entry_type="CHARGE", campaign_id=self.w.campaign.campaign_id).order_by("created_at")
+        self.assertEqual([-e.amount for e in entries], [2, 245, 2])  # 노출 · 클릭 · 전환
 
     def test_create_makes_the_ad_and_its_creative_in_the_chosen_campaign(self):
         r = self.client.post(URL, self.fields())
         group = self.created().get()
         self.assertRedirects(r, reverse("ad_group_detail", args=[group.ad_group_id]), fetch_redirect_response=False)
-        self.assertEqual((group.campaign_id, group.pricing_unit), (self.w.campaign.campaign_id, "IMPRESSION"))
+        self.assertEqual(group.campaign_id, self.w.campaign.campaign_id)
         self.assertEqual((Creative.objects.filter(ad_group_links__ad_group=group).count(), group.creative.title), (1, "제목"))  # 올리고 연결·선택했다
         self.assertEqual(Campaign.objects.filter(owner=self.w.adv).count(), 1)  # 캠페인은 만들지 않는다
         self.assertTrue(AuditLog.objects.filter(action="creative.created", actor_id=self.w.adv.pk).exists())
@@ -133,7 +157,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
     def test_errors_are_shown_next_to_the_fields_and_nothing_is_left_behind(self):
         cases = (
             ({"redirect_url": "http://example.com/"}, "redirect_url"),
-            ({"slot_ids": [str(self.click_slot.slot_id)]}, "slot_ids"),  # 단위가 다른 위치(화면은 막지만 직접 보낼 수 있다)
+            ({"slot_ids": [str(uuid.uuid4())]}, "slot_ids"),  # 없는 위치(화면에 없는 값을 직접 보낸 경우)
             ({"bid_amount": "0"}, "bid_amount"),
             ({"group_name": " "}, "group_name"),  # 서비스 오류 위치 /ad_group/name → 이 칸
             ({"title": " "}, "title"),  # /creative/title → 이 칸
@@ -191,7 +215,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
 
     def test_admin_given_names_are_escaped(self):
         make_slot(self.w.admin, name="<b>슬롯</b>")
-        html = self.client.get(URL, {"unit": "IMPRESSION"}).content.decode()
+        html = self.client.get(URL).content.decode()
         self.assertIn("&lt;b&gt;슬롯&lt;/b&gt;", html)
         self.assertNotIn("<b>슬롯</b>", html)
 

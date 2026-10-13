@@ -157,6 +157,13 @@ def _add_spend(campaign_id, day, charged):
         CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged)
 
 
+def expected_charges(shares, applied_amount):
+    """반응 유형마다 과금될 금액(광고주 화면의 예상 과금, 설계 §10 "구성별 반응 비율 과금" ⑦). 실제 과금(`charge_for_reaction`)과 **같은 정책 함수**로 계산한다.
+    `shares` = {반응 유형: 비율(%)} — 정책 버전의 `charge_shares`. 잔액 부족으로 덜 받는 경우는 반영하지 않는다(그건 과금 시점의 사실이다)."""
+    policy = get_charge_policy(settings.BILLING_CHARGE_POLICY)
+    return {reaction_type: policy.amount_for(reaction_type, shares, applied_amount) for reaction_type in shares}
+
+
 def charge_for_reaction(owner_id, campaign_id, reaction_type, shares, applied_amount, reaction_ref, now=None):
     """반응 하나의 과금(Step 2-5 가 부른다). 정책이 0 이라고 하면 `None`(과금 없음).
     `shares` = {반응 유형: 비율(%)} — 그 반응의 결정에 남긴 값이다(6-10c, 지금 정책을 다시 읽지 않는다).

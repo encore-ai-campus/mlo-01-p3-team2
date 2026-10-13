@@ -8,20 +8,19 @@
   {{ form.slots.errors }}
   <div class="module">
     <table>
-      <thead><tr><th scope="col">고르기</th><th scope="col">매체</th><th scope="col">게재 위치</th><th scope="col">과금 단위</th><th scope="col">현재 (하한 / 기준가 / 상한 · 비율)</th><th scope="col">버전</th><th scope="col">상태</th></tr></thead>
+      <thead><tr><th scope="col">고르기</th><th scope="col">매체</th><th scope="col">게재 위치</th><th scope="col">현재 (하한 / 기준가 / 상한 · 비율)</th><th scope="col">버전</th><th scope="col">상태</th></tr></thead>
       <tbody>
       {% for s in slots %}
         <tr>
           <td><input type="checkbox" name="slots" value="{{ s.slot_id }}:{{ s.policy.policy_version }}" id="slot-{{ s.slot_id }}"></td>
           <td>{{ s.media_name }}</td>
           <td><label for="slot-{{ s.slot_id }}">{{ s.name }}</label></td>
-          <td>{{ s.pricing_unit|unit_label }}</td>
           <td>{{ s.policy.floor|points }} / {{ s.policy.base|points }} / {{ s.policy.cap|points }} · {{ s.policy|shares }}</td>
           <td>{{ s.policy.policy_version }}</td>
           <td>{% if s.is_active and s.media_is_active %}활성{% else %}비활성{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="7">게재 위치가 없습니다.</td></tr>
+        <tr><td colspan="6">게재 위치가 없습니다.</td></tr>
       {% endfor %}
       </tbody>
     </table>

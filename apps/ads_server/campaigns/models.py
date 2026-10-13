@@ -7,7 +7,6 @@ from django.db.models import Case, F, Q, When
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
-from masters.api import PricingUnit
 
 
 class CampaignStatus(models.TextChoices):
@@ -53,7 +52,6 @@ class AdGroup(models.Model):
     ad_group_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="ad_groups")
     name = models.CharField(max_length=100)
-    pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     enabled = models.BooleanField(default=True)
     # 선택된 소재 — 결정에 나가는 소재다. 연결(`AdGroupCreative`)된 것 중에서만 고른다(서비스가 지킨다). 없으면 후보가 아니다(6-9c)
     creative = models.ForeignKey("Creative", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
@@ -64,14 +62,6 @@ class AdGroup(models.Model):
     class Meta:
         db_table = "campaigns_ad_group"
         constraints = [models.UniqueConstraint(fields=["request_key"], name="campaigns_ad_group_once_per_request")]  # NULL 은 서로 다르다
-
-    def save(self, *args, **kwargs):
-        """과금 단위는 만든 뒤 바꿀 수 없다(입찰 이력의 의미가 섞이지 않게)."""
-        if not self._state.adding:
-            current = type(self).objects.filter(pk=self.pk).values_list("pricing_unit", flat=True).first()
-            if current is not None and current != self.pricing_unit:
-                raise ValueError("광고그룹의 과금 단위는 바꿀 수 없다.")
-        super().save(*args, **kwargs)
 
 
 class AdGroupSlot(models.Model):

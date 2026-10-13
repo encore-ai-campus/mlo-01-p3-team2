@@ -207,14 +207,6 @@ class GatingTests(TestCase):
         d = decide(w)
         self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (5000, 500))  # 입찰 원금액과 적용 금액이 함께 남는다
 
-    def test_unit_aware_candidates(self):
-        """슬롯과 과금 단위가 다른 광고그룹은 후보가 되지 않는다(서비스가 막지만 구조적 일관성을 한 번 더 확인)."""
-        from campaigns.models import AdGroup
-
-        w = World()
-        AdGroup.objects.filter(pk=w.group.ad_group_id).update(pricing_unit="CLICK")  # 서비스를 우회한 불일치 상태
-        self.assertEqual(decide(w).candidate_count, 0)
-
     def test_two_advertisers_compete_and_tie_is_random_but_reproducible(self):
         w = World()
         slot_id = w.slot.slot_id
@@ -223,7 +215,7 @@ class GatingTests(TestCase):
         adv2 = make_advertiser()
         billing.grant_signup(adv2, now=NOW)
         camp2 = campaigns.create_campaign(adv2, "경쟁", NOW - DAY, None, 5_000, now=NOW)
-        group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", UNIT, [slot_id], bid_amount=5000, now=NOW)  # 상한 500 으로 적용
+        group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", [slot_id], bid_amount=5000, now=NOW)  # 상한 500 으로 적용
         campaigns.create_creative(adv2, group2.ad_group_id, "경쟁 광고", "https://rival.example", png_file((3, 3, 3)), now=NOW)
         campaigns.add_bid(w.adv, w.group.ad_group_id, 4000, expected_version=1, now=NOW)  # 둘 다 상한 500 → 동점
         winners = {decide(w, rng=Random(seed)).chosen.campaign_id for seed in range(40)}

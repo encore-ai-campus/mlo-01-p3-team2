@@ -2,7 +2,7 @@
 {% load kst console_format %}
 {% block crumbs %} › <a href="{% url 'operator:media_list' %}">매체</a> › <a href="{% url 'operator:media_detail' slot.media_id %}">{{ slot.media_name }}</a> › {{ slot.name }} 입찰 정책{% endblock %}
 {% block content %}
-<p>{{ slot.pricing_unit|unit_label }} · {{ slot.audience|audience_label }} · 현재 버전 {{ slot.policy.policy_version }}:
+<p>{{ slot.audience|audience_label }} · 현재 버전 {{ slot.policy.policy_version }}:
   하한 {{ slot.policy.floor|points }} / 기준가 {{ slot.policy.base|points }} / 상한 {{ slot.policy.cap|points }} · {{ slot.policy|shares }}</p>
 
 <h2>새 버전</h2>

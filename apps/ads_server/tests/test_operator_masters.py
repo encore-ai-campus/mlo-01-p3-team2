@@ -85,18 +85,17 @@ class SlotPageTests(OperatorBase):
         self.detail = reverse("operator:media_detail", args=[self.media.media_id])
 
     def post_slot(self, **over):
-        data = {"name": "로비 배너", "pricing_unit": "CLICK", "audience": "shared", "floor": 100, "base": 200, "cap": 500,
+        data = {"name": "로비 배너", "audience": "shared", "floor": 100, "base": 200, "cap": 500,
                 "impression_share": 10, "click_share": 85, "conversion_share": 5, "reason": "개설", **over}
         return self.client.post(reverse("operator:slot_create", args=[self.media.media_id]), data)
 
-    def test_create_slot_shows_unit_and_audience_and_says_they_are_fixed(self):
+    def test_create_slot_shows_audience_and_shares_and_says_the_audience_is_fixed(self):
         self.assertRedirects(self.post_slot(), self.detail)
         (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
-        self.assertEqual((slot.pricing_unit, slot.audience, slot.policy.floor, slot.policy.cap), ("CLICK", "shared", 100, 500))
+        self.assertEqual((slot.audience, slot.policy.floor, slot.policy.cap), ("shared", 100, 500))
         self.assertEqual((slot.policy.impression_share, slot.policy.click_share, slot.policy.conversion_share), (10, 85, 5))
         html = self.client.get(self.detail).content.decode()
         self.assertIn("로비 배너", html)
-        self.assertIn("<td>클릭</td>", html)  # 코드(CLICK)가 아니라 화면 이름
         self.assertIn("<td>일괄</td>", html)
         self.assertIn("노출 10% · 클릭 85% · 전환 5%", html)
         self.assertIn("만든 뒤 바꿀 수 없습니다", html)

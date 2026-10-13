@@ -10,8 +10,6 @@ from engine.api import Candidate
 def assemble(slot, now):
     """`slot` 은 masters 의 SlotView(현재 정책 포함). 이 슬롯의 `Candidate` 목록을 돌려준다."""
     facts = campaigns.candidate_facts_for_slot(slot.slot_id)
-    # 슬롯과 과금 단위가 다른 광고그룹은 후보가 아니다(서비스가 막아 두었지만 구조적 일관성을 한 번 더 확인한다)
-    facts = [f for f in facts if f.pricing_unit == slot.pricing_unit]
     if not facts:
         return [], {}
     wallets = billing.balances({f.owner_id for f in facts})

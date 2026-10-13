@@ -41,7 +41,7 @@ class CampaignConstraintTests(TestCase):
 @tag("security")
 class BidAndAdGroupModelTests(TestCase):
     def setUp(self):
-        self.group = AdGroup.objects.create(campaign=campaign(make_advertiser()), name="g", pricing_unit="IMPRESSION")
+        self.group = AdGroup.objects.create(campaign=campaign(make_advertiser()), name="g")
 
     def bid(self, **kw):
         values = dict(ad_group=self.group, bid_version=1, amount=30, created_by=USER_ID)
@@ -72,11 +72,3 @@ class BidAndAdGroupModelTests(TestCase):
             Bid.objects.bulk_create([self.bid(pk=row.pk, amount=999)], update_conflicts=True, update_fields=["amount"], unique_fields=["bid_id"])
         self.assertEqual(Bid.objects.get(pk=row.pk).amount, 30)
 
-    def test_ad_group_pricing_unit_immutable(self):
-        self.group.pricing_unit = "CLICK"
-        with self.assertRaises(ValueError):
-            self.group.save()
-        group = AdGroup.objects.get(pk=self.group.pk)
-        group.enabled = False
-        group.save()  # 다른 필드는 바꿀 수 있다
-        self.assertEqual(AdGroup.objects.get(pk=group.pk).pricing_unit, "IMPRESSION")

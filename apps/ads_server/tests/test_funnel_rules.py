@@ -40,8 +40,8 @@ class FunnelMixin:
 
     def shared(self):
         """일괄 슬롯과 거기에 놓인 광고(같은 광고주·캠페인). 결정은 사람 없이 한 번 만든다."""
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((3, 3, 3)), now=NOW)
         return slot, self.decide(slot, None)
 
@@ -627,8 +627,8 @@ class EndToEndFunnelTests(TestCase):
         self.assertEqual(click.status, "ACCEPTED")
 
     def test_in_a_shared_slot_each_viewer_reports_their_own_funnel(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", "IMPRESSION", [slot.slot_id], bid_amount=400, now=NOW)
+        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
         decision = self.decide(slot)
         self.assertTrue(decision["ad"]["click_url"].endswith("?s={subject_id}"))

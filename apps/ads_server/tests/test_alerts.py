@@ -109,7 +109,7 @@ class AlertTests(TestCase):
             self.alerts()
         for i in range(3):
             c = campaigns.create_campaign(self.w.adv, f"더 {i}", NOW - DAY, None, 1000, now=NOW)
-            campaigns.create_ad_group(self.w.adv, c.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=50, now=NOW)
+            campaigns.create_ad_group(self.w.adv, c.campaign_id, "그룹", [self.w.slot.slot_id], bid_amount=50, now=NOW)
         with CaptureQueriesContext(connection) as many:
             alerts = self.alerts()
         self.assertEqual(len(few), len(many))
@@ -120,7 +120,7 @@ class AlertTests(TestCase):
         campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 600, expected_version=1, now=NOW)
         campaigns.suspend_campaign(self.w.admin, self.cid, "<script>x</script>", now=NOW)
         other = campaigns.create_campaign(self.w.adv, "둘째", NOW - DAY, None, 1000, now=NOW)
-        campaigns.create_ad_group(self.w.adv, other.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=600, now=NOW)
+        campaigns.create_ad_group(self.w.adv, other.campaign_id, "그룹", [self.w.slot.slot_id], bid_amount=600, now=NOW)
         self.client.force_login(self.w.adv)
         with mock.patch("console.views.dashboard._now", return_value=NOW):
             html = self.client.get(reverse("advertiser_home")).content.decode()

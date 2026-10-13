@@ -9,12 +9,6 @@ from django.utils import timezone
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
 
 
-class PricingUnit(models.TextChoices):
-    IMPRESSION = "IMPRESSION", "노출"
-    CLICK = "CLICK", "클릭"
-    CONVERSION = "CONVERSION", "전환"
-
-
 # 입찰 정책의 반응 유형별 과금 비율(설계 §10 "구성별 반응 비율 과금", 6-10). 각각 정수 1~98, 합 100.
 SHARE_FIELDS = ("impression_share", "click_share", "conversion_share")
 MIN_SHARE, MAX_SHARE = 1, 98
@@ -58,7 +52,6 @@ class Slot(models.Model):
     slot_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     media = models.ForeignKey(Media, on_delete=models.PROTECT, related_name="slots")
     name = models.CharField(max_length=100)
-    pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     audience = models.CharField(max_length=20, choices=Audience.choices)  # 만든 뒤 바꿀 수 없다. 기본값을 두지 않는다: 만드는 쪽이 정한다
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -71,11 +64,9 @@ class Slot(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        """과금 단위와 슬롯 성격은 만든 뒤 바꿀 수 없다(입찰 이력·집계 기준의 의미가 섞이지 않게, 설계 §4.1·§10)."""
+        """슬롯 성격은 만든 뒤 바꿀 수 없다(집계 기준의 의미가 섞이지 않게, 설계 §10 "일괄 슬롯"). 과금 단위는 6-10d 에 없어졌다."""
         if not self._state.adding:
-            current = type(self).objects.filter(pk=self.pk).values("pricing_unit", "audience").first()
-            if current is not None and current["pricing_unit"] != self.pricing_unit:
-                raise ValueError("슬롯의 과금 단위는 바꿀 수 없다.")
+            current = type(self).objects.filter(pk=self.pk).values("audience").first()
             if current is not None and current["audience"] != self.audience:
                 raise ValueError("슬롯의 성격(audience)은 바꿀 수 없다.")
         super().save(*args, **kwargs)

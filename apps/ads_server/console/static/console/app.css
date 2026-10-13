@@ -71,8 +71,6 @@ tr.partial td { color: var(--muted); }
 td form { margin: 0; }
 td form button { margin-top: 0; }
 /* 광고 만들기(3-2c) */
-.unit-cards { display: flex; flex-wrap: wrap; gap: 8px; }
-.unit-card { display: flex; gap: 6px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 0; }
 fieldset.slots { border: 1px solid var(--border); border-radius: 6px; margin: 14px 0 0; padding: 8px 12px; }
 fieldset.slots .media { font-weight: 600; margin: 10px 0 4px; }
 label.slot { margin: 4px 0; }

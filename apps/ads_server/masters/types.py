@@ -57,6 +57,11 @@ class PolicyView:
     changed_at: datetime
     reason: str
 
+    @property
+    def charge_shares(self):
+        """{반응 유형: 비율(%)} — 과금(`billing`)과 C2 `charge_shares` 가 쓰는 모양(6-10d)."""
+        return {"IMPRESSION": self.impression_share, "CLICK": self.click_share, "CONVERSION": self.conversion_share}
+
 
 @dataclass(frozen=True)
 class SlotView:
@@ -65,7 +70,6 @@ class SlotView:
     media_name: str
     media_is_active: bool
     name: str
-    pricing_unit: str
     audience: str  # `individual` | `shared`
     is_active: bool
     policy: PolicyView  # 현재 정책. 슬롯은 항상 정책을 가진다(create_slot 이 함께 만든다)

@@ -2,7 +2,7 @@
 등록된 소재 연결, 6-9d — 소재의 제목/주소 수정·이미지 교체 뷰는 `views/creatives.py`가 이 화면으로 돌아온다).
 
 동작마다 작은 폼을 따로 둔다 — 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다(소재의 제목·주소는 한 폼이라 화면이 본 변경 시각과 대조한다).
-뷰는 서비스를 부르고 그리기만 한다. 과금 단위는 바꿀 수 없고, 입찰은 추가만 된다(서비스 규칙).
+뷰는 서비스를 부르고 그리기만 한다. 입찰은 추가만 된다(서비스 규칙). 위치별 결과에는 반응 유형별 예상 과금을 함께 보인다(6-10d).
 """
 from django.contrib import messages
 from django.shortcuts import redirect, render
@@ -13,6 +13,7 @@ from campaigns import api as campaigns
 from ..errors import HANDLED, fetch, form_errors, run_action, status_of
 from ..forms import BidForm, CreativeEditForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm, ImageForm
 from ..queries.ad_groups import ad_group_page
+from .ads import effect_row
 
 
 def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
@@ -33,7 +34,7 @@ def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
     if image is not None:
         images[image[0]] = image[1]
     return render(request, "console/ad_group_detail.html", {
-        "page": page, "group": group, "effects": [(page.linked.get(e.slot_id), e) for e in page.effects],
+        "page": page, "group": group, "effects": [effect_row(page.linked.get(e.slot_id), e) for e in page.effects],
         "creatives": [(c, edits[c.creative_id], images[c.creative_id]) for c in page.creatives], **forms,
     }, status=status)
 
