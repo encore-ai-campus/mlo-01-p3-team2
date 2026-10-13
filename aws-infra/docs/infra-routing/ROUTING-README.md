@@ -8,7 +8,7 @@
 - 문서 링크는 각 Markdown 파일 위치를 기준으로 작성했다. 다른 PC에서도 저장소 내부 링크를 그대로 사용할 수 있다.
 - 라우팅 문서는 `docs/infra-routing/` 안에서 `infra/`의 하위 구조에 대응한다. Terraform 모듈들은 하나의 [모듈 목록](terraform/README.md)에 모았다.
 - 배경은 [프로젝트 README](../../README.md), 실행법은 [인프라 실행 안내](../../infra/infra.md)를 참고한다. 프로젝트 README에서 이 **docs/infra-routing/ROUTING-README.md**로 연결한다.
-- 적용 규칙은 [AGENTS.md](../../AGENTS.md), 구조 검사와 기존 문서 차이는 [검증 기록](verification.md)을 참고한다.
+- 적용 규칙은 로컬 AGENTS.md(Git 제외), 구조 검사와 기존 문서 차이는 [검증 기록](verification.md)을 참고한다.
 
 ## 하위 폴더별 시작 문서
 

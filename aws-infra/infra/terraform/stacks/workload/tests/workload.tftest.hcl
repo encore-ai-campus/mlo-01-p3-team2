@@ -58,6 +58,11 @@ run "account1_default_closed" {
   variables {
     traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = ["203.0.113.10/32"], public_http_cidrs = [] })
   }
+  # 서비스 수와 역할을 유지하면서 선택 계정의 모든 노드를 A에 배치한다.
+  assert {
+    condition     = alltrue([for node in values(local.nodes) : node.az == "a"])
+    error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
+  }
   assert {
     condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server", "edge-1"]) &&
     length(module.rules.public_ingress) == 2 && alltrue([for rule in values(module.rules.public_ingress) : rule.group_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account1.sg_ids.edge]))
@@ -90,6 +95,11 @@ run "account2_three_nodes" {
   state_key = "account2"
   command   = apply
   variables { account_key = "account2" }
+  # 서비스 수와 역할을 유지하면서 선택 계정의 모든 노드를 A에 배치한다.
+  assert {
+    condition     = alltrue([for node in values(local.nodes) : node.az == "a"])
+    error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
+  }
   assert {
     condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2", "flatten-1"]) &&
     output.inventory.alb_dns_name == null)
@@ -100,6 +110,11 @@ run "account3_four_nodes" {
   state_key = "account3"
   command   = apply
   variables { account_key = "account3" }
+  # 서비스 수와 역할을 유지하면서 선택 계정의 모든 노드를 A에 배치한다.
+  assert {
+    condition     = alltrue([for node in values(local.nodes) : node.az == "a"])
+    error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
+  }
   assert {
     condition     = toset(keys(output.inventory.instances)) == toset(["kafka-1", "mysql-1", "spark-1", "mongo-2"])
     error_message = "Account 3의 서버 배치가 잘못되었습니다."
@@ -109,6 +124,11 @@ run "account4_three_nodes" {
   state_key = "account4"
   command   = apply
   variables { account_key = "account4" }
+  # 서비스 수와 역할을 유지하면서 선택 계정의 모든 노드를 A에 배치한다.
+  assert {
+    condition     = alltrue([for node in values(local.nodes) : node.az == "a"])
+    error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
+  }
   assert {
     condition     = toset(keys(output.inventory.instances)) == toset(["kafka-2", "spark-3", "mysql-3"])
     error_message = "Account 4의 서버 배치가 잘못되었습니다."
@@ -118,6 +138,11 @@ run "account5_three_nodes" {
   state_key = "account5"
   command   = apply
   variables { account_key = "account5" }
+  # 서비스 수와 역할을 유지하면서 선택 계정의 모든 노드를 A에 배치한다.
+  assert {
+    condition     = alltrue([for node in values(local.nodes) : node.az == "a"])
+    error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
+  }
   assert {
     condition     = toset(keys(output.inventory.instances)) == toset(["mysql-2", "mongo-3", "kafka-3"])
     error_message = "Account 5의 서버 배치가 잘못되었습니다."
@@ -168,5 +193,43 @@ run "account1_alb_opt_in" {
       contains(keys(module.rules.egress), "account1/alb/account1/${pair}")
     ])
     error_message = "명시적으로 활성화한 프로필에서는 기존 ALB와 대상 연결을 생성해야 합니다."
+  }
+}
+
+# compute의 실제 EC2 서브넷 입력을 검사한다. C 서브넷도 제공해 잘못된 C 선택을 잡는다.
+run "all_service_nodes_use_a_subnets" {
+  command = plan
+  module {
+    source = "../../modules/compute"
+  }
+  variables {
+    name       = "all-service-nodes-a"
+    ami_id     = "ami-0123456789abcdef0"
+    key_name   = "mock-service-key"
+    public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixturenotarealkey"
+    nodes = { for name, node in jsondecode(file("../../../config/topology.tfvars.json")).topology.nodes :
+      name => node if node.role != "bastion"
+    }
+    subnet_ids = {
+      public_a  = "subnet-0000000000000000a"
+      public_c  = "subnet-0000000000000000c"
+      private_a = "subnet-1000000000000000a"
+      private_c = "subnet-1000000000000000c"
+    }
+    sg_ids = merge([
+      for foundation in values(jsondecode(file("../../../tests/fixtures.json")).foundations) : foundation.sg_ids
+    ]...)
+  }
+  assert {
+    condition = (
+      length(aws_instance.this) == 18 &&
+      alltrue([for name, node in var.nodes :
+        node.az == "a" &&
+        aws_instance.this[name].subnet_id == (
+          node.subnet_tier == "public" ? "subnet-0000000000000000a" : "subnet-1000000000000000a"
+        )
+      ])
+    )
+    error_message = "기존 서비스 18대는 모두 Public A 또는 Private A 서브넷을 선택해야 합니다."
   }
 }

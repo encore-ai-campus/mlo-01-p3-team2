@@ -102,7 +102,7 @@ ansible-vault encrypt inventory/group_vars/all/vault.yml
 New Vault password와 Confirm New Vault password에 암호를 입력한다. 이후 설치 명령에 --ask-vault-pass를 추가해 같은 암호를 입력하거나 운영자가 관리하는 비밀번호 파일을 ANSIBLE_VAULT_PASSWORD_FILE로 지정한다. Vault 암호와 파일 안의 DB 계정 비밀번호는 별개다. 기존 vault.yml을 사용하는 경우 위 복사·암호화 명령을 다시 실행해 덮어쓰지 않는다.
 
 - 암호화한 vault.yml이 있으면 이를 읽는 실행에 Vault 암호가 필요하다. 비밀번호 파일 또는 --ask-vault-pass를 사용한다. Secret을 쓰지 않는 단계도 해당 파일을 읽으면 암호가 필요하다.
-- `vault.yml`(암호화한 것 포함), `.vault_pass`, `inventory/hosts.yml`은 저장소에 올리지 않는다(`aws-platform/platform/.gitignore`). 운영자가 각자 만든다.
+- `vault.yml`(암호화한 것 포함), `.vault_pass`, `inventory/hosts.yml`은 저장소에 올리지 않는다(`aws-platform/.gitignore`). 운영자가 각자 만든다.
 
 ## 가능한 구성
 

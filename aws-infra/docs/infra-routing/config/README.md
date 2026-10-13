@@ -17,7 +17,7 @@ JSON에는 주석이나 AWS 액세스 키·시크릿 키를 넣지 않는다. �
 
 비용별로 편집할 복사본은 [deploy.ps1 NewProfile](../scripts/deploy.ps1.md)로 infra/config/profiles/구성이름 아래에 만든다. topology·traffic·platform.json을 함께 보관하며 이 폴더는 Git에서 제외한다. 구성별 EC2 배치·사양을 선택해 기존 동일 원격 상태에 반영하고, backend.json과 공개키 상대 경로의 infra 기준은 유지한다. 현재 infra/config의 원본 파일은 NewProfile이 수정하지 않는다.
 
-[infra/.gitignore](../../../infra/.gitignore)는 .local/·Terraform 작업 폴더·상태·계획, 개인키와 로컬 설정·구성 프로필을 제외한다. Python 검사 도구가 만드는 __pycache__/와 *.py[cod]도 제외한다. Terraform 의존성 잠금 파일 .terraform.lock.hcl과 config/keys/*.pub 공개키는 이 규칙의 제외 대상이 아니다.
+[프로젝트 .gitignore](../../../.gitignore)는 .local/·Terraform 작업 폴더·상태·계획, 개인키와 로컬 설정·구성 프로필을 제외한다. Python 검사 도구가 만드는 __pycache__/와 *.py[cod], 로컬 AGENTS.md도 제외한다. 하위 infra/.gitignore는 상위 파일에 통합했으며, infra/config의 로컬 설정·프로필 경로는 프로젝트 루트 기준으로 지정한다. Terraform 의존성 잠금 파일 .terraform.lock.hcl과 config/keys/*.pub 공개키는 이 규칙의 제외 대상이 아니다.
 
 | 키 | 의미·현재 값 |
 | --- | --- |
@@ -44,6 +44,22 @@ nodes.bastion은 Account 1의 Public A, t3a.small, root_gib=20, public_ip=true�
 광고 서버는 account1의 Private A에 배치하며 role=ad, t3a.large, root_gib=20, public_ip=false, data_disks={}를 유지한다. ALB 설정은 ad_role=ad, ad_path=/ads/*, ad_health_path=/이다. `/ads/`와 그 하위 경로는 원래 경로 그대로 광고 서버로 전달하며 Django URL 설정은 변경하지 않는다.
 
 flatten-1은 account2의 Private A(apne2-az1), t3a.medium, root_gib=20, public_ip=false, data_disks={}다. role=consumer로 전용 SG와 인벤토리 그룹을 만들고 Kafka·Spark 서비스 설치 대상과 분리한다. 기본 설정과 profiles/current 복사본을 함께 갱신했다.
+
+## 모든 서버의 A 배치 — 2026-10-13
+
+기본 topology와 로컬 profiles/current의 모든 nodes.*.az는 a다. 논리 A의 물리 AZ ID는 apne2-az1이며, 이번 설정 변경에서 C에서 A로 옮긴 대상은 다음 다섯 노드다.
+
+| 계정 | 노드 | 변경 후 서브넷 |
+| --- | --- | --- |
+| account1 | front-b | Public A |
+| account3 | mongo-2 | Private A |
+| account4 | spark-3 | Private A |
+| account5 | mysql-2 | Private A |
+| account5 | kafka-3 | Private A |
+
+나머지 노드와 선택 Bastion은 기존 A 배치를 유지한다. az_ids는 a=apne2-az1, c=apne2-az3로 유지하고 foundation의 Public/Private C 서브넷도 제거하지 않는다. 서버 수·역할·subnet_tier·public_ip·사양·디스크·ALB·traffic 설정은 이 변경에 포함하지 않는다.
+
+AWS 적용은 실행하지 않았다. 기존 저장 Plan은 다시 만들고, 영향 계정의 workload Plan에서 EC2와 AZ에 종속된 데이터 EBS의 교체 범위를 확인한다. 적용 후 Inventory를 재생성해 새 사설 IP를 서버 접속·방화벽·앱 설정에 반영한다. 다른 로컬 프로필은 자동으로 변경되지 않는다.
 
 ## traffic
 

@@ -1,6 +1,6 @@
 # Platform 라우팅 문서 검증 기록
 
-[탐색 시작점](../ROUTING-README.md) · [실행 안내](../../README.md) · [작업 규칙](../../AGENTS.md)
+[탐색 시작점](../ROUTING-README.md) · [실행 안내](../../README.md) · 로컬 작업 규칙: AGENTS.md(Git 제외)
 
 ## 2026-10-10 MySQL 프로필과 로컬 인벤토리 불일치
 

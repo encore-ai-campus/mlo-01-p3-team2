@@ -12,3 +12,6 @@ infra/bootstrap/vars/vault.yml
 .vault*
 crash*.log
 __pycache__/
+
+# 로컬 에이전트 작업 규칙은 공유하지 않는다.
+AGENTS.md

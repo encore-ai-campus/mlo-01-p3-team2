@@ -26,3 +26,14 @@ crash.*.log
 **/secrets.*
 config/**/*.tfvars.json
 legacy/
+
+# 하위 infra/.gitignore의 경로 기준을 프로젝트 루트에 맞춰 통합한다.
+infra/**/.local/
+infra/**/legacy/
+infra/config/*.local.json
+infra/config/profiles/
+__pycache__/
+*.py[cod]
+
+# 로컬 에이전트 작업 규칙은 공유하지 않는다.
+AGENTS.md

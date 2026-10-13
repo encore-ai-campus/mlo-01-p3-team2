@@ -1,6 +1,6 @@
 # 문서 대조 기준과 검증 범위
 
-[탐색 시작점](ROUTING-README.md) · [적용 규칙](../../AGENTS.md)
+[탐색 시작점](ROUTING-README.md) · 로컬 적용 규칙: AGENTS.md(Git 제외)
 
 ## 2026-10-10 광고 서버 AZ A 배치 설정
 
@@ -229,7 +229,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 <summary>이전 광고 서버 이동·문서 대조 기록 보기</summary>
 
 
-[탐색 시작점](ROUTING-README.md) · [적용 규칙](../../AGENTS.md)
+[탐색 시작점](ROUTING-README.md) · 로컬 적용 규칙: AGENTS.md(Git 제외)
 
 ## 광고 서버 account1 이동 후 추가 검증
 

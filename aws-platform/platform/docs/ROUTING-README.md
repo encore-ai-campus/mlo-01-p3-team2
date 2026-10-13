@@ -6,7 +6,7 @@
 
 이 문서의 소스 경로는 aws-platform/platform 디렉터리 기준이다. 소스의 상대경로를 유지하고 파일명 끝에 .md를 붙인다. 예: 저장소 기준 aws-platform/platform/roles/mysql/tasks/main.yml → aws-platform/platform/docs/platform-routing/roles/mysql/tasks/main.yml.md. Python의 정규 AST 참조만 Git 최상위 기준 aws-platform/platform/ 접두사를 붙인다. 실제 소스·문서 링크는 각 문서 위치를 기준으로 계산했다.
 
-시작 문서는 docs/ROUTING-README.md이며, 파일별 설명은 docs/platform-routing/ 아래에 둔다. 현재 코드·설정 파일을 문서화하며 aws-platform/design/의 설계·구현 계획은 별도 참고 자료다. AGENTS.md와 README.md는 파일별 코드 문서 대상에서 제외하고 탐색·검증 문서에서 연결한다. 운영자 로컬 파일과 Secret은 제외한다.
+시작 문서는 docs/ROUTING-README.md이며, 파일별 설명은 docs/platform-routing/ 아래에 둔다. 현재 코드·설정 파일을 문서화하며 aws-platform/design/의 설계·구현 계획은 별도 참고 자료다. README.md는 탐색·검증 문서에서 연결한다. AGENTS.md는 로컬 작업 규칙이며 Git에서 제외한다. 운영자 로컬 파일과 Secret은 제외한다.
 
 ## 하위 폴더별 시작 문서
 
@@ -90,7 +90,7 @@ flowchart TB
 
 | 소스 | 대응 문서 | 책임 |
 | --- | --- | --- |
-| .gitignore | [.gitignore](platform-routing/.gitignore.md) | 운영자별 인벤토리·Vault와 실행 부산물을 Git에서 제외한다. |
+| ../.gitignore (aws-platform) | [.gitignore](platform-routing/.gitignore.md) | 운영자별 인벤토리·Vault와 실행 부산물을 Git에서 제외한다. |
 | ansible.cfg | [ansible.cfg](platform-routing/ansible.cfg.md) | 기본 인벤토리, 역할 경로, 대상 시스템 Python과 SSH 연결 재사용을 지정한다. |
 | requirements.txt | [requirements.txt](platform-routing/requirements.txt.md) | 컨트롤 노드에 설치할 Ansible 버전을 ansible==14.4.0으로 고정한다. 실제 설치 가능 여부는 이번 작업에서 확인하지 않았다. |
 | site.yml | [site.yml](platform-routing/site.yml.md) | 프록시 준비 import와 원격 환경변수, Bastion 우선 공통 보안·방화벽, 서비스 역할, 마지막 모니터링을 연결한다. |
@@ -114,4 +114,4 @@ flowchart TB
 - [자동화 설계](../../design/infra-automation-design.md)
 - [구현 계획](../../design/implementation-plan.md)
 - [Ubuntu 포팅 계획](../../design/ubuntu-porting-plan.md)
-- [작업 규칙](../AGENTS.md)
+- 로컬 작업 규칙: platform/AGENTS.md(Git 제외)

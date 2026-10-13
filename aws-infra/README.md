@@ -6,7 +6,7 @@ AWS EC2의 배치·네트워크·보안규칙·상태를 Terraform과 PowerShell
 
 ## 현재 기본 구성
 
-- 서울 리전 ap-northeast-2, 논리 A=apne2-az1·C=apne2-az3의 물리 AZ 두 개를 사용한다.
+- 서울 리전 ap-northeast-2, 모든 서버를 논리 A=apne2-az1에 배치한다. 네트워크의 A·C(apne2-az3) 서브넷과 공통 AZ 설정은 유지한다.
 - 독립 VPC 다섯 개를 모든 쌍의 직접 Peering 10개로 연결한다.
 - Account 1만 Public 서브넷·IGW를 사용하며, 기본 및 current 설정의 ALB는 비활성화돼 있다. 기본 NAT Gateway 수는 0개다.
 - 서비스 EC2 18대는 workload 상태에, 선택적으로 생성하는 Bastion 한 대는 별도 bastion 상태에 둔다.
@@ -38,13 +38,15 @@ OS 디스크는 20GiB/대다. Bastion을 포함한 전체 EBS 선언량은 4,280
 
 | 계정 / VPC | A | C | 서비스 / Bastion 포함 |
 | --- | --- | --- | ---: |
-| account1 · 10.10.0.0/16 | Public Bastion·front-a·edge-1, Private game-server·ad-server | Public front-b | 5 / 6 |
-| account2 · 10.20.0.0/16 | Private mongo-1·spark-2·flatten-1 | 서비스 노드 없음 | 3 / 3 |
-| account3 · 10.30.0.0/16 | Private kafka-1·mysql-1·spark-1 | Private mongo-2 | 4 / 4 |
-| account4 · 10.40.0.0/16 | Private kafka-2·mysql-3 | Private spark-3 | 3 / 3 |
-| account5 · 10.50.0.0/16 | Private mongo-3 | Private mysql-2·kafka-3 | 3 / 3 |
+| account1 · 10.10.0.0/16 | Public Bastion·front-a·front-b·edge-1, Private game-server·ad-server | 서버 없음 · 서브넷 유지 | 5 / 6 |
+| account2 · 10.20.0.0/16 | Private mongo-1·spark-2·flatten-1 | 서버 없음 · 서브넷 유지 | 3 / 3 |
+| account3 · 10.30.0.0/16 | Private kafka-1·mysql-1·spark-1·mongo-2 | 서버 없음 · 서브넷 유지 | 4 / 4 |
+| account4 · 10.40.0.0/16 | Private kafka-2·mysql-3·spark-3 | 서버 없음 · 서브넷 유지 | 3 / 3 |
+| account5 · 10.50.0.0/16 | Private mongo-3·mysql-2·kafka-3 | 서버 없음 · 서브넷 유지 | 3 / 3 |
 
-A 14대·C 5대는 Bastion 포함 수량이다. 계정 콘솔의 AZ 끝 글자는 물리 AZ ID와 구분한다. 상세 배치는 [계정 배치](docs/costs/account-allocation.md), SG 관계는 [보안규칙](docs/security-groups.md)에 있다.
+선언상 A 19대·C 0대는 선택 Bastion 포함 수량이다. 계정 콘솔의 AZ 끝 글자는 물리 AZ ID와 구분한다. 상세 배치는 [계정 배치](docs/costs/account-allocation.md), SG 관계는 [보안규칙](docs/security-groups.md)에 있다.
+
+2026-10-13 기본 topology와 로컬 profiles/current의 front-b·mongo-2·spark-3·mysql-2·kafka-3를 A로 변경했다. 서버 수·역할·Public/Private 구분·사양·디스크와 공통 az_ids는 유지하며 C 서브넷도 남긴다. 이 설명은 설정 변경이며 실제 AWS 이전 완료를 뜻하지 않는다. 기존 환경은 영향 계정의 새 workload Plan에서 EC2·데이터 EBS 교체 범위를 검토하고, 적용 후 인벤토리와 IP를 사용하는 서버 설정을 갱신한다.
 
 ## 생성부터 서비스 설치까지
 
@@ -68,7 +70,7 @@ flowchart TB
     P --> A["Ansible · 서비스 역할 설치 · MySQL은 최소 3대 준비 필요"]
 ```
 
-인프라 기본값은 MySQL EC2 세 대다. mysql-1은 account3 Private A, mysql-2는 account5 Private C, mysql-3는 account4 Private A에 배치한다. 현재 플랫폼의 [MySQL 역할](../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)이 요구하는 3~9대의 수량 조건을 충족한다. 2026-10-10 current 프로필의 mysql-3 EC2·디스크·SG 규칙을 실제 AWS에 반영했으며, 설치 전 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽을 준비해야 한다. Cluster 설치·자동 Primary 전환은 아직 이번 작업에서 검증하지 않았다. 기존 ReplicaSet의 자동 데이터 이전은 제공하지 않는다.
+인프라 기본값은 MySQL EC2 세 대다. mysql-1은 account3 Private A, mysql-2는 account5 Private A, mysql-3는 account4 Private A에 배치한다. 현재 플랫폼의 [MySQL 역할](../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)이 요구하는 3~9대의 수량 조건을 충족한다. 2026-10-10 current 프로필의 mysql-3 EC2·디스크·SG 규칙을 실제 AWS에 반영했으며, 설치 전 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽을 준비해야 한다. Cluster 설치·자동 Primary 전환은 아직 이번 작업에서 검증하지 않았다. 기존 ReplicaSet의 자동 데이터 이전은 제공하지 않는다.
 
 [로컬 Router](../aws-platform/platform/docs/platform-routing/roles/backend/README.md)는 game·Spark·선택 backend 서버에 설치하며 앱 접속은 127.0.0.1:6446(RW)·6447(RO)이다. Spark는 인벤토리 앞 두 대에 Master, 전체 세 대에 Worker·ZooKeeper를 배치한다. flatten-1은 account2 Private A의 t3a.medium 평탄화 Consumer 전용 서버다. Kafka 세 브로커의 9092와 MongoDB 세 노드의 27017에 접속하도록 선언하며 Kafka·Spark 그룹에 포함하지 않는다. EC2와 통신 규칙만 준비하고, 평탄화 프로그램·Front·game·ad 애플리케이션·Spark 잡 배포는 별도 구현 영역이다. 모든 업무 쓰기의 Kafka 우선 방침은 애플리케이션 요구이며 SG가 이를 강제하지 않는다.
 

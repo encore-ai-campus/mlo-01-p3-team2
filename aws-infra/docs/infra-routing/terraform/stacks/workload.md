@@ -61,6 +61,14 @@ SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 �
 
 ALB의 외부 HTTP 포트와 내부 대상 포트는 별개다. Bastion의 인터넷 HTTPS 443 egress도 ALB의 외부 인바운드와 별개다. Account 1 workload는 edge-1·Front 두 대·game-server·ad-server 다섯 대를 생성하며 Bastion은 [전용 단계](bastion.md)에서 생성한다. topology에 Bastion을 남겨 SSH·Proxy SG 규칙은 계속 계산한다. 광고 서버는 Private A이고 game-server와 서로 다른 EC2이므로 각각 HTTP 8000을 사용한다. 프로그램 설치와 정적 파일 배포는 [bootstrap 범위](../../bootstrap/README.md)다.
 
+## 모든 서버의 A 배치 — 2026-10-13
+
+기본 topology와 로컬 profiles/current는 모든 서버의 az를 a(apne2-az1)로 지정한다. 기존 C 대상 front-b·mongo-2·spark-3·mysql-2·kafka-3만 A로 변경했으며, workload 서버 수 5 / 3 / 4 / 3 / 3대와 역할·사양·Public/Private 구분·디스크는 유지한다. Front·edge·ALB·HTTPS 구성은 이 변경에서 수정하지 않는다.
+
+공통 az_ids와 foundation의 A·C 서브넷·라우팅 및 connectivity의 Peering 구조는 유지한다. compute는 노드의 subnet_tier와 az로 서브넷을 선택하므로 배치 설정 변경을 그대로 사용한다. 기존 환경은 새 workload Plan에서 EC2·데이터 EBS 교체와 EIP 연결 변경을 검토하고, 적용 후 Inventory와 IP를 참조하는 서버 설정을 갱신한다. AWS 적용과 실제 A 배치 확인은 이번 작업에서 실행하지 않았다.
+
+workload.tftest.hcl은 계정별 기존 서버 수·역할 검사를 유지하고 서비스 노드의 az=a를 검사한다. 추가 all_service_nodes_use_a_subnets run은 compute 모듈을 AWS mock으로 직접 검사해 서비스 18대가 실제로 Public A 또는 Private A 서브넷을 선택하는지 확인한다. 선택 Bastion은 기존 전용 단계의 Public A 배치를 유지한다.
+
 ## 선행 상태 확인
 
 정규 배포는 다섯 foundation의 계정·리전·CIDR·AZ를 검사한다. terraform_data.connectivity_ready는 현재 VPC와 Peering 쌍을 확인한다. edge_bootstrap_only=true이면 해당 계정 foundation만 읽고 connectivity를 조회하지 않는다. terraform_data.edge_bootstrap_guard[0]은 Account 1, ALB 비활성, Public edge-1(t3a.small) 한 대 조건을 검사한다. 실행기는 별도로 기존 자원 삭제·교체를 차단한다.
