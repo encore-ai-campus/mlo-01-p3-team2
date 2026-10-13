@@ -40,12 +40,7 @@ def start():
         else:
             raise SystemExit("mongod 가 기동하지 않았다")
         docker(*mongosh, "--eval", f'rs.initiate({{_id: "{REPLICA_SET}", members: [{{_id: 0, host: "127.0.0.1:{port}"}}]}})')
-        for _ in range(60):
-            if docker(*mongosh, "--eval", "db.hello().isWritablePrimary", check=False).stdout.strip() == "true":
-                break
-            time.sleep(1)
-        else:
-            raise SystemExit("레플리카셋 primary 가 선출되지 않았다")
+        wait_primary(name, port)
         docker(*mongosh, "admin", "--eval",
                'db.createUser({user: "root", pwd: "%s", roles: ["root"]})' % password)  # keyfile 인증 하의 localhost 예외로 첫 계정을 만든다
     except BaseException:
@@ -54,9 +49,8 @@ def start():
     return name, port, password
 
 
-def restart(name, port, timeout=120):
-    """컨테이너를 재시작하고 레플리카셋 primary 가 다시 설 때까지 기다린다(장애 시험의 '계획된 재시작')."""
-    docker("restart", "-t", "20", name)
+def wait_primary(name, port, timeout=120):
+    """레플리카셋 primary 가 설 때까지 기다린다 — 처음 띄울 때와 재시작 뒤가 같은 제한을 쓴다(6-13g)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         probe = docker("exec", name, "mongosh", "--quiet", "--port", str(port), "--eval", "db.hello().isWritablePrimary", check=False)
@@ -64,6 +58,12 @@ def restart(name, port, timeout=120):
             return
         time.sleep(1)
     raise SystemExit(f"{name} 의 primary 가 {timeout}초 안에 서지 않았다")
+
+
+def restart(name, port):
+    """컨테이너를 재시작하고 레플리카셋 primary 가 다시 설 때까지 기다린다(장애 시험의 '계획된 재시작')."""
+    docker("restart", "-t", "20", name)
+    wait_primary(name, port)
 
 
 def stop(name):

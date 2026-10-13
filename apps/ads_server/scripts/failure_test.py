@@ -81,10 +81,8 @@ class DbContainer:
     def wait_ready(self, timeout=180):
         deadline = time.time() + timeout
         while time.time() < deadline:
-            probe = subprocess.run(
-                ["docker", "exec", "-e", f"MYSQL_PWD={self.password}", self.name, "mysqladmin", "ping", "--protocol=tcp", "-h127.0.0.1", "-uroot", "--silent"],
-                capture_output=True, text=True,
-            )
+            probe = docker("exec", "-e", f"MYSQL_PWD={self.password}", self.name, "mysqladmin", "ping", "--protocol=tcp", "-h127.0.0.1", "-uroot", "--silent",
+                           check=False)  # 다른 docker 호출과 같은 시간 제한(R5) — 걸린 exec 가 대기를 끝없이 늘이지 않게(6-13g)
             if probe.returncode == 0:
                 return
             time.sleep(1)
@@ -298,10 +296,8 @@ def run_scenario(name, db, mongo_container, log):
         check("복구 뒤에 상시 중계 프로세스가 이벤트를 보냈다(공회전이 아니다)", relayed_since > 0, f"{relayed_since}건")
         if name == "mongo-restart":
             check("MongoDB 가 끊긴 동안 outbox 에 미전송이 쌓였다(시험이 공회전이 아니다)", backlog["max"] >= 20, f"최대 {backlog['max']}건")
+        load_test.stop_processes(processors + relays)  # SIGTERM, 30초 안에 끝나지 않으면 SIGKILL — 걸린 프로세스가 남은 점검을 건너뛰게 하지 않는다(6-13g)
         for proc in processors + relays:
-            if proc.poll() is None:
-                proc.send_signal(signal.SIGTERM)
-                proc.wait(timeout=30)
             proc.log_handle.close()
         connections.close_all()
         if cluster is not None:
