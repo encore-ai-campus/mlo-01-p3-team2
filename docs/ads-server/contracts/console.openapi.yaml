@@ -44,7 +44,7 @@ info:
     | 종료는 확정 | `ENDED`(기간이 끝났거나 `POST .../end`로 조기 종료)는 **어떤 값도 수정할 수 없다**(409 `ended`). 소속 광고그룹·입찰의 쓰기와 광고그룹의 소재 연결·선택도 막힌다. 소재 자체는 캠페인 밖이라 수정할 수 있다(그 소재를 쓰는 광고그룹에 다음 결정부터 — 과거 결정은 그대로, 6-9c). 판정은 저장된 `status`가 아니라 `ends_at ≤ 현재`다(상태 갱신 전에도 같다) |
     | 종료일 변경 | 종료 전에는 늘리거나 줄일 수 있다. 새 값은 현재 시각보다 뒤여야 한다(400) |
     | 상한(쿼터) | 광고주당 캠페인·광고그룹·소재 수(보관한 소재는 빼고)와 업로드 총량(보관한 소재 포함) 상한(설정값)을 넘으면 409 `limit_exceeded` |
-    | 소재 목록 | 소재는 광고주 소유다. 광고그룹에 여러 개 **연결**(`PUT /ad-groups/{id}/creatives/{creative_id}`, 끊지 않음)하고 그중 하나를 **선택**(광고그룹의 `creative_id`)한다 — 처음 연결하면 선택된다. 남의 소재·보관한 소재는 404. "삭제"는 **보관**(`POST /creatives/{id}/archive`)이고, 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고그룹에 연결돼 있으면(선택 여부와 무관) 409다 |
+    | 소재 목록 | 소재는 광고주 소유다. 광고그룹에 여러 개 **연결**(`PUT /ad-groups/{id}/creatives/{creative_id}`, 끊지 않음)하고 그중 하나를 **선택**(광고그룹의 `creative_id`)한다 — 처음 연결하면 선택된다. 고르는 길은 연결 `PUT …?select=true` 하나다(아직 연결되지 않았으면 함께 연결, 6-13e). 남의 소재·보관한 소재는 404. "삭제"는 **보관**(`POST /creatives/{id}/archive`)이고, 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고그룹에 연결돼 있으면(선택 여부와 무관) 409다 |
     | 예산·잔액은 상태가 아님 | 예산 소진·잔액 부족은 `status`가 아니라 `today`·`alerts`로 나타난다 |
 
 servers:
@@ -807,10 +807,19 @@ paths:
     put:
       tags: [creatives]
       operationId: linkCreative
-      summary: 등록된 소재를 이 광고그룹에 연결한다 (재사용)
+      summary: 등록된 소재를 이 광고그룹에 연결한다 (재사용) · 선택한다
       description: |
-        이미 연결돼 있으면 그대로다(멱등). 선택된 소재가 없으면 이것을 선택한다(광고그룹의 `updated_at`도 바뀐다). 연결은 끊지 않는다 — 다른 소재를 쓰려면 선택을 바꾼다
-        (`PATCH /ad-groups/{id}`의 `creative_id`). 남의 소재·보관한 소재는 404, 끝난 캠페인은 409 `ended`.
+        이미 연결돼 있으면 그대로다(멱등). 선택된 소재가 없으면 이것을 선택한다(광고그룹의 `updated_at`도 바뀐다). 연결은 끊지 않는다.
+        `select=true` 면 이것을 **선택**한다 — 소재를 고르는 길은 이것 하나다(6-13e, 광고그룹 `PATCH` 에는 `creative_id` 가 없다). 아직 연결되지 않았으면
+        같은 요청에서 연결한다. 선택이 바뀌면 `updated_at` 이 바뀌고, 본 시각은 대조하지 않는다(켜기·끄기처럼 바꿀 값이 분명하다).
+        남의 소재·보관한 소재는 404, 끝난 캠페인은 409 `ended`(연결도 선택도 하지 않는다).
+      parameters:
+        - name: select
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: 광고그룹
@@ -1619,9 +1628,6 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/Uuid"
-        creative_id:
-          description: 선택할 소재. 이 광고그룹에 연결된 소재만(아니면 400), 남의 것·보관한 것은 404.
-          $ref: "#/components/schemas/Uuid"
         expected_updated_at:
           $ref: "#/components/schemas/DateTimeUtc"
           description: 선택. 폼을 열 때 본 광고그룹의 `updated_at`. 현재와 다르면 409 `stale_version`(같은 칸의 옛 폼이 최신 변경을 덮지 않게). 켜기·끄기에는 보내지 않는다.
