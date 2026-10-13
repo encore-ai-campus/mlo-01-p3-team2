@@ -16,14 +16,14 @@ from billing import api as billing
 from campaigns import api as campaigns
 from masters import api as masters
 
-from ..errors import HANDLED, form_errors, message_of, status_of
+from ..errors import HANDLED, message_of, submit
 from ..forms import EXISTING, NEW, AdCreateForm
 
 
 def _render(request, form, choices, effects=None, status=200):
     slots = {str(s.slot_id): s for s in choices["slots"]}
     return render(request, "console/ad_create.html", {
-        "form": form, "slots": choices["slots"], "chosen": set(map(str, form["slot_ids"].value() or [])),
+        "form": form, "slots": choices["slots"],
         "effects": [effect_row(slots.get(str(e.slot_id)), e) for e in effects] if effects else None,
         "max_bytes": settings.ASSET_MAX_BYTES, "has_creatives": bool(choices["creatives"]),
     }, status=status)
@@ -76,27 +76,19 @@ def ad_create(request):
         form.is_valid()  # 맞는 칸만 cleaned_data 에 남긴다
         form.errors.clear()  # 저장하지 않는 동작이라 빈 칸·이미지 등의 오류는 보이지 않는다
         return _render(request, form, choices, effects=_preview(form) if action == "preview" else None)
-    status = 400
-    if form.is_valid():
-        d = form.cleaned_data
+    def create(d):
         if d["creative_source"] == EXISTING:
             creative = {"creative_id": d["creative_id"]}
         else:
             creative = {"creative": {"title": d["title"], "redirect_url": d["redirect_url"], "image_file": d["image"]}}
-        try:
-            created = campaigns.create_ad(
-                request.user, d["campaign_id"],
-                ad_group={"name": d["group_name"], "slot_ids": d["slot_ids"], "bid_amount": d["bid_amount"]},
-                request_key=d["request_key"], **creative,
-            )
-        except HANDLED as e:
-            form_errors(form, e, pointers=AdCreateForm.POINTERS, image_field="image")
-            status = status_of(e)
-        else:
-            messages.success(request, "이미 만든 광고입니다(같은 화면을 다시 보내도 하나만 만듭니다)." if created.duplicate
-                             else "광고를 만들었습니다. 승인 없이 바로 집행됩니다.")
-            return redirect("ad_group_detail", ad_group_id=created.ad_group.ad_group_id)
-    return _render(request, form, choices, status=status)
+        return campaigns.create_ad(request.user, d["campaign_id"], ad_group={"name": d["group_name"], "slot_ids": d["slot_ids"], "bid_amount": d["bid_amount"]},
+                                   request_key=d["request_key"], **creative)
+
+    created, status = submit(form, create, pointers=AdCreateForm.POINTERS, image_field="image")
+    if status is not None:
+        return _render(request, form, choices, status=status)
+    messages.success(request, "이미 만든 광고입니다(같은 화면을 다시 보내도 하나만 만듭니다)." if created.duplicate else "광고를 만들었습니다. 승인 없이 바로 집행됩니다.")
+    return redirect("ad_group_detail", ad_group_id=created.ad_group.ad_group_id)
 
 
 def _preview(form):

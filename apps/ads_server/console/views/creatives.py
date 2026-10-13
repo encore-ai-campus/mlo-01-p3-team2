@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST, require_safe
 from assets.api import asset_exists, content_type, open_asset
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, run_action, status_of
+from ..errors import fetch, run_action, submit
 from ..forms import CreativeEditForm, CreativeUploadForm, ImageForm
 
 
@@ -20,17 +20,10 @@ def creative_list(request):
     form = CreativeUploadForm(request.POST or None, request.FILES or None, prefix="new")
     status = 200
     if request.method == "POST":
-        status = 400
-        if form.is_valid():
-            d = form.cleaned_data
-            try:
-                c = campaigns.create_creative(request.user, None, d["title"], d["redirect_url"], d["image"])
-            except HANDLED as e:
-                form_errors(form, e, image_field="image")
-                status = status_of(e)
-            else:
-                messages.success(request, "소재를 올렸습니다. 광고 만들기나 광고 상세에서 이 소재를 쓸 수 있습니다.")
-                return redirect("creative_detail", creative_id=c.creative_id)
+        c, status = submit(form, lambda d: campaigns.create_creative(request.user, None, d["title"], d["redirect_url"], d["image"]), image_field="image")
+        if status is None:
+            messages.success(request, "소재를 올렸습니다. 광고 만들기나 광고 상세에서 이 소재를 쓸 수 있습니다.")
+            return redirect("creative_detail", creative_id=c.creative_id)
     return render(request, "console/creative_list.html", {"items": campaigns.list_owned_creatives(request.user), "form": form}, status=status)
 
 
@@ -43,18 +36,14 @@ def _image_form(creative, data=None, files=None):
     return ImageForm(data, files, prefix=str(creative.creative_id), auto_id="image_%s", initial={"updated_at": creative.updated_at.isoformat()})  # id 는 수정 폼과 다르게
 
 
-def _creative_page(request, creative_id, status=200, edit=None, image=None):
-    """소재 상세. `edit`·`image` 는 (소재 ID, 다시 그릴 수정·이미지 폼). 보관한 소재는 읽기만(쓰는 광고·폼 없음)."""
+def creative_detail(request, creative_id, status=200, edit=None, image=None):
+    """소재 상세. `edit`·`image` 는 다시 그릴 수정·이미지 폼(제출 뷰가 넘긴다). 보관한 소재는 읽기만(쓰는 광고·폼 없음)."""
     creative = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     owned = next((o for o in campaigns.list_owned_creatives(request.user) if o.creative.creative_id == creative.creative_id), None)
     return render(request, "console/creative_detail.html", {
         "creative": creative, "owned": owned,
-        "edit": edit[1] if edit else _edit_form(creative), "image": image[1] if image else _image_form(creative),
+        "edit": edit or _edit_form(creative), "image": image or _image_form(creative),
     }, status=status)
-
-
-def creative_detail(request, creative_id):
-    return _creative_page(request, creative_id)
 
 
 @require_POST
@@ -70,16 +59,14 @@ def creative_edit(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     form = _edit_form(current, request.POST)
     if not form.is_valid():
-        return _creative_page(request, creative_id, status=400, edit=(current.creative_id, form))
+        return creative_detail(request, creative_id, status=400, edit=form)
     changes = {name: form.cleaned_data[name] for name in CreativeEditForm.EDITABLE if name in form.changed_data}
     if not changes:
         messages.info(request, "바뀐 것이 없습니다.")
         return redirect("creative_detail", creative_id=current.creative_id)
-    try:
-        campaigns.update_creative(request.user, creative_id, changes, expected_updated_at=form.cleaned_data["updated_at"])
-    except HANDLED as e:
-        form_errors(form, e)
-        return _creative_page(request, creative_id, status=status_of(e), edit=(current.creative_id, form))
+    _, status = submit(form, lambda d: campaigns.update_creative(request.user, creative_id, changes, expected_updated_at=d["updated_at"]))
+    if status is not None:
+        return creative_detail(request, creative_id, status=status, edit=form)
     messages.success(request, "소재를 수정했습니다. 이 소재를 쓰는 모든 광고에 다음 결정부터 적용됩니다.")
     return redirect("creative_detail", creative_id=current.creative_id)
 
@@ -88,13 +75,10 @@ def creative_edit(request, creative_id):
 def creative_image(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     form = _image_form(current, request.POST, request.FILES)
-    if not form.is_valid():
-        return _creative_page(request, creative_id, status=400, image=(current.creative_id, form))
-    try:
-        campaigns.replace_creative_image(request.user, creative_id, form.cleaned_data["image"], expected_updated_at=form.cleaned_data["updated_at"])
-    except HANDLED as e:
-        form_errors(form, e, image_field="image")
-        return _creative_page(request, creative_id, status=status_of(e), image=(current.creative_id, form))
+    _, status = submit(form, lambda d: campaigns.replace_creative_image(request.user, creative_id, d["image"], expected_updated_at=d["updated_at"]),
+                       image_field="image")
+    if status is not None:
+        return creative_detail(request, creative_id, status=status, image=form)
     messages.success(request, "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.")
     return redirect("creative_detail", creative_id=current.creative_id)
 

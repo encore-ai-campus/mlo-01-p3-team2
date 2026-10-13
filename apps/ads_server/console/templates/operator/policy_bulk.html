@@ -25,13 +25,7 @@
       </tbody>
     </table>
   </div>
-  {{ form.floor.label_tag }} {{ form.floor }} {{ form.floor.errors }}
-  {{ form.base.label_tag }} {{ form.base }} {{ form.base.errors }}
-  {{ form.cap.label_tag }} {{ form.cap }} {{ form.cap.errors }}
-  {{ form.impression_share.label_tag }} {{ form.impression_share }} {{ form.impression_share.errors }}
-  {{ form.click_share.label_tag }} {{ form.click_share }} {{ form.click_share.errors }}
-  {{ form.conversion_share.label_tag }} {{ form.conversion_share }} {{ form.conversion_share.errors }}
-  {{ form.reason.label_tag }} {{ form.reason }} {{ form.reason.errors }}
-  <button type="submit">고른 구성에 새 버전 저장</button>
+  {% for f in form %}{% if f.name != "slots" %}{{ f.label_tag }} {{ f }} {{ f.errors }}
+  {% endif %}{% endfor %}<button type="submit">고른 구성에 새 버전 저장</button>
 </form>
 {% endblock %}

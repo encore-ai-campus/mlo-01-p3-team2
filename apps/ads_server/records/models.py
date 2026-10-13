@@ -84,7 +84,7 @@ SHARE_COLUMNS = {ReactionType.IMPRESSION: "impression_share", ReactionType.CLICK
 
 
 def charge_shares(row):
-    """결정(또는 같은 열 이름을 가진 정책)의 반응 유형별 과금 비율 → {반응 유형: %}. 과금·C2 `charge_shares` 가 이 모양을 쓴다."""
+    """결정의 반응 유형별 과금 비율 → {반응 유형: %}. 과금·C2 `charge_shares` 가 이 모양을 쓴다."""
     return {str(t): getattr(row, column) for t, column in SHARE_COLUMNS.items()}
 
 

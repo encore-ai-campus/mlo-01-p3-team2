@@ -10,14 +10,14 @@ from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, run_action, status_of
+from ..errors import fetch, run_action, submit
 from ..forms import BidForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm
 from ..queries.ad_groups import ad_group_page
 from .ads import effect_row
 
 
-def _page(request, ad_group_id, status=200, **bound):
-    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼."""
+def ad_group_detail(request, ad_group_id, status=200, **bound):
+    """상세 화면. `bound` 는 오류와 함께 다시 그릴 폼(제출 뷰가 넘긴다)."""
     page = fetch(ad_group_page, request.user, ad_group_id)
     group = page.group
     forms = {
@@ -32,28 +32,13 @@ def _page(request, ad_group_id, status=200, **bound):
     }, status=status)
 
 
-def ad_group_detail(request, ad_group_id):
-    return _page(request, ad_group_id)
-
-
-def _done(request, ad_group_id, message):
-    messages.success(request, message)
-    return redirect("ad_group_detail", ad_group_id=ad_group_id)
-
-
 def _submit(request, ad_group_id, form, call, done, image_field=None, **redraw):
-    """폼 하나의 제출: 입력이 맞으면 `call(cleaned_data)` 하고 완료 메시지와 함께 상세로 돌아간다. 서비스가 거절하면 그 폼에 오류를 붙여(`status_of`),
-    폼이 거르면 400 으로 상세를 다시 그린다(`redraw` = 다시 그릴 폼)."""
-    status = 400
-    if form.is_valid():
-        try:
-            call(form.cleaned_data)
-        except HANDLED as e:
-            form_errors(form, e, image_field=image_field)
-            status = status_of(e)
-        else:
-            return _done(request, ad_group_id, done)
-    return _page(request, ad_group_id, status=status, **redraw)
+    """폼 하나의 제출(`console.errors.submit`): 완료면 메시지와 함께 상세로 돌아가고, 아니면 상세를 그 폼과 함께 다시 그린다(`redraw` = 다시 그릴 폼)."""
+    _, status = submit(form, call, image_field=image_field)
+    if status is not None:
+        return ad_group_detail(request, ad_group_id, status=status, **redraw)
+    messages.success(request, done)
+    return redirect("ad_group_detail", ad_group_id=ad_group_id)
 
 
 @require_POST

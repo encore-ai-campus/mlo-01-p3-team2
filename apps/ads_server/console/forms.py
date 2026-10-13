@@ -156,7 +156,7 @@ class AdCreateForm(forms.Form):
 
 
 class CreativeUploadForm(forms.Form):
-    """소재 올리기(소재 목록·광고 상세의 "올려서 연결"). 규칙(제목·https·이미지 규격)은 서비스가 판단한다."""
+    """소재 올리기(소재 목록·광고 상세의 "이미지 업로드" — 목록에만 올린다). 규칙(제목·https·이미지 규격)은 서비스가 판단한다."""
 
     title = forms.CharField(label="제목", max_length=200, strip=False)
     redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False)

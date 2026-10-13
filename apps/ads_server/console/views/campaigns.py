@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, message_of, run_action, status_of
+from ..errors import HANDLED, fetch, message_of, run_action, submit
 from ..forms import CampaignCreateForm, CampaignEditForm, ReviewRequestForm
 from ..queries.campaigns import campaign_page, campaign_rows, placement_summary
 
@@ -39,18 +39,11 @@ def campaign_create(request):
         messages.success(request, "이미 만든 캠페인입니다(같은 화면을 다시 보내도 하나만 만듭니다).")
         return redirect("campaign_detail", campaign_id=done.campaign_id)
     form = CampaignCreateForm(request.POST)
-    status = 400
-    if form.is_valid():
-        d = form.cleaned_data
-        try:
-            c = campaigns.create_campaign(request.user, d["name"], d["starts_at"], d["ends_at"], d["daily_budget"], request_key=d["request_key"])
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
-            messages.success(request, "캠페인을 만들었습니다. 이제 이 캠페인에 광고를 만드세요.")
-            return redirect("campaign_detail", campaign_id=c.campaign_id)
-    return render(request, "console/campaign_create.html", {"form": form}, status=status)
+    c, status = submit(form, lambda d: campaigns.create_campaign(request.user, d["name"], d["starts_at"], d["ends_at"], d["daily_budget"], request_key=d["request_key"]))
+    if status is not None:
+        return render(request, "console/campaign_create.html", {"form": form}, status=status)
+    messages.success(request, "캠페인을 만들었습니다. 이제 이 캠페인에 광고를 만드세요.")
+    return redirect("campaign_detail", campaign_id=c.campaign_id)
 
 
 def _edit_initial(campaign):
@@ -68,12 +61,8 @@ def campaign_detail(request, campaign_id):
         if not changes:
             messages.info(request, "바뀐 것이 없습니다.")
             return redirect("campaign_detail", campaign_id=campaign.campaign_id)
-        try:
-            campaigns.update_campaign(request.user, campaign.campaign_id, changes, expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
+        _, status = submit(form, lambda d: campaigns.update_campaign(request.user, campaign.campaign_id, changes, expected_updated_at=d["updated_at"]))
+        if status is None:
             messages.success(request, "캠페인을 수정했습니다.")
             return redirect("campaign_detail", campaign_id=campaign.campaign_id)
     elif request.method == "POST":
@@ -84,21 +73,15 @@ def campaign_detail(request, campaign_id):
     }, status=status)
 
 
-_BACK = {"list": "campaign_list"}  # 처리 뒤 돌아갈 곳(정한 값만 — 열린 리다이렉트 없음). 없으면 상세
-
-
-def _back(request, campaign_id):
-    target = _BACK.get(request.POST.get("back"))
-    return redirect(target) if target else redirect("campaign_detail", campaign_id=campaign_id)
-
-
 @require_POST
 def campaign_status(request, campaign_id):
     """켜기·끄기(ACTIVE↔PAUSED). 바꿀 값이 분명한 동작이라 화면이 본 버전과 대조하지 않는다. 중단·끝난 캠페인은 서비스가 거절한다."""
     target = request.POST.get("status", "")
     run_action(request, campaigns.update_campaign, request.user, campaign_id, {"status": target},
                success="캠페인을 켰습니다." if target == "ACTIVE" else "캠페인을 껐습니다.")
-    return _back(request, campaign_id)
+    if request.POST.get("back") == "list":  # 처리 뒤 돌아갈 곳은 정한 값만(열린 리다이렉트 없음). 없으면 상세
+        return redirect("campaign_list")
+    return redirect("campaign_detail", campaign_id=campaign_id)
 
 
 @require_POST

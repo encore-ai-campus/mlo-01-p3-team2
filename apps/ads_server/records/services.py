@@ -246,10 +246,9 @@ def _record_click(d, person, now):
             _record_received_event(row)
     except IntegrityError as error:
         if is_unique_violation(error) and Reaction.objects.filter(media_id=d.media_id, reaction_id=reaction_id, source=ReactionSource.SERVER).exists():
-            return None  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
+            return  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
         raise
     process_after_receipt(row.inbox_id)  # 수신 직후 한 번 처리해 본다(실패해도 이동·기록은 그대로, 남은 것은 재처리가 맡는다)
-    return row.inbox_id
 
 
 def get_reaction(media_id, decision_id, reaction_id):
