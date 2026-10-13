@@ -160,7 +160,7 @@ flowchart LR
 | R-3 | **시각은 UTC**로 저장·계산·전송한다. 계약은 RFC 3339 `…Z`만 허용. KST는 화면 표시에서만 | 설계서 §3 [확정]. 서비스는 시간대 없는 값(naive)을 거부, `engine`은 UTC가 아니면 생성 단계에서 거부 |
 | R-4 | **금액은 정수 포인트**, 0 이상, 최대 `2^53 − 1`(JSON 정수로 정확히 표현되는 한계) | 설계서 §10 [확정]. DB `CHECK` + 서비스 검증. 팀 DRD의 `DECIMAL(18,2)`와 다르다(§9) |
 | R-5 | **추가 전용(append-only)**: 입찰 정책, 입찰, 원장, 결정, 감사 로그. INSERT만 허용하고 수정·삭제·같은 PK로 덮어쓰기·upsert를 막는다 | `foundation.AppendOnlyModel`(저장은 항상 `force_insert`, `update`·`delete`·`bulk_create(update_conflicts)` 거부). 정정은 반대 부호의 새 행 |
-| R-6 | **삭제 기능이 없다.** 캠페인·광고그룹·소재는 끄기(`status`·`enabled`)로 처리한다 | 결정·원장이 참조하는 이력을 지키기 위해. 앱 사이 FK는 `PROTECT` |
+| R-6 | **삭제 기능이 없다.** 캠페인·광고그룹은 끄기(`status`·`enabled`)로 처리한다. 소재는 끄기가 없다(6-9b — 광고그룹을 끈다) | 결정·원장이 참조하는 이력을 지키기 위해. 앱 사이 FK는 `PROTECT` |
 | R-7 | **문자열 입력**: 앞뒤 공백 제거·NFC 정규화, 제어·서식 문자(제로폭 공백 등) 금지, 길이 1~상한 | `foundation.clean_text`. 상한: 이름 100, 제목 200, 사유·메모 500 |
 | R-8 | **코드 값은 대문자**(예 `ACTIVE`, `IMPRESSION`) | DB `choices` + 서비스 검증. 계약의 enum과 같은 값 |
 | R-9 | **소유권**: 광고주 데이터는 소유자 기준으로만 조회한다. 남의 것·없는 것·형식이 틀린 ID는 모두 404 | `owned_or_404`. 위협 모델 T4 |
@@ -253,7 +253,6 @@ erDiagram
         string title
         string redirect_url "https만"
         string image_name "sha256.ext"
-        bool enabled
     }
     campaigns_bid {
         uuid bid_id PK
@@ -533,7 +532,6 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `redirect_url` | 문자 2048 | N | | `https`만, 사용자 정보(`user:pw@`)·공백 금지 |
 | `image_name` | 문자 80 | N | 인덱스 | `<sha256>.<jpg\|png>`. 파일은 §4.6 |
 | `image_bytes` | 정수 | N | | 업로드 총량 쿼터 계산용 |
-| `enabled` | 불리언 | N | | |
 | `created_at`, `updated_at` | 시각 | N | | |
 
 이미지를 교체하면 `image_name`이 바뀌고 **이전 파일은 지우지 않는다**(과거 결정이 가리킬 수 있다).
@@ -1174,7 +1172,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `daily_budget` | 없음 | 팀 DRD 미반영(A-18) |
 | `campaigns_ad_group.enabled` | `ad_group.active_flag` | |
 | `campaigns_ad_group_slot` | `ad_group_slot`(PK UUID) | 서버도 UUID PK(`ad_group_slot_id`) + UNIQUE(그룹, 슬롯) |
-| `campaigns_creative.creative_id`, `title`, `redirect_url`, `enabled` | `ad_item.ad_id`, `ad_title`, `redirect_url`, `active_flag` | 서버의 "소재" = 팀 DRD의 "광고" |
+| `campaigns_creative.creative_id`, `title`, `redirect_url` | `ad_item.ad_id`, `ad_title`, `redirect_url`, `active_flag` | 서버의 "소재" = 팀 DRD의 "광고". 서버 소재에는 켜기·끄기가 없다(6-9b) — `active_flag`는 광고그룹의 `enabled`와 캠페인 상태로 대신한다 [열림: 내보낼 값] |
 | `campaigns_bid.bid_id`, `bid_version`, `amount` | `ad_bid.bid_id`, `bid_version`, `bid_amount`, `currency_code` | 같다(D-4 해결). 통화는 항상 `POINT` |
 | `records_decision.decision_id`, `decided_at`, `slot_id` | `ad_decision.decision_id`, `decision_at`, `slot_id` | `decided_at` → `decision_at` |
 | 결정의 `creative_id` | `selected_ad_id` | |
@@ -1235,6 +1233,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.42 | 2026-10-13 | Step 6-9b(구현 계획 §8.4.10): 소재 `enabled` 열 삭제(마이그레이션 `campaigns/0006`) — 소재 끄기를 없앴다(광고그룹을 끈다). R-6·구조도·소재 표·팀 DRD 대응표 |
 | 0.41 | 2026-10-13 | Step 6-8c(구현 계획 §8.4.9): 입찰 정책 `reason`은 슬롯을 만들 때만 비워도 되고 "없음"이 들어간다(스키마 변화 없음, NOT NULL 그대로) |
 | 0.40 | 2026-10-13 | Step 6-7c(구현 계획 §8.4.8): P3 outbox `event_id`에는 모델 기본값이 없다(빠뜨리면 저장 실패, 마이그레이션 `events/0003`은 상태만 — SQL 없음). 검증 표의 PK 규칙 행에 outbox 예외를 적었다 |
 | 0.39 | 2026-10-13 | Step 6-6c 시험 정리(구현 계획 §8.4.7): 원장 순번 행의 검증 시험을 같은 지갑에 과금·조정·읽기를 함께 돌리는 시험으로 바꿨다(지운 동시 과금 시험의 부분집합 관계, 스키마 변화 없음) |

@@ -28,7 +28,7 @@ info:
     - **소유권**: 광고주는 **자기 자원만** 접근한다. 남의 자원이나 없는 자원은 모두 **404**다(존재 여부를 알리지 않는다).
     - **페이지**: 목록은 커서 방식(`limit`, `cursor`) → `{items, next_cursor}`.
     - **삭제 없음**: 캠페인·광고그룹·소재는 `DELETE`가 없다. 과거 결정·원장이 참조하는 이력을 보존해야 하므로
-      끄기(`status`, `enabled`)로 처리한다. `DELETE`는 405다.
+      끄기(캠페인 `status`, 광고그룹 `enabled`)로 처리한다. `DELETE`는 405다. 소재에는 끄기가 없다(6-9b) — 광고를 멈추려면 광고그룹을 끈다.
     - 모든 응답에 `X-Request-ID`가 붙는다.
 
     ## 핵심 규칙 (서비스 계층이 지켜야 하는 것)
@@ -821,7 +821,7 @@ paths:
     patch:
       tags: [creatives]
       operationId: updateCreative
-      summary: 소재의 제목·이동 주소·켜기/끄기를 수정한다
+      summary: 소재의 제목·이동 주소를 수정한다
       description: 이미지는 `PUT /creatives/{creative_id}/image`로 바꾼다. 수정은 **이후 광고 선택부터** 반영되고 과거 결정은 그대로다.
       requestBody:
         required: true
@@ -1540,7 +1540,7 @@ components:
 
     Creative:
       type: object
-      required: [creative_id, ad_group_id, title, redirect_url, image, enabled, created_at, updated_at]
+      required: [creative_id, ad_group_id, title, redirect_url, image, created_at, updated_at]
       additionalProperties: false
       properties:
         creative_id:
@@ -1558,8 +1558,6 @@ components:
           maxLength: 2048
         image:
           $ref: "#/components/schemas/CreativeImage"
-        enabled:
-          type: boolean
         created_at:
           $ref: "#/components/schemas/DateTimeUtc"
         updated_at:
@@ -1618,11 +1616,9 @@ components:
           format: uri
           pattern: "^https://"
           maxLength: 2048
-        enabled:
-          type: boolean
         expected_updated_at:
           $ref: "#/components/schemas/DateTimeUtc"
-          description: 선택. 폼을 열 때 본 소재의 `updated_at`. 현재와 다르면 409 `stale_version`(그 사이의 이미지 교체 등을 옛 폼이 덮지 않게). 켜기·끄기에는 보내지 않는다.
+          description: 선택. 폼을 열 때 본 소재의 `updated_at`. 현재와 다르면 409 `stale_version`(그 사이의 이미지 교체 등을 옛 폼이 덮지 않게).
 
     Wallet:
       type: object
