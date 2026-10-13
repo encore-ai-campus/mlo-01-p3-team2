@@ -154,9 +154,15 @@ class RenderingTests(BackendCase):
             "title": "매체", "site_header": "광고 서버 관리", "site_title": "광고 서버", "site_url": "/", "has_permission": True, "is_popup": False,
             "is_nav_sidebar_enabled": False, "available_apps": [],
             "user": {"is_authenticated": True, "is_active": True, "is_staff": True, "get_username": "admin", "has_usable_password": True},
+            "csrf_token": "token-from-the-backend",
         })
         r = self.client.get("/dev-admin/operator/media/")
         self.assertContains(r, "로그아웃")
+        self.assertContains(r, 'name="csrfmiddlewaretoken" value="token-from-the-backend"')  # 백엔드가 준 토큰 그대로 — 프론트가 새로 만들지 않는다
+        import re
+
+        nonce = re.search(r"'nonce-([^']+)'", r["Content-Security-Policy"]).group(1)
+        self.assertContains(r, f'nonce="{nonce}"')  # 관리 템플릿의 <link>·<script> 는 이 응답의 CSP nonce
         self.assertContains(r, 'href="/dev-admin/"')  # {% url 'admin:index' %}
 
     def test_a_too_large_body_gets_the_same_error_screen(self):

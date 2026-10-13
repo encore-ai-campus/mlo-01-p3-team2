@@ -11,7 +11,7 @@ import django
 from django import forms
 from django.forms.utils import ErrorDict, ErrorList
 from django.middleware.csp import get_nonce
-from django.template import Engine, RequestContext
+from django.template import Context, Engine
 from django.utils.datastructures import MultiValueDict
 
 ROOT = Path(__file__).resolve().parent
@@ -44,7 +44,11 @@ def render(request, presentation):
     context["messages"] = [Message(**m) for m in context.get("messages", [])]
     context["request"] = request
     context["csp_nonce"] = get_nonce(request)
-    return engine().get_template(presentation["template"]).render(RequestContext(request, context)), context
+    template_context = Context(context)
+    # RequestContext 는 쓰지 않는다: 늘 붙는 CSRF 문맥 처리기가 프론트 요청으로 새 토큰을 만들어 백엔드의 토큰을 덮는다(백엔드가 거절).
+    # `{% querystring %}` 은 context.request 만 본다
+    template_context.request = request
+    return engine().get_template(presentation["template"]).render(template_context), context
 
 
 class Record(dict):

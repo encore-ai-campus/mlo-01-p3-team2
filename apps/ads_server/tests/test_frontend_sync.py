@@ -1,11 +1,13 @@
 """백엔드와 프론트(apps/ads_frontend)가 어긋나지 않는지(설계 §6.6 "6-15 분리"). 프론트는 백엔드 코드를 가져오지 않으므로 같은 것을 데이터로 따로 갖는다 —
 경로·URL 이름(`ui/routes.py`), 화면 이름표(`ui/labels.py`), KST 표시(`ui/templatetags/kst.py`, 백엔드 Django admin 도 쓴다). 화면 데이터는 그 밖의 값이
 새지 않게 막는다."""
+import re
 from datetime import datetime, timezone
 
 from django import forms
 from django.contrib import admin
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 
 from billing.api import EntryType
 from campaigns.api import CampaignStatus, ReviewStatus
@@ -16,9 +18,12 @@ from foundation.models import User
 from foundation.presentation import to_data
 from foundation.templatetags.kst import kst as backend_kst
 from masters.api import Audience
-from tests.presentation import rendering  # noqa: F401 — 프론트 경로를 sys.path 에 둔다
+from tests.factories import PW, World
+from tests.presentation import PresentationClient, rendering  # noqa: F401 — rendering: 프론트 경로를 sys.path 에 둔다
 from ui import labels, routes
 from ui.templatetags.kst import kst as frontend_kst
+
+TOKEN = re.compile(r'name="csrfmiddlewaretoken" value="([^"]+)"')
 
 
 def table(urlpatterns):
@@ -71,3 +76,19 @@ class PresentationDataTests(TestCase):
         response = present(request, "foundation/error.html", {"status": 404, "title": "t", "message": "m"}, status=404, csrf=False)
         self.assertNotIn("CSRF_COOKIE", request.META)
         self.assertEqual(response.status_code, 404)
+
+
+class CsrfThroughTheFrontendTests(TestCase):
+    """CSRF 검사를 켠 채, 프론트처럼 그린 화면의 토큰으로 로그인·폼 제출이 통과한다(6-15e — 렌더러가 프론트 요청으로 토큰을 새로 만들어
+    백엔드의 토큰을 덮던 결함을 브라우저 점검에서 찾았다)."""
+
+    def test_the_token_in_a_drawn_form_passes_the_backends_csrf_check(self):
+        w = World(ends_in=None)
+        client = PresentationClient(enforce_csrf_checks=True)
+        token = TOKEN.search(client.get(reverse("login")).content.decode()).group(1)
+        r = client.post(reverse("login"), {"username": w.adv.username, "password": PW, "csrfmiddlewaretoken": token})
+        self.assertEqual(r.status_code, 302)
+        detail = reverse("ad_group_detail", args=[w.group.ad_group_id])
+        token = TOKEN.search(client.get(detail).content.decode()).group(1)
+        r = client.post(reverse("ad_group_bid", args=[w.group.ad_group_id]), {"amount": "350", "expected_version": "1", "csrfmiddlewaretoken": token})
+        self.assertRedirects(r, detail)
