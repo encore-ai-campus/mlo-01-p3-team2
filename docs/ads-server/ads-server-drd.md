@@ -135,7 +135,7 @@ flowchart LR
 | MySQL 8.4 | 아래 §4의 모든 엔터티(계정·마스터·캠페인·입찰·지갑·원장·결정·반응 수신함), 세션, 로그인 잠금 기록 + **outbox**(같은 트랜잭션, P3) | InnoDB, UUIDv7 PK(§3 R-2), 격리 수준 `READ COMMITTED`, 커밋마다 로그를 디스크에(`innodb_flush_log_at_trx_commit=1`), `STRICT_ALL_TABLES`, 정렬 `utf8mb4_0900_as_cs` | [구현] DB-1(2026-10-09), outbox는 Step 4-1(2026-10-10). Step 2까지는 SQLite 파일(WAL·`synchronous=FULL`)이었다 |
 | MongoDB `ad_events` | C2 이벤트 로그(중계가 outbox에서 옮겨 씀, 추가만) | `_id = event_id`, 멱등 저장. 컬렉션은 공통 봉투(`_id`·`event_name`·`schema_version`·`produced_at`·`payload`)가 없는 문서를 거부하고, 색인은 (`event_name`, `produced_at`)·(`payload.decision_id`, `produced_at`). 쓰기는 과반 확인(`w=majority`) | [구현] DB-2(연결·컬렉션·색인·상태 확인) · Step 4-1(중계가 쓰기, 2026-10-10) |
 | NDJSON 파일 | manifest·검증·백필 대상 목록 **전용**(이벤트 통로 아님) | 한 줄 = 레코드 하나. **게시 = 내용 해시가 이름에 들어간 불변 데이터 파일(`<이름>.<SHA-256 앞 16자>.ndjson`) + manifest(`<이름>.manifest.json`, 현재 게시본을 가리키는 포인터)의 원자적 교체**. manifest에 데이터 파일 이름·SHA-256·행 수·`schema_version`·`source_kind`·`checkpoint`(범위 서술: 스냅샷 종류·시작 시각·훑은 행 수, 재개 위치 아님)·만든 시각. manifest가 가리키는 파일은 언제나 완결. 파일 종류: `ledger_check`·`event_gaps`·`event_delivery`(점검 결과) [구현]. 4-3 [구현]: `backfill_result`(백필 결과), `hop_source`·`hop_outbox`·`hop_mongo`(구간별 정합 manifest), `hop_report`(구간 대조 결과) | [구현] Step 4-2(2026-10-10, 외부 검토 보완 반영) |
-| Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v1` 등, 키 `decision_id` | 확장(조건부) |
+| Kafka 토픽 | C2 이벤트(확장) | `ad.decision.v2` 등, 키 `decision_id` | 확장(조건부) |
 
 **저장소를 고르는 기준 [확정, 2026-10-08, MySQL 전환 2026-10-09]**: Step 2까지는 **가장 저렴한 방식**(SQLite + 로컬 파일)을 썼고, Step 2(v1.1 포함)가 끝나면 바로 **Step DB**에서 MySQL·MongoDB로 옮긴 뒤 Step 3으로 간다(늦출수록 전환이 어렵다). 업무 데이터와 outbox는 한 트랜잭션이어야 하므로 MySQL에, 이벤트 로그는 MongoDB에 둔다(두 DB는 한 트랜잭션으로 묶을 수 없다). 이 문서의 데이터 구조 결정(PK·순번·잠금)은 **MySQL(InnoDB)·MongoDB에서도 성립하는지**로 판단한다(설계서 §10 "저장소 단계").
 
@@ -305,6 +305,9 @@ erDiagram
         uuid bid_id "선택된 입찰 버전 행"
         uuid bid_policy_id "판정에 쓴 정책 버전 행"
         int applied_amount "스냅샷"
+        int impression_share "비율 스냅샷(6-10c)"
+        int click_share
+        int conversion_share
     }
     masters_media_key {
         uuid key_id PK
@@ -455,7 +458,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `bid_policy_id` | UUID | N | PK | 버전 행 하나의 식별자. 결정·이벤트가 이것으로 가리킨다 |
 | `slot_id` | UUID | N | FK→M2 `PROTECT`, UNIQUE(slot, policy_version) | |
 | `policy_version` | 정수 | N | 슬롯별 1부터 | 변경은 새 행. `expected_version`이 틀리면 거절(낙관적 잠금) |
-| `floor_amount` | 정수 | N | `CHECK 0 < floor ≤ base ≤ cap ≤ 2^53−1` | 하한. 미만이면 노출 안 됨 |
+| `floor_amount` | 정수 | N | `CHECK 0 < floor ≤ base ≤ cap ≤ 2^53−1`, `CHECK floor ≥ 100`(6-10c) | 하한. 미만이면 노출 안 됨. 최소 100 — 비율 ≥ 1% 와 함께 반응 하나의 과금(내림)이 0 이 되지 않게 한다 |
 | `base_amount` | 정수 | N | 〃 | 기준가. 입찰 화면 기본값(V1 선택 알고리즘은 쓰지 않음) |
 | `cap_amount` | 정수 | N | 〃 | 상한. 초과 입찰은 상한으로 적용 |
 | `impression_share`·`click_share`·`conversion_share` | 작은 정수 | N | `CHECK` 각각 1~98, `CHECK` 합 = 100 | 반응 유형별 과금 비율(%) [구현 6-10b]. 반응 하나의 과금 = 내림(적용 금액 × 그 유형의 % ÷ 100) — 과금 전환은 6-10c(설계서 §10 "구성별 반응 비율 과금"). 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음, 구현 계획 §8.4.11 K1) |
@@ -633,7 +636,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `balance_after` | 정수 | N | ≥ 0 | 이 줄을 반영한 뒤의 잔액 |
 | `campaign_id` | UUID | Y | FK 아님 | 과금일 때 |
 | `reaction_ref` | 문자 100 | Y | **UNIQUE**(NULL 허용 — NULL끼리는 서로 다름), `CHARGE`만 허용(`CHECK`) | 과금 멱등 키 `<media_id>:<reaction_id>` — `records.processing.reaction_ref`가 만드는 **표준 표기(UUID 소문자, 하이픈 있음)일 때만 그 반응의 키**다(`parse_reaction_ref`). 같은 UUID라도 대문자·하이픈 없음·중괄호 같은 다른 표기면 원본 구간에 놓을 수 없는 과금으로 세고(§5.6 `checkpoint.unresolved_charges`), 백필도 해석 불가로 남긴다 [`13f3bc2`] |
-| `charge_policy` | 문자 64 | N | | 과금 정책 이름(예 `by-unit/v1`) |
+| `charge_policy` | 문자 64 | N | | 과금 정책 이름(지금 `share/v1`, 6-10c 전에는 `by-unit/v1`) |
 | `shortfall` | 정수 | N | ≥ 0 | 잔액이 모자라 못 받은 금액 |
 | `note` | 문자 200 | N | | 조정 사유 등 |
 | `adjust_key` | 문자 64 | Y | **UNIQUE**(NULL 제외), `ADMIN_ADJUST`만 허용(`CHECK`) | 관리자 조정의 멱등 키(화면 폼 하나 = 조정 하나). 같은 키는 한 번만 반영하고 다른 내용이면 거절 [구현 `ab7a607`] |
@@ -668,9 +671,9 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `decided_at` | 시각 | N | 인덱스 | |
 | `owner_id` | UUID | Y | 아래 묶음 | 과금할 지갑 주인 |
 | `campaign_id`, `ad_group_id`, `creative_id` | UUID | Y | 〃 | 선택된 광고 |
-| `pricing_unit` | 코드 | Y | 〃 | |
+| `impression_share`·`click_share`·`conversion_share` | 작은 정수 | Y | 〃, `CHECK` 각각 1~98·합 100(광고 없음이면 NULL) | 판정에 쓴 정책 버전의 반응 유형별 과금 비율 **스냅샷**(6-10c — 과금 단위 `pricing_unit` 열을 대신한다). 과금은 이 값으로 한다 |
 | `bid_amount` | 정수 | Y | 〃 | 입찰 원금액 |
-| `applied_amount` | 정수 | Y | 〃 | 적용 금액(상한 적용 후). **과금액의 근거, 다시 계산하지 않는다** |
+| `applied_amount` | 정수 | Y | 〃 | 적용 금액(상한 적용 후). **과금액의 근거**(반응 하나 = 내림(적용 금액 × 그 유형의 비율 ÷ 100)), 다시 계산하지 않는다 |
 | `bid_version`, `policy_version` | 정수 | Y | 〃 | 어느 입찰·정책으로 판정했나(자연 키) |
 | `bid_id`, `bid_policy_id` | UUID | Y | 〃 | 같은 버전 행의 UUID(FK 아님: 결정은 과거 사실). 팀 DRD의 `selected_bid_id`·`selected_bid_policy_id` |
 | `snapshot` | JSON | Y | 〃 | `{title, redirect_url, image_name}` 그 시점 값 |
@@ -694,7 +697,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 |---|---|---|---|---|
 | `event_id` | UUID | N | **PK** | 이벤트 ID = MongoDB `_id`. 원천 행 ID(결정 `decision_id`·수신함 `inbox_id`·원장 `entry_id`)와 `event_name`에서 결정적으로 만든 **UUIDv5**(R-2의 예외). 같은 이벤트를 두 번 쓰면 PK가 막아 한 줄만 남는다(다시 써도 바뀌지 않음). 모델 기본값은 없다 — 빠뜨리면 저장이 실패한다(6-7c). Debezium `id` |
 | `event_name` | 문자 64 | N | 색인(아래) | `ad.decision`·`ad.reaction_received`·`ad.reaction`·`ad.charge`(버전은 붙이지 않음). Debezium `type` |
-| `schema_version` | 작은 정수 | N | | 지금 `1`. 페이로드 모양이 바뀌면 올린다 |
+| `schema_version` | 작은 정수 | N | | 이벤트 종류별: `ad.decision` 2(6-10c), 나머지 1. 그 종류의 페이로드 모양이 바뀌면 그 종류만 올린다 |
 | `aggregate_id` | UUID | N | | 메시지 키 = `decision_id`(모든 이벤트). Debezium `aggregateid` |
 | `payload` | JSON | N | | §5.6의 필드. 이름·형식은 `events/schemas.py` 한 곳 |
 | `created_at` | 시각 | N | 색인(아래) | 이벤트의 `produced_at`: 결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각). MongoDB에는 밀리초로 잘라 넣는다 |
@@ -708,6 +711,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 |---|---|---|---|
 | 정책 `0 < 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증 | `test_policy_check_constraint_in_db` |
 | 정책 비율 각각 1~98, 합 100(6-10b) | `CHECK` 둘 | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `test_policy_check_constraint_in_db`, `test_charge_shares_are_checked_the_same_way_in_all_three_places` |
+| 정책 하한 ≥ 100(6-10c) | `CHECK` | 입력 검증(세 곳 같은 검사) | `test_policy_check_constraint_in_db`, `test_the_floor_is_at_least_100_in_all_three_places` |
+| 결정 비율 각각 1~98·합 100, 광고 없음이면 비움(6-10c) | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `test_charge_shares_follow_the_policy_rule_in_db` |
 | 입찰·정책·원장·결정·감사는 추가만 | — | `AppendOnlyModel` | `test_*_is_append_only*` |
 | 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
 | 과금 단위 불변(슬롯·광고그룹) | — | 모델 `save()` 거부, `unit_immutable` | `test_*_pricing_unit_immutable` |
@@ -901,7 +906,7 @@ sequenceDiagram
     S-->>M: 201 + decision_id (저장 뒤에만)
 ```
 
-`engine`에 들어가는 후보(`Candidate`)의 필드는 설계서 §4.3 표와 같다: 식별(캠페인·광고그룹·소재·슬롯), 과금 단위, 입찰(금액·버전·생성 시각), 정책 스냅샷(하한·기준가·상한·버전), 자격 판정용 사실(캠페인 상태, 광고그룹 켜짐, 기간 시작·끝, 지갑 잔액, 오늘 남은 예산).
+`engine`에 들어가는 후보(`Candidate`)의 필드는 설계서 §4.3 표와 같다: 식별(캠페인·광고그룹·소재·슬롯), 입찰(금액·버전·생성 시각), 정책 스냅샷(하한·기준가·상한·버전), 자격 판정용 사실(캠페인 상태, 광고그룹 켜짐, 기간 시작·끝, 지갑 잔액, 오늘 남은 예산).
 
 ### 5.3 C1 반응 보고 → 접수 [구현 2-4] → 처리 → 과금 [구현 2-5]
 
@@ -965,8 +970,8 @@ sequenceDiagram
 | 관리자 조정 | `adjust_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 조정은 한 번 |
 | 광고 만들기 | O2 `request_key` UNIQUE(폼마다 새 키, 6-9d 전에는 O1) | 두 번 누름·동시 제출·응답 실패 뒤 재시도·상한에서 다시 보냄도 광고는 하나 |
 | 캠페인 만들기(6-9d) | O1 `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 캠페인은 하나 |
-| 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
-| 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
+| 과금액 | 결정의 `applied_amount` × 결정의 그 유형 비율(내림) | 결정 이후 입찰·정책(비율 포함)이 바뀌어도 그대로 |
+| 과금 여부 | `share/v1`: 인정된 모든 유형(6-10c) | 과금액이 0이면 기록만 — 하한 100 · 비율 1 이상인 결정에서는 생기지 않는다 |
 | 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
 | 클릭 | 결정적 `reaction_id`(서버 비밀 HMAC)로 (매체, `reaction_id`) UNIQUE | 같은 사람의 클릭은 한 건, 매체가 미리 선점할 수 없음 [구현 2-8] |
 
@@ -1008,7 +1013,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 
 이벤트 네 종류의 필드를 **구현으로 확정**했다(이전 판의 제안 그대로이고, 제안에서 열어 둔 것은 아래에 결정을 적었다). 필드 이름·형식의 원본은 `apps/ads_server/events/schemas.py`이고, 결정 근거는 설계서 §10 "C2 이벤트 모양"·"Step 4 이벤트 결정"이다. 팀 DRD 이름과의 대응은 §9.
 
-**이름 표기**: 이 절의 `ad.decision.v1`은 `event_name = ad.decision`, `schema_version = 1`을 뜻한다. `event_name`에는 버전을 붙이지 않는다.
+**이름 표기**: 이 절의 `ad.decision.v2`는 `event_name = ad.decision`, `schema_version = 2`를 뜻한다. `event_name`에는 버전을 붙이지 않는다. **버전은 이벤트 종류별이다**(6-10c): `ad.decision`만 2이고 나머지는 1이다.
 
 **공통 봉투**
 
@@ -1016,20 +1021,20 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 |---|---|---|
 | `event_id` | UUID | 이벤트 고유 ID = MongoDB `_id`(UUID 표준 이진). 원천 행 ID와 `event_name`에서 결정적으로 만든 UUIDv5라 **재처리·재전송해도 같은 값**(소비자가 중복 제거) |
 | `event_name` | 문자 | 예 `ad.decision` |
-| `schema_version` | 정수 | `1` |
+| `schema_version` | 정수 | 종류별 — `ad.decision` 2, `ad.reaction_received`·`ad.reaction`·`ad.charge` 1 |
 | `produced_at` | 시각(UTC) | 이벤트를 만든 시각: **결정 = 결정 시각, 접수 = 수신 시각, 판정 = 처리 시각, 과금 = 과금을 일으킨 반응의 처리 시각(판정과 같은 처리 트랜잭션의 같은 시각)**. 과금 이벤트의 `produced_at`은 페이로드의 원장 시각(`created_at` = 반응 수신 시각)과 다르다. MongoDB 날짜라 **밀리초까지** |
 | `payload` | 객체 | 아래. 안의 UUID는 문자열, 시각은 UTC ISO 8601 문자열(마이크로초까지) |
 
 **전달 방식**: outbox(MySQL, 같은 트랜잭션) → Step 4는 광고 서버 중계가 MongoDB `ad_events`에 멱등 저장(`_id = event_id`), 확장 때는 Debezium outbox 라우터가 Kafka로 보낸다. 스키마 저장소는 확장 항목이다. **최소 한 번 전달**이므로 소비자는 `event_id`로 중복을 제거한다. **메시지 키는 `decision_id`**(outbox `aggregate_id`, 모든 이벤트 [구현]. 팀 DRD 6.9는 `user_id`를 키로 쓰지만 광고 서버는 `user_id`를 모른다, §10 D-5). **순서는 보장한다고 가정하지 않는다**: Kafka의 순서 보장은 같은 토픽·같은 파티션 안뿐이라 결정·반응·과금이 서로 다른 토픽이면 사이의 순서가 없고, 최소 한 번 전달의 재전송도 순서를 흐트러뜨린다. 소비자는 반응이 결정보다 먼저 보일 수 있다고 보고 `decision_id`로 다시 맞춘다. **Step 4에서는 순서를 보장하지 않는 것으로 확정했다**(중계는 오래된 것부터 보내지만 여러 중계가 동시에 돌고 재전송이 있다). 토픽·파티션 단위의 순서 보장은 Kafka 확장 때 다시 정한다. **요청 경로는 MongoDB를 호출하지 않는다** — 요청은 outbox에만 쓰고, MongoDB가 끊기면 이벤트는 쌓였다가 복구 뒤 상시 중계가 옮긴다(짧은 재시작 시험에서 요청 503 0은 관찰값이고, 장기 장애는 확인하지 않았다 — 설계서 §10 "MongoDB 장애와 요청").
 
-**`ad.decision.v1`** — 결정을 저장할 때 한 건(결정과 같은 트랜잭션, 광고 없음 결정 포함)
+**`ad.decision.v2`** — 결정을 저장할 때 한 건(결정과 같은 트랜잭션, 광고 없음 결정 포함). v1 → v2(6-10c): `selected.pricing_unit`을 `selected.charge_shares`로 바꿨다
 
 | 필드 | 원본 | 비고 |
 |---|---|---|
 | `decision_id`, `media_id`, `slot_id`, `decided_at` | R1 | |
 | `audience` | R1 | 슬롯 성격 스냅샷(`individual`·`shared`) |
 | `subject_id` | R1 | 가명 UUID. 분석 계층 접근 권한 분리 필요(§7). **일괄 슬롯 결정은 `null`** — 사람별 퍼널은 반응 이벤트의 사람 필드로 복구한다 |
-| `selected` | R1 선택 열 | 광고 없음이면 `null`. 아니면 `campaign_id`·`ad_group_id`·`creative_id`·`pricing_unit`·`bid_id`·`bid_version`·`bid_policy_id`·`policy_version`·`bid_amount`·`applied_amount` |
+| `selected` | R1 선택 열 | 광고 없음이면 `null`. 아니면 `campaign_id`·`ad_group_id`·`creative_id`·`charge_shares`(`{"IMPRESSION": %, "CLICK": %, "CONVERSION": %}` — 키가 반응 `type` 값)·`bid_id`·`bid_version`·`bid_policy_id`·`policy_version`·`bid_amount`·`applied_amount` |
 | `selection_policy`, `candidate_count`, `rejected_counts` | R1 | `trace`는 크기 때문에 싣지 않는다(필요하면 별도 이벤트). 광고주 계정(`owner_id`)·매체 `context`도 싣지 않는다 |
 
 반응은 **접수와 판정을 두 이벤트로 나눈다** [확정 2026-10-09, 설계서 §10 "C2 반응 이벤트"]. 두 이벤트의 `event_id`는 **수신함 ID(`inbox_id`)와 이벤트 종류에서 결정적으로** 만들어 재처리·재전송에도 같은 값이다(종류가 달라 두 이벤트의 ID는 서로 다르다).
@@ -1176,7 +1181,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 동시 반응 보고 | 최대 150건이 한꺼번에, **유실 0** | 설계서 §6.5 |
 | 결정 행 수 | 광고 요청 수와 같다(광고 없음 포함) | R1 |
 | 반응 행 수 | 결정당 유형별 최대 1건 인정(최대 3) + 거부된 보고 | `once-per-type` |
-| 원장 `CHARGE` 행 수 | 인정된 반응 중 과금 단위가 맞는 것 | `by-unit/v1` |
+| 원장 `CHARGE` 행 수 | 인정된 반응 모두(과금액이 0이 아닌 것) | `share/v1`(6-10c) |
 | 결정 한 건의 DB 작업 | 읽기 4번(후보 수와 무관) + 쓰기 1번 | `test_assemble_query_count_independent_of_candidates` |
 | 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(`trace`의 동점 후보 목록이 가장 큼) | 추정. 부하 테스트(2-6)에서 확인 |
 | 저장소 한계 | MySQL 단일 노드. 요청마다 연결을 닫아 연결 수 = 동시 요청 수 — 서버 `max_connections`(기본 151)에 닿으면 넘친 요청은 503 + 재시도(150 동시에서 발생, 처리는 올바름) | 설계서 §6.5-7, [load-test.md](load-test.md) §2·§4·§7. 영속 연결·풀은 배포 구성이 정해진 뒤 |
@@ -1194,7 +1199,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | `masters_media` | 없음 | 팀 DRD는 매체를 하나로 본다(7.1 미반영) |
 | `masters_bid_policy.bid_policy_id`, `policy_version` | `ad_bid_policy.bid_policy_id`, `bid_policy_version` | 같다(D-4 해결). 자연 키도 유지 |
 | `floor_amount`·`base_amount`·`cap_amount`(정수) | 같은 이름, `amount_decimal`(DECIMAL 18,2) | 정수 포인트 vs 소수. 이벤트에서는 정수로 보내고 팀 DRD가 받아들이는지 확인 |
-| `pricing_unit` | `charge_unit_code` | 값은 같다(`IMPRESSION`·`CLICK`·`CONVERSION`) |
+| `pricing_unit` | `charge_unit_code` | 값은 같다(`IMPRESSION`·`CLICK`·`CONVERSION`). 결정은 6-10c부터 단위 대신 비율 셋(`impression_share`·`click_share`·`conversion_share`)을 남기고, 슬롯·광고그룹의 단위는 6-10d에 없어진다 — 팀 DRD에 비율을 받을 필드 [열림] |
 | `campaigns_campaign.campaign_id`, `name`, `status` | `ad_campaign.campaign_id`, `campaign_name`, `campaign_status_code` | 상태 값 같음 |
 | `starts_at`, `ends_at` | `started_at`, `ended_at` | 이름만 다름. 서버의 `ends_at`은 **미포함 종료 시각** |
 | `owner_id`(광고주 계정 UUID) | `advertiser_name`(문자) | 팀 DRD는 광고주 이름 문자열만 둔다(A-07). 내보낼 값 [열림] |
@@ -1262,6 +1267,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.46 | 2026-10-13 | Step 6-10c 과금 전환(구현 계획 §8.4.11, 설계서 §10 "구성별 반응 비율 과금"): R1 결정에 `impression_share`·`click_share`·`conversion_share`(`CHECK` 각각 1~98·합 100, 광고 없음이면 NULL) — `pricing_unit` 열 삭제(마이그레이션 `records/0012`, 빈 DB 전제), M3 `CHECK floor ≥ 100`(`masters/0006`), B2 `charge_policy` = `share/v1`, 과금 규칙(인정된 모든 유형, 내림(적용 금액 × 비율 ÷ 100)), P3·§5.6 `schema_version` 종류별(`ad.decision` 2 — `selected.charge_shares`), ERD·무결성 표·멱등 표·§8·§9 대응 |
 | 0.45 | 2026-10-13 | Step 6-10b(구현 계획 §8.4.11): M3 입찰 정책에 반응 유형별 과금 비율 `impression_share`·`click_share`·`conversion_share`(각각 1~98, 합 100 — DB `CHECK` 둘, 서비스 세 곳 같은 검사), ERD·무결성 표. 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음 — 데이터가 있으면 비율 제약에서 멈춘다). 과금은 아직 단위로 한다(6-10c에서 비율로) |
 | 0.44 | 2026-10-13 | Step 6-9d 화면(구현 계획 §8.4.10, 스키마 변화 없음): O1 `request_key`는 캠페인 만들기의 키, O2 `request_key`가 광고 만들기의 키(불변식·멱등 키 표, 구조도) |
 | 0.43 | 2026-10-13 | Step 6-9c 소재 목록(구현 계획 §8.4.10, 설계서 §10 "소재 목록", 마이그레이션 `campaigns/0007` — 기존 소재는 소유자 = 캠페인 주인, 붙어 있던 광고그룹에 연결·선택으로 옮김): O4 소재 `owner_id`·`archived_at`(광고그룹 FK 삭제), O2 광고그룹 `creative_id`(선택)·`request_key`, 새 O9 광고그룹-소재 연결(추가 전용), O7 보유량·서빙 판정 기준, R-6 보관, 구조도 |

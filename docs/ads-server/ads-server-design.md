@@ -256,7 +256,7 @@ class SelectionPolicy(Protocol):
 | 그룹 | `Candidate` 필드 | 쓰임 |
 |---|---|---|
 | 식별 | `campaign_id`, `ad_group_id`, `creative_id`, `slot_id` | 선택 결과 식별, Decision 기록, 응답 조립 |
-| 과금 | `pricing_unit` **[6-10에서 바뀜, 구현 예정]** → 정책 스냅샷의 반응 비율 셋 | Decision 기록(과금의 근거), 이후 단위 혼합 비교(V2) |
+| 과금 | `pricing_unit` **[6-10에서 바뀜]** 후보에서 빠진다(6-10c). 반응 비율은 `records`가 판정에 쓴 정책 버전에서 결정에 남긴다 — 엔진은 비율을 쓰지 않아 후보에 넣지 않았다(쓰는 선택 알고리즘이 생기면 그때 더한다) | (6-10c 전) Decision 기록 |
 | 입찰 | `bid_amount`, `bid_version`, `bid_created_at` | 적용 금액 계산, Decision 재현, trace |
 | 정책 스냅샷 | `floor`, `base`, `cap`, `policy_version` | 적용 금액 계산, 하한 필터, 이후 확률 노출 공식, Decision 재현 |
 | 자격 판정용 사실 | `campaign_status`, `ad_group_enabled`, `period_start`, `period_end`, `wallet_balance`, `remaining_daily_budget` | 필터가 판정 |

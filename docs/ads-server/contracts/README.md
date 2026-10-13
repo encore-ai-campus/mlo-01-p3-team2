@@ -1,6 +1,6 @@
 # 광고 서버 계약 (매체 서버용 요약)
 
-원본은 [serving.openapi.yaml](serving.openapi.yaml)(C1 Media API, C3 Asset URL, **v1.3**)이고, 이 문서는 **연동하는 쪽이 꼭 알아야 할 것**만 모은 요약이다.
+원본은 [serving.openapi.yaml](serving.openapi.yaml)(C1 Media API, C3 Asset URL, **v1.4**)이고, 이 문서는 **연동하는 쪽이 꼭 알아야 할 것**만 모은 요약이다.
 요약과 원본이 다르면 원본이 맞다.
 
 ## 한눈에
