@@ -1,3 +1,4 @@
+from contextlib import suppress
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -26,8 +27,13 @@ class MongoSink:
             uri, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000,
             socketTimeoutMS=10000, tz_aware=True,
         )
-        self.client.admin.command("ping")
-        self.db = self.client.get_database(database, write_concern=WriteConcern(w="majority"))
+        try:
+            self.client.admin.command("ping")
+            self.db = self.client.get_database(database, write_concern=WriteConcern(w="majority"))
+        except BaseException:
+            with suppress(Exception):
+                self.client.close()
+            raise
         self.parser_versions = parser_versions
 
     def store_raw(self, envelope, origin):
