@@ -117,7 +117,7 @@ class PasswordChangeRaceTests(TransactionTestCase):
         release.set()
         worker.join(WAIT)
         self.assertEqual(worker.errors, [])
-        self.assertContains(worker.result, "계정 상태가 바뀌었습니다", status_code=400)
+        self.assertContains(worker.result, "계정 상태가 바뀌었습니다", status_code=409)  # 입력이 아니라 상태 충돌(R6)
         return worker.result
 
     def test_a_deactivation_in_between_is_not_undone_by_an_in_flight_change(self):

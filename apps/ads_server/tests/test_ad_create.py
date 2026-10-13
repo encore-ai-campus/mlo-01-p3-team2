@@ -166,9 +166,20 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         for over, field in cases:
             r = self.client.post(URL, self.fields(**over))
             self.assertEqual(r.status_code, 400, over)
-            self.assertIn(f'id="id_{field}_error"', r.content.decode(), over)
+            self.assertEqual(r.content.decode().count(f'id="id_{field}_error"'), 1, over)  # 오류 목록 하나 — id 가 겹치지 않는다(R2)
         self.assertFalse(self.created().exists())
         self.assertEqual(Creative.objects.filter(owner=self.w.adv).count(), 1)  # 원자성: 광고그룹도 소재도 남지 않는다
+
+    def test_choosing_a_registered_creative_without_any_shows_why(self):
+        """R1(6-13a): 등록된 소재가 없으면 고르는 칸을 그리지 않는다. 그래도 "등록된 소재 쓰기"로 집행하면 늘 보이는 "소재" 칸에 이유가 보인다."""
+        w = World(ends_in=None, with_creative=False)
+        self.client.force_login(w.adv)
+        r = self.client.post(URL, self.fields(campaign_id=str(w.campaign.campaign_id), slot_ids=[str(w.slot.slot_id)], creative_source="existing", image=""))
+        html = r.content.decode()
+        self.assertEqual(r.status_code, 400)
+        self.assertRegex(html, r'id="id_creative_source_error"><li>등록된 소재가 없습니다\. ‘새로 올리기’를 고르세요\.</li>')
+        self.assertNotIn('name="creative_id"', html)
+        self.assertFalse(AdGroup.objects.filter(campaign__owner=w.adv).exclude(pk=w.group.ad_group_id).exists())
 
     def test_a_rejected_image_shows_the_reason_and_leaves_nothing(self):
         from django.core.files.uploadedfile import SimpleUploadedFile

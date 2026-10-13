@@ -38,7 +38,7 @@
       <p class="muted">고를 수 있는 구성이 없습니다.</p>
       {% endfor %}
     </fieldset>
-    {% if form.slot_ids.errors %}<div id="id_slot_ids_error">{{ form.slot_ids.errors }}</div>{% endif %}
+    {{ form.slot_ids.errors }}
     {{ form.bid_amount.as_field_group }}
     <p class="muted">하한보다 낮은 입찰도 저장되지만 그 구성에는 노출되지 않고, 상한보다 높으면 상한 금액으로 적용됩니다. 광고가 한 번 나가면 적용 금액이 그 구성의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
     <button type="submit" name="action" value="preview" class="secondary">구성별 결과 미리보기</button>
@@ -60,7 +60,7 @@
     </fieldset>
     <fieldset class="creative-existing">
       <legend>등록된 소재 쓰기</legend>
-      {% if has_creatives %}{{ form.creative_id.as_field_group }}{% else %}<p class="muted">등록된 소재가 없습니다. 새로 올리세요.</p>{% endif %}
+      {% if form.has_creatives %}{{ form.creative_id.as_field_group }}{% else %}<p class="muted">등록된 소재가 없습니다. 새로 올리세요.</p>{% endif %}
     </fieldset>
   </section>
 

@@ -25,7 +25,7 @@ def _render(request, form, choices, effects=None, status=200):
     return render(request, "console/ad_create.html", {
         "form": form, "slots": choices["slots"],
         "effects": [effect_row(slots.get(str(e.slot_id)), e) for e in effects] if effects else None,
-        "max_bytes": settings.ASSET_MAX_BYTES, "has_creatives": bool(choices["creatives"]),
+        "max_bytes": settings.ASSET_MAX_BYTES,
     }, status=status)
 
 

@@ -142,13 +142,17 @@ class AdCreateForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields["campaign_id"].choices = [(str(c.campaign_id), c.name) for c in campaigns]
         self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
-        self.fields["creative_id"].choices = [("", "고르세요")] + [(str(c.creative_id), c.title) for c in creatives]
+        creatives = [(str(c.creative_id), c.title) for c in creatives]
+        self.has_creatives = bool(creatives)  # 없으면 화면이 고르는 칸을 그리지 않는다
+        self.fields["creative_id"].choices = [("", "고르세요")] + creatives
         self.fields["image"].widget.attrs["data-max-bytes"] = settings.ASSET_MAX_BYTES
 
     def clean(self):
         """어느 쪽 소재인지에 따라 그쪽 입력이 있는지만 본다(입력 모양 — 제목·주소·이미지 규칙은 서비스가 본다)."""
         cleaned = super().clean()
-        if cleaned.get("creative_source") == EXISTING and not cleaned.get("creative_id"):
+        if cleaned.get("creative_source") == EXISTING and not self.has_creatives:
+            self.add_error("creative_source", "등록된 소재가 없습니다. ‘새로 올리기’를 고르세요.")
+        elif cleaned.get("creative_source") == EXISTING and not cleaned.get("creative_id"):
             self.add_error("creative_id", "쓸 소재를 고르세요.")
         if cleaned.get("creative_source") == NEW and not cleaned.get("image"):
             self.add_error("image", "이미지를 고르세요.")
