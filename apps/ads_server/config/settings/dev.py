@@ -3,7 +3,7 @@ from config.access_map import build_access_map, validate_admin_path
 
 from ._env import env_bool, env_int, env_list, env_str
 from .base import *  # noqa: F401,F403
-from .base import BASE_DIR, INSECURE_DEV_KEY, SIGNUP_MAX_PER_IP_PER_HOUR, mongo_config, mysql_config
+from .base import BASE_DIR, INSECURE_DEV_KEY, mongo_config, mysql_config
 
 SECRET_KEY = env_str("SECRET_KEY", default=INSECURE_DEV_KEY)
 DEBUG = env_bool("DJANGO_DEBUG", False)
@@ -15,8 +15,6 @@ MEDIA_ROOT = env_str("MEDIA_ROOT", default=BASE_DIR / "media")
 ASSET_PUBLIC_BASE_URL = env_str("ASSET_PUBLIC_BASE_URL", default="http://127.0.0.1:8001")
 ASSET_SERVABLE_CHECK = "campaigns.api.is_asset_servable"  # 중단·종료된 캠페인의 이미지는 404 (campaigns 가 판정, assets 는 모른다)
 SIGNUP_GRANT_POINTS = env_int("SIGNUP_GRANT_POINTS", 50_000)
-# 가입 시도 상한(IP당 시간당, 기본은 확정값 5). 단체 가입 때만 잠시 올렸다 내리는 임시방편이다 — 올린 만큼 여러 계정으로 지급 포인트를 모으기 쉬워진다(설계 §10 "가입 시도 제한", 6-3d)
-SIGNUP_MAX_PER_IP_PER_HOUR = env_int("SIGNUP_MAX_PER_IP_PER_HOUR", SIGNUP_MAX_PER_IP_PER_HOUR, minimum=1)
 BUDGET_DAY_OFFSET_HOURS = env_int("BUDGET_DAY_OFFSET_HOURS", 0)
 ASSET_MAX_BYTES = env_int("ASSET_MAX_BYTES", 2 * 1024 * 1024)
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "[::1]"])

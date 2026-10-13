@@ -1,14 +1,12 @@
 import inspect
 import uuid
-from datetime import timedelta
 
 from django.test import TestCase, tag
 from django.urls import reverse
-from django.utils import timezone
 
 from config.settings import base
 from foundation.accounts import create_advertiser
-from foundation.models import Role, SignupAttempt, User
+from foundation.models import Role, User
 
 PW = "Tr0ub4dor-horse-staple"
 
@@ -104,21 +102,14 @@ class SignupTests(TestCase):
         self.assertContains(r, "사용할 수 없는 아이디입니다.", status_code=400)
         self.assertEqual(User.objects.filter(username="ad_user1").count(), 1)
 
-    def test_signup_rate_limit_per_ip(self):
-        limit = 5
-        for i in range(limit):  # 실패하는 시도도 센다
-            self.assertEqual(self.post(ip="10.7.0.1", username="x").status_code, 400)
-        r = self.post(ip="10.7.0.1", username="x")
-        self.assertEqual(r.status_code, 429)
-        self.assertGreater(int(r["Retry-After"]), 0)
-        self.assertEqual(self.post(ip="10.7.0.2", username="x").status_code, 400)  # 다른 IP 는 영향 없음
-
-    def test_signup_rate_limit_window_expires(self):
-        for _ in range(5):
-            self.post(ip="10.8.0.1", username="x")
-        self.assertEqual(self.post(ip="10.8.0.1", username="x").status_code, 429)
-        SignupAttempt.objects.update(created_at=timezone.now() - timedelta(minutes=61))
-        self.assertEqual(self.post(ip="10.8.0.1", username="x").status_code, 400)
+    def test_signup_has_no_attempt_limit_even_from_one_ip(self):
+        """6-5b(설계 §10 "가입 시도 제한"): 같은 내부망(강의실 NAT)은 모두 같은 IP 로 보여 IP당 제한이 정상 사용자를 먼저 막았다.
+        가입 시도 제한을 두지 않는다 — 한 IP 에서 실패한 시도도, 가입도 몇 번이든 된다(429 없음)."""
+        for _ in range(6):
+            self.assertEqual(self.post(username="x").status_code, 400)
+        for i in range(6):
+            self.assertRedirects(self.post(username=f"class_user{i}"), reverse("login"))
+        self.assertEqual(User.objects.filter(username__startswith="class_user").count(), 6)
 
     def test_authenticated_user_is_redirected_from_signup(self):
         self.post()

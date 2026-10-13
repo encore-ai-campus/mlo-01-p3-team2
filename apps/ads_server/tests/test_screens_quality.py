@@ -1,10 +1,10 @@
 """Step 3-3 화면 전수 점검: 실제 데이터로 모든 화면을 그려 보안 헤더·CSP 위반·접근성 기본을 본다.
 
 - 범위: 광고주·운영 화면은 손으로 적은 목록이지만, 모든 경로를 실제 값으로 GET 해서 HTML 로 그려지는 화면이 목록에 없으면 실패한다(빠뜨림 방지).
-  관리자 사이트는 등록된 모든 모델의 목록·상세 화면과 비밀번호 변경·초기화를 등록에서 만든다. 정상 GET 으로는 나오지 않는 화면(키 발급·잠금·가입 제한·오류)은 따로 만든다.
+  관리자 사이트는 등록된 모든 모델의 목록·상세 화면과 비밀번호 변경·초기화를 등록에서 만든다. 정상 GET 으로는 나오지 않는 화면(키 발급·잠금·오류)은 따로 만든다.
   접근성 기본은 콘솔·운영 화면만 본다 — Django admin 기본 화면의 마크업(예: 비밀번호 관리자를 위해 CSS 로 숨긴 아이디 칸)은 우리가 고치지 않는다.
 
-- 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·캐시 금지. GET 으로 그리는 화면과, POST 응답으로만 그려지는 화면(키 발급·로그인 잠금·가입 시도 제한).
+- 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·캐시 금지. GET 으로 그리는 화면과, POST 응답으로만 그려지는 화면(키 발급·로그인 잠금).
 - CSP 위반이 될 마크업: 인라인 스크립트(데이터 블록 제외)·`style` 속성·`on…` 이벤트 속성. 브라우저가 막아 화면이 깨지거나 기능이 죽는다.
 - 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`), 비밀번호 칸의 `autocomplete`(현재·새 비밀번호), 겹치지 않는 id.
 - 색 대비: 디자인 토큰(`console/static/console/app.css`)의 글자·배경 쌍이 라이트·다크 모두 WCAG AA(4.5:1) 이상.
@@ -14,7 +14,6 @@ import uuid
 from html.parser import HTMLParser
 from pathlib import Path
 from random import Random
-from unittest import mock
 
 from django.conf import settings
 from axes.models import AccessFailureLog
@@ -26,7 +25,6 @@ from django.urls import resolve, reverse
 
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import SignupRateLimited
 from masters import api as masters
 from records import api as records
 from tests.factories import NOW, PW, SUBJECT, World, png_file
@@ -208,7 +206,7 @@ class ScreenQualityTests(TestCase):
         return audit
 
     def test_post_only_and_error_screens_are_checked_too(self):
-        """정상 GET 으로는 나오지 않는 화면: 매체 키 발급(평문은 이 응답 한 번), 로그인 잠금(429), 가입 시도 제한(429), 오류 화면(`foundation/error.html`).
+        """정상 GET 으로는 나오지 않는 화면: 매체 키 발급(평문은 이 응답 한 번), 로그인 잠금(429), 오류 화면(`foundation/error.html`).
         헤더·마크업·접근성 모두 같은 기준."""
         admin = Client()
         admin.force_login(self.w.admin)
@@ -217,14 +215,11 @@ class ScreenQualityTests(TestCase):
         anonymous = Client()
         for _ in range(settings.AXES_FAILURE_LIMIT):
             anonymous.post(reverse("login"), {"username": self.w.adv.username, "password": "wrong-password-xyz"})
-        with mock.patch("console.views.auth.register_attempt", side_effect=SignupRateLimited(60)):
-            limited = Client().post(reverse("signup"), {})
         advertiser = Client()
         advertiser.force_login(self.w.adv)
         screens = {
             "키 발급": (admin.post(reverse("operator:key_issue", args=[self.w.slot.media_id]), {"label": "점검", "request_key": token}), 200),
             "로그인 잠금": (anonymous.post(reverse("login"), {"username": self.w.adv.username, "password": PW}), 429),
-            "가입 시도 제한": (limited, 429),
             "오류 화면": (advertiser.get(reverse("campaign_detail", args=[uuid.uuid4()])), 404),
         }
         for label, (r, status) in screens.items():

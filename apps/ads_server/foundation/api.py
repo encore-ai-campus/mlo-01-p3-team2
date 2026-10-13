@@ -10,12 +10,11 @@ from . import errors
 from .http import json_depth, parse_json
 from .models import AppendOnlyError, AppendOnlyModel, Role, User
 from .net import client_ip
-from .signup_limit import SignupRateLimited, register_attempt
 from .validators import MAX_AMOUNT, clean_request_key, clean_text, is_int, is_request_key, parse_uuid, parse_uuids
 
 __all__ = [
     "create_advertiser", "ProfileView", "update_profile", "change_password", "profiles", "AdvertiserAccount", "list_advertisers", "get_advertiser",
-    "set_advertiser_active", "Role", "User", "client_ip", "SignupRateLimited", "register_attempt",
+    "set_advertiser_active", "Role", "User", "client_ip",
     "owned_or_404", "owned_queryset", "require_admin", "require_advertiser", "is_unique_violation", "is_transient_lock_error", "json_depth", "parse_json",
     "errors", "record_audit", "latest_audit_detail", "MAX_AMOUNT", "AppendOnlyModel", "AppendOnlyError", "clean_text", "clean_request_key", "is_int", "is_request_key", "parse_uuid", "parse_uuids", "ReadOnlyAdmin",
 ]

@@ -92,15 +92,12 @@ AXES_COOLOFF_TIME = timedelta(minutes=5)
 AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]  # 아이디만 기준이면 남이 계정을 잠가버릴 수 있다
 AXES_RESET_ON_SUCCESS = True
 AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False  # 잠금 중 시도가 잠금을 연장하지 않는다("5분 뒤 재시도")
-AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 가입 제한과 같은 IP 판정을 쓴다
+AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 감사 로그와 같은 IP 판정을 쓴다
 AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
 AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 화면)을 끄고 foundation/admin.py 가 읽기 전용으로 다시 등록한다(위협 모델 T44)
 
 # 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다).
 TRUSTED_PROXY_COUNT = 0
-
-# --- 가입 (설계 §5.1, 열린 결정 §7-6: 수치는 설정값) ---
-SIGNUP_MAX_PER_IP_PER_HOUR = 5  # 확정값(설계 §10 "가입 시도 제한"). dev/prod 는 환경변수로 바꿀 수 있다(6-3d, 임시방편)
 
 # --- 세션·쿠키: 게임 서버와 같은 호스트에서 돌 때 충돌하지 않도록 전용 이름 ---
 SESSION_COOKIE_NAME = "ads_sessionid"

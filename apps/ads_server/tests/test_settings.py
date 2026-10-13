@@ -176,27 +176,3 @@ class WebEntrySettingsTests(SimpleTestCase):
             self.assertEqual((r.returncode, r.stdout.strip()), (0, "config.settings.prod"), (module, r.stderr[-400:]))
             r = run_python(code, "config.settings.dev", DB_ENV)  # 실제 환경변수로 지정하면 그 값
             self.assertEqual((r.returncode, r.stdout.strip()), (0, "config.settings.dev"), (module, r.stderr[-400:]))
-
-
-
-class SignupLimitSettingTests(SimpleTestCase):
-    """6-3d(설계 §10 "가입 시도 제한"): 가입 시도 상한은 dev·prod 에서 환경값으로 바꿀 수 있다. 기본은 확정값 5, 1 미만·정수 아님은 기동하지 않는다.
-    단체 가입(같은 NAT 의 교실)에서 6번째부터 1시간 막히던 문제의 임시방편(리팩터링 세션 검토 O3)."""
-
-    SHOW = "from django.conf import settings; print(settings.SIGNUP_MAX_PER_IP_PER_HOUR)"
-    ENVS = (("config.settings.dev", DB_ENV), ("config.settings.prod", PROD_ENV))
-
-    def test_the_default_is_the_confirmed_value_and_the_environment_can_change_it(self):
-        for module, env in self.ENVS:
-            r = run_python(self.SHOW, module, env)
-            self.assertEqual((r.returncode, r.stdout.strip()), (0, "5"), (module, r.stderr[-300:]))
-            for value in ("40", "1"):  # 1 은 받는다(경계)
-                r = run_python(self.SHOW, module, dict(env, SIGNUP_MAX_PER_IP_PER_HOUR=value))
-                self.assertEqual((r.returncode, r.stdout.strip()), (0, value), (module, r.stderr[-300:]))
-
-    def test_values_below_one_or_not_integers_refuse_to_start(self):
-        for module, env in self.ENVS:
-            for bad in ("0", "-3", "many"):
-                r = run_python(self.SHOW, module, dict(env, SIGNUP_MAX_PER_IP_PER_HOUR=bad))
-                self.assertNotEqual(r.returncode, 0, (module, bad))
-                self.assertIn("SIGNUP_MAX_PER_IP_PER_HOUR", r.stderr, (module, bad))
