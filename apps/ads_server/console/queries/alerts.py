@@ -79,10 +79,10 @@ def _bid_alerts(groups):
         capped = sum(1 for e in g.effects if e.reason == "capped_at_cap")
         if below:
             alerts.append(Alert("bid_below_floor", "warning", "ad_group", g.ad_group_id,
-                                f"‘{g.name}’ 입찰({g.bid_amount:,} 포인트)이 하한보다 낮아 게재 위치 {below}곳에 노출되지 않습니다.", g.bid_created_at))
+                                f"‘{g.name}’ 입찰({g.bid_amount:,} 포인트)이 하한보다 낮아 구성 {below}곳에 노출되지 않습니다.", g.bid_created_at))
         if capped:
             alerts.append(Alert("bid_capped", "info", "ad_group", g.ad_group_id,
-                                f"‘{g.name}’ 입찰이 상한을 넘어 게재 위치 {capped}곳에서는 상한 금액으로 적용됩니다.", g.bid_created_at))
+                                f"‘{g.name}’ 입찰이 상한을 넘어 구성 {capped}곳에서는 상한 금액으로 적용됩니다.", g.bid_created_at))
     return alerts
 
 
@@ -91,8 +91,8 @@ def _balance_alerts(user, wallet, applied, now):
         return []
     if wallet.balance < min(applied):
         return [Alert("balance_insufficient", "critical", "wallet", user.pk,
-                      f"잔액({wallet.balance:,} 포인트)이 가장 낮은 적용 금액보다 적어 어느 게재 위치에도 노출되지 않습니다.", now)]
+                      f"잔액({wallet.balance:,} 포인트)이 가장 낮은 적용 금액보다 적어 어느 구성에도 노출되지 않습니다.", now)]
     if wallet.balance < max(applied):
         return [Alert("balance_low", "warning", "wallet", user.pk,
-                      f"잔액({wallet.balance:,} 포인트)이 일부 적용 금액보다 적어 그 게재 위치에는 노출되지 않습니다.", now)]
+                      f"잔액({wallet.balance:,} 포인트)이 일부 적용 금액보다 적어 그 구성에는 노출되지 않습니다.", now)]
     return []

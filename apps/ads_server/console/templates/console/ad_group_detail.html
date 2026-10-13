@@ -28,8 +28,8 @@
   {% if effects %}
   <div class="table-wrap">
     <table>
-      <caption class="muted">현재 입찰의 게재 위치별 결과(지금 정책 기준)</caption>
-      <thead><tr><th scope="col">게재 위치</th><th scope="col">하한 ~ 상한</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th><th scope="col">예상 과금(반응마다)</th></tr></thead>
+      <caption class="muted">현재 입찰의 구성별 결과(지금 정책 기준)</caption>
+      <thead><tr><th scope="col">구성</th><th scope="col">하한 ~ 상한</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th><th scope="col">예상 과금(반응마다)</th></tr></thead>
       <tbody>
       {% for slot, e, charges in effects %}
         <tr>
@@ -48,7 +48,7 @@
     {{ bid_form.expected_version }}
     {% if bid_form.non_field_errors %}<div class="notice error" role="alert">{{ bid_form.non_field_errors }}</div>{% endif %}
     {{ bid_form.amount.as_field_group }}
-    <p class="muted">입찰은 고치지 않고 새 버전으로 더합니다. 하한 미만도 저장되지만 그 위치에는 나가지 않고, 상한을 넘으면 상한 금액으로 적용됩니다. 광고가 한 번 나가면 적용 금액이 그 위치의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
+    <p class="muted">입찰은 고치지 않고 새 버전으로 더합니다. 하한 미만도 저장되지만 그 구성에는 나가지 않고, 상한을 넘으면 상한 금액으로 적용됩니다. 광고가 한 번 나가면 적용 금액이 그 구성의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
     <button type="submit">새 입찰 넣기</button>
   </form>
   {% if page.bids %}
@@ -64,25 +64,25 @@
   {% endif %}
 </section>
 
-<section class="card" aria-label="게재 위치">
-  <h1>게재 위치</h1>
+<section class="card" aria-label="구성">
+  <h1>구성</h1>
   <form method="post" action="{% url 'ad_group_slots' group.ad_group_id %}">{% csrf_token %}
     {% if slots_form.non_field_errors %}<div class="notice error" role="alert">{{ slots_form.non_field_errors }}</div>{% endif %}
     {{ slots_form.updated_at }}
     {{ slots_form.slot_ids.errors }}
     <fieldset class="slots">
-      <legend>켜진 게재 위치</legend>
+      <legend>켜진 구성</legend>
       {% for s in page.choices %}
       <label class="slot"><input type="checkbox" name="slot_ids" value="{{ s.slot_id }}"{% if s.slot_id|stringformat:"s" in slots_form.slot_ids.value %} checked{% endif %}>
         {{ s.media_name }} · {{ s.name }} <span class="muted">{{ s.audience|audience_label }} · 하한 {{ s.policy.floor|points }} ~ 상한 {{ s.policy.cap|points }} · 기준가 {{ s.policy.base|points }} · {{ s.policy|shares }}</span></label>
       {% empty %}
-      <p class="muted">고를 수 있는 게재 위치가 없습니다.</p>
+      <p class="muted">고를 수 있는 구성이 없습니다.</p>
       {% endfor %}
     </fieldset>
     {% if page.inactive_linked %}
-    <p class="muted">지금 꺼진 위치: {% for s in page.inactive_linked %}{{ s.media_name }} · {{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %} — 위치를 다시 저장하면 빠집니다.</p>
+    <p class="muted">지금 꺼진 구성: {% for s in page.inactive_linked %}{{ s.media_name }} · {{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %} — 구성을 다시 저장하면 빠집니다.</p>
     {% endif %}
-    <button type="submit" class="secondary">게재 위치 저장</button>
+    <button type="submit" class="secondary">구성 저장</button>
   </form>
 </section>
 

@@ -26,7 +26,7 @@
     <h1 id="step-group">② 광고</h1>
     {{ form.group_name.as_field_group }}
     <fieldset class="slots">
-      <legend>게재 위치</legend>
+      <legend>구성</legend>
       {% regroup slots by media_name as by_media %}
       {% for media in by_media %}
       <p class="media">{{ media.grouper }}</p>
@@ -35,18 +35,18 @@
         {{ s.name }} <span class="muted">{{ s.audience|audience_label }} · 하한 {{ s.policy.floor|points }} ~ 상한 {{ s.policy.cap|points }} · 기준가 {{ s.policy.base|points }} · {{ s.policy|shares }}</span></label>
       {% endfor %}
       {% empty %}
-      <p class="muted">고를 수 있는 게재 위치가 없습니다.</p>
+      <p class="muted">고를 수 있는 구성이 없습니다.</p>
       {% endfor %}
     </fieldset>
     {% if form.slot_ids.errors %}<div id="id_slot_ids_error">{{ form.slot_ids.errors }}</div>{% endif %}
     {{ form.bid_amount.as_field_group }}
-    <p class="muted">하한보다 낮은 입찰도 저장되지만 그 위치에는 노출되지 않고, 상한보다 높으면 상한 금액으로 적용됩니다. 광고가 한 번 나가면 적용 금액이 그 위치의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
-    <button type="submit" name="action" value="preview" class="secondary">위치별 결과 미리보기</button>
+    <p class="muted">하한보다 낮은 입찰도 저장되지만 그 구성에는 노출되지 않고, 상한보다 높으면 상한 금액으로 적용됩니다. 광고가 한 번 나가면 적용 금액이 그 구성의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
+    <button type="submit" name="action" value="preview" class="secondary">구성별 결과 미리보기</button>
     {% if effects %}
     <div class="table-wrap">
       <table>
         <caption class="muted">지금 정책 기준(서버 계산)</caption>
-        <thead><tr><th scope="col">게재 위치</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th><th scope="col">예상 과금(반응마다)</th></tr></thead>
+        <thead><tr><th scope="col">구성</th><th scope="col">결과</th><th scope="col" class="num">적용 금액</th><th scope="col">예상 과금(반응마다)</th></tr></thead>
         <tbody>
         {% for slot, e, charges in effects %}
           <tr><td>{% if slot %}{{ slot.media_name }} · {{ slot.name }}{% else %}{{ e.slot_id }}{% endif %}</td><td>{{ e.reason|effect_label }}</td><td class="num">{% if e.applied_amount is not None %}{{ e.applied_amount|points }}{% else %}—{% endif %}</td><td>{% if charges %}{{ charges|charges }}{% else %}—{% endif %}</td></tr>

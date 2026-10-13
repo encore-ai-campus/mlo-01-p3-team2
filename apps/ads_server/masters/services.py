@@ -150,7 +150,7 @@ def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audien
     사유는 만들 때만 비워도 된다 — 비면 "없음"(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다.
     """
     require_admin(actor)
-    name = clean_text(name, "게재 위치 이름", "/name")
+    name = clean_text(name, "구성 이름", "/name")  # 화면 용어 "구성"(6-10e) — 운영 화면의 칸 옆에 보인다
     if reason is None or isinstance(reason, str) and not reason.strip():
         reason = "없음"
     reason = clean_text(reason, "사유", "/reason", 200)
@@ -168,7 +168,7 @@ def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audien
             _audit(actor, "masters.slot_created", ("masters.slot", slot.slot_id),
                    {"name": name, "audience": audience, "floor": floor, "base": base, "cap": cap, **shares, "reason": reason})
     except IntegrityError:
-        raise errors.Conflict("이 매체에 같은 이름의 게재 위치가 이미 있습니다.")
+        raise errors.Conflict("이 매체에 같은 이름의 구성이 이미 있습니다.")
     slot.media = media
     return _slot_view(slot, policy)
 

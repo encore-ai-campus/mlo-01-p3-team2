@@ -123,7 +123,7 @@ class AdCreateForm(forms.Form):
 
     campaign_id = forms.ChoiceField(label="캠페인")
     group_name = forms.CharField(label="광고 이름", max_length=100, strip=False)
-    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    slot_ids = forms.MultipleChoiceField(label="구성", widget=forms.CheckboxSelectMultiple, required=False)
     bid_amount = forms.IntegerField(label="입찰(포인트)")
     creative_source = forms.ChoiceField(label="소재", choices=[(NEW, "새로 올리기"), (EXISTING, "등록된 소재 쓰기")], widget=forms.RadioSelect, initial=NEW)
     creative_id = forms.ChoiceField(label="등록된 소재", required=False)
@@ -181,7 +181,7 @@ class GroupNameForm(forms.Form):
 
 
 class GroupSlotsForm(forms.Form):
-    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    slot_ids = forms.MultipleChoiceField(label="구성", widget=forms.CheckboxSelectMultiple, required=False)
     updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
     def __init__(self, *args, slots=(), **kwargs):

@@ -118,14 +118,14 @@ class GroupEditTests(AdGroupPageBase):
         self.assertNotIn(str(click.slot_id), self.html())  # 꺼진 위치는 고를 수 없다
         self.assertEqual(self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(click.slot_id)], "updated_at": self.seen()}).status_code, 400)
         r = self.client.post(reverse("ad_group_slots", args=[self.gid]), {"updated_at": self.seen()})
-        self.assertContains(r, "게재 위치를 하나 이상 고르세요", status_code=400)
+        self.assertContains(r, "구성을 하나 이상 고르세요", status_code=400)
         self.assertEqual(self.group().slot_ids, (self.w.slot.slot_id,))
 
     def test_an_inactive_linked_slot_is_explained(self):
         masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
         html = self.html()
-        self.assertIn("지금 꺼진 위치", html)
-        self.assertIn("꺼진 위치 — 노출 안 됨", html)
+        self.assertIn("지금 꺼진 구성", html)
+        self.assertIn("꺼진 구성 — 노출 안 됨", html)
 
 
 class CreativeTests(AdGroupPageBase):

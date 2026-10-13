@@ -250,6 +250,17 @@ class ScreenQualityTests(TestCase):
                     continue
                 self.assertNotIn("광고그룹", client.get(url).content.decode(), url)
 
+    def test_screens_say_composition_not_placement(self):
+        """화면 용어는 "구성"이다 — 코드·계약의 슬롯(`Slot`, 옛 화면 이름 "게재 위치")을 화면에 드러내지 않는다(6-10e, 설계 §10 "화면 용어: 구성"). Django admin 의 모델 화면은 범위 밖."""
+        for user, urls in self.pages():
+            client = Client()
+            if user is not None:
+                client.force_login(user)
+            for url in urls:
+                if url.startswith("/" + settings.ADMIN_URL_PATH) and "/operator/" not in url:
+                    continue
+                self.assertNotIn("게재 위치", client.get(url).content.decode(), url)
+
     def test_the_design_tokens_have_enough_contrast_in_both_themes(self):
         css = Path(finders.find("console/app.css")).read_text()
         token = re.compile(r"--([\w-]+):\s*(#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b)")

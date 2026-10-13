@@ -74,7 +74,7 @@ def slot_create(request, media_id):
             form_errors(form, e)
             status = status_of(e)
         else:
-            messages.success(request, f"게재 위치 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
+            messages.success(request, f"구성 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
             return redirect("operator:media_detail", media_id=media_id)
     return _detail(request, media_id, status=status, slot_form=form)
 
@@ -121,7 +121,7 @@ def policy_bulk(request):
             form_errors(form, e)
             status = status_of(e)
         else:
-            messages.success(request, f"게재 위치 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
+            messages.success(request, f"구성 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
             return redirect("operator:policy_bulk")
     return _render(request, "operator/policy_bulk.html", "입찰 정책 일괄 변경", status=400 if status == 200 and form.errors else status,
                    slots=masters.list_slots(active_only=False), form=form, stale=status == 409)

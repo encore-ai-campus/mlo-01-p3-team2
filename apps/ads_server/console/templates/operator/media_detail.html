@@ -2,9 +2,9 @@
 {% load kst console_format %}
 {% block crumbs %} › <a href="{% url 'operator:media_list' %}">매체</a> › {{ media.name }}{% endblock %}
 {% block content %}
-<p>상태: {% if media.is_active %}활성{% else %}비활성 — 이 매체의 모든 게재 위치에 광고가 나가지 않습니다{% endif %}</p>
+<p>상태: {% if media.is_active %}활성{% else %}비활성 — 이 매체의 모든 구성에 광고가 나가지 않습니다{% endif %}</p>
 
-<h2>게재 위치</h2>
+<h2>구성</h2>
 <div class="module">
   <table>
     <thead><tr><th scope="col">이름</th><th scope="col">보는 사람</th><th scope="col">입찰 정책 (하한 / 기준가 / 상한 · 비율)</th><th scope="col">상태</th><th scope="col">바꾸기</th></tr></thead>
@@ -23,12 +23,12 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="5">게재 위치가 없습니다.</td></tr>
+      <tr><td colspan="5">구성이 없습니다.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
-<h3>게재 위치 만들기</h3>
+<h3>구성 만들기</h3>
 <p class="help">보는 사람(개인/일괄)은 만든 뒤 바꿀 수 없습니다. 입찰 정책(하한·기준가·상한·비율)은 이후 새 버전으로만 바꿉니다.</p>
 <form method="post" action="{% url 'operator:slot_create' media.media_id %}" id="slot-create">{% csrf_token %}
   {{ slot_form.as_div }}

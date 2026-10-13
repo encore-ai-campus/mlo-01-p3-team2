@@ -21,7 +21,7 @@ class PolicyValuesForm(forms.Form):
 
 
 class SlotForm(PolicyValuesForm):
-    name = forms.CharField(label="게재 위치 이름", max_length=100, strip=False)
+    name = forms.CharField(label="구성 이름", max_length=100, strip=False)
     audience = forms.ChoiceField(label="보는 사람", choices=Audience.choices,
                                  help_text="개인: 결정 하나를 한 사람이 봅니다. 일괄: 여러 사람이 같은 광고를 봅니다. 만든 뒤 바꿀 수 없습니다.")
     reason = forms.CharField(label="사유", max_length=200, strip=False, required=False, help_text="비우면 ‘없음’으로 남습니다.")  # 비면 서비스가 채운다(6-8c)
@@ -42,7 +42,7 @@ class SlotVersionsField(forms.Field):
         for item in value or []:
             slot_id, sep, version = str(item).partition(":")
             if not sep or not version.isdigit():
-                raise forms.ValidationError("고른 게재 위치 값이 올바르지 않습니다. 새로 불러와 다시 고르세요.")
+                raise forms.ValidationError("고른 구성 값이 올바르지 않습니다. 새로 불러와 다시 고르세요.")
             chosen[slot_id] = int(version)
         return chosen
 

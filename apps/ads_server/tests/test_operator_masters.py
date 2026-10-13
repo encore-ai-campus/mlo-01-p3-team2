@@ -105,6 +105,7 @@ class SlotPageTests(OperatorBase):
         self.assertContains(r, "하한 ≤ 기준가 ≤ 상한이어야 합니다.", status_code=400)
         self.assertEqual(self.post_slot(floor="").status_code, 400)  # 서비스까지 가지 않는 폼 오류
         self.assertContains(self.post_slot(floor=99), "100 이상 9007199254740991 이하의 정수여야 합니다.", status_code=400)  # 하한 최소 100(6-10c)
+        self.assertContains(self.post_slot(name="  "), "구성 이름은(는) 1~100자의 보이는 문자여야 합니다.", status_code=400)  # 화면 용어 "구성"(6-10e)
         self.assertContains(self.post_slot(impression_share=0, click_share=95), "1 이상 98 이하의 정수(%)여야 합니다.", status_code=400)
         self.assertContains(self.post_slot(conversion_share=6), "노출·클릭·전환 비율의 합은 100이어야 합니다(지금 101).", status_code=400)
         self.assertEqual(self.post_slot(click_share="").status_code, 400)  # 비율도 필수
@@ -117,7 +118,7 @@ class SlotPageTests(OperatorBase):
 
     def test_a_name_already_in_the_media_is_a_conflict(self):
         self.assertRedirects(self.post_slot(), self.detail)
-        self.assertContains(self.post_slot(), "이 매체에 같은 이름의 게재 위치가 이미 있습니다.", status_code=409)
+        self.assertContains(self.post_slot(), "이 매체에 같은 이름의 구성이 이미 있습니다.", status_code=409)
         self.assertEqual(len(masters.list_slots(active_only=False, media_id=self.media.media_id)), 1)
 
     def test_toggle_slot_active(self):

@@ -103,7 +103,7 @@ def _preview(form):
     """위치별 적용 결과(서버 계산). 입찰이나 위치가 없으면 안내만."""
     amount, slot_ids = form.cleaned_data.get("bid_amount"), form.cleaned_data.get("slot_ids")
     if amount is None or not slot_ids:
-        form.add_error(None, "입찰과 게재 위치를 고르면 위치마다 노출 여부와 적용 금액을 보여 줍니다.")
+        form.add_error(None, "입찰과 구성을 고르면 구성마다 노출 여부와 적용 금액·예상 과금을 보여 줍니다.")
         return None
     try:
         return campaigns.bid_effects(amount, slot_ids)

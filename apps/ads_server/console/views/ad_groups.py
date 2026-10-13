@@ -77,7 +77,7 @@ def _submit(request, ad_group_id, form, call, done, image_field=None, **redraw):
 def ad_group_bid(request, ad_group_id):
     form = BidForm(request.POST)
     return _submit(request, ad_group_id, form, lambda d: campaigns.add_bid(request.user, ad_group_id, d["amount"], d["expected_version"]),
-                   "새 입찰을 넣었습니다. 위치별 결과가 바뀌었을 수 있습니다.", bid_form=form)
+                   "새 입찰을 넣었습니다. 구성별 결과가 바뀌었을 수 있습니다.", bid_form=form)
 
 
 @require_POST
@@ -92,7 +92,7 @@ def ad_group_slots(request, ad_group_id):
     page = fetch(ad_group_page, request.user, ad_group_id)
     form = GroupSlotsForm(request.POST, slots=page.choices)
     return _submit(request, ad_group_id, form, lambda d: campaigns.update_ad_group(request.user, ad_group_id, {"slot_ids": d["slot_ids"]}, expected_updated_at=d["updated_at"]),
-                   "게재 위치를 바꿨습니다.", slots_form=form)
+                   "구성을 바꿨습니다.", slots_form=form)
 
 
 @require_POST

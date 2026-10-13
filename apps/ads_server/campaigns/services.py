@@ -491,18 +491,18 @@ def open_review_queue(actor, now=None):
 
 def _validated_slots(slot_ids):
     if not isinstance(slot_ids, (list, tuple)) or not slot_ids:
-        raise _problem("/slot_ids", "게재 위치를 하나 이상 고르세요.")
+        raise _problem("/slot_ids", "구성을 하나 이상 고르세요.")  # 화면 용어 "구성"(6-10e) — 광고 화면의 칸 옆에 보인다
     try:
         ids = [parse_uuid(s, "게재 위치") for s in slot_ids]
     except errors.NotFound:
-        raise _problem("/slot_ids", "게재 위치 ID 형식이 올바르지 않습니다.")
+        raise _problem("/slot_ids", "구성 ID 형식이 올바르지 않습니다.")
     if len(set(ids)) != len(ids):
-        raise _problem("/slot_ids", "같은 게재 위치를 두 번 고를 수 없습니다.")
+        raise _problem("/slot_ids", "같은 구성을 두 번 고를 수 없습니다.")
     views = masters.get_slots_with_policy(ids)
     for slot_id in ids:
         slot = views.get(slot_id)
         if slot is None or not slot.is_active or not slot.media_is_active:
-            raise _problem("/slot_ids", "없거나 쓸 수 없는 게재 위치가 있습니다.")
+            raise _problem("/slot_ids", "없거나 쓸 수 없는 구성이 있습니다.")
     return ids
 
 
