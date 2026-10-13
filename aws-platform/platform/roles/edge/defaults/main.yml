@@ -16,3 +16,5 @@ edge_setup_root: /var/www/edge-setup
 # 기존 edge 호출은 유지하고 새 Front에서만 HTTP 리다이렉트와 단일 Backend를 사용한다.
 edge_http_redirect: false
 edge_frontend_mode: false
+# 광고 Front의 인벤토리에서만 3m으로 덮어쓴다.
+edge_client_max_body_size: "1m"

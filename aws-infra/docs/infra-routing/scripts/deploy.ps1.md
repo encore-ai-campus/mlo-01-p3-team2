@@ -72,3 +72,5 @@ Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해
 현재 Inventory는 Front별 EIP·공개 CIDR 0.0.0.0/0·리다이렉트와 단일 Backend 주소를 기록한다. 이전 role=edge 호스트만 traffic.game_client_cidrs를 사용한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
 
 Deploy는 EC2 생성·Inventory·Proxy까지 실행한다. HTTPS 설치는 [site.yml](../../../../aws-platform/platform/site.yml)의 edge 역할에서, 두 Front의 HTTPS만 설치할 때는 [edge.yml](../../../../aws-platform/platform/edge.yml)에서 실행한다. edge 단독 초기 구축에는 Bastion이 없으므로 public_ip, 허용 CIDR, 키 경로, proxy_enabled=false를 가진 별도 인벤토리를 사용한다.
+
+ad_frontend 호스트에만 edge_client_max_body_size=3m을 기록한다. game_frontend에는 이 변수를 기록하지 않아 Ansible 역할 기본값 1m을 사용한다. 변경 후 Inventory 재생성과 광고 Front Nginx 설정 적용이 필요하다.

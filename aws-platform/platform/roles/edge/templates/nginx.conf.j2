@@ -41,6 +41,8 @@ http {
 {% if edge_tls_ready %}
     server {
         listen 443 ssl default_server;
+        # 서버별 요청 본문 제한: 광고 Front 3m, 기본 1m.
+        client_max_body_size {{ edge_client_max_body_size }};
         server_name {{ edge_public_ip }};
         ssl_certificate /etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/{{ edge_cert_name }}/privkey.pem;

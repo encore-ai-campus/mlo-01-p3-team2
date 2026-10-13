@@ -177,6 +177,8 @@ function Write-DeploymentInventory {
             $hostVars.edge_https_allowed_cidrs = @('0.0.0.0/0')
             $hostVars.edge_http_redirect = $true
             $hostVars.edge_frontend_mode = $true
+            # 광고 업로드만 3m까지 전달하고 게임 Front는 역할 기본값을 사용한다.
+            if ($record.Role -eq 'ad_frontend') { $hostVars.edge_client_max_body_size = '3m' }
             $hostVars.edge_frontend_upstreams = @(@{ host = $backendInstance.PrivateIpAddress; port = 8000 })
         }
         if ($record.Role -eq 'edge') {
