@@ -51,13 +51,25 @@ class PolicyServiceTests(TestCase):
     def test_create_slot_validates_name_unit_reason_and_media(self):
         media = api.create_media(self.admin, "입력 매체")
         for kwargs in (dict(name=""), dict(name="  "), dict(name="x" * 101), dict(name="zero​width"),
-                       dict(unit="DAILY"), dict(reason=""), dict(reason=" ")):
+                       dict(unit="DAILY"), dict(reason="x" * 201), dict(reason="zero​width")):
             args = dict(name="배너", unit="CLICK", reason="사유")
             args.update(kwargs)
             with self.assertRaises(InvalidRequest, msg=kwargs):
                 api.create_slot(self.admin, media.media_id, args["name"], args["unit"], 1, 2, 3, args["reason"])
         with self.assertRaises(NotFound):
             api.create_slot(self.admin, uuid.uuid4(), "배너", "CLICK", 1, 2, 3, "사유")
+
+    def test_a_slot_may_be_created_without_a_reason_but_a_policy_change_may_not(self):
+        """만들 때만 빈 사유를 "없음"으로 채운다(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다."""
+        media = api.create_media(self.admin, "사유 매체")
+        for i, blank in enumerate(("", "   ", None)):
+            slot = api.create_slot(self.admin, media.media_id, f"배너{i}", "CLICK", 1, 2, 3, blank)
+            self.assertEqual(slot.policy.reason, "없음")
+        for blank in ("", "   ", None):
+            with self.assertRaises(InvalidRequest, msg=blank):
+                api.add_policy_version(self.admin, slot.slot_id, 1, 2, 3, blank, expected_version=1)
+            with self.assertRaises(InvalidRequest, msg=blank):
+                api.add_policy_version_bulk(self.admin, {slot.slot_id: 1}, 1, 2, 3, blank)
 
     def test_slot_name_unique_per_media_in_service(self):
         slot = new_slot(self.admin, name="상단")

@@ -136,9 +136,12 @@ def create_slot(actor, media_id, name, pricing_unit, floor, base, cap, reason, a
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
 
     `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
+    사유는 만들 때만 비워도 된다 — 비면 "없음"(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다.
     """
     require_admin(actor)
     name = clean_text(name, "게재 위치 이름", "/name")
+    if reason is None or isinstance(reason, str) and not reason.strip():
+        reason = "없음"
     reason = clean_text(reason, "사유", "/reason", 200)
     if pricing_unit not in PricingUnit.values:
         raise errors.InvalidRequest(errors=[{"pointer": "/pricing_unit", "message": f"{', '.join(PricingUnit.values)} 중 하나여야 합니다."}])

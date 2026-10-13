@@ -104,6 +104,11 @@ class SlotPageTests(OperatorBase):
         self.assertEqual(self.post_slot(floor="").status_code, 400)  # 서비스까지 가지 않는 폼 오류
         self.assertEqual(masters.list_slots(active_only=False, media_id=self.media.media_id), [])
 
+    def test_the_reason_may_be_left_blank_when_creating(self):
+        self.assertRedirects(self.post_slot(reason=""), self.detail)
+        (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
+        self.assertEqual(slot.policy.reason, "없음")  # 만들 때만 비워도 된다 — 정책 변경은 사유 필수(6-8c)
+
     def test_a_name_already_in_the_media_is_a_conflict(self):
         self.assertRedirects(self.post_slot(), self.detail)
         self.assertContains(self.post_slot(), "이 매체에 같은 이름의 게재 위치가 이미 있습니다.", status_code=409)
