@@ -676,8 +676,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `bid_version`, `policy_version` | 정수 | Y | 〃 | 어느 입찰·정책으로 판정했나(자연 키) |
 | `bid_id`, `bid_policy_id` | UUID | Y | 〃 | 같은 버전 행의 UUID(FK 아님: 결정은 과거 사실). 팀 DRD의 `selected_bid_id`·`selected_bid_policy_id` |
 | `snapshot` | JSON | Y | 〃 | `{title, redirect_url, image_name}` 그 시점 값 |
-| `selection_policy` | 문자 64 | N | | 알고리즘 이름(예 `highest-bid/v1`) |
-| `trace` | JSON | N | | 알고리즘별 판단 근거(예: 최대 적용 금액, 동점 후보, 뽑힌 값) |
+| `selection_policy` | 문자 64 | N | | 알고리즘 이름(6-14부터 `weighted-by-bid/v1`, 전에는 `highest-bid/v1`) |
+| `trace` | JSON | N | | 알고리즘별 판단 근거. 6-14부터 요약: 후보 수·k·가중치 합·뽑힌 후보의 가중치·뽑은 난수·뽑힌 광고그룹(후보 목록은 없다). 6-14 전(`highest-bid/v1`)은 최대 적용 금액·동점 후보 목록 |
 | `candidate_count` | 정수 | N | | 들어온 후보 수 |
 | `rejected_counts` | JSON | N | | 필터 거절 사유별 개수(예 `{"below_floor": 2}`) |
 
@@ -1182,7 +1182,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 반응 행 수 | 결정당 유형별 최대 1건 인정(최대 3) + 거부된 보고 | `once-per-type` |
 | 원장 `CHARGE` 행 수 | 인정된 반응 모두(과금액이 0이 아닌 것) | `share/v1`(6-10c) |
 | 결정 한 건의 DB 작업 | 읽기 4번(후보 수와 무관) + 쓰기 1번 | `test_assemble_query_count_independent_of_candidates` |
-| 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(`trace`의 동점 후보 목록이 가장 큼) | 추정. 부하 테스트(2-6)에서 확인 |
+| 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(6-14 전에는 `trace`의 동점 후보 목록이 가장 컸다. 6-14부터 `trace` 는 후보 수와 무관한 요약) | 추정. 부하 테스트(2-6)에서 확인 |
 | 저장소 한계 | MySQL 단일 노드. 요청마다 연결을 닫아 연결 수 = 동시 요청 수 — 서버 `max_connections`(기본 151)에 닿으면 넘친 요청은 503 + 재시도(150 동시에서 발생, 처리는 올바름) | 설계서 §6.5-7, [load-test.md](load-test.md) §2·§4·§7. 영속 연결·풀은 배포 구성이 정해진 뒤 |
 | PK 쓰기 위치 | UUIDv7은 시각이 앞이라 새 행이 인덱스 뒤에 붙는다 | MySQL(InnoDB) 전환 대비. UUID 저장 형식(32자 문자 vs 16바이트 이진)은 전환 시점에 데이터량을 보고 정한다 |
 
@@ -1266,6 +1266,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.52 | 2026-10-14 | Step 6-14a(구현 계획 §8.4.15, 사용자 결정): R1 결정의 `selection_policy` 값이 `weighted-by-bid/v1` 로, `trace` 는 후보 수와 무관한 요약으로(데이터 모양은 그대로 — 문자열·JSON) |
 | 0.51 | 2026-10-14 | Step 6-13f(구현 계획 §8.4.14, 사용자 결정): M3 입찰 정책의 `CHECK 0 < floor` 를 `CHECK floor ≥ 100`(6-10c)에 합침(마이그레이션 `masters/0008`, 빈 DB 전제). M2 슬롯 `audience` 는 모델·서비스 모두 기본값이 없다(만드는 쪽이 정한다) |
 | 0.50 | 2026-10-14 | Step 6-13e(구현 계획 §8.4.14, 사용자 결정): O2 광고그룹 `creative_id`(선택)를 바꾸는 길은 연결 하나 — 고를 때 아직 연결되지 않았으면 함께 연결한다(C6 광고그룹 `PATCH` 의 `creative_id` 삭제). 데이터 모양은 그대로 |
 | 0.49 | 2026-10-14 | Step 6-13d(구현 계획 §8.4.14): 광고주 상한의 동시 쓰기 행 — 인용 시험 이름 정정(캠페인을 만드는 시험이 "ads"라는 이름이었다 → `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`)과 서로 다른 캠페인에 광고를 겹쳐 만드는 시험 `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit` 추가. 데이터 모양은 그대로 |
