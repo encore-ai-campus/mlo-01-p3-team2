@@ -184,7 +184,10 @@ erDiagram
     campaigns_campaign ||--o{ campaigns_ad_group : "campaign"
     campaigns_campaign ||--o{ campaigns_review_request : "campaign"
     campaigns_ad_group ||--o{ campaigns_ad_group_slot : "ad_group"
-    campaigns_ad_group ||--o{ campaigns_creative : "ad_group"
+    foundation_user ||--o{ campaigns_creative : "owner (소재 목록, 6-9c)"
+    campaigns_ad_group ||--o{ campaigns_ad_group_creative : "ad_group (연결)"
+    campaigns_creative ||--o{ campaigns_ad_group_creative : "creative (연결)"
+    campaigns_creative |o--o{ campaigns_ad_group : "선택한 소재"
     campaigns_ad_group ||--o{ campaigns_bid : "ad_group (버전)"
     billing_wallet ||--o{ billing_ledger_entry : "wallet"
     masters_media ||--o{ masters_media_key : "media"
@@ -1263,6 +1266,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.48 | 2026-10-13 | Step 6-10f 정합: ERD 관계 줄을 6-9c 소재 목록에 맞춤 — 소재는 광고주 소유이고 광고그룹과는 연결 표(O9)로 잇고, 광고그룹은 그중 하나를 선택한다(엔터티 블록은 6-9c에 이미 고쳐져 있었고 관계 줄 "광고그룹 → 소재"가 남아 있었다) |
 | 0.47 | 2026-10-13 | Step 6-10d 과금 단위 제거(구현 계획 §8.4.11): M2 슬롯·O2 광고그룹의 `pricing_unit` 열 삭제(마이그레이션 `masters/0007`·`campaigns/0008`, 빈 DB 전제), ERD, 무결성 표(슬롯 성격 불변·광고그룹 슬롯 활성), §9 대응. 광고그룹은 아무 슬롯이나 함께 고른다 |
 | 0.46 | 2026-10-13 | Step 6-10c 과금 전환(구현 계획 §8.4.11, 설계서 §10 "구성별 반응 비율 과금"): R1 결정에 `impression_share`·`click_share`·`conversion_share`(`CHECK` 각각 1~98·합 100, 광고 없음이면 NULL) — `pricing_unit` 열 삭제(마이그레이션 `records/0012`, 빈 DB 전제), M3 `CHECK floor ≥ 100`(`masters/0006`), B2 `charge_policy` = `share/v1`, 과금 규칙(인정된 모든 유형, 내림(적용 금액 × 비율 ÷ 100)), P3·§5.6 `schema_version` 종류별(`ad.decision` 2 — `selected.charge_shares`), ERD·무결성 표·멱등 표·§8·§9 대응 |
 | 0.45 | 2026-10-13 | Step 6-10b(구현 계획 §8.4.11): M3 입찰 정책에 반응 유형별 과금 비율 `impression_share`·`click_share`·`conversion_share`(각각 1~98, 합 100 — DB `CHECK` 둘, 서비스 세 곳 같은 검사), ERD·무결성 표. 마이그레이션 `masters/0005`는 빈 DB 전제(옛 행 이전 없음 — 데이터가 있으면 비율 제약에서 멈춘다). 과금은 아직 단위로 한다(6-10c에서 비율로) |
