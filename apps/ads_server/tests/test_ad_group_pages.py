@@ -122,6 +122,7 @@ class ImageSectionTests(AdGroupPageBase):
         self.assertNotIn("소재 더하기", html)
         self.assertEqual(re.findall(r'name="creative_id" value="([^"]+)"', image), [str(mine.creative_id)])  # 나가는 중인 것은 버튼이 없고, 지운 것은 보이지 않는다
         self.assertIn("나가는 중", image)
+        self.assertIn('aria-label="이 이미지로 바꾸기: 목록의 이미지"', image)  # 이미지마다 버튼 이름이 다르다(R8)
         self.assertNotIn("지운 이미지", image)
         self.assertNotIn(f'action="{reverse("creative_edit", args=[self.crid])}"', html)  # 이 화면에서는 고치지 않는다
         self.assertNotIn(f'action="{reverse("creative_image", args=[self.crid])}"', html)

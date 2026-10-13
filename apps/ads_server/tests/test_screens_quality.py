@@ -242,6 +242,17 @@ class ScreenQualityTests(TestCase):
                 audit.feed(client.get(url).content.decode())
                 self.assertEqual(audit.report(), [], url)
 
+    def test_every_advertiser_screen_marks_its_menu(self):
+        """주 메뉴의 현재 위치(`aria-current`)는 화면마다 하나 — 광고 만들기·광고 상세는 캠페인에 속한다(6-13c R8)."""
+        menus = {"대시보드": ("advertiser_home",), "캠페인": ("campaign_list", "campaign_detail", "campaign_create", "ad_group_detail", "ad_create"),
+                 "소재": ("creative_list", "creative_detail"), "포인트": ("points",), "내 정보": ("my_account",)}
+        menu_of = {name: menu for menu, names in menus.items() for name in names}
+        self.client.force_login(self.w.adv)
+        (_, adv), *_ = self.pages()
+        for url in adv:
+            html = self.client.get(url).content.decode()
+            self.assertEqual(re.findall(r'aria-current="page">([^<]+)</a>', html), [menu_of[resolve(url).url_name]], url)
+
     def test_screens_use_the_screen_terms(self):
         """화면 용어는 "광고"·"구성"이다 — 코드·계약의 광고그룹(`AdGroup`)과 슬롯(`Slot`, 옛 화면 이름 "게재 위치"), 없어진 과금 단위를 화면에 드러내지 않는다
         (6-9e·6-10e·6-10d, 설계 §10 "화면 용어: 광고"·"화면 용어: 구성"). Django admin 의 모델 화면은 범위 밖."""

@@ -16,7 +16,8 @@
       {% url 'advertiser_home' as home_url %}
       <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>대시보드</a>
       {% url 'campaign_list' as campaigns_url %}
-      <a href="{{ campaigns_url }}"{% if campaigns_url in request.path %} aria-current="page"{% endif %}>캠페인</a>
+      {# 광고(만들기·상세 — 경로 이름 ad_create·ad_group_*)는 캠페인에 속한다 #}
+      <a href="{{ campaigns_url }}"{% if campaigns_url in request.path or request.resolver_match.url_name == "ad_create" or "ad_group_" in request.resolver_match.url_name %} aria-current="page"{% endif %}>캠페인</a>
       {% url 'creative_list' as creatives_url %}
       <a href="{{ creatives_url }}"{% if creatives_url in request.path %} aria-current="page"{% endif %}>소재</a>
       {% url 'points' as points_url %}
