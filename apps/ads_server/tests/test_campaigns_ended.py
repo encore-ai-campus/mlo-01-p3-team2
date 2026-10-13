@@ -94,8 +94,8 @@ class EndedGuardTests(TestCase):
             "update_ad_group": lambda: api.update_ad_group(w.adv, gid, {"enabled": False}, now=now),
             "add_bid": lambda: api.add_bid(w.adv, gid, 99, expected_version=1, now=now),
             "create_creative": lambda: api.create_creative(w.adv, gid, "t", "https://a.example", png_file(), now=now),
-            "update_creative": lambda: api.update_creative(w.adv, crid, {"title": "x"}, now=now),
-            "replace_image": lambda: api.replace_creative_image(w.adv, crid, png_file(), now=now),
+            "link_creative": lambda: api.link_creative(w.adv, gid, crid, now=now),
+            "select_creative": lambda: api.update_ad_group(w.adv, gid, {"creative_id": crid}, now=now),
             "review_request": lambda: api.create_review_request(w.adv, cid, "m", now=now),
             "suspend": lambda: api.suspend_campaign(w.admin, cid, "사유", now=now),
             "release": lambda: api.release_campaign(w.admin, cid, now=now),
@@ -122,6 +122,8 @@ class EndedGuardTests(TestCase):
         self.assertEqual(api.get_ad_group(w.adv, w.group.ad_group_id).current_bid.amount, 30)
         self.assertEqual(api.get_creative(w.adv, w.creative.creative_id).title, "제목")
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id), [])  # 저장된 상태가 ENDED 라 구조상 후보가 아니다
+        # 소재는 캠페인 밖에 있다 — 고치면 그 소재를 쓰는 다른 광고그룹에 다음 결정부터 적용된다(6-9c). 과거 결정은 스냅샷이라 그대로다
+        self.assertEqual(api.update_creative(w.adv, w.creative.creative_id, {"title": "끝난 뒤 고침"}, now=NOW).title, "끝난 뒤 고침")
 
     def test_early_end_sets_ends_at_now_and_is_irreversible(self):
         w = World()

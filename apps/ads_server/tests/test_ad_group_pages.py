@@ -44,12 +44,12 @@ class AdGroupPageBase(TestCase):
         prefix = str(self.crid)
         html = self.html()
         found = dict(re.findall(rf'name="{prefix}-(title|redirect_url|updated_at)"[^>]*?value="([^"]*)"', html))
-        return {f"{prefix}-{k}": v for k, v in {**found, **over}.items()}
+        return {"ad_group_id": str(self.gid), **{f"{prefix}-{k}": v for k, v in {**found, **over}.items()}}  # 돌아갈 광고그룹(6-9c)
 
     def image_fields(self, image, creative=None, updated_at=None):
         """소재마다 따로인 이미지 교체 폼(접두사 = 소재 ID)."""
         creative = creative or self.creative()
-        return {f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
+        return {"ad_group_id": str(self.gid), f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
 
 
 class DetailTests(AdGroupPageBase):

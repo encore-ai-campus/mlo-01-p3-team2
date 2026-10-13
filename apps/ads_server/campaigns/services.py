@@ -19,10 +19,10 @@ from masters import api as masters
 
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending, UnitImmutable, UnitMismatch
-from .models import AdGroup, AdGroupSlot, AdvertiserQuota, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
+from .models import AdGroup, AdGroupCreative, AdGroupSlot, AdvertiserQuota, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
-    AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeView, MonitoredCampaign, ReviewQueueItem,
-    ReviewRequestView, SlotEffect, SuspensionView,
+    AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeUse, CreativeView, MonitoredCampaign, OwnedCreative,
+    ReviewQueueItem, ReviewRequestView, SlotEffect, SuspensionView,
 )
 
 
@@ -91,11 +91,10 @@ def _ad_group(user, ad_group_id):
     return owned_or_404(AdGroup.objects.select_related("campaign"), user, owner_field="campaign__owner", ad_group_id=ad_group_id)
 
 
-def _creative(user, creative_id):
-    return owned_or_404(
-        Creative.objects.select_related("ad_group", "ad_group__campaign"), user, owner_field="ad_group__campaign__owner",
-        creative_id=creative_id,
-    )
+def _creative(user, creative_id, archived=False):
+    """광고주 자신의 소재(남의 것·없는 것은 404). 보관한 소재는 `archived=True`(읽기)일 때만 — 끝난 캠페인의 광고그룹 화면이 그 이미지를 보인다."""
+    queryset = Creative.objects.all() if archived else Creative.objects.filter(archived_at__isnull=True)
+    return owned_or_404(queryset, user, creative_id=creative_id)
 
 
 def _locked_group(user, ad_group_id):
@@ -116,11 +115,12 @@ def _lock_quota(user):
 
 
 def _locked_creative(user, creative_id):
-    """소재를 바꾸는 동작용: `_locked_group` 과 같은 순서(캠페인 → 소재)로 잠가 다시 읽는다. 트랜잭션 안에서만."""
+    """소재를 바꾸거나 연결·선택·보관하는 동작용: 소유를 확인한 뒤 **소재 행**을 잠가 다시 읽는다(보관한 것은 404). 잠금 순서의 마지막이다 —
+    광고주 → 캠페인 → 광고그룹 → 소재(설계 §10 "캠페인 행 잠금 규약"). 소재는 캠페인 밖에 있으므로 캠페인을 잠그지 않는다. 트랜잭션 안에서만."""
     found = _creative(user, creative_id)
-    campaign = Campaign.objects.select_for_update().get(pk=found.ad_group.campaign_id)
-    creative = Creative.objects.select_related("ad_group").select_for_update(of=("self",)).get(pk=found.pk)
-    creative.ad_group.campaign = campaign
+    creative = Creative.objects.select_for_update().get(pk=found.pk)
+    if creative.archived_at is not None:  # 확인과 잠금 사이에 보관됐다
+        raise errors.NotFound("소재를 찾을 수 없습니다.")
     return creative
 
 
@@ -155,15 +155,15 @@ def _ad_group_view(g, bid=None, slot_ids=None):
     """`slot_ids`: 이미 읽은 게재 위치(목록이 한 번에 읽는다). 없으면 그 그룹의 것을 읽는다."""
     slot_ids = tuple(sorted(g.slot_links.values_list("slot_id", flat=True) if slot_ids is None else slot_ids, key=str))
     return AdGroupView(
-        ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, pricing_unit=g.pricing_unit, enabled=g.enabled,
+        ad_group_id=g.ad_group_id, campaign_id=g.campaign_id, name=g.name, pricing_unit=g.pricing_unit, enabled=g.enabled, creative_id=g.creative_id,
         slot_ids=slot_ids, current_bid=_bid_view(bid) if bid else None, created_at=g.created_at, updated_at=g.updated_at,
     )
 
 
 def _creative_view(c):
     return CreativeView(
-        creative_id=c.creative_id, ad_group_id=c.ad_group_id, title=c.title, redirect_url=c.redirect_url,
-        image_name=c.image_name, image_bytes=c.image_bytes, created_at=c.created_at, updated_at=c.updated_at,
+        creative_id=c.creative_id, title=c.title, redirect_url=c.redirect_url, image_name=c.image_name, image_bytes=c.image_bytes,
+        archived=c.archived_at is not None, created_at=c.created_at, updated_at=c.updated_at,
     )
 
 
@@ -392,7 +392,9 @@ class _MonitoringRows:
     # ponytail: 정렬 키가 계산 값이라 색인을 못 쓴다 — 쪽마다 모든 캠페인을 훑어 정렬한다(광고주 150명 × 캠페인 상한 20 = 3,000행). 더 커지면 마지막 변경 시각을 캠페인 열로 두고(소재 변경 때 함께 갱신) 색인
     def __init__(self, now):
         self.now = now
-        last_creative = Creative.objects.filter(ad_group__campaign=OuterRef("pk")).order_by("-updated_at").values("updated_at")[:1]
+        # 연결된 소재의 마지막 수정이나 연결 시각 — 이미 있던 소재를 새로 연결해도 위로 올라온다(6-9c)
+        last_creative = (AdGroupCreative.objects.filter(ad_group__campaign=OuterRef("pk")).annotate(at=Greatest("creative__updated_at", "linked_at"))
+                         .order_by("-at").values("at")[:1])
         self.campaigns = Campaign.objects.annotate(
             last_changed_at=Greatest("updated_at", Coalesce(Subquery(last_creative), "updated_at")),  # 소재가 없으면 캠페인의 시각(GREATEST 는 NULL 이 섞이면 NULL)
         ).order_by("-last_changed_at", "-campaign_id")
@@ -410,23 +412,27 @@ class _MonitoringRows:
 
 
 def _creatives_by_campaign(campaign_ids):
-    """캠페인별 소재 `{campaign_id: [CreativeView]}`(만든 순서). 질의 한 번."""
-    found = {}
-    for creative in Creative.objects.select_related("ad_group").filter(ad_group__campaign_id__in=campaign_ids).order_by("created_at"):
-        found.setdefault(creative.ad_group.campaign_id, []).append(_creative_view(creative))
+    """캠페인별로 그 광고그룹들에 **연결된** 소재 `{campaign_id: [CreativeView]}`(만든 순서, 같은 소재는 한 번). 선택하지 않은 연결도 보인다 —
+    언제든 선택될 수 있어 운영자가 이동 주소를 확인해야 한다. 질의 한 번."""
+    found, seen = {}, set()
+    links = AdGroupCreative.objects.select_related("creative", "ad_group").filter(ad_group__campaign_id__in=campaign_ids).order_by("creative__created_at", "creative_id")
+    for link in links:
+        key = (link.ad_group.campaign_id, link.creative_id)
+        if key not in seen:
+            seen.add(key)
+            found.setdefault(link.ad_group.campaign_id, []).append(_creative_view(link.creative))
     return found
 
 
 def advertiser_usage(actor, owner_ids):
     """광고주마다 캠페인·소재 수와 보유 이미지 총량, 그리고 상한 {owner_id: AdvertiserUsage}(관리자 광고주 목록, Step 3-1d).
-    상한 검사와 같은 기준으로 센다(이미지는 교체한 과거 파일 포함, 같은 파일은 한 번). 없는 광고주도 0 으로 채운다. 질의 세 번."""
+    상한 검사와 같은 기준으로 센다(소재는 보관하지 않은 것, 이미지는 교체한 과거 파일·보관한 소재 포함, 같은 파일은 한 번). 없는 광고주도 0 으로 채운다. 질의 세 번."""
     require_admin(actor)
     ids = parse_uuids(owner_ids)
-    owner = "ad_group__campaign__owner_id"
     campaigns = dict(Campaign.objects.filter(owner_id__in=ids).values("owner_id").annotate(n=Count("pk")).values_list("owner_id", "n"))
-    creatives = dict(Creative.objects.filter(**{f"{owner}__in": ids}).values(owner).annotate(n=Count("pk")).values_list(owner, "n"))
+    creatives = dict(Creative.objects.filter(owner_id__in=ids, archived_at__isnull=True).values("owner_id").annotate(n=Count("pk")).values_list("owner_id", "n"))
     held = {}
-    for owner_id, _name, size in CreativeImage.objects.filter(**{f"creative__{owner}__in": ids}).values_list(f"creative__{owner}", "image_name", "image_bytes").distinct():
+    for owner_id, _name, size in CreativeImage.objects.filter(creative__owner_id__in=ids).values_list("creative__owner_id", "image_name", "image_bytes").distinct():
         held[owner_id] = held.get(owner_id, 0) + size
     return {
         i: AdvertiserUsage(campaigns.get(i, 0), settings.MAX_CAMPAIGNS_PER_ADVERTISER, creatives.get(i, 0), settings.MAX_CREATIVES_PER_ADVERTISER,
@@ -505,12 +511,12 @@ def list_ad_groups(user, campaign_id):
     return [_ad_group_view(g, bids.get(g.current_bid_id), slots.get(g.pk, ())) for g in groups]
 
 
-AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit"}
+AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "pricing_unit", "creative_id"}
 
 
 def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=None):
-    """이름·켜기/끄기·게재 위치. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 잠금 안에서 대조해 다르면 409 — 옛 폼이 같은 칸의 최신 변경을
-    덮지 않게(외부 검토 41d2288 P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
+    """이름·켜기/끄기·게재 위치·선택한 소재(`creative_id` — 이 광고그룹에 연결된 소재만, 6-9c). `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면
+    잠금 안에서 대조해 다르면 409 — 옛 폼이 같은 칸의 최신 변경을 덮지 않게(외부 검토 41d2288 P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - AD_GROUP_FIELDS
@@ -531,6 +537,11 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
             g.slot_links.exclude(slot_id__in=ids).delete()
             have = set(g.slot_links.values_list("slot_id", flat=True))
             AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=g, slot_id=s) for s in ids if s not in have])
+        if "creative_id" in changes:
+            c = _locked_creative(user, changes["creative_id"])  # 남의 것·보관한 것은 404. 잠금 순서: 캠페인 → 광고그룹 → 소재
+            if not AdGroupCreative.objects.filter(ad_group=g, creative=c).exists():
+                raise _problem("/creative_id", "이 광고그룹에 연결된 소재가 아닙니다.")
+            g.creative = c
         g.updated_at = now
         g.save()
         _audit(user, "ad_group.updated", ("campaigns.ad_group", g.ad_group_id), {"changed": sorted(changes)})
@@ -614,23 +625,23 @@ def _redirect_url(value):
     return value
 
 
-def _check_creative_count(user, group):
-    if Creative.objects.filter(ad_group=group).count() >= settings.MAX_CREATIVES_PER_AD_GROUP:
-        raise LimitExceeded("광고그룹의 소재 개수 상한에 도달했습니다.")
-    if Creative.objects.filter(ad_group__campaign__owner=user).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
+def _check_creative_count(user):
+    """보관하지 않은 소재만 센다(6-9c). 보관한 소재의 이미지는 `_check_image_quota` 가 계속 센다 — 저장 공간은 보유량 상한에서 멈춘다."""
+    if Creative.objects.filter(owner=user, archived_at__isnull=True).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
         raise LimitExceeded("소재 개수 상한에 도달했습니다.")
 
 
 def _check_image_quota(user, image):
-    """광고주가 **보유한 이미지 파일 총량**(현재 + 과거 교체분)이 상한을 넘지 않는지. 이미 보유한 같은 파일은 더하지 않는다."""
-    held = dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=user).values_list("image_name", "image_bytes"))
+    """광고주가 **보유한 이미지 파일 총량**(현재 + 과거 교체분, 보관한 소재 포함)이 상한을 넘지 않는지. 이미 보유한 같은 파일은 더하지 않는다."""
+    held = dict(CreativeImage.objects.filter(creative__owner=user).values_list("image_name", "image_bytes"))
     added = 0 if image.name in held else len(image.data)
     if sum(held.values()) + added > settings.MAX_UPLOAD_BYTES_PER_ADVERTISER:
         raise LimitExceeded("업로드 총량 상한을 넘습니다.")
 
 
 def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None):
-    """이미지는 검증·재인코딩해 저장한다(`ImageRejected` 는 그대로 전달). 광고그룹당 개수는 설정으로 제한(V1 = 1)."""
+    """소재를 광고주의 목록에 올린다(6-9c). `ad_group_id` 를 주면 그 광고그룹에 연결하고, 선택된 소재가 없으면 이것을 선택한다(광고그룹 화면의
+    "올려서 연결"). `None` 이면 목록에만 올린다. 이미지는 검증·재인코딩해 저장한다(`ImageRejected` 는 그대로 전달)."""
     require_advertiser(user)
     now = _now(now)
     title = clean_text(title, "제목", "/title", 200)
@@ -638,15 +649,76 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     image = validate_image(image_file)
     with transaction.atomic():
         _lock_quota(user)
-        g = _locked_group(user, ad_group_id)
-        tr.assert_open(g.campaign, now)
-        _check_creative_count(user, g)
+        group = None
+        if ad_group_id is not None:
+            group = _locked_group(user, ad_group_id)
+            tr.assert_open(group.campaign, now)
+        _check_creative_count(user)
         _check_image_quota(user, image)  # 저장(파일 쓰기) 전에 확인한다: 거절된 업로드는 파일을 남기지 않는다
         name = store(image)
-        c = Creative.objects.create(ad_group=g, title=title, redirect_url=redirect_url, image_name=name, image_bytes=len(image.data), created_at=now, updated_at=now)
+        c = Creative.objects.create(owner=user, title=title, redirect_url=redirect_url, image_name=name, image_bytes=len(image.data), created_at=now, updated_at=now)
         CreativeImage.objects.create(creative=c, image_name=name, image_bytes=len(image.data), created_at=now)
-        _audit(user, "creative.created", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id), "image": name})
+        detail = {"image": name}
+        if group is not None:
+            _link(group, c, now)
+            detail["ad_group_id"] = str(group.ad_group_id)
+        _audit(user, "creative.created", ("campaigns.creative", c.creative_id), detail)
     return _creative_view(c)
+
+
+def _link(group, creative, now):
+    """연결하고(이미 있으면 그대로), 광고그룹에 선택된 소재가 없으면 이것을 선택한다. 광고그룹·소재 행을 잠근 트랜잭션 안에서만."""
+    if not AdGroupCreative.objects.filter(ad_group=group, creative=creative).exists():
+        AdGroupCreative.objects.create(ad_group=group, creative=creative, linked_at=now)
+    if group.creative_id is None:
+        AdGroup.objects.filter(pk=group.pk).update(creative=creative)
+        group.creative = creative
+
+
+def link_creative(user, ad_group_id, creative_id, now=None):
+    """등록된 소재를 광고그룹에 연결한다(재사용, 6-9c). 선택된 소재가 없으면 이것을 선택한다. 남의 소재·보관한 소재는 404, 끝난 캠페인은 409.
+    잠금 순서: 캠페인 → 광고그룹 → 소재 — 같은 소재의 보관과 소재 행에서 줄을 선다(보관된 소재는 연결되지 않고, 연결된 소재는 보관되지 않는다)."""
+    require_advertiser(user)
+    now = _now(now)
+    with transaction.atomic():
+        g = _locked_group(user, ad_group_id)
+        tr.assert_open(g.campaign, now)
+        c = _locked_creative(user, creative_id)
+        _link(g, c, now)
+        _audit(user, "creative.linked", ("campaigns.creative", c.creative_id), {"ad_group_id": str(g.ad_group_id)})
+    return _ad_group_view(g, _current_bid(g))
+
+
+def archive_creative(user, creative_id, now=None):
+    """소재 보관 — 화면의 "삭제"(6-9c, 설계 §10 "소재 목록"). 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고그룹에 **연결된** 소재는 409다 —
+    선택하지 않은 연결도 막는다(그 광고그룹으로 이미 나간 결정이 화면에 남아 있을 수 있다). 소재 행만 잠그고 캠페인 상태는 잠그지 않고 읽는다:
+    끝난 캠페인은 되돌릴 수 없어 늦게 읽어도 "끝나지 않음"을 끝났다고 잘못 볼 수 없다. 보관한 소재는 개수 상한에서 빠지고 이미지 보유량에는 남는다."""
+    require_advertiser(user)
+    now = _now(now)
+    with transaction.atomic():
+        c = _locked_creative(user, creative_id)
+        in_use = (AdGroupCreative.objects.filter(creative=c).exclude(ad_group__campaign__status=CampaignStatus.ENDED)
+                  .filter(Q(ad_group__campaign__ends_at__isnull=True) | Q(ad_group__campaign__ends_at__gt=now)).exists())
+        if in_use:
+            raise errors.Conflict("끝나지 않은 캠페인의 광고그룹에 연결된 소재는 삭제할 수 없습니다.")
+        c.archived_at = now
+        c.save(update_fields=["archived_at"])
+        _audit(user, "creative.archived", ("campaigns.creative", c.creative_id))
+    return _creative_view(c)
+
+
+def list_owned_creatives(user, now=None):
+    """광고주의 소재 목록(보관하지 않은 것, 만든 순서)과 소재마다 연결된 광고그룹(`CreativeUse`). 질의 두 번."""
+    require_advertiser(user)
+    now = _now(now)
+    creatives = list(Creative.objects.filter(owner=user, archived_at__isnull=True).order_by("created_at", "creative_id"))
+    uses = {}
+    links = AdGroupCreative.objects.select_related("ad_group", "ad_group__campaign").filter(creative__in=creatives).order_by("linked_at", "link_id")
+    for link in links:
+        g, c = link.ad_group, link.ad_group.campaign
+        ended = c.status == CampaignStatus.ENDED or is_expired(c.ends_at, now)
+        uses.setdefault(link.creative_id, []).append(CreativeUse(g.ad_group_id, g.name, c.campaign_id, c.name, not ended, g.creative_id == link.creative_id))
+    return [OwnedCreative(_creative_view(c), tuple(uses.get(c.creative_id, ()))) for c in creatives]
 
 
 # ---------------------------------------------------------------- 광고 만들기 (S3, 설계 D3-3)
@@ -681,7 +753,7 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
                 return done
             c = _part("/campaign", create_campaign, user, now=now, **campaign)
             g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
-            cr = _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
+            _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)  # 연결하고 선택한다
             if request_key is not None:
                 Campaign.objects.filter(pk=c.campaign_id).update(request_key=request_key)  # 동시에 같은 키가 오면 여기서 유일 제약이 막는다
     except IntegrityError:
@@ -689,7 +761,43 @@ def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
         if done is None:
             raise
         return done
-    return CreatedAd(c, g, cr)
+    return _created_ad(AdGroup.objects.select_related("campaign", "creative").get(pk=g.ad_group_id), now)
+
+
+def create_ad_for_campaign(user, campaign_id, ad_group, creative=None, creative_id=None, now=None, request_key=None):
+    """**이미 있는** 캠페인에 광고(광고그룹 + 입찰)와 소재를 한 트랜잭션으로 만든다(6-9c, 설계 §10 "광고 만들기 흐름"). 소재는 `creative`(새로 올리기 —
+    `create_creative` 의 인자) 또는 `creative_id`(등록된 소재 재사용) 중 하나이고, 광고그룹에 연결·선택된다. 입력 오류의 위치는 `/ad_group/…`·`/creative/…`.
+    `request_key` 는 광고그룹 행에 저장한다 — 같은 키로는 한 번만 만든다(두 번 누름·동시 제출·응답 실패 뒤 재시도는 처음 것을 `duplicate=True` 로)."""
+    now = _now(now)
+    request_key = clean_request_key(request_key)
+    if (creative is None) == (creative_id is None):
+        raise _problem("/creative", "새 소재를 올리거나 등록된 소재를 하나 고르세요.")
+    done = _created_by_key(user, request_key)
+    if done is not None:
+        return done
+    try:
+        with transaction.atomic():
+            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
+            done = _created_by_key(user, request_key)
+            if done is not None:
+                return done
+            g = _part("/ad_group", create_ad_group, user, campaign_id, now=now, **ad_group)
+            if creative_id is not None:
+                _part("/creative", link_creative, user, g.ad_group_id, creative_id, now=now)
+            else:
+                _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)
+            if request_key is not None:
+                AdGroup.objects.filter(pk=g.ad_group_id).update(request_key=request_key)  # 동시에 같은 키가 오면 여기서 유일 제약이 막는다
+    except IntegrityError:
+        done = _created_by_key(user, request_key)
+        if done is None:
+            raise
+        return done
+    return _created_ad(AdGroup.objects.select_related("campaign", "creative").get(pk=g.ad_group_id), now)
+
+
+def _created_ad(group, now, duplicate=False):
+    return CreatedAd(_campaign_view(group.campaign, now), _ad_group_view(group, _current_bid(group)), _creative_view(group.creative), duplicate=duplicate)
 
 
 def ad_created_by_key(user, request_key):
@@ -702,17 +810,19 @@ def ad_created_by_key(user, request_key):
 
 
 def _created_by_key(user, request_key):
-    """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 남의 캠페인에 붙은 키(위조한 폼)면 409."""
+    """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 남의 것에 붙은 키(위조한 폼)면 409.
+    키는 기존 캠페인에 만든 광고면 광고그룹 행에(`create_ad_for_campaign`), 캠페인까지 한 번에 만든 광고면 캠페인 행에(`create_ad`) 있다."""
     if request_key is None:
         return None
-    c = Campaign.objects.filter(request_key=request_key).first()
-    if c is None:
-        return None
-    if c.owner_id != user.pk:
+    g = AdGroup.objects.select_related("campaign", "creative").filter(request_key=request_key).first()
+    if g is None:
+        c = Campaign.objects.filter(request_key=request_key).first()
+        if c is None:
+            return None
+        g = AdGroup.objects.select_related("campaign", "creative").filter(campaign=c).order_by("created_at").first()
+    if g.campaign.owner_id != user.pk:
         raise errors.Conflict("이 광고 만들기 폼은 이미 처리됐습니다. 새로 불러와 다시 만드세요.")
-    g = AdGroup.objects.filter(campaign=c).order_by("created_at").first()
-    cr = Creative.objects.filter(ad_group=g).order_by("created_at").first()
-    return CreatedAd(_campaign_view(c, _now()), _ad_group_view(g, _current_bid(g)), _creative_view(cr), duplicate=True)
+    return _created_ad(g, _now(), duplicate=True)
 
 
 def bid_effects(amount, slot_ids, slots=None):
@@ -732,19 +842,22 @@ def _maybe_uuid(value):
 
 
 def get_creative(user, creative_id):
-    return _creative_view(_creative(user, creative_id))
+    """보관한 소재도 읽는다(끝난 캠페인의 광고그룹 화면이 그 이미지를 보인다). 바꾸는 동작은 보관한 소재에 404 다."""
+    return _creative_view(_creative(user, creative_id, archived=True))
 
 
 def list_creatives(user, ad_group_id):
+    """광고그룹에 연결된 소재(만든 순서, 보관한 것 포함). 선택된 것은 광고그룹의 `creative_id` 다."""
     g = _ad_group(user, ad_group_id)
-    return [_creative_view(c) for c in Creative.objects.filter(ad_group=g).order_by("created_at")]
+    return [_creative_view(c) for c in Creative.objects.filter(ad_group_links__ad_group=g).order_by("created_at", "creative_id")]
 
 
 CREATIVE_FIELDS = {"title", "redirect_url"}
 
 
 def update_creative(user, creative_id, changes, now=None, expected_updated_at=None):
-    """제목·이동 주소. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 다르면 409 — 옛 폼이 그 사이의 변경(이미지 교체 포함)을 덮지 않게."""
+    """제목·이동 주소. 그 소재를 쓰는 모든 광고그룹에 다음 결정부터 적용된다(과거 결정은 스냅샷, 6-9c — 캠페인 밖의 소재라 캠페인 종료로 막지 않는다).
+    `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면 다르면 409 — 옛 폼이 그 사이의 변경(이미지 교체 포함)을 덮지 않게."""
     require_advertiser(user)
     now = _now(now)
     unknown = set(changes) - CREATIVE_FIELDS
@@ -752,7 +865,6 @@ def update_creative(user, creative_id, changes, now=None, expected_updated_at=No
         raise _problem("/", f"바꿀 수 있는 필드: {sorted(CREATIVE_FIELDS)}")
     with transaction.atomic():
         c = _locked_creative(user, creative_id)
-        tr.assert_open(c.ad_group.campaign, now)
         _assert_seen(expected_updated_at, c.updated_at)
         if "title" in changes:
             c.title = clean_text(changes["title"], "제목", "/title", 200)
@@ -772,8 +884,7 @@ def replace_creative_image(user, creative_id, image_file, now=None, expected_upd
     image = validate_image(image_file)
     with transaction.atomic():
         _lock_quota(user)
-        c = _locked_creative(user, creative_id)
-        tr.assert_open(c.ad_group.campaign, now)
+        c = _locked_creative(user, creative_id)  # 잠금 순서: 광고주 → 소재
         _assert_seen(expected_updated_at, c.updated_at, again="바꾸세요")
         _check_image_quota(user, image)
         c.image_name, c.image_bytes, c.updated_at = store(image), len(image.data), now
@@ -793,13 +904,12 @@ def candidate_facts_for_slot(slot_id):
     입찰이 없는 광고그룹은 후보가 아니다.
     """
     slot_id = parse_uuid(slot_id, "게재 위치")
-    latest = Bid.objects.filter(ad_group=OuterRef("ad_group")).order_by("-bid_version")
+    latest = Bid.objects.filter(ad_group=OuterRef("pk")).order_by("-bid_version")
     rows = (
-        Creative.objects.filter(
-            ad_group__enabled=True, ad_group__campaign__status=CampaignStatus.ACTIVE, ad_group__campaign__owner__is_active=True,
-            ad_group__slot_links__slot_id=slot_id,
+        AdGroup.objects.filter(
+            enabled=True, creative__isnull=False, campaign__status=CampaignStatus.ACTIVE, campaign__owner__is_active=True, slot_links__slot_id=slot_id,
         )
-        .select_related("ad_group", "ad_group__campaign")
+        .select_related("campaign", "creative")  # 소재는 광고그룹이 **선택한** 것(6-9c)
         .annotate(
             bid_id=Subquery(latest.values("bid_id")[:1]),
             bid_version=Subquery(latest.values("bid_version")[:1]),
@@ -807,30 +917,32 @@ def candidate_facts_for_slot(slot_id):
             bid_created_at=Subquery(latest.values("created_at")[:1]),
         )
         .filter(bid_version__isnull=False)
-        .order_by("ad_group_id", "creative_id")
+        .order_by("ad_group_id")
     )
     return [
         CandidateFacts(
-            owner_id=c.ad_group.campaign.owner_id, campaign_id=c.ad_group.campaign_id, ad_group_id=c.ad_group_id,
-            creative_id=c.creative_id, slot_id=slot_id, pricing_unit=c.ad_group.pricing_unit,
-            bid_id=c.bid_id, bid_amount=c.bid_amount, bid_version=c.bid_version, bid_created_at=c.bid_created_at,
-            campaign_status=c.ad_group.campaign.status, ad_group_enabled=c.ad_group.enabled,
-            period_start=c.ad_group.campaign.starts_at, period_end=c.ad_group.campaign.ends_at,
-            daily_budget=c.ad_group.campaign.daily_budget, title=c.title, redirect_url=c.redirect_url, image_name=c.image_name,
+            owner_id=g.campaign.owner_id, campaign_id=g.campaign_id, ad_group_id=g.ad_group_id,
+            creative_id=g.creative_id, slot_id=slot_id, pricing_unit=g.pricing_unit,
+            bid_id=g.bid_id, bid_amount=g.bid_amount, bid_version=g.bid_version, bid_created_at=g.bid_created_at,
+            campaign_status=g.campaign.status, ad_group_enabled=g.enabled,
+            period_start=g.campaign.starts_at, period_end=g.campaign.ends_at,
+            daily_budget=g.campaign.daily_budget, title=g.creative.title, redirect_url=g.creative.redirect_url, image_name=g.creative.image_name,
         )
-        for c in rows
+        for g in rows
     ]
 
 
 def is_asset_servable(name, now=None):
-    """C3 이미지를 내보내도 되는가: 그 이름을 **보유한**(현재 또는 과거 교체분) 소재가 있고 그 캠페인이 ACTIVE·PAUSED 이며 기간이 끝나지 않았을 때만.
+    """C3 이미지를 내보내도 되는가: 그 이름을 **보유한**(현재 또는 과거 교체분) 소재가 **연결된 적 있는** 광고그룹 중 하나라도, 그 캠페인이
+    ACTIVE·PAUSED 이고 기간이 끝나지 않았으며 광고주가 활성일 때만(6-9c — 소재는 캠페인 밖에 있고, 연결은 끊지 않는다).
 
-    교체 후에도 과거 결정의 이미지 URL 은 계속 열린다(캠페인이 살아 있는 동안). 중단·종료되거나 광고주가 비활성화되면 이전·현재 이미지 모두 404 다.
+    교체하거나 선택을 바꾼 뒤에도 과거 결정의 이미지 URL 은 계속 열린다(캠페인이 살아 있는 동안). 중단·종료되거나 광고주가 비활성화되면 404 다.
 
     `config` 가 `ASSET_SERVABLE_CHECK` 로 연결한다(assets 는 campaigns 를 import 하지 않는다).
     """
     now = _now(now)
-    return CreativeImage.objects.filter(
-        image_name=name, creative__ad_group__campaign__status__in=[CampaignStatus.ACTIVE, CampaignStatus.PAUSED],
-        creative__ad_group__campaign__owner__is_active=True,
-    ).filter(Q(creative__ad_group__campaign__ends_at__isnull=True) | Q(creative__ad_group__campaign__ends_at__gt=now)).exists()
+    campaign = "creative__ad_group_links__ad_group__campaign"
+    return CreativeImage.objects.filter(  # 한 filter() 안에 둔다 — 여러 값 관계(연결)를 나눠 거르면 서로 다른 연결끼리 조건이 섞인다
+        Q(**{f"{campaign}__ends_at__isnull": True}) | Q(**{f"{campaign}__ends_at__gt": now}),
+        image_name=name, **{f"{campaign}__status__in": [CampaignStatus.ACTIVE, CampaignStatus.PAUSED], f"{campaign}__owner__is_active": True},
+    ).exists()

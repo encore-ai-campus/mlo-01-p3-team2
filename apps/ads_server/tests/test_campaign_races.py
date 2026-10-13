@@ -66,7 +66,7 @@ class QuotaRaceTests(TransactionTestCase):
         other = api.create_campaign(self.w.adv, "둘째", NOW, None, 1000)
         group = api.create_ad_group(self.w.adv, other.campaign_id, "그룹", "IMPRESSION", [self.w.slot.slot_id], bid_amount=30)
         creative = api.create_creative(self.w.adv, group.ad_group_id, "제목", "https://example.com/", png_file((9, 9, 9)))
-        held = sum(dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=self.w.adv).values_list("image_name", "image_bytes")).values())
+        held = sum(dict(CreativeImage.objects.filter(creative__owner=self.w.adv).values_list("image_name", "image_bytes")).values())
         a_bytes, b_bytes = (len(validate_image(png_file(c)).data) for c in ((3, 3, 3), (4, 4, 4)))
         limit = held + max(a_bytes, b_bytes) + min(a_bytes, b_bytes) - 1  # 하나씩은 들어가지만 둘 다는 안 들어간다
         with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=limit):
@@ -74,7 +74,7 @@ class QuotaRaceTests(TransactionTestCase):
                                   "UPDATE", "campaigns_creative",
                                   lambda: api.replace_creative_image(self.w.adv, creative.creative_id, png_file((4, 4, 4))))
         self.assertEqual([type(e) for e in second.errors], [api.LimitExceeded])
-        now_held = sum(dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=self.w.adv).values_list("image_name", "image_bytes")).values())
+        now_held = sum(dict(CreativeImage.objects.filter(creative__owner=self.w.adv).values_list("image_name", "image_bytes")).values())
         self.assertLessEqual(now_held, limit)
 
 

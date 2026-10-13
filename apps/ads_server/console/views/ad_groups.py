@@ -101,10 +101,15 @@ def ad_group_enabled(request, ad_group_id):
     return redirect("ad_group_detail", ad_group_id=ad_group_id)
 
 
+def _back_group(request):
+    """소재 폼이 돌아갈 광고그룹(폼의 숨김 칸 — 소재는 여러 광고그룹에 연결될 수 있다, 6-9c). 남의 것·없는 것은 404."""
+    return fetch(campaigns.get_ad_group, request.user, request.POST.get("ad_group_id")).ad_group_id
+
+
 @require_POST
 def creative_edit(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
-    group_id = current.ad_group_id
+    group_id = _back_group(request)
     form = _edit_form(current, request.POST)
     if form.is_valid():
         changes = {name: form.cleaned_data[name] for name in CreativeEditForm.EDITABLE if name in form.changed_data}
@@ -123,7 +128,7 @@ def creative_edit(request, creative_id):
 @require_POST
 def creative_image(request, creative_id):
     current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
-    group_id = current.ad_group_id
+    group_id = _back_group(request)
     form = _image_form(current, request.POST, request.FILES)
     return _submit(request, group_id, form, lambda d: campaigns.replace_creative_image(request.user, creative_id, d["image"], expected_updated_at=d["updated_at"]),
                    "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.", image_field="image", image=(current.creative_id, form))

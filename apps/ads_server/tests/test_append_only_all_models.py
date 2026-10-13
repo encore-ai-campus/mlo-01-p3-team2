@@ -7,13 +7,13 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 
 from billing.models import LedgerEntry
-from campaigns.models import Bid
+from campaigns.models import AdGroupCreative, Bid
 from foundation.models import AppendOnlyError, AuditLog
 from masters.models import BidPolicy
 from records.models import Decision
-from tests.factories import SUBJECT, World
+from tests.factories import DAY, NOW, SUBJECT, World
 
-OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy"}
+OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy", "AdGroupCreative": "linked_at"}
 
 
 def clone_with_same_pk(row, field, value):
@@ -34,6 +34,7 @@ class AllAppendOnlyModelsTests(TestCase):
             "Bid": (Bid.objects.first(), 999),
             "LedgerEntry": (LedgerEntry.objects.first(), "overwritten"),
             "Decision": (Decision.objects.get(decision_id=decision.decision_id), "overwritten"),
+            "AdGroupCreative": (AdGroupCreative.objects.first(), NOW + DAY),  # 소재 연결(6-9c) — 끊거나 바꾸지 않는다
         }
 
     def test_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite(self):
@@ -71,5 +72,5 @@ class AllAppendOnlyModelsTests(TestCase):
     def test_models_really_are_all_append_only_models(self):
         from foundation.models import AppendOnlyModel
 
-        for model in (AuditLog, BidPolicy, Bid, LedgerEntry, Decision):
+        for model in (AuditLog, BidPolicy, Bid, LedgerEntry, Decision, AdGroupCreative):
             self.assertTrue(issubclass(model, AppendOnlyModel), model.__name__)

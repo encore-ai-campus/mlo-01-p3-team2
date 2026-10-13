@@ -19,7 +19,7 @@ class AdGroupAdmin(ReadOnlyAdmin):
 
 @admin.register(Creative)
 class CreativeAdmin(ReadOnlyAdmin):
-    list_display = ("title", "ad_group", "image_name")
+    list_display = ("title", "owner", "image_name", "archived_at")
 
 
 @admin.register(Bid)

@@ -41,7 +41,7 @@ class AdvertiserServiceTests(TestCase):
         campaigns.create_creative(self.w.adv, group.ad_group_id, "같은 그림", "https://example.com/", png_file(), now=NOW)  # 첫 파일과 같은 파일
         idle = make_advertiser()
         usage = campaigns.advertiser_usage(self.w.admin, [self.w.adv.pk, idle.pk, "not-a-uuid"])
-        files = dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=self.w.adv).values_list("image_name", "image_bytes"))
+        files = dict(CreativeImage.objects.filter(creative__owner=self.w.adv).values_list("image_name", "image_bytes"))
         self.assertEqual(len(files), 2)
         mine = usage[self.w.adv.pk]
         self.assertEqual((mine.campaigns, mine.creatives, mine.image_bytes), (1, 2, sum(files.values())))  # 같은 파일은 한 번(상한 검사와 같다)

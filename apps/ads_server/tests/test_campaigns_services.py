@@ -158,19 +158,18 @@ class CampaignServiceTests(TestCase):
         with override_settings(MAX_AD_GROUPS_PER_ADVERTISER=1):
             with self.assertRaises(api.LimitExceeded):
                 api.create_ad_group(adv, cid, "둘째", "IMPRESSION", [self.w.slot.slot_id], now=NOW)
-        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=10, MAX_CREATIVES_PER_AD_GROUP=5):
+        with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=10):
             with self.assertRaises(api.LimitExceeded):
                 api.create_creative(adv, self.w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
-        with override_settings(MAX_CREATIVES_PER_ADVERTISER=1, MAX_CREATIVES_PER_AD_GROUP=5):
+        with override_settings(MAX_CREATIVES_PER_ADVERTISER=1):
             with self.assertRaises(api.LimitExceeded):
                 api.create_creative(adv, self.w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
 
-    def test_one_creative_per_ad_group_in_v1(self):
-        with self.assertRaises(api.LimitExceeded):
-            api.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째", "https://a.example", png_file(), now=NOW)
-        with override_settings(MAX_CREATIVES_PER_AD_GROUP=2):  # 설정만 올리면 늘어난다
-            api.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째", "https://a.example", png_file((1, 2, 3)), now=NOW)
-        self.assertEqual(len(api.list_creatives(self.w.adv, self.w.group.ad_group_id)), 2)
+    def test_an_ad_group_links_several_creatives_and_keeps_its_choice(self):
+        """광고그룹당 소재 수 상한은 없다 — 올려서 연결해도 이미 선택한 소재는 그대로다(6-9c)."""
+        second = api.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째", "https://a.example", png_file((1, 2, 3)), now=NOW)
+        self.assertEqual([c.creative_id for c in api.list_creatives(self.w.adv, self.w.group.ad_group_id)], [self.w.creative.creative_id, second.creative_id])
+        self.assertEqual(api.get_ad_group(self.w.adv, self.w.group.ad_group_id).creative_id, self.w.creative.creative_id)
 
     def test_creative_image_validated_and_urls_https_only(self):
         w = World(with_creative=False)
@@ -212,7 +211,7 @@ class ImageHoldingTests(TestCase):
     def held_bytes(self, user):
         from campaigns.models import CreativeImage
 
-        return sum(dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=user).values_list("image_name", "image_bytes")).values())
+        return sum(dict(CreativeImage.objects.filter(creative__owner=user).values_list("image_name", "image_bytes")).values())
 
     def test_repeated_image_replacement_cannot_bypass_the_quota(self):
         w = World()
@@ -482,7 +481,7 @@ class CreateAdTests(TestCase):
         ad = self.create()
         self.assertIsInstance(ad, api.CreatedAd)
         self.assertEqual((ad.campaign.name, ad.ad_group.name, ad.creative.title), ("가을 캠페인", "로비 배너", "제목"))
-        self.assertEqual((ad.ad_group.campaign_id, ad.creative.ad_group_id), (ad.campaign.campaign_id, ad.ad_group.ad_group_id))
+        self.assertEqual((ad.ad_group.campaign_id, ad.ad_group.creative_id), (ad.campaign.campaign_id, ad.creative.creative_id))  # 연결하고 선택했다
         self.assertEqual(ad.ad_group.current_bid.amount, 30)
         self.assertEqual(Campaign.objects.get().owner, self.adv)
         self.assertEqual(sorted(AuditLog.objects.filter(actor_id=self.adv.pk).values_list("action", flat=True)), ["ad_group.created", "campaign.created", "creative.created"])

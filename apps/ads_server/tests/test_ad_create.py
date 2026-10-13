@@ -89,7 +89,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         campaign = self.created().get()
         self.assertRedirects(r, reverse("campaign_detail", args=[campaign.campaign_id]), fetch_redirect_response=False)
         group = AdGroup.objects.get(campaign=campaign)
-        self.assertEqual((group.pricing_unit, Creative.objects.filter(ad_group=group).count()), ("IMPRESSION", 1))
+        self.assertEqual((group.pricing_unit, Creative.objects.filter(ad_group_links__ad_group=group).count(), group.creative_id is not None), ("IMPRESSION", 1, True))
         self.assertEqual(campaign.daily_budget, 3000)
         self.assertEqual(campaign.starts_at.isoformat(), "2026-10-01T00:00:00+00:00")  # KST 09:00 = UTC 00:00
         self.assertTrue(AuditLog.objects.filter(action="creative.created", actor_id=self.w.adv.pk).exists())

@@ -42,6 +42,7 @@ class AdGroupView:
     name: str
     pricing_unit: str
     enabled: bool
+    creative_id: uuid.UUID | None  # 선택된 소재(결정에 나가는 것). 연결된 소재 중 하나, 없으면 후보가 아니다(6-9c)
     slot_ids: tuple
     current_bid: BidView | None
     created_at: datetime
@@ -50,14 +51,38 @@ class AdGroupView:
 
 @dataclass(frozen=True)
 class CreativeView:
+    """광고주 소유의 소재(6-9c — 광고그룹에 속하지 않는다. 연결은 `CreativeUse`)."""
+
     creative_id: uuid.UUID
-    ad_group_id: uuid.UUID
     title: str
     redirect_url: str
     image_name: str
     image_bytes: int
+    archived: bool  # 보관(화면의 "삭제")
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class CreativeUse:
+    """소재가 연결된 광고그룹 하나(소재 목록 화면)."""
+
+    ad_group_id: uuid.UUID
+    ad_group_name: str
+    campaign_id: uuid.UUID
+    campaign_name: str
+    campaign_open: bool  # 캠페인이 끝나지 않았다(일시 중지·중단 포함) — 하나라도 그러면 소재를 삭제(보관)할 수 없다
+    selected: bool  # 그 광고그룹이 지금 이 소재를 선택했다
+
+
+@dataclass(frozen=True)
+class OwnedCreative:
+    creative: CreativeView
+    uses: tuple  # CreativeUse 들(연결한 순서)
+
+    @property
+    def deletable(self):
+        return not any(u.campaign_open for u in self.uses)
 
 
 @dataclass(frozen=True)

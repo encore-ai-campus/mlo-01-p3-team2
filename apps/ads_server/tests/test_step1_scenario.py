@@ -103,7 +103,7 @@ class Step1ScenarioTests(TestCase):
         for write in (
             lambda: campaigns.update_campaign(adv2, camp2.campaign_id, {"name": "x"}, now=NOW),
             lambda: campaigns.add_bid(adv2, group2.ad_group_id, 99, expected_version=1, now=NOW),
-            lambda: campaigns.update_creative(adv2, creative2.creative_id, {"title": "x"}, now=NOW),
+            lambda: campaigns.update_ad_group(adv2, group2.ad_group_id, {"name": "x"}, now=NOW),
         ):
             with self.assertRaises(campaigns.CampaignEnded):
                 write()

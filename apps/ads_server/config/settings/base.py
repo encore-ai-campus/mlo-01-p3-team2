@@ -187,8 +187,7 @@ MEDIA_RATE_LIMITS = {
 # --- 광고주 한도 (설계 §7-5는 열림: 아래는 제안 기본값, 모두 설정값) ---
 MAX_CAMPAIGNS_PER_ADVERTISER = 20
 MAX_AD_GROUPS_PER_ADVERTISER = 100
-MAX_CREATIVES_PER_ADVERTISER = 100
-MAX_CREATIVES_PER_AD_GROUP = 1  # V1. 모델은 1:N 이라 늘릴 수 있다(설계 §10)
+MAX_CREATIVES_PER_ADVERTISER = 100  # 보관하지 않은 소재만 센다. 광고그룹당 연결 수 상한은 없다(6-9c, 설계 §10 "소재 목록")
 MAX_UPLOAD_BYTES_PER_ADVERTISER = 100 * 1024 * 1024
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
