@@ -29,19 +29,21 @@
 | 광고주 | 가입자. 자기 캠페인·지갑만 다룸 | 낮음(공개 가입, 승인 없음) |
 | 관리자 | 서버 명령으로만 만든 계정. 정책·중단·포인트 조정 | 높음(그러나 행위는 기록) |
 | 매체 서버 | 메타버스 백엔드. 키로 인증 | 중간(키 유출·버그 가능) |
-| 외부 공격자 | 위 어디에도 속하지 않는 네트워크 상의 존재 | 신뢰 없음 |
+| 외부 공격자 | 위 어디에도 속하지 않는 네트워크 상의 존재. 첫 운영은 앞단 nginx의 접속 허용 목록(강의실 라우터·메타버스 서버) 밖에서 닿지 않는다(설계 §10 "배포 구성", 6-5d) | 신뢰 없음 |
 
 # 3. 신뢰 경계
 
 ```
-[학습자 브라우저] ──(이미지 URL, C3)──▶ ┐
-[광고주 브라우저] ──(콘솔, 세션)──────▶ │  광고 서버  ──▶ MySQL 8.4(업무 데이터 + outbox) / 로컬 파일
-[관리자 브라우저] ──(Django admin)───▶ │     └ 중계 ──▶ MongoDB ad_events ◀──(읽기) 데이터 파이프라인
-[매체 서버]      ──(C1, X-Media-Key)──▶ ┘
+[학습자 브라우저] ──(이미지 URL C3, 클릭 /c/)──▶ ┐
+[광고주 브라우저] ──(콘솔, 세션)──────────────▶ │  nginx      ──HTTP──▶  광고 서버(Django, 127.0.0.1) ──▶ MySQL 8.4(업무 데이터 + outbox) / 로컬 파일
+[관리자 브라우저] ──(Django admin)───────────▶ │  (TLS·HSTS·                 └ 중계 ──▶ MongoDB ad_events ◀──(읽기) 데이터 파이프라인
+[매체 서버]      ──(C1, X-Media-Key)──────────▶ ┘   허용 목록)
+                       (모두 HTTPS)
 ```
 
 - 광고주가 입력한 값은 **광고 서버를 거쳐 학습자의 화면**(매체가 렌더)에 도달한다. 이 경로가 §5의 핵심이다.
 - 매체 서버는 신뢰하되 **검증한다**(키 인증, 소유 확인, 멱등, 규칙 체인).
+- **앞단 nginx**(6-5d, 설계 §10 "배포 구성"): TLS·80→443·HSTS와 접속 허용 목록(강의실 라우터·메타버스 서버)을 맡고 요청을 같은 호스트의 Django로 HTTP로 넘긴다. Django는 nginx가 붙인 `X-Forwarded-For`의 오른쪽 1번째 값을 클라이언트 IP로 쓰고(T6), 포트는 nginx 밖에 열지 않는다. HTTPS·접속 통제가 nginx 설정에 달렸다는 점은 §6 잔여 위험이다.
 - 데이터 파이프라인과의 경계는 MongoDB `ad_events` 컬렉션과 이벤트 스키마다(Step 4). 파이프라인은 MySQL을 읽지 않고, 요청 경로는 MongoDB에 연결하지 않는다(중계만 쓴다).
 
 # 4. 위협과 대응
@@ -66,7 +68,7 @@
 | # | 위협 | 자산 | 행위자 | 대응 | 단계 | 검증 |
 |---|---|---|---|---|---|---|
 | T9 | 광고주 입력의 XSS(제목 등) | A1, A3 | 광고주 | 템플릿 자동 이스케이프, 인라인 스크립트 금지, CSP, 응답 문자열은 신뢰할 수 없는 값임을 계약에 명시 | 0-4, 2 | `test_csp_header_policy`, `test_no_inline_script_or_style_in_templates` |
-| T10 | CSRF | A1, A2 | 공격자 | 전역 CSRF, 예외는 허용 목록 한 곳(`/api/media/`) | 0-4 | `test_csrf_enforced_on_post_views`, `test_csrf_exempt_only_for_allowlisted_prefixes` |
+| T10 | CSRF | A1, A2 | 공격자 | 전역 CSRF, 예외는 허용 목록 한 곳(`/api/media/`). prod는 `CSRF_TRUSTED_ORIGINS` 필수(6-5d — 앞단 nginx가 TLS를 끝내 Django는 요청을 HTTP로 알므로 브라우저의 https 출처를 신뢰 목록으로 맞춘다. 없으면 기동하지 않는다) | 0-4, 6-5 | `test_csrf_enforced_on_post_views`, `test_csrf_exempt_only_for_allowlisted_prefixes`, `test_a_login_post_from_the_https_front_needs_the_trusted_origin` |
 | T11 | 클릭재킹 | A1 | 공격자 | `X-Frame-Options: DENY`, `frame-ancestors 'none'` | 0-4 | `test_security_headers_present` |
 | T12 | 거대·기형 요청으로 서버 압박, 입력 오류가 500으로 번짐 | A5 | 외부·매체 | 본문 크기·JSON 깊이 제한, `NaN`/`Infinity` 거부, 범위 밖 숫자 거부(±(2^53−1) — 자릿수가 많은 정수는 변환하지 않고 거절, T35 ⑪), 입력 오류는 4xx | 0-4, 2, 6-2c | `test_parse_json_*`, `test_malformed_inputs_never_500` |
 | T13 | 캐시로 인한 세션·개인 정보 노출 | A1 | 공격자 | 인증 페이지 `Cache-Control: private, no-store` | 0-4 | `test_authenticated_pages_are_no_store` |
@@ -113,7 +115,7 @@
 | T45 | **매체 비활성화 우회** (Step 6-1에서 추가): 관리자가 매체를 멈췄다가 다시 활성화하면, 매체(또는 그 키를 가진 자)가 멈추기 전에 받은 결정의 반응을 그 뒤에 보내 과금·전환을 만든다 — 접수 때만 매체 활성 여부를 보면 멈춘 기간이 지난 뒤 몰아 보낸 반응도 인정된다. 비활성화가 커밋되기 전에 한 판정·결정이 이 규칙을 비껴감 — 처리 순서에 따라 같은 반응이 인정·거부로 갈리거나, 비활성화보다 뒤 시각의 결정이 생겨 다시 켠 뒤 그 반응이 인정됨(외부 검토, 6-2에서 추가) | A2, A5 | 매체 서버(키 보유자) | ① **끈 기록**: `set_media_active(False)`가 켜져 있던 매체를 실제로 끌 때만 같은 트랜잭션에서 `masters_media_deactivation`에 한 줄(조건부 UPDATE라 동시에 꺼도 한 줄, 추가만·지우지 않음, 관리자 화면 읽기 전용) ② **규칙 `media-period`**: 결정 뒤에 결정을 만든 매체가 꺼진 적이 있고 반응이 그 뒤에 **접수**됐으면 `REJECTED`(`media_deactivated`). 다시 켠 뒤 보낸 반응·서버 관측 클릭도 같고, 비활성화 전에 접수된 반응은 판정이 늦어도 그대로 판정한다(접수 시각 기준이라 처리 지연과 무관). 구간은 (결정 시각, 접수 시각]이고 접수와 같은 순간에 끈 것은 접수 전으로 본다(과금하지 않는 쪽). 다른 매체의 보고는 `media_mismatch`가 먼저 ③ **필수 조건**(`MANDATORY_RULES`)이라 규칙 설정에서 빼도 `guard`가 거부 ④ 판정 근거 `basis` v3에 사용한 비활성화 시각(`media_deactivated_at`) ⑤ 접수는 지금처럼 비활성 매체에 403(저장 안 함)이고, 매체는 403을 다시 보내지 않는다(C1 1.2.0 반응 전달 규칙 5) ⑥ **(6-2) 매체 생명주기 잠금**: 비활성화는 매체 행 배타 잠금을 쥔 채 시각을 정한다. 판정은 결정 행 다음에 결정 소유 매체 행을 공유 잠금으로 지나가 진행 중인 비활성화의 커밋을 기다리고(결과가 처리 순서와 무관), 결정은 저장 트랜잭션 안에서 매체 행을 공유 잠금으로 읽어 활성 여부를 다시 확인하고 커밋까지 쥔다(진행 중인 비활성화 뒤에는 403·결정 없음, 진행 중인 결정은 비활성화보다 앞이 된다). 공유 잠금끼리는 충돌하지 않아 결정끼리·다른 매체는 막히지 않고, 남의 결정에 대한 보고는 기다리지 않는다(`masters.media_active_for_share`) | 6-1, 6-2 | `test_only_turning_an_active_media_off_records_a_deactivation`, `test_a_reaction_received_after_a_deactivation_is_rejected_even_after_reactivation`, `test_a_reaction_received_before_the_deactivation_is_judged_as_usual_even_if_late`, `test_a_deactivation_before_the_decision_does_not_matter`, `test_a_server_observed_click_after_the_deactivation_is_rejected_too`, `test_another_media_deactivation_or_report_is_judged_by_its_own_rule`, `test_the_rule_holds_whatever_the_rule_configuration`, `test_the_review_scenario_judges_both_reactions_the_same_whatever_the_order`, `test_a_reaction_received_before_the_in_flight_deactivation_is_still_accepted`, `test_another_medias_report_on_this_decision_does_not_wait`, `test_judging_another_medias_reaction_does_not_wait`, `test_a_decision_requested_during_an_in_flight_deactivation_waits_and_is_forbidden`, `test_a_deactivation_waits_for_an_in_flight_decision_which_it_then_ends`, `test_decisions_do_not_block_each_other`, `test_another_medias_decision_does_not_wait` |
 | T26 | 경계 규칙이 무너져 보안 로직이 흩어짐 | 전체 | 개발자 | 경계 검사 테스트, 모델 규약 테스트 | 0-6 | `test_layer_rules`, `test_only_api_imports_across_modules`, `test_all_models_have_explicit_db_table` |
 
-T43(콘솔 뷰)·T44(관리자 동작)는 3-3 마무리에서 정리했다: 화면 경로 전수, 화면 전수 점검, JS 없는 주요 흐름, C6 규칙 ↔ 서비스 대조(`38647b9`·`526046d`·`ca2572c`·`89c8a38`). T41·T42는 Step 4가 쓰고 있고, T42에 3-3e 구간 manifest 창 단위 읽기(`6654077`)를 더했다. T45(매체 비활성화 우회)는 Step 6-1에서 더했다(`42de743`·`a70d769`). Step 6-3(초기 운영 보완)은 T2·T6·T21·T22·T37 ⑬·T41 ⑤에 더했다(`e5280e1`·`8cea8b8`·`3ec4bfe`·`4ecfcbd`·`4c65d7b`·`37e640a`·`6d93910`). 6-3h 경고가 잡지 못하는 프록시 구성은 §6 잔여 위험에 더했다. Step 6-5(배포 구성 전환)는 T2를 다시 썼고(가입 시도 제한 제거, 6-5b), T6을 필수값으로 바꿨다(6-5c).
+T43(콘솔 뷰)·T44(관리자 동작)는 3-3 마무리에서 정리했다: 화면 경로 전수, 화면 전수 점검, JS 없는 주요 흐름, C6 규칙 ↔ 서비스 대조(`38647b9`·`526046d`·`ca2572c`·`89c8a38`). T41·T42는 Step 4가 쓰고 있고, T42에 3-3e 구간 manifest 창 단위 읽기(`6654077`)를 더했다. T45(매체 비활성화 우회)는 Step 6-1에서 더했다(`42de743`·`a70d769`). Step 6-3(초기 운영 보완)은 T2·T6·T21·T22·T37 ⑬·T41 ⑤에 더했다(`e5280e1`·`8cea8b8`·`3ec4bfe`·`4ecfcbd`·`4c65d7b`·`37e640a`·`6d93910`). 6-3h 경고가 잡지 못하는 프록시 구성은 §6 잔여 위험에 더했다. Step 6-5(배포 구성 전환)는 T2를 다시 썼고(가입 시도 제한 제거, 6-5b), T6을 필수값으로 바꿨고(6-5c), §2·§3에 앞단 nginx를 넣고 T10·§6을 HTTP 전제로 고쳤다(6-5d).
 
 # 5. 두 개의 핵심 경로
 
@@ -154,7 +156,7 @@ T43(콘솔 뷰)·T44(관리자 동작)는 3-3 마무리에서 정리했다: 화�
 | 위험 | 이유 | 재검토 시점 |
 |---|---|---|
 | 관리자 2단계 인증 없음 | 범위 결정(Step 0 제외) | 관리자 계정이 늘거나 외부 노출 시 |
-| TLS·WAF는 인프라 소관 | `platform/` 담당. 운영 설정은 HTTPS 전용이라 HTTP로 배포하면 콘솔 로그인이 되지 않는다 — 배포 방식은 사용자 결정 대기(설계 §7-14) | 배포 설계 시 |
+| **HTTPS·접속 통제는 앞단 nginx에 의존**(T5·T10) | TLS·80→443·HSTS·접속 허용 목록을 nginx가 맡고 Django는 HTTP로 받는다(6-5d, 설계 §10 "배포 구성"). nginx 설정이 빠지거나 틀려도 앱은 알지 못한다 — 다만 세션·CSRF 쿠키가 Secure라 HTTP로 열리면 로그인이 되지 않는다(안전하게 실패). Django의 HTTPS 전용 검사 두 가지가 빠졌다: Origin 헤더가 없는 POST의 Referer 검사(CSRF 토큰 검사는 그대로)와 로그인 뒤 이동 주소(`next`)의 https 강제(같은 호스트로만은 그대로, http로 가도 nginx가 https로 돌린다). WAF는 없다(`platform/` 소관) | 외부망에 공개할 때 |
 | **Django 포트가 nginx 밖에 열리면 우회(T6)** | 신뢰할 프록시 수가 1 이상이라, nginx를 거치지 않고 Django에 바로 닿는 요청은 `X-Forwarded-For`를 위조해 클라이언트 IP(로그인 잠금·감사 로그)를 고를 수 있다. 앱은 접속 주소를 검사하지 않는다 — 바인딩(127.0.0.1)과 방화벽에 의존한다(README 배포 점검, 계획 §7.3.4 #9). 6-3h 시절의 "설정 조합으로만 잡음"은 6-5c에서 필수값으로 닫았다 | 콘솔 분리로 프론트 서버가 Django를 직접 부를 때(설계 §6.6 — 신뢰할 프록시 주소 기준으로 바꾼다) |
 | 무승인 집행으로 부적절 소재가 사후에 중단됨 | 서비스 편의 결정 | 신고·남용이 늘면 승인 단계 재검토 |
 | 이메일이 없어 비밀번호 분실은 관리자 초기화 | 개인 정보 최소화 결정 | 사용자 수가 늘면 |

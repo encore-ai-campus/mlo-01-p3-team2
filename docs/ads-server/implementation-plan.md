@@ -274,7 +274,7 @@ tests/test_accounts.py  tests/test_lockout.py  tests/test_session_cookies.py
 
 **할 일**
 
-1. **보안 헤더**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS(prod, TLS 종단이 프록시면 `SECURE_PROXY_SSL_HEADER`), `SECURE_SSL_REDIRECT`는 환경변수.
+1. **보안 헤더**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS(prod, TLS 종단이 프록시면 `SECURE_PROXY_SSL_HEADER`), `SECURE_SSL_REDIRECT`는 환경변수. — **6-5d에서 HSTS·HTTPS 리다이렉트는 앞단 nginx로 옮겼다**(설계 §10 "배포 구성", prod는 `CSRF_TRUSTED_ORIGINS` 필수)
 2. **CSP**(Django 6.x 내장): `default-src 'self'`, `img-src 'self' data:`, `script-src 'self'`, `style-src 'self'`, `frame-ancestors 'none'`, `form-action 'self'`, `base-uri 'self'`. 인라인 스크립트가 필요한 곳은 nonce를 쓰고, 기본은 쓰지 않는다. 5.2로 내려갔다면 `django-csp`로 같은 정책.
 3. **CSRF**: 미들웨어 전역 적용. **C1 API(`/api/media/`)처럼 키 인증을 쓰는 경로만** 접두사 허용 목록 **한 곳**(`CSRF_EXEMPT_PREFIXES`)에서 예외 처리하는 작은 미들웨어를 CSRF 미들웨어 앞에 둔다.
 4. **요청 크기**: `DATA_UPLOAD_MAX_MEMORY_SIZE`, `DATA_UPLOAD_MAX_NUMBER_FIELDS` 설정. 업로드 파일 크기는 0-5에서. 프록시의 `client_max_body_size`는 인프라 소관(문서에 명시).
@@ -287,7 +287,7 @@ tests/test_accounts.py  tests/test_lockout.py  tests/test_session_cookies.py
 
 | 테스트 | 확인 |
 |---|---|
-| `test_security_headers_present` | nosniff, 프레임 금지, Referrer-Policy, (prod) HSTS |
+| `test_security_headers_present` | nosniff, 프레임 금지, Referrer-Policy, (prod) HSTS — 6-5d부터 HSTS는 nginx |
 | `test_csp_header_policy` | 정책 문자열의 핵심 지시어 |
 | `test_no_inline_script_or_style_in_templates` | 템플릿에 인라인 `<script>`·`style=`이 없음 |
 | `test_csrf_enforced_on_post_views` | 토큰 없이 POST하면 403 |
@@ -1400,8 +1400,8 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 |---|---|---|---|
 | **6-5a 결정·계획** | 설계 §7-14·§10·§6.6·§5.1·§7-5·§2·§8, 이 계획 §7.3.4 #9·§8.1.6·§8.1.7·§8.4.4·이 절·§8 요약·§10 | 문서만 | **완료 `90eb3b4`** |
 | **6-5b 가입 시도 제한 제거** | `foundation/signup_limit.py`, `SignupAttempt`(마이그레이션 `foundation/0003`, 테이블 삭제), 가입 뷰의 호출과 429 화면(`signup_limited.html`), `SIGNUP_MAX_PER_IP_PER_HOUR`(base·dev·prod·`.env.example`), `foundation.api` 공개 이름 2개, 관련 시험 | 같은 IP의 6번째 가입도 된다, 마이그레이션 최신, 로그인 잠금 시험 그대로 | **완료 `fde0d49`** — 새 시험 `test_signup_has_no_attempt_limit_even_from_one_ip`(한 IP에서 실패 6번·가입 6번, 지우기 전 코드에서는 6번째 시도가 429로 실패함을 먼저 확인), 지운 시험: 가입 제한 2개·`SignupLimitSettingTests` 2개·화면 점검의 가입 제한 사례. `env_int(minimum=)`은 6-5c가 쓰므로 남김. 같은 커밋의 문서: 계약 C6 `/signup`(429·문구), DRD 0.36(A2 [제거]·가입 흐름·보존 기간·L2), 위협 모델 T2(인용 시험 교체)·T6·T43 ⑪·§6 문구, README "단체 가입" 삭제·배포 점검 문구. 시험 1,357 → 1,354 |
-| **6-5c 신뢰할 프록시 수 필수** | prod `TRUSTED_PROXY_COUNT` 필수·1 이상(`env_int`에 `required`), 6-3h `foundation/checks.py`와 import·시험 제거, 시험의 prod 환경(`PROD_ENV`)과 `check.sh` 배포 점검 환경 | 없거나 0이면 prod 기동 실패, `check --deploy` 경고 0 | **이 커밋** — `env_int(..., required=True, minimum=1)`(`env_int`에 `env_str`·`env_list`와 같은 `required`), 기본값 없음(1을 기본으로 두면 Django 포트가 노출됐을 때 위조가 통한다), dev는 0 그대로. 6-3h `foundation/checks.py`·`apps.py` import·`DeployCheckTests`의 경고 시험 2개 삭제. 시험 `test_prod_requires_a_trusted_proxy_count_of_at_least_one`(0·−1·문자 거절, 2는 받음, dev 0)과 필수값 목록에 추가, 시험의 prod 환경·`check.sh` 배포 점검 환경에 `TRUSTED_PROXY_COUNT=1`. 변형 6개 모두 잡음. 같은 커밋의 문서: 위협 모델 T6(인용 시험 교체)·§6("설정 조합으로만 잡음" → "Django 포트가 nginx 밖에 열리면 우회"), README prod 필수값·배포 점검·`check --deploy` 절, `.env.example` 주석. 시험 1,354 → 1,353 |
-| **6-5d Django HTTPS 제거** | prod의 HTTPS 리다이렉트·HSTS·`BEHIND_TLS_PROXY` 제거, `CSRF_TRUSTED_ORIGINS` 필수, 경고 침묵 교체(W004·W008, W021 제거), HTTPS 시험 정리 | prod에서 리다이렉트·HSTS 꺼짐·Secure 쿠키 켜짐, `https` 출처의 로그인 POST가 신뢰 출처가 있으면 통과·없으면 403, `CSRF_TRUSTED_ORIGINS`가 없으면 기동 실패, 경고 0 | 착수 대기 |
+| **6-5c 신뢰할 프록시 수 필수** | prod `TRUSTED_PROXY_COUNT` 필수·1 이상(`env_int`에 `required`), 6-3h `foundation/checks.py`와 import·시험 제거, 시험의 prod 환경(`PROD_ENV`)과 `check.sh` 배포 점검 환경 | 없거나 0이면 prod 기동 실패, `check --deploy` 경고 0 | **완료 `0979ace`** — `env_int(..., required=True, minimum=1)`(`env_int`에 `env_str`·`env_list`와 같은 `required`), 기본값 없음(1을 기본으로 두면 Django 포트가 노출됐을 때 위조가 통한다), dev는 0 그대로. 6-3h `foundation/checks.py`·`apps.py` import·`DeployCheckTests`의 경고 시험 2개 삭제. 시험 `test_prod_requires_a_trusted_proxy_count_of_at_least_one`(0·−1·문자 거절, 2는 받음, dev 0)과 필수값 목록에 추가, 시험의 prod 환경·`check.sh` 배포 점검 환경에 `TRUSTED_PROXY_COUNT=1`. 변형 6개 모두 잡음. 같은 커밋의 문서: 위협 모델 T6(인용 시험 교체)·§6("설정 조합으로만 잡음" → "Django 포트가 nginx 밖에 열리면 우회"), README prod 필수값·배포 점검·`check --deploy` 절, `.env.example` 주석. 시험 1,354 → 1,353 |
+| **6-5d Django HTTPS 제거** | prod의 HTTPS 리다이렉트·HSTS·`BEHIND_TLS_PROXY` 제거, `CSRF_TRUSTED_ORIGINS` 필수, 경고 침묵 교체(W004·W008, W021 제거), HTTPS 시험 정리 | prod에서 리다이렉트·HSTS 꺼짐·Secure 쿠키 켜짐, `https` 출처의 로그인 POST가 신뢰 출처가 있으면 통과·없으면 403, `CSRF_TRUSTED_ORIGINS`가 없으면 기동 실패, 경고 0 | **이 커밋** — prod의 `SECURE_SSL_REDIRECT`·`BEHIND_TLS_PROXY`(`SECURE_PROXY_SSL_HEADER`)·HSTS 3줄·`env_bool` import 삭제, 쿠키 Secure에 이유 주석, `SILENCED_SYSTEM_CHECKS` = W004·W008(사유), `CSRF_TRUSTED_ORIGINS = env_list(..., required=True)`. 시험: `test_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies`(예전 환경값이 남아도 리다이렉트·HSTS·프록시 헤더 없음, Secure 쿠키 켜짐)가 HSTS 헤더·HTTPS 강제 시험 2개를 대신하고, `test_a_login_post_from_the_https_front_needs_the_trusted_origin`(https 출처의 로그인 POST — 신뢰 출처가 없으면 403, 있으면 302), prod 필수값 목록에 추가, 시험의 prod 환경·`check.sh`에 `CSRF_TRUSTED_ORIGINS`. 변형 6개 모두 잡음. 같은 커밋의 문서: README(prod 필수값·"배포 구성"·`check --deploy` 절), `.env.example`(HTTPS 3줄 삭제·`CSRF_TRUSTED_ORIGINS` 필수 주석), `config/env.py` 주석, 위협 모델 §2·§3 신뢰 경계(nginx)·T10·§6("HTTPS·접속 통제는 앞단 nginx에 의존"), 이 계획 0-4 절 표시. 시험 1,353 그대로(2개를 지우고 2개를 더함) |
 | **6-5e 정적 파일** | `whitenoise`(`requirements.txt`), 미들웨어, `STATIC_ROOT` 주석 | `collectstatic` 결과를 로그인 없이 Django가 서빙(콘솔·관리자 CSS 200, `Content-Type`·`nosniff`), 호환 게이트(전체 시험·`check.sh`) | 착수 대기 |
 | **6-5f 측정·완료 기록** | 질의 수 probe, 설계 §2·§8·§10의 [구현 예정] → 해시, 이 절·§8 요약·§10 | 결정 11 · 반응 40 · 클릭 28 그대로 | 착수 대기 |
 
