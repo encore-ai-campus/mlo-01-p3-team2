@@ -3,7 +3,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from config.access_map import build_access_map, validate_admin_path
 
-from ._env import env_bool, env_int, env_list, env_str
+from ._env import env_int, env_list, env_str
 from .base import *  # noqa: F401,F403
 from .base import INSECURE_DEV_KEY, mongo_config, mysql_config
 
@@ -12,24 +12,19 @@ if SECRET_KEY == INSECURE_DEV_KEY or len(SECRET_KEY) < 50:
     raise ImproperlyConfigured("SECRET_KEY 는 개발용 값이 아닌 50자 이상의 무작위 문자열이어야 합니다.")
 
 DEBUG = False  # 환경변수로 바꿀 수 없다.
+# 브라우저 구간은 HTTPS(앞단 nginx)라 쿠키는 Secure 다. 앞단이 HTTP 를 열면 쿠키가 실리지 않아 로그인이 막힌다(조용히 뚫리지 않고 안전하게 실패)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 # 앞단 nginx 뒤라 필수이고 1 이상이다(설계 §10 "배포 구성", 6-5c). 기본값을 두지 않는다 — 1 을 기본으로 두면 Django 포트가 nginx 밖에 열렸을 때 X-Forwarded-For 위조가 그대로 통한다
 TRUSTED_PROXY_COUNT = env_int("TRUSTED_PROXY_COUNT", required=True, minimum=1)
 ADMIN_URL_PATH = validate_admin_path(env_str("ADMIN_URL_PATH", required=True))  # 기본값 admin/ 금지
 
-# --- HTTPS (TLS 종단은 인프라 소관) ---
-SECURE_SSL_REDIRECT = env_bool("SSL_REDIRECT", True)
-# 리버스 프록시가 TLS 를 종단하고 X-Forwarded-Proto 를 **덮어써서** 넘길 때만 켠다(아니면 헤더 위조로 HTTPS 로 속일 수 있다).
-if env_bool("BEHIND_TLS_PROXY", False):
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_HSTS_SECONDS = env_int("HSTS_SECONDS", 3600)  # 처음엔 짧게. 안정되면 늘린다(되돌리기 어렵다).
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = False
-# W021(프리로드 미설정)은 **의도적으로 끈다**: 이 서버는 내부 서비스이고 브라우저 프리로드 목록 등록은 되돌리기 어렵다.
-# 공개 도메인으로 서비스하게 되면 그때 켜고 이 항목을 지운다.
-SILENCED_SYSTEM_CHECKS = ["security.W021"]
-CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", default=[])  # 예: https://ads.example.com
+# --- HTTPS 는 앞단 nginx 가 맡는다(설계 §10 "배포 구성", 6-5d) ---
+# TLS 종단·80→443 리다이렉트·HSTS 는 nginx 몫이고 Django 는 HTTP 로 받는다. 그래서 HTTPS 리다이렉트·HSTS·X-Forwarded-Proto 신뢰를 두지 않고,
+# check --deploy 의 W004(HSTS 없음)·W008(HTTPS 리다이렉트 없음)을 **의도적으로 끈다**.
+SILENCED_SYSTEM_CHECKS = ["security.W004", "security.W008"]
+# 필수: Django 는 모든 요청을 HTTP 로 알아 브라우저의 https 출처와 맞지 않는다 — 신뢰 출처가 없으면 로그인 POST 가 CSRF 출처 검사에서 막힌다
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", required=True)  # 예: https://ads.example.com
 ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 
 MEDIA_ROOT = env_str("MEDIA_ROOT", required=True)  # 코드·정적 파일 경로 밖. 웹서버가 직접 서빙하지 않는다.

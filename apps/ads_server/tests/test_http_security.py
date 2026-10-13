@@ -4,6 +4,7 @@ import sys
 import os
 import subprocess
 
+from django.conf import settings
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings, tag
 from django.urls import reverse
 
@@ -36,16 +37,15 @@ class SecurityHeaderTests(TestCase):
         self.assertEqual(r["Referrer-Policy"], "same-origin")
         self.assertEqual(r["Cross-Origin-Opener-Policy"], "same-origin")
 
-    @override_settings(SECURE_HSTS_SECONDS=3600, SECURE_HSTS_INCLUDE_SUBDOMAINS=True, SECURE_SSL_REDIRECT=False)
-    def test_hsts_header_is_sent_over_https(self):
-        r = self.client.get(reverse("login"), secure=True)
-        self.assertEqual(r["Strict-Transport-Security"], "max-age=3600; includeSubDomains")
-
-    def test_prod_enforces_https_settings(self):
-        code = "from django.conf import settings as s; print(s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS > 0, s.DEBUG)"
+    def test_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies(self):
+        """6-5d(설계 §10 "배포 구성"): TLS·80→443·HSTS 는 앞단 nginx 몫이라 prod 는 HTTPS 리다이렉트·HSTS·X-Forwarded-Proto 신뢰를 두지 않는다.
+        예전 환경값(`SSL_REDIRECT`·`BEHIND_TLS_PROXY`·`HSTS_SECONDS`)이 남아 있어도 읽지 않는다. 브라우저 구간은 HTTPS 라 쿠키는 Secure 그대로다."""
+        code = ("from django.conf import settings as s; "
+                "print(s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS, s.SECURE_PROXY_SSL_HEADER, s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE, s.DEBUG)")
+        old = {"SSL_REDIRECT": "1", "BEHIND_TLS_PROXY": "1", "HSTS_SECONDS": "3600"}
         r = subprocess.run([sys.executable, "-c", code], cwd=BASE_DIR, capture_output=True, text=True,
-                           env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV})
-        self.assertEqual(r.stdout.strip(), "True True False", r.stderr)
+                           env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV, **old})
+        self.assertEqual(r.stdout.strip(), "False 0 None True True False", r.stderr)
 
     def test_csp_header_policy(self):
         r = self.client.get(reverse("login"))
@@ -100,6 +100,20 @@ class CsrfTests(TestCase):
         strict_logged_in = Client(enforce_csrf_checks=True)
         strict_logged_in.cookies = self.client.cookies
         self.assertEqual(strict_logged_in.post(reverse("logout")).status_code, 403)
+
+    def login_post_from_the_https_front(self):
+        """앞단 nginx 가 TLS 를 끝내 Django 는 HTTP 로 받지만, 브라우저는 https 출처(`Origin`)를 싣는다."""
+        client = Client(enforce_csrf_checks=True)
+        client.get(reverse("login"))
+        token = client.cookies[settings.CSRF_COOKIE_NAME].value
+        return client.post(reverse("login"), {"username": "csrf_user", "password": PW, "csrfmiddlewaretoken": token}, HTTP_ORIGIN="https://testserver")
+
+    def test_a_login_post_from_the_https_front_needs_the_trusted_origin(self):
+        """6-5d(설계 §10 "배포 구성"): Django 는 요청을 HTTP 로 알아 브라우저의 https 출처와 맞지 않는다 — 그래서 prod 는 `CSRF_TRUSTED_ORIGINS` 가 필수다."""
+        with override_settings(CSRF_TRUSTED_ORIGINS=[]):
+            self.assertEqual(self.login_post_from_the_https_front().status_code, 403)
+        with override_settings(CSRF_TRUSTED_ORIGINS=["https://testserver"]):
+            self.assertEqual(self.login_post_from_the_https_front().status_code, 302)  # 로그인 성공
 
     def test_csrf_failure_page_is_html_without_internals(self):
         r = self.strict.post(reverse("signup"), {"username": "x"})

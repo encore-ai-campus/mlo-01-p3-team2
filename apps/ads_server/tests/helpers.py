@@ -31,4 +31,5 @@ PROD_ENV = {
     "MEDIA_ROOT": "/tmp/ads-test-media",
     "ASSET_PUBLIC_BASE_URL": "https://ads.example.com",
     "TRUSTED_PROXY_COUNT": "1",  # 앞단 nginx 1단(prod 필수, 6-5c)
+    "CSRF_TRUSTED_ORIGINS": "https://ads.example.com",  # 브라우저가 여는 https 주소(prod 필수, 6-5d)
 }
