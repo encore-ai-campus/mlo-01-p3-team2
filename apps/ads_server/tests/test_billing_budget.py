@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
@@ -85,34 +85,3 @@ class SpendTests(TestCase):
             self.assertEqual(api.spend_today([self.camp, self.other], now=at(2026, 10, 7, 20)), {self.camp: 30 + 50, self.other: 40})
         api.recompute_spend()  # 설정을 되돌리고 재계산하면 원래대로
         self.assertEqual(self.stored(), utc_view)
-
-
-class RecomputeIsOneWriteTransactionTests(TransactionTestCase):
-    def test_recompute_reads_the_ledger_inside_the_write_transaction(self):
-        """원장 읽기가 트랜잭션 밖이면 그 사이에 커밋된 새 과금이 파생값에서 빠진다. (캠페인, 날)마다 읽기부터 교체까지 한 트랜잭션이어야 한다(경쟁은 test_recompute_race.py).
-        키를 모으는 첫 읽기는 쓰기 전이라 트랜잭션 밖이어도 되고, 합계를 읽는 나머지는 모두 안이어야 한다."""
-        from django.db import connection
-
-        from billing import services
-
-        seen = []
-        real = services.LedgerEntry
-
-        class Probe:
-            class objects:  # noqa: N801
-                @staticmethod
-                def filter(*args, **kwargs):
-                    seen.append(connection.in_atomic_block)  # TestCase 가 아니라서 바깥 트랜잭션이 없다: 서비스가 연 것만 보인다
-                    return real.objects.filter(*args, **kwargs)
-
-        adv = make_advertiser()
-        api.grant_signup(adv, now=at(2026, 10, 1))
-        api.charge_for_reaction(adv.pk, uuid.uuid4(), "IMPRESSION", "IMPRESSION", 10, "r1", now=at(2026, 10, 7, 1))
-        services.LedgerEntry = Probe
-        try:
-            api.recompute_spend()
-        finally:
-            services.LedgerEntry = real
-        self.assertGreaterEqual(len(seen), 2)
-        self.assertTrue(all(seen[1:]), seen)  # 키 수집 이후의 원장 읽기는 모두 쓰기 트랜잭션 안
-        self.assertEqual(CampaignSpend.objects.get().spent, 10)

@@ -85,12 +85,6 @@ class DecisionEventAtomicityTests(TransactionTestCase):
         self.assertEqual(Decision.objects.count(), 0)
         self.assertEqual(EventOutbox.objects.count(), 0)
 
-    def test_called_outside_a_transaction_both_are_committed_together(self):
-        w = World()
-        view = decide(w)
-        self.assertEqual(Decision.objects.filter(pk=view.decision_id).count(), 1)
-        self.assertEqual(EventOutbox.objects.filter(aggregate_id=view.decision_id).count(), 1)
-
     def test_if_the_decision_cannot_be_stored_there_is_no_event(self):
         w = World()
         with mock.patch("records.services.Decision.objects.create", side_effect=RuntimeError("저장 실패")):

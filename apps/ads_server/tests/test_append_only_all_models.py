@@ -6,10 +6,8 @@ Django 의 `bulk_create` 는 모델의 `save()` 를 호출하지 않으므로 `s
 from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 
-from billing import api as billing
 from billing.models import LedgerEntry
 from campaigns.models import Bid
-from foundation.api import record_audit
 from foundation.models import AppendOnlyError, AuditLog
 from masters.models import BidPolicy
 from records.models import Decision
@@ -56,6 +54,10 @@ class AllAppendOnlyModelsTests(TestCase):
                 clone_with_same_pk(row, field, value).save()
             with self.assertRaises(AppendOnlyError, msg=(name, "force_update")):
                 clone_with_same_pk(row, field, value).save(force_update=True)
+            with self.assertRaises(AppendOnlyError, msg=(name, "update_fields")):
+                clone_with_same_pk(row, field, value).save(update_fields=[field])
+            with self.assertRaises((IntegrityError, AppendOnlyError), msg=(name, "update_or_create")), transaction.atomic():
+                model.objects.update_or_create(pk=row.pk, defaults={field: value})
             self.assertEqual(getattr(model.objects.get(pk=row.pk), field), original, name)  # 원본 행은 그대로
 
     def test_ignore_conflicts_skips_but_never_overwrites(self):
@@ -71,5 +73,3 @@ class AllAppendOnlyModelsTests(TestCase):
 
         for model in (AuditLog, BidPolicy, Bid, LedgerEntry, Decision):
             self.assertTrue(issubclass(model, AppendOnlyModel), model.__name__)
-        self.assertIsNotNone(record_audit)
-        self.assertIsNotNone(billing)

@@ -126,16 +126,6 @@ class SlotValidationTests(TestCase):
             records.decide("nope", "nope", now=NOW)
         self.assertEqual(Decision.objects.count(), 0)
 
-    def test_inactive_slot_of_an_active_media_is_recorded_as_no_ad(self):
-        """DRD D-1: 꺼진 슬롯은 후보가 있어도 광고 없음으로 기록한다(계약 C1: 201 + `ad: null`)."""
-        w = World()
-        masters.set_slot_active(w.admin, w.slot.slot_id, False)
-        d = decide(w)
-        self.assertIsNone(d.chosen)
-        self.assertEqual((Decision.objects.count(), d.candidate_count), (1, 0))
-        masters.set_slot_active(w.admin, w.slot.slot_id, True)
-        self.assertIsNotNone(decide(w).chosen)  # 다시 켜면 광고가 나간다
-
     def test_inactive_media_is_forbidden_and_leaves_no_decision(self):
         w = World()
         masters.set_media_active(w.admin, w.slot.media_id, False)

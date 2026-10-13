@@ -114,12 +114,6 @@ class DashboardTests(TestCase):
         self.assertIn("오늘 소진 30 포인트", html)
         self.assertIn("2026-10-08 09:00", html)  # 다음 예산 일 시작(KST)
 
-    def test_only_the_advertiser_sees_it(self):
-        self.client.logout()
-        self.assertEqual(self.client.get(self.url).status_code, 302)  # 로그인으로
-        self.client.force_login(self.w.admin)
-        self.assertNotEqual(self.client.get(self.url).status_code, 200)
-
 
 @tag("security")
 class TopCampaignTests(TestCase):

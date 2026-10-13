@@ -123,13 +123,6 @@ class BasisLifecycleTests(FunnelBase):
             self.assertIsNone(records.process_reaction(click.inbox_id, now=at(500)))  # 이미 끝난 반응은 건드리지 않는다
         self.assertEqual(Reaction.objects.get(pk=click.pk).basis, before)
 
-    def test_finishing_a_reaction_again_cannot_overwrite_the_basis(self):
-        row = self.accept_impression(when=0)
-        before = copy.deepcopy(row.basis)
-        with self.assertRaises(RuntimeError):
-            _finish(row, "REJECTED", at(9), {"v": 1, "forged": True}, reason="x", rule="x")
-        self.assertEqual(Reaction.objects.get(pk=row.pk).basis, before)
-
     def test_a_reaction_cannot_be_finished_without_a_basis(self):
         row = self.report("IMPRESSION", when=0)
         for missing in (None, {}):

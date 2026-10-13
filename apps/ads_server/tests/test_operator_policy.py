@@ -95,6 +95,3 @@ class BulkPolicyPageTests(TestCase):
         self.assertEqual(self.post(["not-a-pair"]).status_code, 400)
         self.assertEqual(self.post([f"{uuid.uuid4()}:1"]).status_code, 404)
         self.assertEqual(versions(self.a.slot_id), [1])
-
-    def test_admin_index_links_to_it(self):
-        self.assertContains(self.client.get(reverse("admin:index")), self.url)

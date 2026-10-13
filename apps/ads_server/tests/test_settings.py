@@ -14,22 +14,16 @@ SHOW_SECRET = "from django.conf import settings; print(settings.SECRET_KEY)"
 
 class ProdSettingsTests(SimpleTestCase):
     def test_prod_requires_secret_key(self):
+        from config.settings.base import INSECURE_DEV_KEY
+
         env = {k: v for k, v in PROD_ENV.items() if k != "SECRET_KEY"}
         r = run_python(SHOW_SECRET, "config.settings.prod", env)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("SECRET_KEY", r.stderr)
+        for key in (INSECURE_DEV_KEY, "short"):  # dev 기본 키·짧은 키도 거부한다
+            self.assertNotEqual(run_python(SHOW_SECRET, "config.settings.prod", dict(PROD_ENV, SECRET_KEY=key)).returncode, 0, key)
 
-    def test_prod_rejects_dev_default_key(self):
-        from config.settings.base import INSECURE_DEV_KEY
-
-        r = run_python(SHOW_SECRET, "config.settings.prod", dict(PROD_ENV, SECRET_KEY=INSECURE_DEV_KEY))
-        self.assertNotEqual(r.returncode, 0)
-
-    def test_prod_rejects_short_key(self):
-        r = run_python(SHOW_SECRET, "config.settings.prod", dict(PROD_ENV, SECRET_KEY="short"))
-        self.assertNotEqual(r.returncode, 0)
-
-    def test_prod_requires_allowed_hosts_database_and_admin_path(self):
+    def test_prod_requires_each_deployment_value(self):
         for missing in ("ALLOWED_HOSTS", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "ADMIN_URL_PATH", "MEDIA_ROOT", "ASSET_PUBLIC_BASE_URL", "TRUSTED_PROXY_COUNT", "CSRF_TRUSTED_ORIGINS"):
             env = {k: v for k, v in PROD_ENV.items() if k != missing}
             r = run_python(SHOW_SECRET, "config.settings.prod", env)
@@ -48,13 +42,9 @@ class ProdSettingsTests(SimpleTestCase):
         r = run_python(show, "config.settings.dev", DB_ENV)  # dev(로컬 runserver)는 지금처럼 0
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "0"), r.stderr[-300:])
 
-    def test_prod_starts_with_valid_env(self):
-        r = run_python(SHOW_SECRET, "config.settings.prod", PROD_ENV)
-        self.assertEqual(r.returncode, 0, r.stderr)
-
     def test_prod_web_starts_without_an_event_store(self):
         """6-3e(설계 §10 "이벤트 저장소 설정"): 웹은 MongoDB 를 쓰지 않으므로 MONGO_HOSTS 가 없어도 기동한다(None — 웹 노드에 비밀번호를 두지 않는다).
-        있으면 읽고, 비밀번호는 설정 문자열에 섞지 않는다. 설정이 없을 때 멈추는 쪽은 중계다(test_ops_event_store)."""
+        있으면 읽고, 비밀번호는 설정 문자열에 섞지 않는다. 설정이 없을 때 멈추는 쪽은 중계다(test_event_relay 의 RelayWithoutEventStoreTests)."""
         show = "from django.conf import settings; print(settings.EVENT_STORE)"
         r = run_python(show, "config.settings.prod", PROD_ENV)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "None"), r.stderr)

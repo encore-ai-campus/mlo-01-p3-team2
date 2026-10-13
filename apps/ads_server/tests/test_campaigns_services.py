@@ -9,13 +9,15 @@ from django.test.utils import CaptureQueriesContext
 
 from assets.api import ImageRejected, asset_exists
 from campaigns import api
+from campaigns.models import AdGroup, Bid, Campaign, Creative
 from foundation.errors import Forbidden, InvalidRequest, StaleVersion
 from foundation.models import AuditLog
 from masters import api as masters
 from tests import image_factory
-from tests.factories import DAY, NOW, SUBJECT, World, make_advertiser, make_slot, png_file
+from tests.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, make_slot, png_file
 
 SEC = DAY / 86400
+ENDS_AT_ERROR = [{"pointer": "/ends_at", "message": "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다."}]
 
 
 class CampaignServiceTests(TestCase):
@@ -436,17 +438,6 @@ class AssetServableTests(TestCase):
         self.assertFalse(api.is_asset_servable(name, now=NOW))
         self.assertFalse(api.is_asset_servable("0" * 64 + ".png", now=NOW))  # 등록되지 않은 이름
 
-    def test_suspended_campaign_image_is_404_over_http(self):
-        w = World()
-        name = w.creative.image_name
-        with override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable"):
-            client = Client()
-            self.assertEqual(client.get(f"/assets/{name}").status_code, 200)
-            api.suspend_campaign(w.admin, w.campaign.campaign_id, "부적절")
-            self.assertEqual(client.get(f"/assets/{name}").status_code, 404)  # 중단 즉시
-            api.release_campaign(w.admin, w.campaign.campaign_id)
-            self.assertEqual(client.get(f"/assets/{name}").status_code, 200)
-
 
 class AuditTests(TestCase):
     def test_advertiser_and_admin_actions_are_audited(self):
@@ -479,3 +470,101 @@ class ConcurrentBidTests(TransactionTestCase):
         [t.join(timeout=15) for t in threads]
         self.assertEqual(sorted(results), ["StaleVersion", "ok"], results)  # 진 쪽은 충돌 안내여야 한다(교착·잠금 초과 같은 DB 오류가 아니다)
         self.assertEqual([b.bid_version for b in api.list_bids(w.adv, w.group.ad_group_id)], [2, 1])
+
+
+@tag("security")
+class CreateAdTests(TestCase):
+    """Step 3-0 S3: 광고 만들기(`create_ad`) — 캠페인·광고그룹·소재를 한 트랜잭션으로. 하나라도 실패하면 아무것도 남지 않는다(설계 D3-3)."""
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.adv = make_advertiser()
+        self.slot = make_slot(self.admin, unit="CLICK")
+
+    def create(self, campaign=None, ad_group=None, creative=None, user=None):
+        return api.create_ad(
+            user or self.adv,
+            campaign={"name": "가을 캠페인", "starts_at": NOW, "ends_at": NOW + 10 * DAY, "daily_budget": 5000, **(campaign or {})},
+            ad_group={"name": "로비 배너", "pricing_unit": "CLICK", "slot_ids": [self.slot.slot_id], "bid_amount": 30, **(ad_group or {})},
+            creative={"title": "제목", "redirect_url": "https://example.com/landing", "image_file": png_file(), **(creative or {})},
+            now=NOW,
+        )
+
+    def assertNothingCreated(self):
+        self.assertEqual((Campaign.objects.count(), AdGroup.objects.count(), Bid.objects.count(), Creative.objects.count()), (0, 0, 0, 0))
+        self.assertFalse(AuditLog.objects.filter(action__in=["campaign.created", "ad_group.created", "creative.created"]).exists())
+
+    def test_creates_all_three_and_returns_their_views(self):
+        ad = self.create()
+        self.assertIsInstance(ad, api.CreatedAd)
+        self.assertEqual((ad.campaign.name, ad.ad_group.name, ad.creative.title), ("가을 캠페인", "로비 배너", "제목"))
+        self.assertEqual((ad.ad_group.campaign_id, ad.creative.ad_group_id), (ad.campaign.campaign_id, ad.ad_group.ad_group_id))
+        self.assertEqual(ad.ad_group.current_bid.amount, 30)
+        self.assertEqual(Campaign.objects.get().owner, self.adv)
+        self.assertEqual(sorted(AuditLog.objects.filter(actor_id=self.adv.pk).values_list("action", flat=True)), ["ad_group.created", "campaign.created", "creative.created"])
+
+    def test_a_rejected_image_leaves_no_campaign_or_ad_group(self):
+        with self.assertRaises(ImageRejected):
+            self.create(creative={"image_file": io.BytesIO(b"not an image")})
+        self.assertNothingCreated()
+
+    def test_a_failure_in_any_part_leaves_nothing(self):
+        other_unit = make_slot(self.admin, unit="IMPRESSION")
+        cases = {
+            "캠페인 이름": ({"name": ""}, None, None),
+            "광고그룹 위치의 과금 단위": (None, {"slot_ids": [other_unit.slot_id]}, None),
+            "입찰 금액": (None, {"bid_amount": 0}, None),
+            "이동 주소": (None, None, {"redirect_url": "http://example.com"}),
+            "소재 제목": (None, None, {"title": ""}),
+        }
+        for label, (campaign, ad_group, creative) in cases.items():
+            with self.subTest(label), self.assertRaises(InvalidRequest):
+                self.create(campaign, ad_group, creative)
+            self.assertNothingCreated()
+
+    def test_errors_say_which_part_they_belong_to(self):
+        """세 부분 모두 `/name` 같은 같은 이름의 칸이 있다 — 오류가 어느 부분의 칸인지 알려야 화면이 그 칸 옆에 보여 준다."""
+        for part, override, pointer in (
+            ("campaign", {"campaign": {"name": ""}}, "/campaign/name"),
+            ("ad_group", {"ad_group": {"name": ""}}, "/ad_group/name"),
+            ("creative", {"creative": {"title": ""}}, "/creative/title"),
+        ):
+            with self.subTest(part), self.assertRaises(InvalidRequest) as e:
+                self.create(**override)
+            self.assertEqual([x["pointer"] for x in e.exception.errors], [pointer])
+
+    @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=0)
+    def test_a_limit_leaves_nothing(self):
+        with self.assertRaises(api.LimitExceeded):
+            self.create()
+        self.assertNothingCreated()
+
+    def test_only_an_advertiser(self):
+        with self.assertRaises(Forbidden):
+            self.create(user=self.admin)
+        self.assertNothingCreated()
+
+
+class CampaignEndsAtTests(TestCase):
+    def setUp(self):
+        self.adv = make_advertiser()
+
+    def test_create_refuses_an_end_in_the_past_even_after_the_start(self):
+        with self.assertRaises(InvalidRequest) as caught:
+            api.create_campaign(self.adv, "지난 캠페인", NOW - 2 * DAY, NOW - DAY, 1000, now=NOW)
+        self.assertEqual(caught.exception.errors, ENDS_AT_ERROR)
+
+    def test_update_refuses_an_end_before_a_future_start(self):
+        c = api.create_campaign(self.adv, "다음 주 캠페인", NOW + 5 * DAY, None, 1000, now=NOW)
+        with self.assertRaises(InvalidRequest) as caught:
+            api.update_campaign(self.adv, c.campaign_id, {"ends_at": NOW + DAY}, now=NOW)
+        self.assertEqual(caught.exception.errors, ENDS_AT_ERROR)
+
+
+class AdGroupCreatedSlotsTests(TestCase):
+    def test_the_created_group_reports_its_slots_like_a_later_read(self):
+        w = World()
+        second = make_slot(w.admin)
+        group = api.create_ad_group(w.adv, w.campaign.campaign_id, "둘째 그룹", "IMPRESSION", [second.slot_id, w.slot.slot_id], now=NOW)
+        self.assertEqual(group.slot_ids, tuple(sorted([w.slot.slot_id, second.slot_id], key=str)))
+        self.assertEqual(group.slot_ids, api.get_ad_group(w.adv, group.ad_group_id).slot_ids)

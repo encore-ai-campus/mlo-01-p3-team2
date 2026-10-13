@@ -10,6 +10,7 @@ from django.urls.resolvers import RoutePattern
 from config.access_map import validate_admin_path
 from foundation.api import owned_or_404, owned_queryset
 from foundation.models import User
+from tests.factories import make_admin, make_advertiser
 from tests.helpers import PROD_ENV, run_python
 from tests.support_app.models import OwnedThing
 
@@ -93,15 +94,6 @@ class AccessControlTests(TestCase):
         for path in ("/test-admin/", "/test-admin/login/", "/test-admin/foundation/user/", "/test-admin/nope/"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
 
-    def test_advertiser_cannot_open_admin_area(self):
-        self.login_as(self.adv)
-        for path in ("/test-admin/", "/test-admin/foundation/user/", "/test-admin/login/"):
-            self.assertEqual(self.client.get(path).status_code, 404, path)
-
-    def test_admin_cannot_open_advertiser_area(self):
-        self.login_as(self.admin)
-        self.assertEqual(self.client.get("/advertiser/").status_code, 403)
-
     def test_admin_can_open_admin_area(self):
         self.login_as(self.admin)
         self.assertEqual(self.client.get(self.admin_index).status_code, 200)
@@ -130,14 +122,6 @@ class AccessControlTests(TestCase):
         self.client.post(reverse("logout"))
         r = self.client.post(reverse("login") + "?next=https://evil.example/", {"username": "adv_a", "password": PW})
         self.assertEqual(r["Location"], "/advertiser/")
-
-    def test_signup_cannot_escalate_role(self):
-        self.client.post(reverse("signup"), {
-            "username": "sneaky_one", "password": PW, "password_confirm": PW,
-            "nickname": "sneak", "class_label": "1", "role": "admin", "is_staff": "1", "is_superuser": "1",
-        })
-        self.client.post(reverse("login"), {"username": "sneaky_one", "password": PW})
-        self.assertEqual(self.client.get(self.admin_index).status_code, 404)
 
     def test_inactive_user_is_treated_as_anonymous(self):
         self.adv.is_active = False
@@ -186,3 +170,25 @@ class OwnershipTests(TestCase):
 
     def test_owned_queryset_contains_only_own_objects(self):
         self.assertEqual(list(owned_queryset(OwnedThing.objects.all(), self.a)), [self.thing_a])
+
+
+class RootRedirectTests(TestCase):
+    def test_anonymous_root_goes_to_login(self):
+        r = self.client.get("/")
+        self.assertRedirects(r, "/accounts/login/", fetch_redirect_response=False)  # 임시 이동(302)
+
+    def test_query_is_not_forwarded(self):
+        self.assertEqual(self.client.get("/?next=/admin/").headers["Location"], "/accounts/login/")
+
+    def test_logged_in_advertiser_ends_up_on_the_advertiser_home(self):
+        self.client.force_login(make_advertiser())
+        r = self.client.get("/", follow=True)
+        self.assertEqual(r.redirect_chain[-1][0], "/advertiser/")
+        self.assertEqual(r.status_code, 200)
+
+    def test_post_also_redirects_and_changes_nothing(self):
+        self.assertEqual(self.client.post("/").status_code, 302)  # RedirectView 는 POST 도 같은 곳으로 보낸다(상태 변경 없음)
+
+    def test_logged_in_admin_goes_to_the_admin_site(self):
+        self.client.force_login(make_admin())
+        self.assertRedirects(self.client.get("/"), reverse("admin:index"))

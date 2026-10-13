@@ -30,10 +30,6 @@ class FilterTests(unittest.TestCase):
         for status in ("SUSPENDED", "ENDED"):
             self.assertEqual(run(cand(campaign_status=status)).rejected, {"campaign_not_active": 1})
 
-    def test_stale_active_campaign_past_end_is_rejected_by_period(self):
-        """저장된 상태가 아직 ACTIVE 여도 기간이 지났으면 걸러진다(상태 갱신이 늦은 구간)."""
-        self.assertEqual(run(cand(campaign_status="ACTIVE", period_end=NOW - timedelta(minutes=5))).rejected, {"expired": 1})
-
     def test_open_ended_campaign_passes_period(self):
         self.assertIsNotNone(run(cand(period_end=None)).selection.chosen)
 

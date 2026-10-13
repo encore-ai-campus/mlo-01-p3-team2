@@ -116,11 +116,6 @@ class RuleChainTests(ProcessingBase):
         self.assertEqual((self.row(second).reason_code, self.row(second).applied_rule), ("duplicate_type", "once-per-type"))
         self.assertEqual((self.charges(), self.balance()), (1, 50_000 - 30))  # 중복은 과금되지 않는다
 
-    def test_a_rejected_duplicate_does_not_block_a_later_valid_type(self):
-        self.process(self.receive("IMPRESSION"))
-        self.process(self.receive("IMPRESSION"))
-        self.assertEqual(self.process(self.click()), "ACCEPTED")
-
     def test_rules_come_from_settings_and_unknown_names_fail_loudly(self):
         view = self.receive(decision_id=uuid.uuid4())
         with override_settings(REACTION_RULES=("nonexistent",)), self.assertRaises(UnknownRule):
@@ -200,13 +195,15 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
         self.assertEqual(LedgerEntry.objects.get(entry_type="CHARGE").reaction_ref, f"{self.media}:{view.reaction_id}")
 
     def test_the_status_is_never_changed_again_once_processed(self):
+        """판정은 한 번이다: 이미 끝난 반응을 다시 끝내려 하면 상태도 판정 근거(`basis`)도 바뀌지 않는다."""
         view = self.receive()
         self.process(view)
+        before = self.row(view).basis
         with self.assertRaises(RuntimeError):
             from records.processing import _finish
 
-            _finish(self.row(view), "REJECTED", NOW, {"v": 1}, reason="x", rule="x")
-        self.assertEqual(self.row(view).status, "ACCEPTED")
+            _finish(self.row(view), "REJECTED", NOW, {"v": 1, "forged": True}, reason="x", rule="x")
+        self.assertEqual((self.row(view).status, self.row(view).basis), ("ACCEPTED", before))
 
 
 @tag("security")

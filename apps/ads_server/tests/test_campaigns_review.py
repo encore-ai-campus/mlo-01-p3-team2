@@ -1,12 +1,15 @@
 import uuid
+from datetime import timedelta
 
+from django.db import transaction
 from django.test import TestCase, tag
 
 from campaigns import api
-from campaigns.models import ReviewRequest
+from campaigns import transitions as tr
+from campaigns.models import Campaign, ReviewRequest
 from foundation.errors import Conflict, InvalidRequest
 from foundation.models import AuditLog
-from tests.factories import NOW, World
+from tests.factories import DAY, NOW, World
 
 
 class ReviewRequestTests(TestCase):
@@ -113,3 +116,28 @@ class SuspendedStateTests(TestCase):
         for action in ("campaign.suspended", "campaign.review_requested", "campaign.review_rejected", "campaign.released"):
             self.assertIn(action, seen)
         self.assertEqual(AuditLog.objects.get(action="campaign.review_rejected").actor_id, w.admin.pk)
+
+
+class ReviewClosingTests(TestCase):
+    def setUp(self):
+        self.w = World()
+        self.cid = self.w.campaign.campaign_id
+        api.suspend_campaign(self.w.admin, self.cid, "검토", now=NOW)
+        api.create_review_request(self.w.adv, self.cid, "확인 부탁", now=NOW)
+
+    def closed(self):
+        (review,) = api.list_review_requests(self.w.adv, self.cid)
+        return review.status, review.closed_at, review.response_note
+
+    def test_release_closes_the_open_review_at_that_moment(self):
+        api.release_campaign(self.w.admin, self.cid, now=NOW + DAY)
+        self.assertEqual(self.closed(), ("RELEASED", NOW + DAY, ""))
+
+    def test_ending_a_suspended_campaign_closes_only_the_open_review_at_that_moment(self):
+        (rejected,) = api.list_review_requests(self.w.adv, self.cid)
+        api.reject_review_request(self.w.admin, rejected.review_request_id, "아직 아닙니다", now=NOW)
+        api.create_review_request(self.w.adv, self.cid, "다시 확인 부탁", now=NOW + timedelta(hours=1))
+        with transaction.atomic():
+            tr.apply(Campaign.objects.select_for_update().get(pk=self.cid), "expire", tr.SYSTEM, NOW + DAY)
+        reviews = [(r.status, r.closed_at, r.response_note) for r in api.list_review_requests(self.w.adv, self.cid)]
+        self.assertEqual(reviews, [("CLOSED_ENDED", NOW + DAY, ""), ("REJECTED", NOW, "아직 아닙니다")])  # 이미 닫힌 요청은 그대로

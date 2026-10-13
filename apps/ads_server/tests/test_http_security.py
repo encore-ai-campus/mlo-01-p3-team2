@@ -12,7 +12,7 @@ from config.settings import base
 from foundation import errors
 from foundation.http import parse_json
 from foundation.models import User
-from tests.helpers import BASE_DIR, PROD_ENV
+from tests.helpers import BASE_DIR, PROD_ENV, run_python
 
 PW = "Tr0ub4dor-horse-staple"
 URLS = "tests.urls_api"
@@ -39,13 +39,12 @@ class SecurityHeaderTests(TestCase):
 
     def test_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies(self):
         """6-5d(설계 §10 "배포 구성"): TLS·80→443·HSTS 는 앞단 nginx 몫이라 prod 는 HTTPS 리다이렉트·HSTS·X-Forwarded-Proto 신뢰를 두지 않는다.
-        예전 환경값(`SSL_REDIRECT`·`BEHIND_TLS_PROXY`·`HSTS_SECONDS`)이 남아 있어도 읽지 않는다. 브라우저 구간은 HTTPS 라 쿠키는 Secure 그대로다."""
+        예전 환경값(`SSL_REDIRECT`·`BEHIND_TLS_PROXY`·`HSTS_SECONDS`)이 남아 있어도 읽지 않는다. 브라우저 구간은 HTTPS 라 쿠키는 Secure 그대로다(옛 값이 없어도)."""
         code = ("from django.conf import settings as s; "
                 "print(s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS, s.SECURE_PROXY_SSL_HEADER, s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE, s.DEBUG)")
-        old = {"SSL_REDIRECT": "1", "BEHIND_TLS_PROXY": "1", "HSTS_SECONDS": "3600"}
-        r = subprocess.run([sys.executable, "-c", code], cwd=BASE_DIR, capture_output=True, text=True,
-                           env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV, **old})
-        self.assertEqual(r.stdout.strip(), "False 0 None True True False", r.stderr)
+        for old in ({"SSL_REDIRECT": "1", "BEHIND_TLS_PROXY": "1", "HSTS_SECONDS": "3600"}, {}):
+            r = run_python(code, "config.settings.prod", {**PROD_ENV, **old})
+            self.assertEqual(r.stdout.strip(), "False 0 None True True False", (old, r.stderr))
 
     def test_csp_header_policy(self):
         r = self.client.get(reverse("login"))

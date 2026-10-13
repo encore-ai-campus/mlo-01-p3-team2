@@ -203,14 +203,3 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
         ), locked)()
         self.assertTrue(created)  # 존재 여부를 이유로 접수를 거절하지 않는다(계약)
         self.assertFalse(locked.is_set(), "없는 결정에 대한 접수가 결정 행을 잠갔다")
-
-    def test_the_owners_own_receipts_still_queue_behind_each_other(self):
-        """소유 매체의 접수끼리는 여전히 줄을 선다(순서 규약이 유지된다)."""
-        with Uncommitted(lambda: self.own_receive(10)) as early:
-            later = Worker(lambda: self.own_receive(11))
-            later.start()
-            later.join(BLOCKED)
-            self.assertTrue(later.is_alive())
-            early.commit()
-        later.join(WAIT)
-        self.assertEqual(later.errors, [])

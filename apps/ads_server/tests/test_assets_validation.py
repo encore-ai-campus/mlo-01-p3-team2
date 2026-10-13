@@ -39,11 +39,6 @@ class ValidationTests(SimpleTestCase):
         self.assertEqual(run(f.png_bytes(mode="RGBA", color=(1, 2, 3, 128))).ext, "png")
         self.assertEqual(run(f.png_bytes(mode="L", color=100)).ext, "png")
 
-    def test_format_decided_by_content_not_extension(self):
-        # PNG 내용을 .jpg 이름·image/jpeg 로 올려도 PNG 로 저장된다(업로드 이름은 검증 함수에 전달되지도 않는다)
-        self.assertEqual(run(f.png_bytes()).ext, "png")
-        self.assertEqual(run(f.jpeg_bytes()).ext, "jpg")
-
     def test_rejects_svg_gif_webp_bmp(self):
         self.assertRejected(f.SVG_WITH_SCRIPT, "unsupported_format")
         for fmt in ("GIF", "BMP", "TIFF", "ICO"):

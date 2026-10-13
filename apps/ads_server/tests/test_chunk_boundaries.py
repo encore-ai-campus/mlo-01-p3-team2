@@ -1,6 +1,7 @@
 """청크로 나눠 읽는 조회가 청크 크기를 넘는 입력에서도 빠짐없이·중복 없이 답한다(경계를 넘는 마지막 덜 찬 청크 포함)."""
 import datetime
 import uuid
+from unittest import mock
 
 from django.test import TestCase
 
@@ -11,7 +12,7 @@ from events import relay, store
 from events.models import EventOutbox
 from records import api as records
 from records.models import Decision
-from tests.factories import SUBJECT, make_advertiser
+from tests.factories import NOW, SUBJECT, make_advertiser
 from tests.mongo_support import MongoDatabaseMixin
 from tests.test_event_relay import enqueue_decisions
 
@@ -94,3 +95,13 @@ class ChunkSizeContractTests(TestCase):
         for chunk in (0, -1):
             with self.assertRaisesRegex(ValueError, "chunk"):
                 records.backfill_events("/nonexistent/event_gaps.manifest.json", chunk=chunk)
+
+
+class MissingEventIdsTests(TestCase):
+    def test_ids_all_found_in_the_outbox_do_not_touch_mongodb(self):
+        rows = EventOutbox.objects.bulk_create([
+            EventOutbox(event_id=uuid.uuid4(), event_name="ad.decision", schema_version=1, aggregate_id=uuid.uuid4(), payload={}, created_at=NOW)
+            for _ in range(3)
+        ])
+        with mock.patch("events.store.collection", side_effect=AssertionError("MongoDB 에 묻지 않아야 한다")):
+            self.assertEqual(events.missing_event_ids([r.event_id for r in rows], chunk=2), [])

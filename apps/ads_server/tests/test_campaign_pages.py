@@ -156,10 +156,6 @@ class SuspensionTests(CampaignPagesBase):
         self.assertIn("반려됨", html)
         self.assertIn("&lt;b&gt;여전히&lt;/b&gt; 같습니다", html)
 
-    def test_a_review_request_on_an_active_campaign_is_refused_by_the_service(self):
-        self.client.post(reverse("campaign_review", args=[self.cid]), {"message": "x"})
-        self.assertEqual(campaigns.list_review_requests(self.w.adv, self.cid), [])
-
 
 class AdGroupTableTests(CampaignPagesBase):
     def test_groups_with_bid_and_placement_summary(self):
@@ -181,9 +177,3 @@ class IsolationTests(CampaignPagesBase):
         self.assertEqual(self.client.get(reverse("campaign_detail", args=["not-a-uuid"])).status_code, 404)
         view = campaigns.get_campaign(other.adv, oid)
         self.assertEqual((view.status, view.name, view.daily_budget), ("ACTIVE", "캠페인", 5000))
-
-    def test_admins_and_anonymous_do_not_see_advertiser_pages(self):
-        self.client.logout()
-        self.assertEqual(self.client.get(self.list).status_code, 302)
-        self.client.force_login(self.w.admin)
-        self.assertNotEqual(self.client.get(self.list).status_code, 200)

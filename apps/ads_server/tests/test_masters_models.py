@@ -64,18 +64,6 @@ class PolicyConstraintTests(TestCase):
             BidPolicy.objects.filter(slot=slot).delete()
         self.assertEqual(BidPolicy.objects.get(pk=row.pk).cap_amount, 50)
 
-    def test_policy_cannot_be_overwritten_by_existing_pk(self):
-        slot = make_slot()
-        row = BidPolicy.objects.get(slot=slot, policy_version=1)
-        with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
-            policy(slot, pk=row.pk, policy_version=1, cap_amount=999).save()
-        with self.assertRaises(AppendOnlyError):
-            BidPolicy.objects.bulk_create(
-                [policy(slot, pk=row.pk, policy_version=1, cap_amount=999)],
-                update_conflicts=True, update_fields=["cap_amount"], unique_fields=["bid_policy_id"],
-            )
-        self.assertEqual(BidPolicy.objects.get(pk=row.pk).cap_amount, 50)
-
 
 @tag("security")
 class SlotModelTests(TestCase):

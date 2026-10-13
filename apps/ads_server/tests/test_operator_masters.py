@@ -14,7 +14,7 @@ from foundation.models import AuditLog
 from masters import api as masters
 from masters.models import MediaKey
 from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
-from tests.factories import make_admin, make_advertiser, make_slot
+from tests.factories import make_admin, make_slot
 
 KEY_RE = re.compile(r"[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
 
@@ -27,22 +27,11 @@ def request_key(html, form_id):
 
 @tag("security")
 class OperatorAccessTests(TestCase):
-    def test_only_admins_see_the_operator_pages(self):
-        media = masters.create_media(make_admin(), "매체")
-        urls = [reverse("operator:media_list"), reverse("operator:media_detail", args=[media.media_id])]
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 404)  # 익명에게도 존재를 숨긴다(관리자 경로 규칙)
-        self.client.force_login(make_advertiser())
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 404)
-            self.assertEqual(self.client.post(url, {"name": "x"}).status_code, 404)
-        self.client.force_login(make_admin())
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 200)
-
     def test_admin_index_links_to_the_operator_pages(self):
         self.client.force_login(make_admin())
-        self.assertContains(self.client.get(reverse("admin:index")), reverse("operator:media_list"))
+        r = self.client.get(reverse("admin:index"))
+        for name in ("media_list", "policy_bulk", "campaign_monitor", "review_queue"):
+            self.assertContains(r, reverse(f"operator:{name}"), msg_prefix=name)
 
 
 class OperatorBase(TestCase):

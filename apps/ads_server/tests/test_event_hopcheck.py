@@ -240,6 +240,7 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.verify("--out", str(self.dir / "report"))
         self.assertTrue(ok, text)
         self.assertIn("'match': 12", text)  # 세 쌍 × 4줄
+        self.assertEqual([l["unsent"] for l in self.lines("hop_outbox")], [0, 0, 0, 0])  # 중계 뒤에는 미전송이 없다(일치 판정은 unsent 를 보지 않는다)
         manifest = ndjson.read_manifest(ndjson.manifest_path(self.dir / "report", "hop_report"))
         self.assertEqual((ndjson.verify(ndjson.manifest_path(self.dir / "report", "hop_report")), manifest["checkpoint"]["counts"], manifest["checkpoint"]["errors"]), ([], {"match": 12}, []))
 
@@ -262,6 +263,10 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         payload["charged_amount"] = 999
         EventOutbox.objects.filter(pk=row.pk).update(payload=payload)
         self.export()
+        source, outbox, mongo = ({l["event_name"]: l for l in self.lines(h)}["ad.charge"] for h in ("hop_source", "hop_outbox", "hop_mongo"))
+        self.assertEqual(source["ids_sha256"], outbox["ids_sha256"])  # manifest 만으로도 보인다: 존재는 같고
+        self.assertNotEqual(source["content_sha256"], outbox["content_sha256"])  # 내용만 다르다
+        self.assertEqual(source["content_sha256"], mongo["content_sha256"])
         ok, text = self.verify()
         self.assertFalse(ok)
         self.assertIn("content_sha256", text)

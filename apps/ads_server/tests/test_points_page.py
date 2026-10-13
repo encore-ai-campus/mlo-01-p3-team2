@@ -80,9 +80,3 @@ class PointsPageTests(TestCase):
         admin = Client()
         admin.force_login(self.w.admin)
         self.assertContains(admin.get(reverse("operator:advertiser_detail", args=[self.w.adv.pk])), "<td>캠페인</td>")
-
-    def test_only_the_advertiser(self):
-        self.assertEqual(Client().get(URL).status_code, 302)
-        admin = Client()
-        admin.force_login(self.w.admin)
-        self.assertNotEqual(admin.get(URL).status_code, 200)

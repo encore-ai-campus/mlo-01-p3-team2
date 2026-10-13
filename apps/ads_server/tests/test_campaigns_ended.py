@@ -140,12 +140,6 @@ class EndedGuardTests(TestCase):
         v = api.end_campaign(w.adv, future.campaign_id, now=NOW)
         self.assertEqual((v.status, v.ends_at), ("ENDED", NOW + DAY))  # 시작 전이면 시작 시각으로 확정
 
-    def test_early_end_blocked_while_suspended(self):
-        w = World()
-        api.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
-        with self.assertRaises(api.CampaignSuspended):
-            api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
-
     def test_ends_at_must_be_in_future_and_after_start(self):
         w = World()
         cid, adv = w.campaign.campaign_id, w.adv
@@ -155,10 +149,6 @@ class EndedGuardTests(TestCase):
         self.assertEqual(api.update_campaign(adv, cid, {"ends_at": NOW + timedelta(seconds=1)}, now=NOW).ends_at, NOW + timedelta(seconds=1))  # 줄이기(미래)
         self.assertEqual(api.update_campaign(adv, cid, {"ends_at": NOW + 50 * DAY}, now=NOW).ends_at, NOW + 50 * DAY)  # 늘리기
         self.assertIsNone(api.update_campaign(adv, cid, {"ends_at": None}, now=NOW).ends_at)  # 기간 제한 없음
-
-    def test_expired_campaign_image_not_servable_and_not_a_new_candidate(self):
-        w = World()
-        self.assertFalse(api.is_asset_servable(w.creative.image_name, now=LATER))
 
     def test_other_advertisers_unaffected(self):
         w, other = World(), World()

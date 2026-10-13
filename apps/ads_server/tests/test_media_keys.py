@@ -211,3 +211,17 @@ class RotationRaceTests(TransactionTestCase):
         self.assertIsNone(api.authenticate_media_key(old.key))  # 즉시 만료가 되살아나지 않는다
         self.assertIsNone(api.authenticate_media_key(slow.result.key))  # 뒤의 교체(유예 0)는 앞의 교체가 만든 키도 본다
         self.assertIsNotNone(api.authenticate_media_key(fast.result.key))
+
+
+class KeyListActiveTests(TestCase):
+    def test_revoked_keys_and_keys_at_their_expiry_are_not_active(self):
+        admin = make_admin()
+        media = api.create_media(admin, "키 목록")
+        live, expiring, revoked = (api.issue_media_key(admin, media.media_id, now=NOW) for _ in range(3))
+        MediaKey.objects.filter(key_id=expiring.key_id).update(expires_at=NOW)
+        api.revoke_media_key(admin, revoked.key_id, now=NOW)
+
+        def active(now):
+            return {k.key_id: k.active for k in api.list_media_keys(admin, media.media_id, now=now)}
+        self.assertEqual(active(NOW), {live.key_id: True, expiring.key_id: False, revoked.key_id: False})  # 인증과 같은 경계: 만료 시각에 닿으면 무효
+        self.assertTrue(active(NOW - timedelta(microseconds=1))[expiring.key_id])

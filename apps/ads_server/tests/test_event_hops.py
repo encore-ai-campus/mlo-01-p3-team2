@@ -227,19 +227,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
     def keyed(self, hop, **kw):
         return {(l["window_start"], l["event_name"]): l for l in self.lines(hop, **kw)[0]}
 
-    def test_three_hops_agree_after_the_relay(self):
-        relay_batch()
-        ok, text = self.export()
-        self.assertTrue(ok, text)
-        source, outbox, mongo = (self.keyed(h) for h in ("hop_source", "hop_outbox", "hop_mongo"))
-        self.assertEqual(sorted(source), sorted(outbox))
-        self.assertEqual(len(source), 4)  # 이벤트 네 종류 × 창 하나(2026-10-07)
-        for key in source:
-            for field in ("count", "ids_sha256", "content_sha256", "window_end"):
-                self.assertEqual(source[key][field], outbox[key][field], (key, field))
-                self.assertEqual(source[key][field], mongo[key][field], (key, field))
-            self.assertEqual(outbox[key]["unsent"], 0)
-
     def test_several_windows_agree_and_only_the_range_is_read(self):
         """창 여러 개(--since 앞의 창 포함): 세 구간이 창마다 같고, 읽은 이벤트 수는 범위 안의 것뿐이다. 실행 결과에 한 번에 든 최대 이벤트 수와 최대 메모리를 적는다."""
         w = World()
@@ -290,11 +277,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.verify()
         self.assertFalse(ok, text)
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
-
-    def test_before_the_relay_mongodb_is_empty_and_outbox_shows_unsent(self):
-        self.export()
-        self.assertEqual(self.lines("hop_mongo")[0], [])
-        self.assertTrue(all(l["unsent"] == 1 for l in self.lines("hop_outbox")[0]))  # 중계 지연 후보를 가리는 근거
 
     def test_manifests_describe_scope_and_are_valid(self):
         relay_batch()
@@ -373,19 +355,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         checkpoint = self.lines("hop_outbox")[1]["checkpoint"]
         self.assertEqual(checkpoint["not_comparable_windows"], ["2026-10-07T00:00:00Z"])
         self.assertTrue(self.lines("hop_source")[0] and self.lines("hop_source")[0] != [])  # 원본 구간에는 그대로 있다
-
-    def test_a_tampered_hop_is_visible_from_the_manifests_alone(self):
-        relay_batch()
-        row = EventOutbox.objects.get(event_name="ad.charge")
-        payload = row.payload
-        payload["charged_amount"] = 999
-        EventOutbox.objects.filter(pk=row.pk).update(payload=payload)
-        self.export()
-        key = ("2026-10-07T00:00:00Z", "ad.charge")
-        source, outbox, mongo = (self.keyed(h)[key] for h in ("hop_source", "hop_outbox", "hop_mongo"))
-        self.assertEqual(source["ids_sha256"], outbox["ids_sha256"])  # 존재는 같고
-        self.assertNotEqual(source["content_sha256"], outbox["content_sha256"])  # 내용만 다르다
-        self.assertEqual(source["content_sha256"], mongo["content_sha256"])
 
     def test_the_same_data_gives_the_same_lines(self):
         relay_batch()

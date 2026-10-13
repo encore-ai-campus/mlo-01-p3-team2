@@ -205,8 +205,3 @@ class ReviewQueuePageTests(OperatorBase):
         review = campaigns.list_review_requests(self.w.adv, self.cid)[0]
         self.assertEqual((review.status, review.response_note), ("REJECTED", "이동 주소가 여전히 같습니다"))
         self.assertEqual(campaigns.get_campaign(self.w.adv, self.cid).status, "SUSPENDED")
-
-    def test_admin_index_links(self):
-        html = self.client.get(reverse("admin:index")).content.decode()
-        self.assertIn(self.queue, html)
-        self.assertIn(self.monitor, html)

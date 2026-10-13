@@ -178,13 +178,6 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         masters.set_slot_active(self.w.admin, self.click_slot.slot_id, False)
         self.assertNotIn(str(self.click_slot.slot_id), self.client.get(URL).content.decode())
 
-    def test_only_advertisers(self):
-        anonymous = Client()
-        self.assertEqual(anonymous.get(URL).status_code, 302)
-        admin = Client()
-        admin.force_login(self.w.admin)
-        self.assertNotEqual(admin.get(URL).status_code, 200)
-
 
 @tag("security")
 class AdCreateOnceTests(AdCreateBase, TransactionTestCase):

@@ -36,7 +36,7 @@ class LockoutTests(TestCase):
         self.client.post(reverse("logout"))
         self.fail(5)
         r = self.login()  # 올바른 비밀번호도 거부
-        self.assertEqual(r.status_code, 429)
+        self.assertContains(r, "잠시 잠겼습니다", status_code=429)
         self.assertFalse(self.authenticated())
 
     def test_success_resets_failure_counter(self):
@@ -67,12 +67,6 @@ class LockoutTests(TestCase):
             self.login(password="still-wrong-pass")
         AccessAttempt.objects.update(attempt_time=timezone.now() - timedelta(minutes=6))
         self.assertEqual(self.login().status_code, 302)
-
-    def test_lockout_page_is_429_with_message(self):
-        self.fail(5)
-        r = self.login()
-        self.assertEqual(r.status_code, 429)
-        self.assertContains(r, "잠시 잠겼습니다", status_code=429)
 
     def test_failed_login_message_is_generic(self):
         wrong_pw = self.login("lock_user", "wrong-password-xyz", ip="10.9.0.1")

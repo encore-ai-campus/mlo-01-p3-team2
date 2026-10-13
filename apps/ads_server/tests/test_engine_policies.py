@@ -1,9 +1,8 @@
 import unittest
-import uuid
 from random import Random
 
 from engine.api import DEFAULT_POLICY, Selection, UnknownName, decide, register_policy, unregister_policy
-from tests.engine_factory import SLOT, cand, request
+from tests.engine_factory import cand, request
 
 
 def pick(candidates, seed=1, policy=DEFAULT_POLICY, **req):
@@ -85,6 +84,3 @@ class PolicyRegistryTests(unittest.TestCase):
     def test_duplicate_registration_rejected(self):
         with self.assertRaises(ValueError):
             register_policy(type("Dup", (), {"name": "highest-bid/v1", "select": None})())
-
-    def test_slot_constant_sanity(self):
-        self.assertIsInstance(SLOT, uuid.UUID)
