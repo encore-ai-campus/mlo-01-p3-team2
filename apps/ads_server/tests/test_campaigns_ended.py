@@ -95,7 +95,7 @@ class EndedGuardTests(TestCase):
             "add_bid": lambda: api.add_bid(w.adv, gid, 990, expected_version=1, now=now),
             "create_creative": lambda: api.create_creative(w.adv, gid, "t", "https://a.example", png_file(), now=now),
             "link_creative": lambda: api.link_creative(w.adv, gid, crid, now=now),
-            "select_creative": lambda: api.update_ad_group(w.adv, gid, {"creative_id": crid}, now=now),
+            "select_creative": lambda: api.link_creative(w.adv, gid, crid, now=now, select=True),
             "review_request": lambda: api.create_review_request(w.adv, cid, "m", now=now),
             "suspend": lambda: api.suspend_campaign(w.admin, cid, "사유", now=now),
             "release": lambda: api.release_campaign(w.admin, cid, now=now),

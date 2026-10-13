@@ -540,11 +540,11 @@ def list_ad_groups(user, campaign_id):
     return [_ad_group_view(g, bids.get(g.current_bid_id), slots.get(g.pk, ())) for g in groups]
 
 
-AD_GROUP_FIELDS = {"name", "enabled", "slot_ids", "creative_id"}
+AD_GROUP_FIELDS = {"name", "enabled", "slot_ids"}  # 소재 선택은 연결 하나로(`link_creative(select=True)`, 6-13e)
 
 
 def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=None):
-    """이름·켜기/끄기·게재 위치·선택한 소재(`creative_id` — 이 광고그룹에 연결된 소재만, 6-9c). `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면
+    """이름·켜기/끄기·게재 위치. `expected_updated_at`(화면이 본 마지막 변경 시각)을 주면
     잠금 안에서 대조해 다르면 409 — 옛 폼이 같은 칸의 최신 변경을 덮지 않게(외부 검토 41d2288 P3). 켜기/끄기처럼 바꿀 값이 분명한 동작은 주지 않는다."""
     require_advertiser(user)
     now = _now(now)
@@ -565,11 +565,6 @@ def update_ad_group(user, ad_group_id, changes, now=None, expected_updated_at=No
             g.slot_links.exclude(slot_id__in=ids).delete()
             have = set(g.slot_links.values_list("slot_id", flat=True))
             AdGroupSlot.objects.bulk_create([AdGroupSlot(ad_group=g, slot_id=s) for s in ids if s not in have])
-        if "creative_id" in changes:
-            c = _locked_creative(user, changes["creative_id"])  # 남의 것·보관한 것은 404. 잠금 순서: 캠페인 → 광고그룹 → 소재
-            if not AdGroupCreative.objects.filter(ad_group=g, creative=c).exists():
-                raise _problem("/creative_id", "이 광고에 연결된 소재가 아닙니다.")
-            g.creative = c
         g.updated_at = now
         g.save()
         _audit(user, "ad_group.updated", ("campaigns.ad_group", g.ad_group_id), {"changed": sorted(changes)})
@@ -698,8 +693,8 @@ def _link(group, creative, now, select=False):
 
 def link_creative(user, ad_group_id, creative_id, now=None, select=False):
     """등록된 소재를 광고그룹에 연결한다(재사용, 6-9c). 선택된 소재가 없으면 이것을 선택한다. 남의 소재·보관한 소재는 404, 끝난 캠페인은 409.
-    `select=True` 면 연결과 같은 트랜잭션에서 이것을 선택한다 — 광고 상세의 "이미지"는 내 이미지 중 하나를 고르기만 하고, 아직 연결되지 않았으면
-    여기서 함께 연결한다(6-11). 잠금 순서: 캠페인 → 광고그룹 → 소재 — 같은 소재의 보관과 소재 행에서 줄을 선다(보관된 소재는 연결되지 않고,
+    `select=True` 면 연결과 같은 트랜잭션에서 이것을 선택한다 — **소재를 고르는 길은 이것 하나**다(6-13e, C6 `PUT …?select=true`). 광고 상세의
+    "이미지"는 내 이미지 중 하나를 고르기만 하고, 아직 연결되지 않았으면 여기서 함께 연결한다(6-11). 잠금 순서: 캠페인 → 광고그룹 → 소재 — 같은 소재의 보관과 소재 행에서 줄을 선다(보관된 소재는 연결되지 않고,
     연결된 소재는 보관되지 않는다)."""
     require_advertiser(user)
     now = _now(now)

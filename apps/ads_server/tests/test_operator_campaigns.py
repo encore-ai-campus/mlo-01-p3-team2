@@ -140,7 +140,7 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertIn("제목 <strong>(나가는 중)</strong>", html)
         self.assertIn("예비 소재<br>", html)
         self.assertIn("<strong>spare.example</strong>", html)
-        campaigns.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": spare.creative_id}, now=NOW)
+        campaigns.link_creative(self.w.adv, self.w.group.ad_group_id, spare.creative_id, now=NOW, select=True)
         self.assertIn("예비 소재 <strong>(나가는 중)</strong>", self.client.get(self.monitor).content.decode())
 
     def test_suspend_needs_a_reason_and_is_seen_by_the_advertiser_at_once(self):

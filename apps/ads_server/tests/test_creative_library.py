@@ -66,13 +66,15 @@ class CreativeLibraryTests(TestCase):
         self.assertEqual([(u.ad_group_name, u.selected) for u in second.uses], [("둘째 그룹", True), ("그룹", False)])
         self.assertEqual((first.creative.title, len(first.uses)), ("제목", 1))
 
-    def test_only_a_linked_creative_can_be_selected(self):
+    def test_a_creative_is_selected_only_through_the_link(self):
+        """R17(6-13e, 사용자 결정): 소재를 고르는 길은 연결 하나다(`select=True`). 광고그룹 수정은 소재를 받지 않는다."""
         mine = upload(self.w)
         with self.assertRaises(errors.InvalidRequest) as caught:
             api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": mine.creative_id}, now=NOW)
-        self.assertEqual(caught.exception.errors[0]["pointer"], "/creative_id")
+        self.assertEqual(caught.exception.errors[0]["pointer"], "/")  # 모르는 필드
         api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=NOW)
-        api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": mine.creative_id}, now=NOW)
+        self.assertEqual(self.titles(), ["제목"])  # 연결만 — 이미 선택한 소재가 있으면 그대로
+        api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=NOW, select=True)
         self.assertEqual(self.titles(), ["새 소재"])  # 결정에 나가는 것은 선택한 소재다
 
     def test_choosing_an_unlinked_creative_links_and_selects_it_in_one_go(self):
@@ -94,7 +96,7 @@ class CreativeLibraryTests(TestCase):
         other = World(ends_in=None)
         theirs = other.creative.creative_id
         for call in (lambda: api.link_creative(self.w.adv, self.w.group.ad_group_id, theirs, now=NOW),
-                     lambda: api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": theirs}, now=NOW),
+                     lambda: api.link_creative(self.w.adv, self.w.group.ad_group_id, theirs, now=NOW, select=True),
                      lambda: api.update_creative(self.w.adv, theirs, {"title": "x"}, now=NOW),
                      lambda: api.archive_creative(self.w.adv, theirs, now=NOW),
                      lambda: api.get_creative(self.w.adv, theirs),
@@ -159,7 +161,7 @@ class CreativeLibraryTests(TestCase):
     def test_switching_the_selection_keeps_earlier_images_public_while_the_campaign_lives(self):
         old = self.w.creative.image_name
         new = upload(self.w, group=self.w.group.ad_group_id)
-        api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": new.creative_id}, now=NOW)
+        api.link_creative(self.w.adv, self.w.group.ad_group_id, new.creative_id, now=NOW, select=True)
         self.assertTrue(api.is_asset_servable(old, now=NOW))  # 이미 나간 결정이 화면에 남아 있을 수 있다
         self.assertTrue(api.is_asset_servable(new.image_name, now=NOW))
         library_only = upload(self.w, color=(5, 5, 5))
