@@ -11,7 +11,7 @@ from test.support.impression_fakes import DECISION_ID, REACTION_ID, SUBJECT_ID, 
 
 class ResultClientTests(unittest.TestCase):
     def setUp(self):
-        self.client = AdsClient(AdsConfig("http://localhost:8001/api/media/v1", "test-key", 5))
+        self.client = AdsClient(AdsConfig("http://localhost:8001/api/media/v1", "test-key", 5, subject_secret="unit-test-subject-secret"))
         self.client._opener = Mock()
         self.body = dict(decision_id=DECISION_ID, reaction_id=REACTION_ID, subject_id=SUBJECT_ID,
                          type="IMPRESSION", occurred_at=OCCURRED_AT, received_at=OCCURRED_AT,

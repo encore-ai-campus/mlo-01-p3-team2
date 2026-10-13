@@ -1,8 +1,8 @@
-# scripts/ad_bridge/models.py
+# ad-bridge/scripts/models.py
 
-원본: `scripts/ad_bridge/models.py` · [소스 파일](../../../../scripts/ad_bridge/models.py)
+원본: `ad-bridge/scripts/models.py` · [소스 파일](../../../../scripts/models.py)
 
-[라우팅 목차](../../ROUTING-README.md) · [구현 안내](../../../../README.md)
+[라우팅 목차](../../ROUTING-README.md) · [구현 안내](../../../../scripts/README.md)
 
 ## 역할
 
@@ -16,13 +16,13 @@ AST에서 확인한 모듈 설명:
 
 ### IssuedDecision
 
-참조: `scripts/ad_bridge/models.py::IssuedDecision`
+참조: `ad-bridge/scripts/models.py::IssuedDecision`
 
 ```text
 class IssuedDecision(models.Model):
 ```
 
-개인 광고 결정의 소유자·슬롯·광고 유무를 저장하는 모델이다. 세부 필드 명세는 이 AST 기반 탐색 문서의 범위에 포함하지 않는다.
+개인 광고 결정의 내부 소유자 owner_id와 발급 당시 광고 가명 subject_id를 별도로 저장한다. owner_id는 게임 서버의 소유권 검사에만 사용한다. subject_id는 최초 노출과 재전송에 사용할 값이며 비밀 교체 시에도 덮어쓰지 않는다. 기존 기록은 0003 마이그레이션에서 owner_id가 None으로 남는다. 필드별 동작은 저장소·마이그레이션 검사로 확인하며 AST의 심볼 존재만으로 보장하지 않는다.
 
 AST에서 확인한 호출 구문:
 
@@ -34,13 +34,13 @@ models.UUIDField
 
 ### Impression
 
-참조: `scripts/ad_bridge/models.py::Impression`
+참조: `ad-bridge/scripts/models.py::Impression`
 
 ```text
 class Impression(models.Model):
 ```
 
-결정당 최초 노출 ID·시각, 전송 상태·판정 결과·재전송 일정을 저장하는 모델이다. 세부 필드 명세는 이 AST 기반 탐색 문서의 범위에 포함하지 않는다.
+결정당 최초 노출 ID·시각, 전송 상태·판정 결과·재전송 일정을 저장하는 모델이다. subject_id는 연결된 결정의 발급 당시 가명을 예약 시 복사한 값이다. 내부 소유자는 별도 중복 필드 없이 연결된 IssuedDecision.owner_id로 확인한다.
 
 AST에서 확인한 호출 구문:
 
@@ -56,7 +56,7 @@ models.UUIDField
 
 ### Impression.Meta
 
-참조: `scripts/ad_bridge/models.py::Impression.Meta`
+참조: `ad-bridge/scripts/models.py::Impression.Meta`
 
 ```text
 class Meta:

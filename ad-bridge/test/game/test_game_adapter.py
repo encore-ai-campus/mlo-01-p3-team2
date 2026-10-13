@@ -1,6 +1,7 @@
 """DB나 광고 서버 없이 실제 Django 요청 경계와 브리지 호출을 검사한다."""
 
 import json
+import os
 import io
 from email.message import Message
 from types import SimpleNamespace
@@ -15,15 +16,18 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve, reverse
 
 from ad_bridge import AdsConfig
-from ad_bridge.game.views import request_decision
+from ad_bridge.game.views import request_decision, report_impression, reaction_result, _subject_id, _owner_id
 from ad_bridge.api.errors import AdsHTTPError, AdsResponseError, AdsTransportError
 from ad_bridge.api.types import Ad, Decision
+from ad_bridge.impressions import store as impression_store
 
 
 SLOT_ID = "aabbccdd-1234-4234-8234-123456789abc"
 SUBJECT_ID = UUID("11223344-1234-4234-8234-123456789abc")
 DECISION_ID = "22334455-1234-4234-8234-123456789abc"
 MEDIA_KEY = "server-only-media-key"
+SUBJECT_SECRET = "unit-test-subject-secret"
+AD_SUBJECT_ID = UUID("d8d3d672-5458-ddcc-c90c-a7844b3aa51a")
 
 
 @override_settings(ADS_SLOT_ID=SLOT_ID)
@@ -33,6 +37,13 @@ class GameAdapterTests(SimpleTestCase):
         storage_patch = patch("ad_bridge.game.views.decision_store.remember_decision")
         self.remember_decision = storage_patch.start()
         self.addCleanup(storage_patch.stop)
+        self.config = AdsConfig("http://ads.test/api/media/v1", MEDIA_KEY, 5, subject_secret=SUBJECT_SECRET)
+        environment = patch.dict(os.environ, {
+            "ADS_API_BASE_URL": self.config.base_url, "ADS_MEDIA_KEY": MEDIA_KEY,
+            "ADS_API_TIMEOUT": "5", "ADS_SUBJECT_SECRET": SUBJECT_SECRET,
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
         self.factory = RequestFactory()
         self.path = reverse("ad_bridge:decision")
         self.ad = Ad(
@@ -65,22 +76,22 @@ class GameAdapterTests(SimpleTestCase):
     def test_success_uses_server_identity_and_returns_only_public_fields(self):
         # 브라우저가 슬롯·사용자를 바꿔 보내도 서버 설정과 로그인 프로필만 사용한다.
         request = self.request({"slot_id": "forged-slot", "subject_id": "forged-user"})
-        config = SimpleNamespace(media_key=MEDIA_KEY)
-        with patch("ad_bridge.game.views.AdsConfig") as config_class, patch(
+        config = self.config
+        with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config) as config_class, patch(
             "ad_bridge.game.views.AdsClient"
         ) as client_class:
-            config_class.from_env.return_value = config
+            config_class.return_value = config
             client_class.return_value.create_decision.return_value = self.decision
             self.assertEqual(self.path, "/api/ads/decision/")
             self.assertIs(resolve(self.path).func, request_decision)
             response = request_decision(request)
-            config_class.from_env.assert_called_once_with()
+            config_class.assert_called_once_with()
             client_class.assert_called_once_with(config)
             client_class.return_value.create_decision.assert_called_once_with(
-                slot_id=SLOT_ID, subject_id=SUBJECT_ID
+                slot_id=SLOT_ID, subject_id=AD_SUBJECT_ID
             )
         self.assertEqual(response.status_code, 201)
-        self.remember_decision.assert_called_once_with(self.decision, SUBJECT_ID)
+        self.remember_decision.assert_called_once_with(self.decision, AD_SUBJECT_ID, owner_id=SUBJECT_ID)
         payload = json.loads(response.content)
         self.assertEqual(payload, {
             "decision_id": DECISION_ID,
@@ -100,7 +111,7 @@ class GameAdapterTests(SimpleTestCase):
         self.assertIn("no-store", response["Cache-Control"])
 
     def test_no_ad_is_a_successful_decision(self):
-        with patch("ad_bridge.game.views.AdsConfig"), patch(
+        with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config), patch(
             "ad_bridge.game.views.AdsClient"
         ) as client_class:
             client_class.return_value.create_decision.return_value = Decision(
@@ -114,7 +125,7 @@ class GameAdapterTests(SimpleTestCase):
 
     def test_decision_storage_failure_does_not_return_an_untracked_ad(self):
         self.remember_decision.side_effect = DatabaseError("private database detail")
-        with patch("ad_bridge.game.views.AdsConfig"), patch(
+        with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config), patch(
             "ad_bridge.game.views.AdsClient"
         ) as client_class:
             client_class.return_value.create_decision.return_value = self.decision
@@ -173,11 +184,11 @@ class GameAdapterTests(SimpleTestCase):
     def test_invalid_environment_or_uuid_is_a_configuration_error(self):
         for failure_stage in ("config", "decision"):
             with self.subTest(failure_stage=failure_stage), patch(
-                "ad_bridge.game.views.AdsConfig"
+                "ad_bridge.game.views.AdsConfig.from_env", return_value=self.config
             ) as config_class, patch("ad_bridge.game.views.AdsClient") as client_class:
                 failure = ValueError("invalid private configuration")
                 if failure_stage == "config":
-                    config_class.from_env.side_effect = failure
+                    config_class.side_effect = failure
                 else:
                     client_class.return_value.create_decision.side_effect = failure
                 response = request_decision(self.request())
@@ -186,7 +197,7 @@ class GameAdapterTests(SimpleTestCase):
             self.assertNotIn("invalid private configuration", response.content.decode())
 
     def test_upstream_http_error_preserves_status_and_request_id(self):
-        with patch("ad_bridge.game.views.AdsConfig"), patch(
+        with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config), patch(
             "ad_bridge.game.views.AdsClient"
         ) as client_class:
             client_class.return_value.create_decision.side_effect = AdsHTTPError(
@@ -207,7 +218,7 @@ class GameAdapterTests(SimpleTestCase):
         )
         for failure, expected_error in cases:
             with self.subTest(expected_error=expected_error), patch(
-                "ad_bridge.game.views.AdsConfig"
+                "ad_bridge.game.views.AdsConfig.from_env", return_value=self.config
             ), patch("ad_bridge.game.views.AdsClient") as client_class:
                 client_class.return_value.create_decision.side_effect = failure
                 response = request_decision(self.request())
@@ -218,7 +229,7 @@ class GameAdapterTests(SimpleTestCase):
 
     def test_actual_client_rejects_invalid_server_uuids_before_http(self):
         # 요청 함수를 통째로 대체하지 않아 실제 UUID 검증까지 연결되는지 확인한다.
-        config = AdsConfig("http://ads.test/api/media/v1", MEDIA_KEY, 5)
+        config = AdsConfig("http://ads.test/api/media/v1", MEDIA_KEY, 5, subject_secret="unit-test-subject-secret")
         with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=config), patch(
             "ad_bridge.api.client.build_opener"
         ) as build_opener:
@@ -232,13 +243,14 @@ class GameAdapterTests(SimpleTestCase):
             build_opener.return_value.open.assert_not_called()
 
     def test_actual_client_sends_each_logged_in_profile_to_the_configured_endpoint(self):
-        config = AdsConfig("http://ads.test/api/media/v1", MEDIA_KEY, 5)
+        config = AdsConfig("http://ads.test/api/media/v1", MEDIA_KEY, 5, subject_secret="unit-test-subject-secret")
         opener = Mock()
         with patch("ad_bridge.game.views.AdsConfig.from_env", return_value=config), patch(
             "ad_bridge.api.client.build_opener", return_value=opener
         ):
             # 사용자별 UUID가 서로 섞이지 않고 매번 현재 로그인 프로필에서 선택되어야 한다.
-            for subject_id in (SUBJECT_ID, UUID("99887766-1234-4234-8234-123456789abc")):
+            for subject_id, expected_subject in ((SUBJECT_ID, str(AD_SUBJECT_ID)),
+                    (UUID("99887766-1234-4234-8234-123456789abc"), "ba123227-029b-4392-d1d6-4443da7790d6")):
                 body = {
                     "decision_id": DECISION_ID, "slot_id": SLOT_ID, "slot_name": "테스트 슬롯",
                     "audience": "individual", "decided_at": "2026-10-11T12:00:00Z", "ad": None,
@@ -256,9 +268,100 @@ class GameAdapterTests(SimpleTestCase):
                 self.assertEqual(outgoing.full_url, "http://ads.test/api/media/v1/decisions")
                 self.assertEqual(outgoing.method, "POST")
                 self.assertEqual(json.loads(outgoing.data), {
-                    "slot_id": SLOT_ID, "subject_id": str(subject_id),
+                    "slot_id": SLOT_ID, "subject_id": expected_subject,
                 })
+                self.assertNotIn(str(subject_id), outgoing.data.decode())
+                self.assertNotIn(SUBJECT_SECRET, outgoing.data.decode())
                 self.assertEqual(outgoing.get_header("X-media-key"), MEDIA_KEY)
                 self.assertEqual(opener.open.call_args.kwargs, {"timeout": 5.0})
                 self.assertNotIn(MEDIA_KEY, result.content.decode())
             self.assertEqual(opener.open.call_count, 2)
+
+    def test_subject_pseudonym_is_stable_and_normalizes_uuid_input(self):
+        # 고정 벡터로 접두사·해시·앞 16바이트 및 UUID 정규화 규칙을 함께 검증한다.
+        for value in (SUBJECT_ID, str(SUBJECT_ID), str(SUBJECT_ID).upper(), SUBJECT_ID.hex):
+            user = self.request().user
+            user.campus_profile.user_uuid = value
+            self.assertEqual(_subject_id(_owner_id(user), subject_secret=SUBJECT_SECRET), AD_SUBJECT_ID)
+        self.assertNotEqual(_subject_id(_owner_id(self.request().user), subject_secret="other-secret"), AD_SUBJECT_ID)
+
+    def test_missing_or_invalid_subject_secret_blocks_all_game_calls(self):
+        # 세 경로 모두 가명 비밀 오류에서 DB 조회와 외부 요청 전에 중단한다.
+        for secret in (None, "", " private-secret ", "private-secret\n"):
+            with self.subTest(secret_type=type(secret).__name__), patch.dict(os.environ), patch(
+                "ad_bridge.game.views.AdsClient"
+            ) as client_class, patch("ad_bridge.game.views.impression_store.get_impression") as lookup:
+                if secret is None:
+                    os.environ.pop("ADS_SUBJECT_SECRET", None)
+                else:
+                    os.environ["ADS_SUBJECT_SECRET"] = secret
+                for view, args in ((request_decision, ()), (report_impression, (DECISION_ID,)),
+                                   (reaction_result, (DECISION_ID,))):
+                    response = view(self.request(), *args)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(json.loads(response.content)["error"], "ads_invalid_config")
+                    self.assertNotIn("private-secret", response.content.decode())
+                    self.assertNotIn(str(SUBJECT_ID), response.content.decode())
+                client_class.assert_not_called()
+                lookup.assert_not_called()
+
+    def test_result_lookup_uses_internal_owner(self):
+        record = SimpleNamespace(delivery_state="ACKNOWLEDGED", status="ACCEPTED",
+            decision_id=DECISION_ID, reaction_id="reaction", reason_code=None,
+            request_id=None, attempts=1, last_error=None)
+        with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record) as lookup:
+            response = reaction_result(self.request(), DECISION_ID)
+        self.assertEqual(response.status_code, 200)
+        lookup.assert_called_once_with(decision_id=DECISION_ID, owner_id=SUBJECT_ID)
+
+    def test_result_response_hides_both_saved_and_refreshed_judgments(self):
+        # 내부 판정 조회는 유지하되, 저장값과 새 조회값 모두 같은 공개 응답을 만든다.
+        public_payloads = []
+        for status in (None, "RECEIVED", "ACCEPTED", "REJECTED"):
+            with self.subTest(status=status):
+                record = SimpleNamespace(
+                    decision_id=DECISION_ID, reaction_id="reaction",
+                    delivery_state="ACKNOWLEDGED", status=status,
+                    reason_code="private-reason" if status == "REJECTED" else None,
+                    request_id="request", attempts=1, last_error=None,
+                )
+                with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record), patch(
+                    "ad_bridge.game.views.refresh_result", return_value=record,
+                ) as refresh, patch("ad_bridge.game.views.AdsClient") as client_class:
+                    response = reaction_result(self.request(), DECISION_ID)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(json.loads(response.content), {
+                    "decision_id": DECISION_ID, "reaction_id": "reaction",
+                    "delivery_state": "ACKNOWLEDGED", "request_id": "request",
+                    "attempts": 1, "last_error": None,
+                })
+                public_payloads.append(response.content)
+                if status in ("ACCEPTED", "REJECTED"):
+                    refresh.assert_not_called()
+                else:
+                    refresh.assert_called_once_with(
+                        client=client_class.return_value,
+                        store=impression_store,
+                        decision_id=DECISION_ID, owner_id=SUBJECT_ID,
+                    )
+                self.assertEqual(record.status, status)
+        self.assertTrue(all(payload == public_payloads[0] for payload in public_payloads))
+
+    def test_result_pending_delivery_returns_local_state_without_upstream_lookup(self):
+        for state in ("SENDING", "UNCONFIRMED", "BLOCKED"):
+            with self.subTest(state=state):
+                record = SimpleNamespace(
+                    decision_id=DECISION_ID, reaction_id="reaction", delivery_state=state,
+                    status=None, reason_code=None, request_id=None, attempts=1,
+                    last_error="ads_http_error" if state == "BLOCKED" else None,
+                )
+                with patch("ad_bridge.game.views.impression_store.get_impression", return_value=record), patch(
+                    "ad_bridge.game.views.refresh_result",
+                ) as refresh:
+                    response = reaction_result(self.request(), DECISION_ID)
+                self.assertEqual(response.status_code, 202)
+                payload = json.loads(response.content)
+                self.assertEqual(payload["delivery_state"], state)
+                self.assertNotIn("status", payload)
+                self.assertNotIn("reason_code", payload)
+                refresh.assert_not_called()

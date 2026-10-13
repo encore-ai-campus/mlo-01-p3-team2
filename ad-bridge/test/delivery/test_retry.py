@@ -29,7 +29,7 @@ class RetryTests(unittest.TestCase):
     def report(self):
         return report_impression_once(
             client=self.client, store=self.store, decision_id=DECISION_ID,
-            subject_id=SUBJECT_ID, occurred_at=OCCURRED_AT,
+            owner_id=SUBJECT_ID, occurred_at=OCCURRED_AT,
             policy=self.policy, now=self.clock,
         )
 

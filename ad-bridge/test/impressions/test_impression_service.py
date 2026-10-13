@@ -20,7 +20,7 @@ class ImpressionServiceTests(unittest.TestCase):
     def report(self, *, occurred_at=OCCURRED_AT):
         return report_impression_once(
             client=self.client, store=self.store, decision_id=DECISION_ID,
-            subject_id=SUBJECT_ID, occurred_at=occurred_at,
+            owner_id=SUBJECT_ID, occurred_at=occurred_at,
         )
 
     def test_first_report_reserves_stable_payload_before_http(self):

@@ -1,4 +1,4 @@
-"""광고 API 주소·인증 키·타임아웃 설정과 입력 검증."""
+"""광고 API 연결 설정·가명 생성 비밀과 입력 검증."""
 
 import math
 import os
@@ -14,6 +14,7 @@ class AdsConfig:
     base_url: str
     media_key: str = field(repr=False)
     timeout: float
+    subject_secret: str = field(repr=False, kw_only=True)
 
     def __post_init__(self) -> None:
         # URL 파서가 일부 제어 문자를 지우기 전에 잘못된 입력을 거부한다.
@@ -51,6 +52,16 @@ class AdsConfig:
         if any(not 33 <= ord(char) <= 126 for char in self.media_key):
             raise ValueError("ADS_MEDIA_KEY에는 공백·제어 문자·비ASCII 문자를 넣을 수 없습니다.")
 
+        # 비밀은 자동 보정하지 않는다. 잘못된 설정으로 다른 가명이 생성되는 것을 막는다.
+        if not isinstance(self.subject_secret, str) or not self.subject_secret:
+            raise ValueError("ADS_SUBJECT_SECRET이 필요합니다.")
+        if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in self.subject_secret):
+            raise ValueError("ADS_SUBJECT_SECRET에는 공백·제어 문자를 넣을 수 없습니다.")
+        try:
+            self.subject_secret.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("ADS_SUBJECT_SECRET은 UTF-8 문자열이어야 합니다.") from None
+
         try:
             if isinstance(self.timeout, bool):
                 raise ValueError
@@ -68,7 +79,7 @@ class AdsConfig:
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "AdsConfig":
         """호출 시 환경변수를 읽는다. 테스트에서는 별도 매핑을 전달할 수 있다."""
         values = os.environ if environ is None else environ
-        names = ("ADS_API_BASE_URL", "ADS_MEDIA_KEY", "ADS_API_TIMEOUT")
+        names = ("ADS_API_BASE_URL", "ADS_MEDIA_KEY", "ADS_API_TIMEOUT", "ADS_SUBJECT_SECRET")
         for name in names:
             value = values.get(name)
             if not isinstance(value, str) or not value.strip():
@@ -77,4 +88,5 @@ class AdsConfig:
             base_url=values["ADS_API_BASE_URL"],
             media_key=values["ADS_MEDIA_KEY"],
             timeout=values["ADS_API_TIMEOUT"],
+            subject_secret=values["ADS_SUBJECT_SECRET"],
         )

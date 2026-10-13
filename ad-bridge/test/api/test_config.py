@@ -10,6 +10,7 @@ from ad_bridge.api.config import AdsConfig
 
 BASE_URL = "http://127.0.0.1:8001/api/media/v1"
 MEDIA_KEY = "unit-test-private-media-key"
+SUBJECT_SECRET = "unit-test-subject-secret"
 
 
 class AdsConfigTests(unittest.TestCase):
@@ -18,6 +19,7 @@ class AdsConfigTests(unittest.TestCase):
             "ADS_API_BASE_URL": BASE_URL,
             "ADS_MEDIA_KEY": MEDIA_KEY,
             "ADS_API_TIMEOUT": "5",
+            "ADS_SUBJECT_SECRET": SUBJECT_SECRET,
         }
 
     def test_valid_settings_normalize_base_url_and_timeout(self):
@@ -30,7 +32,7 @@ class AdsConfigTests(unittest.TestCase):
         )
         for url, timeout, expected_url, expected_timeout in cases:
             with self.subTest(url=url, timeout=timeout):
-                config = AdsConfig(url, MEDIA_KEY, timeout)
+                config = AdsConfig(url, MEDIA_KEY, timeout, subject_secret="unit-test-subject-secret")
                 self.assertEqual(config.base_url, expected_url)
                 self.assertEqual(config.timeout, expected_timeout)
                 self.assertIsInstance(config.timeout, float)
@@ -68,7 +70,7 @@ class AdsConfigTests(unittest.TestCase):
         self.assertEqual(self.environ, original)
 
     def test_from_env_reads_current_process_values_when_mapping_is_omitted(self):
-        # Windows 시스템 환경변수는 유지하고 광고용 세 값만 일시 교체한다.
+        # Windows 시스템 환경변수는 유지하고 광고용 네 값만 일시 교체한다.
         with patch.dict(os.environ, self.environ):
             first = AdsConfig.from_env()
             with patch.dict(os.environ, {"ADS_API_TIMEOUT": "1.75"}):
@@ -100,7 +102,7 @@ class AdsConfigTests(unittest.TestCase):
         for url in invalid_urls:
             with self.subTest(url=url):
                 with self.assertRaises(ValueError):
-                    AdsConfig(url, MEDIA_KEY, 5)
+                    AdsConfig(url, MEDIA_KEY, 5, subject_secret="unit-test-subject-secret")
 
     def test_invalid_media_keys_are_rejected_without_leaking_the_key(self):
         invalid_keys = (
@@ -112,7 +114,7 @@ class AdsConfigTests(unittest.TestCase):
         for index, key in enumerate(invalid_keys):
             with self.subTest(case=index):
                 with self.assertRaises(ValueError) as raised:
-                    AdsConfig(BASE_URL, key, 5)
+                    AdsConfig(BASE_URL, key, 5, subject_secret="unit-test-subject-secret")
                 self.assertIn("ADS_MEDIA_KEY", str(raised.exception))
                 self.assertNotIn(MEDIA_KEY, str(raised.exception))
 
@@ -124,14 +126,26 @@ class AdsConfigTests(unittest.TestCase):
         for timeout in invalid_timeouts:
             with self.subTest(timeout=timeout):
                 with self.assertRaises(ValueError) as raised:
-                    AdsConfig(BASE_URL, MEDIA_KEY, timeout)
+                    AdsConfig(BASE_URL, MEDIA_KEY, timeout, subject_secret="unit-test-subject-secret")
                 self.assertIn("ADS_API_TIMEOUT", str(raised.exception))
 
     def test_config_representation_does_not_expose_media_key(self):
-        config = AdsConfig(BASE_URL, MEDIA_KEY, 5)
+        config = AdsConfig(BASE_URL, MEDIA_KEY, 5, subject_secret="unit-test-subject-secret")
         self.assertNotIn(MEDIA_KEY, repr(config))
         self.assertNotIn(MEDIA_KEY, str(config))
         self.assertIn(BASE_URL, repr(config))
+        self.assertNotIn(SUBJECT_SECRET, repr(config))
+        self.assertNotIn(SUBJECT_SECRET, str(config))
+
+    def test_subject_secret_is_required_and_invalid_values_are_redacted(self):
+        # 원문을 노출하거나 공백을 제거해 다른 가명을 만들지 않아야 한다.
+        for secret in (None, 123, "", " ", " padded ", "line\nbreak", "secret\x00", "secret\x7f", "\ud800"):
+            with self.subTest(case=type(secret).__name__):
+                with self.assertRaises(ValueError) as raised:
+                    AdsConfig(BASE_URL, MEDIA_KEY, 5, subject_secret=secret)
+                self.assertIn("ADS_SUBJECT_SECRET", str(raised.exception))
+                self.assertNotIn("padded", str(raised.exception))
+                self.assertNotIn("secret", str(raised.exception))
 
 
 if __name__ == "__main__":
