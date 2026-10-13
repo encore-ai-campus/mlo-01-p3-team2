@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 
 from assets.api import ImageRejected, asset_exists
 from campaigns import api
-from campaigns.models import AdGroup, Bid, Campaign, Creative
+from campaigns.models import AdGroup, Bid, Creative
 from foundation.errors import Forbidden, InvalidRequest, StaleVersion
 from foundation.models import AuditLog
 from masters import api as masters
@@ -68,10 +68,12 @@ class CampaignServiceTests(TestCase):
                 api.update_campaign(adv, cid, bad, now=NOW)
 
     def test_an_ad_may_combine_any_slots(self):
-        """과금 단위가 없어(6-10d) 비율이 다른 위치도 한 광고에 함께 고른다 — 과금은 위치마다 그 정책의 비율로 나뉜다."""
+        """과금 단위가 없어(6-10d) 비율이 다른 구성도 한 광고에 함께 고른다 — 과금은 구성마다 그 정책의 비율로 나뉜다.
+        만든 결과가 알리는 구성(정렬)은 나중에 읽은 것과 같다."""
         click_heavy = make_slot(self.w.admin, unit="CLICK")  # 클릭 98%
-        group = api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "g", [self.w.slot.slot_id, click_heavy.slot_id], now=NOW)
-        self.assertEqual(set(group.slot_ids), {self.w.slot.slot_id, click_heavy.slot_id})
+        group = api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "g", [click_heavy.slot_id, self.w.slot.slot_id], now=NOW)
+        self.assertEqual(group.slot_ids, tuple(sorted([self.w.slot.slot_id, click_heavy.slot_id], key=str)))
+        self.assertEqual(group.slot_ids, api.get_ad_group(self.w.adv, group.ad_group_id).slot_ids)
 
     def test_ad_group_slot_validation(self):
         inactive = make_slot(self.w.admin)
@@ -104,11 +106,6 @@ class CampaignServiceTests(TestCase):
                          [("그룹", (1, 300)), ("둘째", None), ("셋째", (2, 450))])
         self.assertEqual(groups, [api.get_ad_group(self.w.adv, g.ad_group_id) for g in groups])  # 게재 위치 순서·입찰 값까지 하나씩 읽은 것과 같다
 
-    def test_pricing_unit_is_no_longer_a_field(self):
-        """과금 단위는 없어졌다(6-10d): 보내면 모르는 필드로 400 이다."""
-        with self.assertRaises(InvalidRequest):
-            api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"pricing_unit": "CLICK"}, now=NOW)
-
     def test_update_ad_group_replaces_slots_atomically(self):
         other = make_slot(self.w.admin)
         view = api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"slot_ids": [other.slot_id], "name": "이름", "enabled": False}, now=NOW)
@@ -117,8 +114,9 @@ class CampaignServiceTests(TestCase):
             api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"name": "바뀌면 안 됨", "slot_ids": [other.slot_id, uuid.uuid4()]}, now=NOW)
         after = api.get_ad_group(self.w.adv, self.w.group.ad_group_id)
         self.assertEqual((after.slot_ids, after.name), ((other.slot_id,), "이름"))
-        with self.assertRaises(InvalidRequest):
-            api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"enabled": "yes"}, now=NOW)
+        for bad in ({"enabled": "yes"}, {"pricing_unit": "CLICK"}, {}):  # 과금 단위는 없어져(6-10d) 모르는 필드다
+            with self.assertRaises(InvalidRequest, msg=bad):
+                api.update_ad_group(self.w.adv, self.w.group.ad_group_id, bad, now=NOW)
 
     def test_bid_out_of_range_is_stored(self):
         """입력은 거절하지 않는다: 정책 100~500 에서 50 도 5,000 도 저장된다(적용 금액 계산은 engine 몫)."""
@@ -531,6 +529,7 @@ class CreateAdTests(TestCase):
             self.create(user=self.admin)
         self.assertNothingCreated()
 
+
 class CampaignEndsAtTests(TestCase):
     def setUp(self):
         self.adv = make_advertiser()
@@ -545,12 +544,3 @@ class CampaignEndsAtTests(TestCase):
         with self.assertRaises(InvalidRequest) as caught:
             api.update_campaign(self.adv, c.campaign_id, {"ends_at": NOW + DAY}, now=NOW)
         self.assertEqual(caught.exception.errors, ENDS_AT_ERROR)
-
-
-class AdGroupCreatedSlotsTests(TestCase):
-    def test_the_created_group_reports_its_slots_like_a_later_read(self):
-        w = World()
-        second = make_slot(w.admin)
-        group = api.create_ad_group(w.adv, w.campaign.campaign_id, "둘째 그룹", [second.slot_id, w.slot.slot_id], now=NOW)
-        self.assertEqual(group.slot_ids, tuple(sorted([w.slot.slot_id, second.slot_id], key=str)))
-        self.assertEqual(group.slot_ids, api.get_ad_group(w.adv, group.ad_group_id).slot_ids)

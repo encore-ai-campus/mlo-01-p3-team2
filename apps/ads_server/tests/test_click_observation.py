@@ -17,7 +17,7 @@ from records.services import click_reaction_id
 from serving_api.clicks import SALT
 from tests.concurrency import run_together
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, SHARES, SUBJECT, World, media_api, png_file
+from tests.factories import NOW, SUBJECT, World, media_api
 
 BASE = "http://testserver"
 PATH = "/c/{token}"
@@ -41,10 +41,7 @@ class ClickBase(ProviderContractMixin, TestCase):
         return response.json()
 
     def shared_slot(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", [slot.slot_id], bid_amount=400, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((7, 7, 7)), now=NOW)
-        return slot
+        return self.w.shared_ad()[0]
 
     def follow(self, url, **extra):
         return Client().get(url.removeprefix(BASE), **extra)

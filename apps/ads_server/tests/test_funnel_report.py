@@ -187,9 +187,7 @@ class ConversionRateCohortTests(ReportBase):
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
 
     def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        slot, group = self.w.shared_ad()
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B):
             self.report(decision, "IMPRESSION", NOW + SEC, subject=person)
@@ -286,9 +284,7 @@ class DailyReportScopeTests(ReportBase):
         self.assertEqual(self.report_for(ad_group_id=self.w.group.ad_group_id).totals.spent, 10)
 
     def test_shared_slot_counts_every_viewer(self):
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        slot, group = self.w.shared_ad()
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B, C):
             self.report(decision, "IMPRESSION", NOW + SEC, subject=person)

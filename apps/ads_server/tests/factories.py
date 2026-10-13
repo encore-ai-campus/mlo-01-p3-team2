@@ -26,8 +26,10 @@ WHOLE = {"IMPRESSION": 100, "CLICK": 100, "CONVERSION": 100}  # 원장 동작만
 
 
 def shares_for(unit):
-    """구성 단위 쪽에 98%, 나머지에 1%씩(6-10c). 과금 단위가 없어지기 전(6-10d)까지 단위로 만든 시험 세계가 그 단위에 주로 과금되게."""
+    """`unit` 유형에 98%, 나머지에 1%씩. 과금 단위는 6-10d 에 없어졌고, 시험 세계의 `unit` 은 이제 적용 금액의 98% 를 받는 반응 유형이다."""
     return {f"{t.lower()}_share": 98 if t == unit else 1 for t in ("IMPRESSION", "CLICK", "CONVERSION")}
+
+
 SUBJECT = "0197a5c0-0000-7000-8000-000000000001"  # 개인(individual) 슬롯의 결정에 쓰는 가명 UUID
 
 
@@ -54,7 +56,7 @@ def make_slot(admin, unit="IMPRESSION", floor=100, base=200, cap=500, name=None)
 
 
 class World:
-    """광고주 한 명이 캠페인·광고그룹(입찰 300)·소재까지 가진 상태. 모든 호출은 고정 시각 NOW 기준."""
+    """광고주 한 명이 캠페인·광고그룹(입찰 300)·소재까지 가진 상태. 모든 호출은 고정 시각 NOW 기준. `unit`: 구성에서 98% 를 받는 반응 유형(`shares_for`)."""
 
     def __init__(self, unit="IMPRESSION", with_creative=True, ends_in=10 * DAY):
         from billing import api as billing
@@ -71,6 +73,15 @@ class World:
             campaigns.create_creative(self.adv, self.group.ad_group_id, "제목", "https://example.com/landing", png_file(), now=NOW)
             if with_creative else None
         )
+
+    def shared_ad(self):
+        """같은 매체의 일괄 구성(하한 100·기준 200·상한 500)과 그 구성에만 놓인 이 캠페인의 광고(입찰 400)·소재. (구성, 광고그룹)을 돌려준다."""
+        from masters import api as masters
+
+        slot = masters.create_slot(self.admin, self.slot.media_id, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
+        group = self.api.create_ad_group(self.adv, self.campaign.campaign_id, "일괄 그룹", [slot.slot_id], bid_amount=400, now=NOW)
+        self.api.create_creative(self.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        return slot, group
 
 
 def media_api(test):

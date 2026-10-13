@@ -68,7 +68,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertEqual([r.status for r in rows], ["ACCEPTED", "REJECTED"])
         self.assertEqual(rows[1].reason_code, "duplicate_type")
         self.assertEqual(click.status, "ACCEPTED")
-        self.assertEqual(self.balance(), 50_000 - 3 - 294)  # 클릭 단위 세계: 노출 1% · 클릭 98%
+        self.assertEqual(self.balance(), 50_000 - 3 - 294)  # 클릭 98% 세계: 노출 1% · 클릭 98%
 
     def test_judging_waits_for_an_in_flight_earlier_receipt_and_then_sees_it(self):
         """뒤 반응이 이미 커밋돼 있어도, 판정이 시작될 때 더 이른 시각의 접수가 진행 중이면 그 커밋을 기다린 뒤 판정한다."""

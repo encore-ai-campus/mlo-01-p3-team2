@@ -17,7 +17,6 @@ from records import api as records
 from records.models import Decision, Reaction
 from tests.factories import DAY, NOW, SHARES, SUBJECT, WHOLE, World, png_file
 
-UNIT = "IMPRESSION"
 
 
 def decide(w, **kw):
@@ -182,7 +181,7 @@ class GatingTests(TestCase):
         self.assertIsNotNone(decide(w).chosen)
         # 일예산 소진: 한도 5,000 을 과금으로 채우면 후보에서 빠지고, 예산을 늘리면 다시 노출된다
         campaigns.update_campaign(w.adv, cid, {"daily_budget": 5_000}, now=NOW)
-        billing.charge_for_reaction(owner, cid, UNIT, WHOLE, 4_990, "m:r1", now=NOW)
+        billing.charge_for_reaction(owner, cid, "IMPRESSION", WHOLE, 4_990, "m:r1", now=NOW)
         d = decide(w)
         self.assertEqual((d.chosen, d.rejected_counts), (None, {"budget_exhausted": 1}))  # 남은 10 < 적용 금액 300
         campaigns.update_campaign(w.adv, cid, {"daily_budget": 10_000}, now=NOW)

@@ -106,7 +106,7 @@ class ScreenQualityTests(TestCase):
         self.suspended = campaigns.create_campaign(self.w.adv, "<b>중단된 캠페인</b>", self.w.campaign.starts_at, None, 1000)
         campaigns.suspend_campaign(self.w.admin, self.suspended.campaign_id, "<i>사유</i>")
         campaigns.create_review_request(self.w.adv, self.suspended.campaign_id, "고쳤습니다")
-        campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))  # 소재마다 폼이 되풀이된다
+        campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))  # 이미지마다 고르기 버튼이 되풀이된다
         # 관리자 사이트의 모든 모델 상세 화면을 보려고 줄을 하나씩 둔다
         Client().post(reverse("login"), {"username": "nobody", "password": "wrong-password-xyz"})  # 잠금 시도
         Client().post(reverse("login"), {"username": self.w.admin.username, "password": PW})  # 접속 기록
@@ -123,7 +123,7 @@ class ScreenQualityTests(TestCase):
             ("campaign_detail", [self.suspended.campaign_id]), ("ad_group_detail", [self.w.group.ad_group_id]), ("ad_create", []),
             ("campaign_create", []), ("creative_list", []), ("creative_detail", [self.w.creative.creative_id]),
             ("points", []), ("my_account", []),
-        )] + [reverse("ad_create") + "?unit=IMPRESSION"]
+        )]
         operator = [reverse(n, args=a) for n, a in (
             ("operator:media_list", []), ("operator:media_detail", [self.w.slot.media_id]),
             ("operator:slot_policy", [self.w.slot.slot_id]), ("operator:policy_bulk", []), ("operator:campaign_monitor", []),
@@ -239,8 +239,9 @@ class ScreenQualityTests(TestCase):
                 audit.feed(client.get(url).content.decode())
                 self.assertEqual(audit.report(), [], url)
 
-    def test_screens_say_ad_not_ad_group(self):
-        """화면 용어는 "광고"다 — 코드·계약의 광고그룹(`AdGroup`)을 화면에 드러내지 않는다(6-9e, 설계 §10 "화면 용어: 광고"). Django admin 의 모델 화면은 범위 밖."""
+    def test_screens_use_the_screen_terms(self):
+        """화면 용어는 "광고"·"구성"이다 — 코드·계약의 광고그룹(`AdGroup`)과 슬롯(`Slot`, 옛 화면 이름 "게재 위치"), 없어진 과금 단위를 화면에 드러내지 않는다
+        (6-9e·6-10e·6-10d, 설계 §10 "화면 용어: 광고"·"화면 용어: 구성"). Django admin 의 모델 화면은 범위 밖."""
         for user, urls in self.pages():
             client = Client()
             if user is not None:
@@ -248,18 +249,9 @@ class ScreenQualityTests(TestCase):
             for url in urls:
                 if url.startswith("/" + settings.ADMIN_URL_PATH) and "/operator/" not in url:
                     continue
-                self.assertNotIn("광고그룹", client.get(url).content.decode(), url)
-
-    def test_screens_say_composition_not_placement(self):
-        """화면 용어는 "구성"이다 — 코드·계약의 슬롯(`Slot`, 옛 화면 이름 "게재 위치")을 화면에 드러내지 않는다(6-10e, 설계 §10 "화면 용어: 구성"). Django admin 의 모델 화면은 범위 밖."""
-        for user, urls in self.pages():
-            client = Client()
-            if user is not None:
-                client.force_login(user)
-            for url in urls:
-                if url.startswith("/" + settings.ADMIN_URL_PATH) and "/operator/" not in url:
-                    continue
-                self.assertNotIn("게재 위치", client.get(url).content.decode(), url)
+                html = client.get(url).content.decode()
+                for word in ("광고그룹", "게재 위치", "과금 단위"):
+                    self.assertNotIn(word, html, (url, word))
 
     def test_the_design_tokens_have_enough_contrast_in_both_themes(self):
         css = Path(finders.find("console/app.css")).read_text()

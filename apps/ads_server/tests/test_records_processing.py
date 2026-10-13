@@ -20,7 +20,7 @@ from records import api as records
 from records.models import Reaction
 from records.rules import UnknownRule
 from tests.concurrency import run_together
-from tests.factories import DAY, NOW, SHARES, SUBJECT, World, media_api
+from tests.factories import DAY, NOW, SUBJECT, World, media_api
 
 
 class ProcessingBase(TestCase):

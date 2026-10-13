@@ -32,13 +32,11 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual(items[0].creatives[0].redirect_url, "https://changed.example/")
         self.assertEqual(items[1].creatives, ())
 
-    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)
     def test_the_latest_of_several_creatives_counts(self):
         campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)), now=NOW + 2 * DAY)
         first = self.listed()[0]
         self.assertEqual((first.campaign.name, first.last_changed_at, len(first.creatives)), ("캠페인", NOW + 2 * DAY, 2))
 
-    @override_settings(MAX_CREATIVES_PER_AD_GROUP=2)
     def test_creatives_are_listed_in_creation_order_in_both_lists(self):
         earlier = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "먼저 만든 소재", "https://example.com/0", png_file((8, 8, 8)),
                                             now=NOW - DAY / 2)  # 행은 나중에 넣었지만 만든 시각은 앞이다(넣은 순서와 다르게)

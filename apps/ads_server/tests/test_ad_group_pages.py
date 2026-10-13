@@ -1,16 +1,16 @@
-"""Step 3-2d 광고그룹 상세: 위치별 결과, 입찰 이력과 새 입찰(낙관적 잠금 충돌 안내), 이름·위치·켜기/끄기, 소재(본인 이미지·제목/주소·켜기/끄기·이미지 교체).
+"""Step 3-2d 광고 상세(광고그룹): 구성별 결과, 입찰 이력과 새 입찰(낙관적 잠금 충돌 안내), 이름·구성·켜기/끄기, 이미지 고르기·올리기(6-11).
+소재의 제목·주소 수정과 이미지 교체는 소재 상세에서만 한다(시험은 `test_creative_pages`).
 
-완료 조건(계획 3-2d): 입찰은 추가만, 충돌 안내, 교체한 과거 이미지 보유 규칙은 서비스 그대로. 동작마다 작은 폼이라 한 칸의 제출이 다른 칸을 덮지 않는다.
-World: 노출 단위 슬롯(하한 10·기준 20·상한 50), 입찰 30.
+완료 조건(계획 3-2d): 입찰은 추가만, 충돌 안내. 동작마다 작은 폼이라 한 칸의 제출이 다른 칸을 덮지 않는다.
+World: 구성(하한 100·기준 200·상한 500, 노출 98%), 입찰 300.
 """
 import re
 from unittest import mock
 
-from django.test import Client, TestCase, override_settings, tag
+from django.test import TestCase, tag
 from django.urls import reverse
 
 from campaigns import api as campaigns
-from campaigns.models import CreativeImage
 from masters import api as masters
 from tests.factories import World, make_slot, png_file
 
@@ -23,7 +23,6 @@ class AdGroupPageBase(TestCase):
         self.crid = self.w.creative.creative_id
         self.client.force_login(self.w.adv)
         self.detail = reverse("ad_group_detail", args=[self.gid])
-        self.creative_page = reverse("creative_detail", args=[self.crid])  # 소재 수정·이미지 교체는 소재 상세에서만(6-11)
 
     def html(self):
         return self.client.get(self.detail).content.decode()
@@ -31,34 +30,15 @@ class AdGroupPageBase(TestCase):
     def group(self):
         return campaigns.get_ad_group(self.w.adv, self.gid)
 
-    def creative(self):
-        return campaigns.get_creative(self.w.adv, self.crid)
-
     def seen(self):
         """화면이 싣는 광고그룹의 마지막 변경 시각."""
         return self.group().updated_at.isoformat()
-
-    def seen_creative(self):
-        return self.creative().updated_at.isoformat()
-
-    def edit_fields(self, **over):
-        """소재 상세의 제목·주소 폼(접두사 = 소재 ID)이 싣는 값."""
-        prefix = str(self.crid)
-        html = self.client.get(self.creative_page).content.decode()
-        found = dict(re.findall(rf'name="{prefix}-(title|redirect_url|updated_at)"[^>]*?value="([^"]*)"', html))
-        return {f"{prefix}-{k}": v for k, v in {**found, **over}.items()}
-
-    def image_fields(self, image, creative=None, updated_at=None):
-        """소재 상세의 이미지 교체 폼(접두사 = 소재 ID)."""
-        creative = creative or self.creative()
-        return {f"{creative.creative_id}-image": image, f"{creative.creative_id}-updated_at": updated_at or creative.updated_at.isoformat()}
 
 
 class DetailTests(AdGroupPageBase):
     def test_shows_bid_effects_history_slots_and_the_creative(self):
         html = self.html()
         self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
-        self.assertNotIn("과금 단위", html)  # 과금 단위는 없다(6-10d)
         self.assertIn("현재 입찰 <strong>300 포인트</strong>", html)
         self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">300 포인트</td>\s*<td>노출 294 · 클릭 3 · 전환 3</td>")  # 위치별 예상 과금(6-10d)
         self.assertIn("노출 98% · 클릭 1% · 전환 1%", html)  # 고를 수 있는 위치의 비율
@@ -130,37 +110,7 @@ class GroupEditTests(AdGroupPageBase):
         self.assertIn("꺼진 구성 — 노출 안 됨", html)
 
 
-class CreativeTests(AdGroupPageBase):
-    def test_edit_only_what_changed(self):
-        self.assertRedirects(self.client.post(reverse("creative_edit", args=[self.crid]), self.edit_fields(title="새 제목")), self.creative_page)
-        creative = self.creative()
-        self.assertEqual((creative.title, creative.redirect_url), ("새 제목", "https://example.com/landing"))
-
-    def test_a_stale_edit_does_not_revert_an_image_replaced_elsewhere(self):
-        fields = self.edit_fields(title="새 제목")
-        new = campaigns.replace_creative_image(self.w.adv, self.crid, png_file((1, 2, 3)))  # 다른 탭에서
-        r = self.client.post(reverse("creative_edit", args=[self.crid]), fields)
-        self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
-        self.assertEqual((self.creative().title, self.creative().image_name), ("제목", new.image_name))
-
-    def test_service_rules_next_to_the_field(self):
-        r = self.client.post(reverse("creative_edit", args=[self.crid]), self.edit_fields(redirect_url="http://example.com/"))
-        self.assertContains(r, f'id="id_{self.crid}-redirect_url_error"', status_code=400)
-        self.assertEqual(self.creative().redirect_url, "https://example.com/landing")
-
-    def test_image_replacement_keeps_the_old_file(self):
-        old = self.creative().image_name
-        self.assertRedirects(self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((5, 6, 7)))), self.creative_page)
-        self.assertNotEqual(self.creative().image_name, old)
-        self.assertEqual(set(CreativeImage.objects.filter(creative_id=self.crid).values_list("image_name", flat=True)), {old, self.creative().image_name})
-
-    def test_a_rejected_image_shows_the_reason(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        r = self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(SimpleUploadedFile("x.png", b"nope", content_type="image/png")))
-        self.assertEqual(r.status_code, 400)
-        self.assertRegex(r.content.decode(), rf'id="image_{self.crid}-image_error"><li>[^<]+</li>')
-
+class ImageSectionTests(AdGroupPageBase):
     def test_the_image_section_only_selects_and_the_upload_section_only_uploads(self):
         """6-11(사용자 요청): 광고 상세의 "이미지"는 내 이미지(보관하지 않은 것 전부) 중 하나를 고르기만 하고, "이미지 업로드"는 올리기만 한다.
         제목·주소 수정과 이미지 교체는 소재 상세에만 있다."""
@@ -190,19 +140,6 @@ class CreativeTests(AdGroupPageBase):
         self.assertNotIn(uploaded.creative_id, {c.creative_id for c in campaigns.list_creatives(self.w.adv, self.gid)})  # 연결도 하지 않는다
         self.assertIn(f'value="{uploaded.creative_id}"', self.html().split('aria-label="이미지 업로드"', 1)[0])  # 위 목록에서 고를 수 있다
 
-    @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")
-    def test_the_owner_sees_the_image_while_suspended_and_nobody_else_does(self):
-        campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유")
-        own = reverse("creative_image_file", args=[self.crid])
-        r = self.client.get(own)
-        self.assertEqual((r.status_code, r["Content-Type"], r["X-Content-Type-Options"]), (200, "image/png", "nosniff"))
-        self.assertIn("no-store", r["Cache-Control"])
-        self.assertEqual(Client().get(reverse("asset", args=[self.creative().image_name])).status_code, 404)  # 공개 경로는 막힌다
-        other = Client()
-        other.force_login(World(ends_in=None).adv)
-        self.assertEqual(other.get(own).status_code, 404)
-        self.assertNotEqual(Client().get(own).status_code, 200)
-
 
 class IsolationTests(AdGroupPageBase):
     def test_other_advertisers_group_and_creative_are_404_everywhere(self):
@@ -228,7 +165,7 @@ class IsolationTests(AdGroupPageBase):
 
 class StaleSameFieldTests(AdGroupPageBase):
     """외부 검토(41d2288) P3: 작은 폼은 다른 칸을 덮지 않지만, 열어 둔 폼이 **같은 칸**의 최신 변경을 덮었다(S1 → S1+S2 뒤 옛 폼의 S1 이 S2 를 지움).
-    이름·게재 위치·이미지 교체도 화면이 본 변경 시각과 잠금 안에서 대조한다."""
+    이름·구성도 화면이 본 변경 시각과 잠금 안에서 대조한다(이미지 교체는 소재 상세 — `test_creative_pages`)."""
 
     def test_a_stale_slots_form_does_not_remove_a_slot_added_elsewhere(self):
         seen = self.seen()  # 옛 탭이 본 시각
@@ -246,10 +183,3 @@ class StaleSameFieldTests(AdGroupPageBase):
                             "다른 곳에서 먼저 바뀌었습니다", status_code=409)
         self.assertEqual(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "", "updated_at": self.seen()}).status_code, 400)  # 폼이 거른 입력
         self.assertEqual(self.group().name, "다른 탭")
-
-    def test_a_stale_image_form_does_not_replace_a_newer_image(self):
-        seen = self.seen_creative()
-        newer = campaigns.replace_creative_image(self.w.adv, self.crid, png_file((1, 2, 3)))
-        r = self.client.post(reverse("creative_image", args=[self.crid]), self.image_fields(png_file((7, 7, 7)), updated_at=seen))
-        self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
-        self.assertEqual(self.creative().image_name, newer.image_name)

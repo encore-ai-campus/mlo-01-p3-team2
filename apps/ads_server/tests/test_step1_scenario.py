@@ -31,12 +31,12 @@ def signup(username, ip):
 
 class Step1ScenarioTests(TestCase):
     def test_full_flow_through_services_only(self):
-        # 1. 관리자: 매체 1·슬롯(노출 A·B·C, 클릭 D)·정책 A 100~500, B 100~200, C 400~1,000
+        # 1. 관리자: 매체 1·슬롯 A·B·C·D·정책 A 100~500, B 100~200, C 400~1,000(비율은 모두 노출 98% — 과금 단위는 6-10d 에 없어졌다)
         admin = make_admin()
         media = masters.create_media(admin, "메타버스")
         slots = {
             name: masters.create_slot(admin, media.media_id, name, floor, base, cap, "초기 정책", **SHARES)
-            for name, unit, floor, base, cap in (("A", IMP, 100, 200, 500), ("B", IMP, 100, 150, 200), ("C", IMP, 400, 500, 1_000), ("D", "CLICK", 100, 150, 300))
+            for name, floor, base, cap in (("A", 100, 200, 500), ("B", 100, 150, 200), ("C", 400, 500, 1_000), ("D", 100, 150, 300))
         }
         sid = {name: s.slot_id for name, s in slots.items()}
 
@@ -57,8 +57,6 @@ class Step1ScenarioTests(TestCase):
         camp2, group2, creative2 = launch(adv2, "two", 250, (30, 30, 200))
         click_group = campaigns.create_ad_group(adv1, camp1.campaign_id, "클릭 그룹", [sid["D"]], bid_amount=100, now=NOW)
         campaigns.create_creative(adv1, click_group.ad_group_id, "클릭 광고", "https://one.example/click", png_file((9, 9, 9)), now=NOW)
-        mixed = campaigns.create_ad_group(adv1, camp1.campaign_id, "섞임", [sid["A"], sid["D"]], now=NOW)  # 과금 단위가 없어 아무 위치나 함께(6-10d) — 입찰이 없어 후보는 아니다
-        self.assertEqual(set(mixed.slot_ids), {sid["A"], sid["D"]})
 
         def decide(slot, seed=1, now=NOW):
             return records.decide(media.media_id, sid[slot], subject_id="learner-7", now=now, rng=Random(seed))
@@ -75,7 +73,7 @@ class Step1ScenarioTests(TestCase):
             self.assertEqual(on_b.chosen.applied_amount, 200)
             winners.add(on_b.chosen.campaign_id)
         self.assertEqual(winners, {camp1.campaign_id, camp2.campaign_id})  # 동점이면 두 광고주가 고르게 뽑힌다
-        self.assertEqual(decide("D").chosen.ad_group_id, click_group.ad_group_id)  # 슬롯 단위에 맞는 광고그룹만
+        self.assertEqual(decide("D").chosen.ad_group_id, click_group.ad_group_id)  # D 에 놓인 광고는 클릭 그룹뿐이다
 
         # 노출·클릭 한 건씩 과금(결정에 남긴 비율로): 지갑·일 소진액·원장
         shares = on_a.chosen.charge_shares

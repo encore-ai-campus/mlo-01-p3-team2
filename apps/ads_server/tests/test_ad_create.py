@@ -2,7 +2,7 @@
 
 광고 만들기는 이미 있는 캠페인을 고르고 광고(광고그룹 + 입찰)와 소재(새로 올리기 또는 등록된 소재)를 한 페이지 폼으로 만든다(원자적 `create_ad`).
 완료 조건: 원자성, 중복 제출 방지(요청 키 + PRG — 두 번 누름·동시 제출·응답 실패 뒤 재시도), 이미지 거절 사유 표시, 쿼터 초과 안내, 남의 캠페인·소재 거절.
-World: 노출 단위 슬롯(하한 10·기준 20·상한 50), 끝나지 않는 캠페인 하나와 그 광고그룹·소재. 서비스는 실제 시계를 쓰므로 끝은 먼 미래로 둔다.
+World: 구성(하한 100·기준 200·상한 500, 노출 98%), 끝나지 않는 캠페인 하나와 그 광고그룹(입찰 300)·소재. 서비스는 실제 시계를 쓰므로 끝은 먼 미래로 둔다.
 """
 import re
 import uuid
@@ -58,7 +58,6 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         html = self.client.get(URL).content.decode()
         self.assertIn("① 캠페인", html)
         self.assertIn("④ 확인 후 집행", html)
-        self.assertNotIn("과금 단위", html)
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 98% · 클릭 1% · 전환 1%</span>')
         self.assertRegex(html, rf'value="{self.click_slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 1% · 클릭 98% · 전환 1%</span>')
         self.assertIn("console/ad_create.js", html)

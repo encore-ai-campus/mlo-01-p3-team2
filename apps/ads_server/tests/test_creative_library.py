@@ -175,17 +175,6 @@ class CreativeLibraryTests(TestCase):
             with self.assertRaises(errors.InvalidRequest):
                 api.create_ad(self.w.adv, cid, self.ad_group(), creative=creative, creative_id=creative_id, now=NOW)
 
-    def test_a_failed_ad_leaves_no_ad_group(self):
-        before = api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id)
-        with self.assertRaises(errors.InvalidRequest) as caught:
-            api.create_ad(self.w.adv, self.w.campaign.campaign_id, self.ad_group(),
-                                       creative={"title": "x", "redirect_url": "http://insecure.example", "image_file": png_file()}, now=NOW)
-        self.assertEqual(caught.exception.errors[0]["pointer"], "/creative/redirect_url")
-        self.assertEqual(api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id), before)
-        api.end_campaign(self.w.adv, self.w.campaign.campaign_id, now=NOW)
-        with self.assertRaises(api.CampaignEnded):
-            api.create_ad(self.w.adv, self.w.campaign.campaign_id, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW)
-
 
 @tag("security")
 class LinkArchiveRaceTests(TransactionTestCase):

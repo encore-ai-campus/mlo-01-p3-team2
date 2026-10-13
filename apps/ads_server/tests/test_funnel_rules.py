@@ -19,7 +19,7 @@ from masters import api as masters
 from records import api as records
 from records.models import Reaction
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, SHARES, SUBJECT, World, at, png_file
+from tests.factories import NOW, SUBJECT, World, at
 
 A = "0197a5c0-0000-7000-8000-0000000000a1"
 B = "0197a5c0-0000-7000-8000-0000000000b2"
@@ -28,7 +28,7 @@ SEC = timedelta(seconds=1)
 
 
 class FunnelMixin:
-    UNIT = "IMPRESSION"  # 광고그룹의 과금 단위 — 그 단위에 98%, 나머지 1%씩(tests.factories.shares_for). 금전 영향을 보려면 시험 클래스가 바꾼다
+    UNIT = "IMPRESSION"  # 구성에서 98% 를 받는 반응 유형, 나머지는 1%씩(tests.factories.shares_for). 금전 영향을 보려면 시험 클래스가 바꾼다
 
     def setUp(self):
         self.w = World(unit=self.UNIT)
@@ -40,9 +40,7 @@ class FunnelMixin:
 
     def shared(self):
         """일괄 슬롯과 거기에 놓인 광고(같은 광고주·캠페인). 결정은 사람 없이 한 번 만든다."""
-        slot = masters.create_slot(self.w.admin, self.media, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", [slot.slot_id], bid_amount=400, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((3, 3, 3)), now=NOW)
+        slot, _group = self.w.shared_ad()
         return slot, self.decide(slot, None)
 
     def report(self, rtype, decision=None, when=0, occurred=None, subject=None, rid=None):
@@ -627,9 +625,7 @@ class EndToEndFunnelTests(TestCase):
         self.assertEqual(click.status, "ACCEPTED")
 
     def test_in_a_shared_slot_each_viewer_reports_their_own_funnel(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄", [slot.slot_id], bid_amount=400, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판", "https://example.com/board", png_file((4, 4, 4)), now=NOW)
+        slot, group = self.w.shared_ad()
         decision = self.decide(slot)
         self.assertTrue(decision["ad"]["click_url"].endswith("?s={subject_id}"))
         for person in (A, B):

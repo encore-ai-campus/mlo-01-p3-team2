@@ -6,7 +6,6 @@ from records.assemble import assemble
 from tests.factories import NOW, WHOLE, World, make_advertiser, png_file
 from billing import api as billing
 
-UNIT = "IMPRESSION"
 
 
 class AssembleTests(TestCase):
@@ -15,7 +14,7 @@ class AssembleTests(TestCase):
 
     def test_assemble_maps_facts_policy_wallet_and_remaining_budget(self):
         w = World()
-        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, UNIT, WHOLE, 1_200, "m:r1", now=NOW)
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 1_200, "m:r1", now=NOW)
         candidates, by_creative = assemble(self.slot_view(w), NOW)
         self.assertEqual(len(candidates), 1)
         c = candidates[0]
@@ -27,7 +26,7 @@ class AssembleTests(TestCase):
 
     def test_remaining_budget_never_negative(self):
         w = World()
-        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, UNIT, WHOLE, 5_000, "m:r1", now=NOW)
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 5_000, "m:r1", now=NOW)
         campaigns.update_campaign(w.adv, w.campaign.campaign_id, {"daily_budget": 100}, now=NOW)  # 이미 쓴 금액보다 작게 줄임
         self.assertEqual(assemble(self.slot_view(w), NOW)[0][0].remaining_daily_budget, 0)
 

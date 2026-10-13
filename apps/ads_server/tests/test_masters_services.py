@@ -16,7 +16,7 @@ from tests.concurrency import run_together
 from tests.factories import SHARES, make_admin, make_advertiser
 
 
-def new_slot(admin, media=None, name="메인 배너", unit="IMPRESSION", floor=100, base=200, cap=500):
+def new_slot(admin, media=None, name="메인 배너", floor=100, base=200, cap=500):
     media = media or api.create_media(admin, f"매체-{uuid.uuid4().hex[:6]}")
     return api.create_slot(admin, media.media_id, name, floor, base, cap, "초기 설정", **SHARES)
 

@@ -59,7 +59,7 @@ class LedgerLookupChunkTests(TestCase):
         wallet = Wallet.objects.create(owner=make_advertiser(), balance=0)
         campaign_id = uuid.uuid4()
         entries = [LedgerEntry(wallet=wallet, seq=n, entry_type=EntryType.CHARGE, amount=-n, balance_after=0, campaign_id=campaign_id,
-                               reaction_ref=f"ref-{n}", charge_policy="by-unit/v1", created_at=T0) for n in range(1, 503)]
+                               reaction_ref=f"ref-{n}", charge_policy="share/v1", created_at=T0) for n in range(1, 503)]
         LedgerEntry.objects.bulk_create(entries)
         refs = [f"ref-{n}" for n in range(1, 503)] + ["ref-unknown"]
         self.assertEqual(billing.charged_amounts(refs), {f"ref-{n}": n for n in range(1, 503)})

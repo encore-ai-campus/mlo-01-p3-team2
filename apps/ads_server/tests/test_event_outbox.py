@@ -45,6 +45,7 @@ class EnqueueTests(TestCase):
         event_id = events.record_decision(now=NOW, **decision_fields())
         row = EventOutbox.objects.get()
         self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 2, DECISION, None))
+        self.assertEqual(schemas.SCHEMA_VERSIONS, {"ad.decision": 2, "ad.reaction_received": 1, "ad.reaction": 1, "ad.charge": 1})  # 종류별(6-10c): 결정만 2(단위 → `charge_shares`)
         self.assertEqual(row.created_at, NOW)  # produced_at = outbox 에 쓴 시각
         self.assertEqual(row.payload["decision_id"], str(DECISION))
         json.dumps(row.payload)  # JSON 으로 직렬화된다
@@ -56,12 +57,6 @@ class EnqueueTests(TestCase):
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload, row.created_at), (first.payload, first.created_at))  # 처음 것이 그대로다
 
-    def test_schema_version_is_per_event_kind(self):
-        """봉투의 `schema_version` 은 이벤트 종류별이다(6-10c): `ad.decision` 은 2(단위 → `charge_shares`), 모양이 그대로인 나머지는 1."""
-        self.assertEqual(schemas.SCHEMA_VERSIONS, {"ad.decision": 2, "ad.reaction_received": 1, "ad.reaction": 1, "ad.charge": 1})
-        events.record_decision(now=NOW, **decision_fields())
-        self.assertEqual(EventOutbox.objects.get().schema_version, 2)
-
     def test_sent_rows_stay_sent_when_re_enqueued(self):
         events.record_decision(now=NOW, **decision_fields())
         EventOutbox.objects.update(sent_at=NOW)
@@ -72,9 +67,6 @@ class EnqueueTests(TestCase):
         p = schemas.decision_payload(**decision_fields(audience="shared", subject_id=None, selected=None))
         self.assertEqual((p["selected"], p["subject_id"], p["decided_at"]), (None, None, "2026-10-10T03:00:00.123456+00:00"))
         self.assertNotIn("owner_id", json.dumps(schemas.decision_payload(**decision_fields())))  # 광고주 계정은 싣지 않는다
-        selected = schemas.decision_payload(**decision_fields())["selected"]
-        self.assertEqual(selected["charge_shares"], {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1})  # ad.decision 2: 단위 대신 반응 유형별 비율(6-10c)
-        self.assertNotIn("pricing_unit", selected)
         basis = {"person": "p1", "audience": "individual", "v": 2}
         r = schemas.reaction_payload(
             inbox_id=uuid.uuid4(), reaction_id=uuid.uuid4(), media_id=uuid.uuid4(), decision_id=DECISION, type="CLICK", occurred_at=NOW, received_at=NOW,
