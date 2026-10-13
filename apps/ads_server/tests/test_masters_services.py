@@ -18,7 +18,7 @@ from tests.factories import SHARES, make_admin, make_advertiser
 
 def new_slot(admin, media=None, name="메인 배너", floor=100, base=200, cap=500):
     media = media or api.create_media(admin, f"매체-{uuid.uuid4().hex[:6]}")
-    return api.create_slot(admin, media.media_id, name, floor, base, cap, "초기 설정", **SHARES)
+    return api.create_slot(admin, media.media_id, name, floor, base, cap, "초기 설정", audience="individual", **SHARES)
 
 
 def versions(slot_id):
@@ -37,7 +37,7 @@ class PolicyServiceTests(TestCase):
         media = api.create_media(self.admin, "원자성 매체")
         with mock.patch.object(BidPolicy._default_manager, "create", side_effect=IntegrityError("boom")):
             with self.assertRaises(Conflict):
-                api.create_slot(self.admin, media.media_id, "배너", 100, 200, 300, "사유", **SHARES)
+                api.create_slot(self.admin, media.media_id, "배너", 100, 200, 300, "사유", audience="individual", **SHARES)
         self.assertFalse(Slot.objects.filter(media_id=media.media_id).exists())
 
     def test_policy_service_rejects_zero_negative_and_order_violation(self):
@@ -46,7 +46,7 @@ class PolicyServiceTests(TestCase):
                  ("100", 200, 300), (None, 200, 300)]  # 99: 하한 최소 100 미만(6-10c)
         for floor, base, cap in cases:
             with self.assertRaises(InvalidRequest, msg=(floor, base, cap)):
-                api.create_slot(self.admin, media.media_id, "배너", floor, base, cap, "사유", **SHARES)
+                api.create_slot(self.admin, media.media_id, "배너", floor, base, cap, "사유", audience="individual", **SHARES)
         self.assertFalse(Slot.objects.exists())
 
     def test_the_floor_is_at_least_100_in_all_three_places(self):
@@ -54,7 +54,7 @@ class PolicyServiceTests(TestCase):
         slot = new_slot(self.admin)
         media = api.create_media(self.admin, "하한 매체")
         places = {
-            "만들기": lambda floor: api.create_slot(self.admin, media.media_id, f"배너{floor}", floor, 200, 300, "사유", **SHARES).policy,
+            "만들기": lambda floor: api.create_slot(self.admin, media.media_id, f"배너{floor}", floor, 200, 300, "사유", audience="individual", **SHARES).policy,
             "정책 변경": lambda floor: api.add_policy_version(self.admin, slot.slot_id, floor, 200, 300, "사유", expected_version=versions(slot.slot_id)[-1], **SHARES),
             "일괄 변경": lambda floor: api.add_policy_version_bulk(self.admin, {slot.slot_id: versions(slot.slot_id)[-1]}, floor, 200, 300, "사유", **SHARES)[0],
         }
@@ -73,7 +73,7 @@ class PolicyServiceTests(TestCase):
         bad = [(0, 2, 98), (2, 0, 98), (2, 98, 0), (99, 1, 0), (97, 1, 1), (98, 2, 1), (50.0, 25, 25), (True, 1, 98), ("98", 1, 1), (None, 1, 99)]
         good = [(1, 1, 98), (1, 98, 1), (98, 1, 1), (34, 33, 33)]
         places = {
-            "만들기": lambda i, s: api.create_slot(self.admin, media.media_id, f"배너{i}", 100, 200, 300, "사유", **s).policy,
+            "만들기": lambda i, s: api.create_slot(self.admin, media.media_id, f"배너{i}", 100, 200, 300, "사유", audience="individual", **s).policy,
             "정책 변경": lambda i, s: api.add_policy_version(self.admin, slot.slot_id, 100, 200, 300, "사유", expected_version=versions(slot.slot_id)[-1], **s),
             "일괄 변경": lambda i, s: api.add_policy_version_bulk(self.admin, {slot.slot_id: versions(slot.slot_id)[-1]}, 100, 200, 300, "사유", **s)[0],
         }
@@ -87,7 +87,7 @@ class PolicyServiceTests(TestCase):
                 policy = call(f"ok{i}", dict(zip(("impression_share", "click_share", "conversion_share"), values)))
                 self.assertEqual((policy.impression_share, policy.click_share, policy.conversion_share), values, place)
         with self.assertRaises(InvalidRequest) as caught:
-            api.create_slot(self.admin, media.media_id, "합", 100, 200, 300, "사유", impression_share=97, click_share=1, conversion_share=1)
+            api.create_slot(self.admin, media.media_id, "합", 100, 200, 300, "사유", audience="individual", impression_share=97, click_share=1, conversion_share=1)
         self.assertEqual(caught.exception.errors, [{"pointer": "/shares", "message": "노출·클릭·전환 비율의 합은 100이어야 합니다(지금 99)."}])
 
     def test_create_slot_validates_name_reason_and_media(self):
@@ -97,15 +97,15 @@ class PolicyServiceTests(TestCase):
             args = dict(name="배너", reason="사유")
             args.update(kwargs)
             with self.assertRaises(InvalidRequest, msg=kwargs):
-                api.create_slot(self.admin, media.media_id, args["name"], 100, 200, 300, args["reason"], **SHARES)
+                api.create_slot(self.admin, media.media_id, args["name"], 100, 200, 300, args["reason"], audience="individual", **SHARES)
         with self.assertRaises(NotFound):
-            api.create_slot(self.admin, uuid.uuid4(), "배너", 100, 200, 300, "사유", **SHARES)
+            api.create_slot(self.admin, uuid.uuid4(), "배너", 100, 200, 300, "사유", audience="individual", **SHARES)
 
     def test_a_slot_may_be_created_without_a_reason_but_a_policy_change_may_not(self):
         """만들 때만 빈 사유를 "없음"으로 채운다(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다."""
         media = api.create_media(self.admin, "사유 매체")
         for i, blank in enumerate(("", "   ", None)):
-            slot = api.create_slot(self.admin, media.media_id, f"배너{i}", 100, 200, 300, blank, **SHARES)
+            slot = api.create_slot(self.admin, media.media_id, f"배너{i}", 100, 200, 300, blank, audience="individual", **SHARES)
             self.assertEqual(slot.policy.reason, "없음")
         for blank in ("", "   ", None):
             with self.assertRaises(InvalidRequest, msg=blank):
@@ -116,9 +116,9 @@ class PolicyServiceTests(TestCase):
     def test_slot_name_unique_per_media_in_service(self):
         slot = new_slot(self.admin, name="상단")
         with self.assertRaises(Conflict):
-            api.create_slot(self.admin, slot.media_id, "상단", 100, 200, 300, "사유", **SHARES)
+            api.create_slot(self.admin, slot.media_id, "상단", 100, 200, 300, "사유", audience="individual", **SHARES)
         other = api.create_media(self.admin, "다른 매체")
-        api.create_slot(self.admin, other.media_id, "상단", 100, 200, 300, "사유", **SHARES)  # 다른 매체는 가능
+        api.create_slot(self.admin, other.media_id, "상단", 100, 200, 300, "사유", audience="individual", **SHARES)  # 다른 매체는 가능
 
     def test_media_name_conflict(self):
         api.create_media(self.admin, "중복")
@@ -270,7 +270,7 @@ class MastersAuthorizationAndAuditTests(TestCase):
         return [
             lambda: api.create_media(actor, "새 매체"),
             lambda: api.set_media_active(actor, s.media_id, False),
-            lambda: api.create_slot(actor, s.media_id, "다른 배너", 100, 200, 300, "사유", **SHARES),
+            lambda: api.create_slot(actor, s.media_id, "다른 배너", 100, 200, 300, "사유", audience="individual", **SHARES),
             lambda: api.add_policy_version(actor, s.slot_id, 100, 200, 300, "사유", expected_version=1, **SHARES),
             lambda: api.add_policy_version_bulk(actor, {s.slot_id: 1}, 100, 200, 300, "사유", **SHARES),
             lambda: api.set_slot_active(actor, s.slot_id, False),

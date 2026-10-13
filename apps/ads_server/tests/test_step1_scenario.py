@@ -35,7 +35,7 @@ class Step1ScenarioTests(TestCase):
         admin = make_admin()
         media = masters.create_media(admin, "메타버스")
         slots = {
-            name: masters.create_slot(admin, media.media_id, name, floor, base, cap, "초기 정책", **SHARES)
+            name: masters.create_slot(admin, media.media_id, name, floor, base, cap, "초기 정책", audience="individual", **SHARES)
             for name, floor, base, cap in (("A", 100, 200, 500), ("B", 100, 150, 200), ("C", 400, 500, 1_000), ("D", 100, 150, 300))
         }
         sid = {name: s.slot_id for name, s in slots.items()}

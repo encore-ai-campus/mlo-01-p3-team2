@@ -18,7 +18,7 @@ class AssembleTests(TestCase):
         candidates, by_creative = assemble(self.slot_view(w), NOW)
         self.assertEqual(len(candidates), 1)
         c = candidates[0]
-        self.assertEqual((c.floor, c.base, c.cap, c.policy_version), (100, 200, 500, 1))
+        self.assertEqual((c.floor, c.cap, c.policy_version), (100, 500, 1))
         self.assertEqual((c.bid_amount, c.bid_version, c.campaign_status, c.ad_group_enabled), (300, 1, "ACTIVE", True))
         self.assertEqual(c.wallet_balance, 50_000 - 1_200)
         self.assertEqual(c.remaining_daily_budget, 50_000 - 1_200)  # 일예산 - 오늘 소진

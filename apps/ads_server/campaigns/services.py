@@ -898,7 +898,6 @@ def candidate_facts_for_slot(slot_id):
             bid_id=Subquery(latest.values("bid_id")[:1]),
             bid_version=Subquery(latest.values("bid_version")[:1]),
             bid_amount=Subquery(latest.values("amount")[:1]),
-            bid_created_at=Subquery(latest.values("created_at")[:1]),
         )
         .filter(bid_version__isnull=False)
         .order_by("ad_group_id")
@@ -907,7 +906,7 @@ def candidate_facts_for_slot(slot_id):
         CandidateFacts(
             owner_id=g.campaign.owner_id, campaign_id=g.campaign_id, ad_group_id=g.ad_group_id,
             creative_id=g.creative_id, slot_id=slot_id,
-            bid_id=g.bid_id, bid_amount=g.bid_amount, bid_version=g.bid_version, bid_created_at=g.bid_created_at,
+            bid_id=g.bid_id, bid_amount=g.bid_amount, bid_version=g.bid_version,
             campaign_status=g.campaign.status, ad_group_enabled=g.enabled,
             period_start=g.campaign.starts_at, period_end=g.campaign.ends_at,
             daily_budget=g.campaign.daily_budget, title=g.creative.title, redirect_url=g.creative.redirect_url, image_name=g.creative.image_name,

@@ -31,7 +31,7 @@ class PolicyConstraintTests(TestCase):
         bad = [
             dict(floor_amount=300, base_amount=200, cap_amount=500),  # floor > base
             dict(floor_amount=100, base_amount=600, cap_amount=500),  # base > cap
-            dict(floor_amount=0, base_amount=200, cap_amount=500),  # floor 는 0 초과
+            dict(floor_amount=0, base_amount=200, cap_amount=500),  # floor 0 — 하한 최소 100 이 막는다(6-13f 에서 0 초과 검사를 합쳤다)
             dict(floor_amount=99, base_amount=200, cap_amount=500),  # 하한 최소 100(6-10c)
             dict(floor_amount=100, base_amount=200, cap_amount=2**53),  # 표현 가능한 최대값 초과
             dict(impression_share=0, click_share=2, conversion_share=98),  # 비율은 열마다 1 이상(합은 100)

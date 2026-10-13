@@ -373,7 +373,7 @@ def seed(advertisers=5, premade=0):
 
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
-    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", 100, 200, 500, "초기", **LOAD_SHARES)
+    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", 100, 200, 500, "초기", audience="individual", **LOAD_SHARES)
     shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", 100, 200, 500, "초기", audience="shared", **LOAD_SHARES)
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)

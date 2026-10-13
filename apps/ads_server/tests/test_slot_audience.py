@@ -46,8 +46,11 @@ class SlotServiceTests(TestCase):
     def create(self, name="슬롯", **kw):
         return masters.create_slot(self.admin, self.media.media_id, name, 100, 200, 500, "초기", **kw, **SHARES)
 
-    def test_default_is_individual(self):
-        slot = self.create()
+    def test_the_creator_always_chooses_the_audience(self):
+        """R18(6-13f): 성격에는 기본값이 없다(모델·서비스 모두) — 만드는 쪽(운영 폼·시험)이 늘 정한다."""
+        with self.assertRaises(TypeError):
+            masters.create_slot(self.admin, self.media.media_id, "슬롯", 100, 200, 500, "초기", **SHARES)
+        slot = self.create(audience="individual")
         self.assertEqual(slot.audience, "individual")
         self.assertEqual(Slot.objects.get(pk=slot.slot_id).audience, "individual")
 

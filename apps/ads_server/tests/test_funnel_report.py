@@ -248,7 +248,7 @@ class DailyReportScopeTests(ReportBase):
                 self.report_for(campaign_id=hidden)
 
     def new_slot(self, name):
-        return masters.create_slot(self.w.admin, self.media, name, 100, 200, 500, "초기", **SHARES)
+        return masters.create_slot(self.w.admin, self.media, name, 100, 200, 500, "초기", audience="individual", **SHARES)
 
     def test_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
         slot2 = self.new_slot("둘째 슬롯")

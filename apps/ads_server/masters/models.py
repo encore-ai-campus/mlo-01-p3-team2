@@ -118,7 +118,7 @@ class BidPolicy(AppendOnlyModel):
         constraints = [
             models.UniqueConstraint(fields=["slot", "policy_version"], name="masters_policy_version_per_slot"),
             models.CheckConstraint(
-                condition=Q(floor_amount__gt=0, floor_amount__lte=F("base_amount"), base_amount__lte=F("cap_amount"),
+                condition=Q(floor_amount__lte=F("base_amount"), base_amount__lte=F("cap_amount"),
                             cap_amount__lte=MAX_AMOUNT),
                 name="masters_policy_floor_base_cap_order",
             ),

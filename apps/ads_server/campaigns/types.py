@@ -127,7 +127,6 @@ class CandidateFacts:
     bid_id: uuid.UUID
     bid_amount: int
     bid_version: int
-    bid_created_at: datetime
     campaign_status: str  # 저장된 상태
     ad_group_enabled: bool
     period_start: datetime

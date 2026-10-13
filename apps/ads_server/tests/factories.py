@@ -52,7 +52,7 @@ def make_slot(admin, unit="IMPRESSION", floor=100, base=200, cap=500, name=None)
     from masters import api as masters
 
     media = masters.create_media(admin, f"매체-{next(_counter)}")
-    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", floor, base, cap, "초기", **shares_for(unit))
+    return masters.create_slot(admin, media.media_id, name or f"슬롯-{next(_counter)}", floor, base, cap, "초기", audience="individual", **shares_for(unit))
 
 
 class World:

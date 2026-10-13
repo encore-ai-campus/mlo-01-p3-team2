@@ -137,11 +137,11 @@ def media_active_for_share(media_id):
     return None if row is None else bool(row[0])
 
 
-def create_slot(actor, media_id, name, floor, base, cap, reason, audience=Audience.INDIVIDUAL, *, impression_share, click_share, conversion_share):
+def create_slot(actor, media_id, name, floor, base, cap, reason, *, audience, impression_share, click_share, conversion_share):
     """슬롯과 최초 정책(버전 1)을 한 트랜잭션에 만든다. 따라서 모든 슬롯은 항상 현재 정책을 가진다.
     정책에는 반응 유형별 과금 비율(노출·클릭·전환 %)이 들어간다(6-10b).
 
-    `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없다**. 기존 호출을 위해 기본은 개인이다.
+    `audience`(개인/일괄)는 **만든 뒤 바꿀 수 없고 기본값이 없다** — 만드는 쪽이 늘 정한다(모델과 같다, 6-13f).
     사유는 만들 때만 비워도 된다 — 비면 "없음"(6-8c). 가격을 바꾸는 정책 변경·일괄 변경은 사유가 필수다.
     """
     require_admin(actor)

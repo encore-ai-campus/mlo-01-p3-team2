@@ -42,10 +42,8 @@ class Candidate:
     # 입찰
     bid_amount: int
     bid_version: int
-    bid_created_at: datetime
-    # 정책 스냅샷
+    # 정책 스냅샷(판정에 쓰는 것만 — 기준가는 판정에 쓰지 않는다, 6-13f)
     floor: int
-    base: int
     cap: int
     policy_version: int
     # 자격 판정용 사실
@@ -63,15 +61,14 @@ class Candidate:
             raise ValueError(f"campaign_status 가 올바르지 않다: {self.campaign_status!r}")
         if not isinstance(self.ad_group_enabled, bool):
             raise TypeError("ad_group_enabled 은(는) bool 이어야 한다")
-        for name in ("bid_amount", "floor", "base", "cap"):
+        for name in ("bid_amount", "floor", "cap"):
             _int(name, getattr(self, name))
         for name in ("bid_version", "policy_version"):
             _int(name, getattr(self, name), minimum=1)
         for name in ("wallet_balance", "remaining_daily_budget"):
             _int(name, getattr(self, name))
-        if not self.floor <= self.base <= self.cap:
-            raise ValueError("정책은 하한 ≤ 기준가 ≤ 상한이어야 한다")
-        _utc("bid_created_at", self.bid_created_at)
+        if not self.floor <= self.cap:
+            raise ValueError("정책은 하한 ≤ 상한이어야 한다")
         _utc("period_start", self.period_start)
         _utc("period_end", self.period_end, nullable=True)
 
