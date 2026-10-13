@@ -5,6 +5,7 @@
 
 실제 MySQL 연결을 스레드마다 하나씩 쓰고, 접수 트랜잭션을 열어 둔 채 커밋을 미루는 방식으로 순서를 고정한다(시각은 `now=` 로 주입).
 """
+import threading
 import uuid
 
 from django.db import connection
@@ -13,7 +14,7 @@ from django.utils import timezone
 
 from records import api as records
 from records.models import Reaction
-from tests.concurrency import BLOCKED, WAIT, Uncommitted, Worker
+from tests.concurrency import BLOCKED, WAIT, Uncommitted, Worker, arriving_before
 from tests.factories import NOW, SUBJECT, World
 from tests.test_funnel_rules import FunnelMixin, at
 
@@ -196,10 +197,12 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
         self.assertEqual(Reaction.objects.get(pk=mine.inbox_id).attempts, 0)
 
     def test_a_report_for_a_missing_decision_takes_no_lock_and_is_still_stored(self):
-        view, created = self.finishes(
-            lambda: records.receive_reaction(self.media, uuid.uuid4(), uuid.uuid4(), "IMPRESSION", at(1), {}, now=at(1)), "없는 결정에 대한 접수",
-        )
+        locked = threading.Event()
+        view, created = arriving_before("FOR UPDATE", "records_decision", lambda: records.receive_reaction(
+            self.media, uuid.uuid4(), uuid.uuid4(), "IMPRESSION", at(1), {}, now=at(1),
+        ), locked)()
         self.assertTrue(created)  # 존재 여부를 이유로 접수를 거절하지 않는다(계약)
+        self.assertFalse(locked.is_set(), "없는 결정에 대한 접수가 결정 행을 잠갔다")
 
     def test_the_owners_own_receipts_still_queue_behind_each_other(self):
         """소유 매체의 접수끼리는 여전히 줄을 선다(순서 규약이 유지된다)."""
