@@ -234,7 +234,7 @@ erDiagram
         int daily_budget
         string status
         string ended_from
-        string request_key "UK, 광고 만들기 요청 멱등 키"
+        string request_key "UK, 캠페인 만들기 요청 멱등 키"
     }
     campaigns_ad_group {
         uuid ad_group_id PK
@@ -242,7 +242,7 @@ erDiagram
         string pricing_unit "변경 불가"
         bool enabled
         uuid creative_id FK "선택된 소재, NULL=없음"
-        string request_key "UK, 기존 캠페인에 광고 만들기 멱등 키"
+        string request_key "UK, 광고 만들기 요청 멱등 키"
     }
     campaigns_ad_group_creative {
         uuid link_id PK
@@ -503,7 +503,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `ended_from` | 코드 | Y | | `ENDED` 직전 상태(중단된 채 끝났는지 알 수 있다) |
 | `suspended_reason` | 문자 500 | N | | 관리자 중단 사유 |
 | `suspended_at` | 시각 | Y | | |
-| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | 광고 만들기의 멱등 키(화면 폼 하나 = 캠페인 하나). 같은 키로는 다시 만들지 않고 처음 만든 광고를 돌려준다. 키 없이 만든 캠페인은 NULL [구현 `b61112a`] |
+| `request_key` | 문자 64 | Y | **UNIQUE**(NULL 제외) | **캠페인 만들기**의 멱등 키(화면 폼 하나 = 캠페인 하나, 6-9d — 그 전에는 캠페인까지 한 번에 만들던 광고 만들기의 키). 같은 키로는 다시 만들지 않고 처음 만든 캠페인을 돌려준다. 키 없이 만든 캠페인은 NULL [구현 `b61112a`, 뜻 바뀜 6-9d] |
 | `created_at`, `updated_at` | 시각 | N | | |
 
 #### O2. 광고그룹 `campaigns_ad_group` [구현]
@@ -520,7 +520,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | `created_at` | 시각 | N | | |
 | `updated_at` | 시각 | N | | 마지막 변경(이름·게재 위치·켜기/끄기·소재 선택). 화면이 본 값과 대조해 옛 폼이 그 사이의 변경을 덮지 않게(`expected_updated_at`) [구현 `7fdc76f`] |
 | `creative_id` | UUID | Y | FK→O4 `PROTECT` | **선택된 소재** — 결정에 나가는 것. O9에 연결된 소재 중에서만 고른다(서비스). 없으면 후보가 아니다 [구현 6-9c] |
-| `request_key` | 문자 64 | Y | UNIQUE | 기존 캠페인에 광고 만들기 폼 하나 = 광고그룹 하나(두 번 눌러도 하나) [구현 6-9c] |
+| `request_key` | 문자 64 | Y | UNIQUE | **광고 만들기**의 멱등 키(이미 있는 캠페인에 광고 만들기 폼 하나 = 광고그룹 하나, 두 번 눌러도 하나) [구현 6-9c, 화면 6-9d] |
 
 #### O3. 광고그룹-슬롯 `campaigns_ad_group_slot` [구현]
 
@@ -713,7 +713,8 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
 | 광고주 상한은 동시 쓰기에도 넘지 않는다 | UNIQUE(O8 `owner_id`) — 잠금 행 하나 | O8 행을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota` |
-| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
+| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O2 `request_key`, 6-9d 전에는 O1) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(서비스 응답 — 화면은 오류 메시지와 함께 광고 만들기 화면으로 302, 계획 §8.1.1) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
+| 같은 캠페인 만들기 폼은 캠페인 하나(6-9d) | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 캠페인, 동시 제출은 광고주 잠금 안에서 다시 봄, 남의 캠페인에 붙은 키면 409 | `test_the_same_campaign_form_twice_creates_once`, `test_an_overlapping_resubmission_of_the_same_campaign_form_creates_once` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `test_only_one_open_review_request_per_campaign` |
@@ -957,7 +958,8 @@ sequenceDiagram
 | 과금 | `reaction_ref` UNIQUE | 처리를 몇 번 다시 해도 차감은 한 번 |
 | 매체 키 발급·교체 | `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 키는 하나(두 번째는 409 + 키 식별자) |
 | 관리자 조정 | `adjust_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 조정은 한 번 |
-| 광고 만들기 | O1 `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도·상한에서 다시 보냄도 광고는 하나 |
+| 광고 만들기 | O2 `request_key` UNIQUE(폼마다 새 키, 6-9d 전에는 O1) | 두 번 누름·동시 제출·응답 실패 뒤 재시도·상한에서 다시 보냄도 광고는 하나 |
+| 캠페인 만들기(6-9d) | O1 `request_key` UNIQUE(폼마다 새 키) | 두 번 누름·동시 제출·응답 실패 뒤 재시도도 캠페인은 하나 |
 | 과금액 | 결정의 `applied_amount` | 결정 이후 입찰·정책이 바뀌어도 그대로 |
 | 과금 여부 | `by-unit/v1`: 반응 유형 = 결정의 `pricing_unit`일 때만 | 다른 유형은 기록만 |
 | 인정 | `accepted_key` UNIQUE | (결정, 사람, 유형)당 인정은 한 번 [구현 2-9] |
@@ -1255,6 +1257,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.44 | 2026-10-13 | Step 6-9d 화면(구현 계획 §8.4.10, 스키마 변화 없음): O1 `request_key`는 캠페인 만들기의 키, O2 `request_key`가 광고 만들기의 키(불변식·멱등 키 표, 구조도) |
 | 0.43 | 2026-10-13 | Step 6-9c 소재 목록(구현 계획 §8.4.10, 설계서 §10 "소재 목록", 마이그레이션 `campaigns/0007` — 기존 소재는 소유자 = 캠페인 주인, 붙어 있던 광고그룹에 연결·선택으로 옮김): O4 소재 `owner_id`·`archived_at`(광고그룹 FK 삭제), O2 광고그룹 `creative_id`(선택)·`request_key`, 새 O9 광고그룹-소재 연결(추가 전용), O7 보유량·서빙 판정 기준, R-6 보관, 구조도 |
 | 0.42 | 2026-10-13 | Step 6-9b(구현 계획 §8.4.10): 소재 `enabled` 열 삭제(마이그레이션 `campaigns/0006`) — 소재 끄기를 없앴다(광고그룹을 끈다). R-6·구조도·소재 표·팀 DRD 대응표 |
 | 0.41 | 2026-10-13 | Step 6-8c(구현 계획 §8.4.9): 입찰 정책 `reason`은 슬롯을 만들 때만 비워도 되고 "없음"이 들어간다(스키마 변화 없음, NOT NULL 그대로) |
