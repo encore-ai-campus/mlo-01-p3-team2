@@ -554,7 +554,7 @@ tests/test_campaigns_services.py  tests/test_campaigns_ended.py  tests/test_camp
 | `Campaign` | `campaign_id`, `owner`(FK `foundation.User`), `name`, `starts_at`, `ends_at`(없으면 `NULL`), `daily_budget`, `status`, `ended_from`, `suspended_reason`, `suspended_at`, `created_at`, `updated_at` | `daily_budget > 0`, `ends_at > starts_at`(있을 때) |
 | `AdGroup` | `ad_group_id`, `campaign`, `name`, `pricing_unit`(생성 후 고정), `enabled`, `created_at` | |
 | `AdGroupSlot` | `ad_group`, `slot`(FK `masters.Slot`) | `(ad_group, slot)` 유일. **슬롯의 과금 단위 = 광고그룹의 과금 단위**여야 저장 |
-| `Creative` | `creative_id`, `ad_group`, `title`, `redirect_url`(https), `image_name`(assets 이름), `image_bytes`, `enabled`, `created_at`, `updated_at` | `image_name` 인덱스. 광고그룹당 개수는 설정 `MAX_CREATIVES_PER_AD_GROUP`(V1 = 1)로 서비스가 제한 |
+| `Creative` | `creative_id`, `ad_group`, `title`, `redirect_url`(https), `image_name`(assets 이름), `image_bytes`, `enabled`, `created_at`, `updated_at` | `image_name` 인덱스. 광고그룹당 개수는 설정 `MAX_CREATIVES_PER_AD_GROUP`(V1 = 1)로 서비스가 제한. **[6-9에서 바뀜]** 소재는 광고주 소유 목록(`owner`·`archived_at`)이고 광고그룹과는 연결 표(`AdGroupCreative`)로 이어지며 선택은 광고그룹의 `creative`. `enabled`와 광고그룹당 개수 설정은 없다(§8.4.10) |
 | `Bid`(추가 전용) | `ad_group`, `bid_version`, `amount`, `created_by`, `created_at` | `(ad_group, bid_version)` 유일, `amount > 0`. **하한 미만·상한 초과도 저장** |
 | `ReviewRequest`(추가 전용 기록, 상태만 닫힘) | `review_request_id`, `campaign`, `message`, `status`(`OPEN`·`RELEASED`·`REJECTED`·`CLOSED_ENDED`), `response_note`, `created_at`, `closed_at` | **캠페인당 `OPEN`은 하나**(`UniqueConstraint(condition=status=OPEN)`) |
 
@@ -576,7 +576,7 @@ tests/test_campaigns_services.py  tests/test_campaigns_ended.py  tests/test_camp
 2. **종료일 변경**: 종료 전에는 늘리거나 줄일 수 있고(`None` 허용), 새 값은 `now`보다 뒤여야 한다. 시작보다 뒤여야 한다.
 3. **`end_expired_campaigns(now)`**: `ends_at ≤ now`이고 `ENDED`가 아닌 캠페인을 **조건부 `UPDATE`**로 `ENDED`로 바꾸고 `ended_from`을 기록, `OPEN` 재검토 요청을 `CLOSED_ENDED`로 닫는다. 멱등. 한 트랜잭션. 관리 명령으로도 실행한다(주기 실행은 §7-9와 함께 인프라가 정한다).
 4. **입찰**: `add_bid(user, ad_group_id, amount, expected_version)` — `expected_version`이 현재와 다르면 `StaleVersion`(409). 입력은 거절하지 않고 저장한다(0 이하·최대값 초과만 400).
-5. **광고그룹**: 슬롯 목록 변경 시 모두 같은 단위·활성 슬롯이어야 한다(`unit_mismatch`). `pricing_unit`을 보내면 항상 `unit_immutable`.
+5. **광고그룹**: 슬롯 목록 변경 시 모두 같은 단위·활성 슬롯이어야 한다(`unit_mismatch`). `pricing_unit`을 보내면 항상 `unit_immutable`. **[6-10에서 바뀜]** 과금 단위가 없어져 두 오류도 없다 — 활성 슬롯이면 아무 슬롯이나 함께 고르고, `pricing_unit`은 모르는 필드로 400(§8.4.11).
 6. **소재**: 이미지는 `assets.api.validate_image` → `store`를 서비스가 호출한다(`ImageRejected`는 그대로 전달). `redirect_url`은 `https`만. 이미지 교체 시 새 이름으로 바꾸고 이전 파일은 지우지 않는다(과거 결정이 참조할 수 있다).
 7. **관리자 동작**: `suspend_campaign(actor, campaign_id, reason)`, `release_campaign(actor, campaign_id)`(`OPEN` 요청이 있으면 `RELEASED`), `reject_review_request(actor, review_request_id, note)`(정지 유지, 사유 필수). 모두 감사.
 8. **재검토 요청**: `create_review_request(user, campaign_id, message)`는 `SUSPENDED`일 때만(아니면 `not_suspended`), `OPEN`이 이미 있으면 `review_pending`.
@@ -625,7 +625,7 @@ tests/test_campaigns_services.py  tests/test_campaigns_ended.py  tests/test_camp
 ```
 billing/
   apps.py  models.py  services.py  api.py  budget_day.py  admin.py(등록만)
-  policies/{base,by_unit}.py          # ChargePolicy, by-unit/v1
+  policies/{base,by_unit}.py          # ChargePolicy, by-unit/v1 (6-10c 에서 by_unit → share, share/v1)
   management/commands/recompute_spend.py  management/commands/check_ledger.py
   migrations/0001_initial.py
 tests/test_billing_ledger.py  tests/test_billing_budget.py  tests/test_billing_charge.py
@@ -652,7 +652,7 @@ console/views/auth.py (가입 흐름이 지급을 호출)
 | `budget_day_of(instant)`, `next_reset(instant)` | **예산 일 경계 함수 한 곳.** `BUDGET_DAY_OFFSET_HOURS`(기본 0 = UTC 자정). 소진액 집계와 화면의 리셋 시각이 같은 함수를 쓴다 |
 | `recompute_spend()` | 원장에서 `CampaignSpend`를 다시 만든다(경계 설정을 바꾼 뒤 실행) |
 | `check_ledger()` | 모든 지갑에서 `balance == Σ amount`, `balance_after`의 연속성을 확인(어긋나면 목록 반환·명령은 비정상 종료) |
-| `ChargePolicy` / `by-unit/v1` | 반응 유형이 광고그룹 과금 단위와 같을 때만 과금, 금액은 Decision의 적용 금액. 어떤 정책이었는지 `charge_policy`에 이름 기록(R8). 정책 이름은 설정으로 고른다 |
+| `ChargePolicy` / `by-unit/v1` | 반응 유형이 광고그룹 과금 단위와 같을 때만 과금, 금액은 Decision의 적용 금액. 어떤 정책이었는지 `charge_policy`에 이름 기록(R8). 정책 이름은 설정으로 고른다. **[6-10에서 바뀜]** `share/v1`: 모든 유형을 결정에 남긴 그 유형의 비율로 내림(적용 금액 × % ÷ 100), `by-unit/v1`은 코드에서 지웠다(§8.4.11) |
 
 **가입 흐름 확장**: `console`의 가입 뷰가 **한 트랜잭션(`transaction.atomic`) 안에서** `foundation.api.create_advertiser` → `billing.api.grant_signup`을 차례로 부른다(`foundation`이 `billing`을 알지 않는다) [3-0c `4bebbe5`에서 이 묶음을 `billing.register_advertiser`로 옮기고 가입 뷰는 그것만 부른다 — 콘솔 경계 규칙]. 지급이 실패하면 가입도 취소된다. 감사 로그에 `account.signup`과 `billing.signup_grant`가 남는다.
 
@@ -757,12 +757,12 @@ tests/test_records_decision.py  tests/test_records_assemble.py
 | 캠페인 `GET·POST`, `GET·PATCH /{id}` | `list_campaigns`·`create_campaign`·`get_campaign`·`update_campaign` | PATCH 필드 `name·ends_at·daily_budget·status(ACTIVE↔PAUSED)`. 응답의 `today`(소진·남은 예산·리셋 시각)는 **콘솔이 `billing.spend_today`·`next_reset`으로 채운다**(Step 3) |
 | `POST /campaigns/{id}/end` | `end_campaign` | 되돌릴 수 없음, `ended_from` 포함 |
 | 재검토 요청 `GET·POST` | `list_review_requests`·`create_review_request` | 상태 `OPEN·RELEASED·REJECTED·CLOSED_ENDED` |
-| 광고그룹 `GET·POST`, `GET·PATCH` | `list_ad_groups`·`create_ad_group`(`bid_amount` 선택)·`get_ad_group`·`update_ad_group` | `pricing_unit`을 보내면 항상 `unit_immutable`. 응답의 `effects`는 **콘솔이 `masters`+`engine.effect_of`로 채운다**(Step 3) |
+| 광고그룹 `GET·POST`, `GET·PATCH` | `list_ad_groups`·`create_ad_group`(`bid_amount` 선택)·`get_ad_group`·`update_ad_group` | `pricing_unit`을 보내면 항상 `unit_immutable`(**[6-10에서 바뀜]** 모르는 필드로 400). 응답의 `effects`는 **콘솔이 `masters`+`engine.effect_of`로 채운다**(Step 3) |
 | 입찰 `GET`, `POST`(`expected_version`, 첫 입찰은 `null`) | `list_bids`·`add_bid` | `bid-preview`와 `effects`도 같은 방식으로 콘솔이 구성(적용 금액 계산은 `engine` 한 곳) |
-| 소재 `GET·POST`(업로드), `GET·PATCH`, `PUT .../image` | `list_creatives`·`create_creative`·`get_creative`·`update_creative`·`replace_creative_image` | 업로드 검증 실패는 `assets.ImageRejected`(`reason`)로 전달, HTTP 변환(`invalid_image`)은 콘솔 몫 |
+| 소재 `GET·POST`(업로드), `GET·PATCH`, `PUT .../image` | `list_creatives`·`create_creative`·`get_creative`·`update_creative`·`replace_creative_image`(**[6-9에서 더해짐]** 연결 `link_creative`, 선택 `update_ad_group(creative_id)`, 보관 `archive_creative`, 광고주 목록 `list_owned_creatives`, 광고 만들기 `create_ad` — §8.4.10) | 업로드 검증 실패는 `assets.ImageRejected`(`reason`)로 전달, HTTP 변환(`invalid_image`)은 콘솔 몫 |
 | 관리자 기능(중단·해제·반려·정책·조정) | `suspend_campaign`·`release_campaign`·`reject_review_request`, `masters.*`, `billing.adjust` | C6에는 없음(Django admin, 설계 §3) |
 | `/reports/daily`, `/alerts` | **서비스 [구현 2-10 `records.api.daily_report`]**, 콘솔 JSON·`/alerts`는 Step 3 | 이벤트·반응 처리(Step 2) 이후. `alerts`는 현재 상태에서 계산하는 읽기 전용이라 Step 3 |
-| 오류 코드 | `stale_version`·`unit_mismatch`·`unit_immutable`·`suspended`·`not_suspended`·`review_pending`·`ended`·`limit_exceeded` 모두 같은 `code` 값의 예외 | `invalid_transition`은 계약에 없는 내부 방어용(409 `conflict` 계열)이라 계약에 추가할지 Step 3에서 정함 |
+| 오류 코드 | `stale_version`·`unit_mismatch`·`unit_immutable`·`suspended`·`not_suspended`·`review_pending`·`ended`·`limit_exceeded` 모두 같은 `code` 값의 예외(**[6-10에서 바뀜]** `unit_mismatch`·`unit_immutable`은 없다) | `invalid_transition`은 계약에 없는 내부 방어용(409 `conflict` 계열)이라 계약에 추가할지 Step 3에서 정함 |
 
 ## 6.9 Step 1 이후 남은 것
 
@@ -979,7 +979,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 | Step 4-3 **[완료 2026-10-10, 로컬]** | 이벤트 백필과 구간별 정합 manifest(설계 §6.3a, 결정 설계 §10 "Step 4-3 백필·구간 manifest 결정"). 4-3a → 4-3b → 4-3c → 4-3d 순으로 하나씩 구현·검증·커밋하고, d05d681 위에 쌓는다. **4-3a 백필 실행** `backfill_events`: 검증을 통과한 `event_gaps` manifest를 입력으로 원본 행에서 이벤트를 다시 만들어 outbox에 쓴다(중계가 평소처럼 보냄). 멱등(결정적 이벤트 ID), 기본 `--dry-run`, 청크 단위 트랜잭션, 결과 `backfill_result`(새로 쓴 건수·이미 있던 건수·해석 불가) + 감사 로그 — 완료 증거: 백필 뒤 `export_integrity`의 `event_gaps` 0행, 백필한 이벤트가 `verify_events`(원본 대조)를 특별 처리 없이 통과. **4-3b 구간별 정합 manifest** `export_hop_manifests`: 같은 창에 대해 원본 기대 / outbox / MongoDB 세 구간의 (창, 이벤트 이름)별 건수·`ids_sha256`·`content_sha256` — 완료 증거: 세 구간이 같은 창에서 일치, 어느 구간을 바꿔도 manifest 대조만으로 검출. **4-3c 구간 대조** `verify_hops`: 두 구간 manifest(파이프라인 쪽이 같은 규칙으로 만든 것 포함)를 대조해 어긋난 창·이벤트 종류를 보고, 세대 연결(`previous_sha256`) 확인 — 완료 증거: 불일치 반례 시험, 백필로 창이 다시 열려도 새 세대로 일관. **4-3d 부하·장애 시험**에 백필과 구간 manifest 대조 추가 — 완료 증거: `check.sh` 통과, 장애 시나리오에서 복구 뒤 manifest 일치, **다음 세대에 늦게 나타난 이벤트 수**를 세어 창 닫힘 여유 2분(H11 A안)이 충분한지 확인(늦은 이벤트가 보이면 B안: 잠금 대기 제한을 정해 상한에서 여유를 정하고 150 동시·장애 시험을 다시 잰다). 문서와 시험은 MySQL 노드·주소에 기대지 않는다(InnoDB Cluster 전환 뒤에도 같은 계약) |
 | Step 4-4 **[완료 2026-10-11, 외부 검토 승인]** | 코드 정리 — 리팩터링 2차(`c4a6b63`~`5666946`)가 남긴 동작 차이 1건과 중복을 동작 변화를 명시하고 시험으로 고정하며 정리한다. **7단계 + 선택 1**(4-4a → b → c → d → i → h → k, 선택 4-4e). 일부러 남기는 중복 C1~C6, 상세는 §8.2. 구현 `e53a15a`~`4de457f`, 외부 검토 P2 보완 `6b563cf` |
 | Step 5(확장) | 조건부·기록만: Debezium outbox 라우터 → Kafka(중계 대체 — **전환 게이트**: 전송 확인·보존 기준, 라우터의 UPDATE·DELETE 처리, 봉투 매핑, 설계 §6.3), Spark → Delta 메달리온(설계 §10 "분석 계층 대응"), 스키마 저장소, C4 수신(`records.api` 집계 안쪽 교체). **5-5 결정 요청 멱등**(Step 6-2에서 기록, 착수 조건은 따로 — 결정 수가 정산·빈도 제한·보고 정확도의 기준이 될 때 또는 매체가 요청할 때, 설계 §8 Step 5) |
-| Step 6 **[진행 중, 2026-10-12~]** | **Step 3 이후 수정** — 연동 검토·운영·외부 검토에서 나오는 수정을 하나씩 쌓는다(6-1, 6-2 …, 수정마다 계기·결정·계획·완료 증거). 상세는 §8.4. 6-1 매체 연동 검토(게임 ad-bridge) 후속 **완료(2026-10-12)**: 결정 반영(C1 1.2.0), 서버 규칙 `media_deactivated` 6-1a `42de743`·6-1b `a70d769`(기록 표 방식), 질의 수 기준선 10 · 39 · 27, 계약 반영 6-1d. 6-2 외부 검토(코드 `a70d769`·문서 `2efd536`) 후속 **완료(2026-10-12)**: 결정 반영과 문구 정정(계약 1.2.0 안), 매체 생명주기 잠금 6-2a `6af4054`·6-2b `1399a58`, 숫자 범위 6-2c `5461af2`, 응답 검사 6-2d `94cd485`, 질의 수 기준선 11 · 40 · 28, 계약 1.3.0(6-2f, §8.4.3). 6-3 초기 운영 보완(리팩터링 세션 검토 O1~O8) **6-3a~6-3i 완료(2026-10-13)**: 결정 반영(설계 §10)·README 운영 보완·§7.3.4 #4(DB 시간 제한), 서버 작업 6-3a `e5280e1`·6-3b `8cea8b8`·6-3c `3ec4bfe`·6-3d `4ecfcbd`·6-3e `4c65d7b`, 질의 수 기준선 그대로(11 · 40 · 28), 구현 뒤 문서 반영(6-3g), 리팩터링 4차 뒤 6-3h `37e640a`(프록시 설정 누락 경고)·6-3i `6d93910`(관리자 첫 화면 처리 현황 카드). 6-4 코드 정리(리팩터링 4차) **완료(2026-10-13)**: `b1741a1`~`64d9539`, 6-4f로 서빙 경로 밖 질의 수만 줄고(해제 7 → 6, 기간 종료 5 → 4, 광고그룹 만들기 11 → 10) 서빙 질의 수는 그대로(§8.4.5). 6-5 배포 구성 전환(nginx 앞단·Django는 HTTP 전제, 가입 시도 제한 제거, 신뢰할 프록시 수 prod 필수, 정적 파일은 Django) **완료(2026-10-13)**: 6-5a `90eb3b4`(결정·계획) · 6-5b `fde0d49` · 6-5c `0979ace` · 6-5d `48d97f2` · 6-5e `127525c`, 질의 수 그대로(§8.4.6). 6-6 코드 정리(리팩터링 5차, 시험 코드 포함) **완료(2026-10-13)**: `bc502a6`~`78673c5`(7커밋 + 완료 기록), 시험 1,355 → 1,305(폐기 39·합치기 11, 위협 모델 인용은 먼저 대체 시험으로), 전체 시험 156초 → 120초, 서빙 질의 수 그대로, 콘솔 광고그룹 상세 13 → 12(§8.4.7). 6-7 리팩터링 5차 보고 후속(장애 시험의 임시 폴더·outbox PK 기본값·운영 화면의 409) **완료(2026-10-13)**: 6-7a `1a0bc92` · 6-7b `cf9a46a` · 6-7c `8d1bd9d` · 6-7d `5ce2790`, 시험 1,305 → 1,306, 서빙 질의 수 그대로, 질의 줄이기는 보류 그대로(§8.4.8). 6-8 브라우저 검토 후속(모니터링 링크·게재 위치를 만들 때의 빈 사유) **완료(2026-10-13)**: 6-8a `0c71d31` · 6-8b `42d4148` · 6-8c `cedd5e6`, 시험 1,306 → 1,308, 서빙 질의 수 그대로(§8.4.9). 6-9 구조 재편(캠페인·광고·소재 — 캠페인 따로 만들기, 광고 + 소재 만들기, 소재 목록·재사용·선택·보관, 소재 끄기 제거, 용어 "광고") **완료(2026-10-13)**: 6-9a `c9d04d6` · 6-9b `99e3f38` · 6-9c `b903bae` · 6-9d `6899d2a` · 6-9e `3a23ad7` · 6-9f 측정·완료 기록, 시험 1,308 → 1,337, 서빙 질의 수 그대로(§8.4.10). 6-10 과금 재설계(구성별 반응 비율, 과금 단위 제거, 화면 용어 "구성") **완료(2026-10-13)**: 6-10a `267e68c`·`4fabd96` · 6-10b `7e1e829` · 6-10c `1fd6d83` · 6-10d `57b7081` · 6-10e `b9c255d` · 6-10f 측정·완료 기록, 시험 1,337 → 1,341, 서빙 질의 수 11 · 40 · 37(클릭도 과금, §8.4.11). 6-11 광고 상세의 이미지 칸(고르기만·올리기만, 사용자 요청) **완료(2026-10-13)**(§8.4.12). 남은 것은 운영하면서 할 것(§8.4.4)과 6-5의 정하지 않은 것(WSGI 서버·시간 제한·nginx 오류 형식·요청 ID, §8.4.6) |
+| Step 6 **[진행 중, 2026-10-12~]** | **Step 3 이후 수정** — 연동 검토·운영·외부 검토에서 나오는 수정을 하나씩 쌓는다(6-1, 6-2 …, 수정마다 계기·결정·계획·완료 증거). 상세는 §8.4. 6-1 매체 연동 검토(게임 ad-bridge) 후속 **완료(2026-10-12)**: 결정 반영(C1 1.2.0), 서버 규칙 `media_deactivated` 6-1a `42de743`·6-1b `a70d769`(기록 표 방식), 질의 수 기준선 10 · 39 · 27, 계약 반영 6-1d. 6-2 외부 검토(코드 `a70d769`·문서 `2efd536`) 후속 **완료(2026-10-12)**: 결정 반영과 문구 정정(계약 1.2.0 안), 매체 생명주기 잠금 6-2a `6af4054`·6-2b `1399a58`, 숫자 범위 6-2c `5461af2`, 응답 검사 6-2d `94cd485`, 질의 수 기준선 11 · 40 · 28, 계약 1.3.0(6-2f, §8.4.3). 6-3 초기 운영 보완(리팩터링 세션 검토 O1~O8) **6-3a~6-3i 완료(2026-10-13)**: 결정 반영(설계 §10)·README 운영 보완·§7.3.4 #4(DB 시간 제한), 서버 작업 6-3a `e5280e1`·6-3b `8cea8b8`·6-3c `3ec4bfe`·6-3d `4ecfcbd`·6-3e `4c65d7b`, 질의 수 기준선 그대로(11 · 40 · 28), 구현 뒤 문서 반영(6-3g), 리팩터링 4차 뒤 6-3h `37e640a`(프록시 설정 누락 경고)·6-3i `6d93910`(관리자 첫 화면 처리 현황 카드). 6-4 코드 정리(리팩터링 4차) **완료(2026-10-13)**: `b1741a1`~`64d9539`, 6-4f로 서빙 경로 밖 질의 수만 줄고(해제 7 → 6, 기간 종료 5 → 4, 광고그룹 만들기 11 → 10) 서빙 질의 수는 그대로(§8.4.5). 6-5 배포 구성 전환(nginx 앞단·Django는 HTTP 전제, 가입 시도 제한 제거, 신뢰할 프록시 수 prod 필수, 정적 파일은 Django) **완료(2026-10-13)**: 6-5a `90eb3b4`(결정·계획) · 6-5b `fde0d49` · 6-5c `0979ace` · 6-5d `48d97f2` · 6-5e `127525c`, 질의 수 그대로(§8.4.6). 6-6 코드 정리(리팩터링 5차, 시험 코드 포함) **완료(2026-10-13)**: `bc502a6`~`78673c5`(7커밋 + 완료 기록), 시험 1,355 → 1,305(폐기 39·합치기 11, 위협 모델 인용은 먼저 대체 시험으로), 전체 시험 156초 → 120초, 서빙 질의 수 그대로, 콘솔 광고그룹 상세 13 → 12(§8.4.7). 6-7 리팩터링 5차 보고 후속(장애 시험의 임시 폴더·outbox PK 기본값·운영 화면의 409) **완료(2026-10-13)**: 6-7a `1a0bc92` · 6-7b `cf9a46a` · 6-7c `8d1bd9d` · 6-7d `5ce2790`, 시험 1,305 → 1,306, 서빙 질의 수 그대로, 질의 줄이기는 보류 그대로(§8.4.8). 6-8 브라우저 검토 후속(모니터링 링크·게재 위치를 만들 때의 빈 사유) **완료(2026-10-13)**: 6-8a `0c71d31` · 6-8b `42d4148` · 6-8c `cedd5e6`, 시험 1,306 → 1,308, 서빙 질의 수 그대로(§8.4.9). 6-9 구조 재편(캠페인·광고·소재 — 캠페인 따로 만들기, 광고 + 소재 만들기, 소재 목록·재사용·선택·보관, 소재 끄기 제거, 용어 "광고") **완료(2026-10-13)**: 6-9a `c9d04d6` · 6-9b `99e3f38` · 6-9c `b903bae` · 6-9d `6899d2a` · 6-9e `3a23ad7` · 6-9f 측정·완료 기록, 시험 1,308 → 1,337, 서빙 질의 수 그대로(§8.4.10). 6-10 과금 재설계(구성별 반응 비율, 과금 단위 제거, 화면 용어 "구성") **완료(2026-10-13)**: 6-10a `267e68c`·`4fabd96` · 6-10b `7e1e829` · 6-10c `1fd6d83` · 6-10d `57b7081` · 6-10e `b9c255d` · 6-10f 측정·완료 기록, 시험 1,337 → 1,341, 서빙 질의 수 11 · 40 · 37(클릭도 과금, §8.4.11). 6-11 광고 상세의 이미지 칸(고르기만·올리기만, 사용자 요청) **완료(2026-10-13)**: `39e8986`(+ 시험 보완 `d62f184`, §8.4.12). 6-12 코드 정리(리팩터링 6차, 시험 코드 포함) **진행 중(2026-10-13~)**: 6-12a `d62f184` · 6-12b 결정·계획(§8.4.13). 남은 것은 운영하면서 할 것(§8.4.4)과 6-5의 정하지 않은 것(WSGI 서버·시간 제한·nginx 오류 형식·요청 ID, §8.4.6) |
 
 ## 8.1 Step 3 상세 계획 (2026-10-08 작성, 2026-10-12 갱신 — 3-0~3-3 구현, 승인 2026-10-12 외부 검토 `13f3bc2` 통과)
 
@@ -1460,7 +1460,7 @@ DB-1a에서 이미 고친 것(T25가 인용하던 `test_sqlite_pragmas`는 `test
 **계기**: 6-6이 동작 변화라 고치지 않고 넘긴 네 건(§8.4.7 "보고만")을 구현 세션이 코드에서 확인했다(2026-10-13). 보고와 다른 점이 셋 있었다.
 - **①은 정적 폴더만의 문제가 아니다.** `failure_test.py`는 시나리오마다 임시 폴더를 만들고 끝에 지운다. 그런데 이 프로세스의 Django 설정은 첫 시나리오 때 굳는다(DB 이름은 이미 직접 바꾼다). 그래서 둘째 시나리오부터 웹 앱은 지운 첫 폴더를 가리킨다. 환경변수로 `STATIC_ROOT`만 넘기면 둘째부터 "No directory" 경고가 다시 난다. 소재 이미지는 `MEDIA_ROOT`(첫 폴더)를 다시 만들어 그대로 남는다(`$TMPDIR`에 이미지가 든 `ads-failure-*` 폴더가 남아 있음을 확인).
 - **②의 기본값에는 이유가 있다.** 쓰이지는 않지만, 모델 규약 시험 `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments`가 모든 PK의 기본값이 `uuid.uuid7`인지 보면서 outbox 예외를 모르기 때문에 붙어 있다. outbox 예외는 설계 §10 "PK 규칙"·DRD R-2가 적은 UUIDv5다. 이 기본값은 위험하다: `event_id`를 빠뜨린 코드에 무작위 ID가 조용히 들어가, 같은 이벤트를 PK로 한 줄만 남기는 중복 차단이 무력화된다.
-- **③에서 400이 409를 덮는 곳은 운영 화면 두 곳뿐이다.** 매체 등록(같은 이름의 매체)과 게재 위치 만들기(같은 매체에 같은 이름)로, 둘 다 서비스가 `Conflict`(409)를 던진다. 내 정보·비밀번호 변경의 400 고정은 서비스가 `ValidationError`만 던지므로 맞다. 광고주 화면과 나머지 운영 화면(정책·포인트 조정 등)은 이미 `console.errors.status_of`를 쓴다.
+- **③에서 400이 409를 덮는 곳은 운영 화면 두 곳뿐이다.** 매체 등록(같은 이름의 매체)과 게재 위치 만들기(같은 매체에 같은 이름)로, 둘 다 서비스가 `Conflict`(409)를 던진다. 내 정보·비밀번호 변경의 400 고정은 서비스가 `ValidationError`만 던지므로 맞다. **[6-12b 정정]** 비밀번호 변경은 그 사이 계정 상태가 바뀌면 `Conflict`도 던지고 화면은 그것도 400으로 그린다(§8.4.13 "보고만" R6). 광고주 화면과 나머지 운영 화면(정책·포인트 조정 등)은 이미 `console.errors.status_of`를 쓴다.
 
 **정한 것** [확정 2026-10-13, 사용자 — 구현 세션 권장안]
 - **①** `failure_test.py`는 시나리오마다 빈 정적 폴더를 만들어 넘긴다(`load_test.py`와 같게). DB 이름처럼 이 프로세스의 `STATIC_ROOT`·`MEDIA_ROOT`도 그 시나리오의 임시 폴더로 바꾼다.
@@ -1717,6 +1717,71 @@ DRD는 outbox `event_id` 행과 검증 표의 PK 규칙 행(6-7c)만 고친다.
 
 **보완(외부 검토 R10, 2026-10-13)**: 소재 상세의 수정·이미지 교체에서 폼이 거르는 분기(빈 제목·변경 시각 없음·파일 없음)를 지나는 시험이 없었다 — 그 분기에 예외를 넣어도 시험이 모두 통과했다. 기존 시험의 공백 제목(`" "`)은 폼이 공백을 지우지 않아(`strip=False`) 서비스가 거르는 분기로 갔다. 새 시험 `test_inputs_the_forms_reject_redraw_the_detail_page_and_change_nothing`: 셋 모두 400, 제출한 폼을 입력값 그대로 다시 그림, 소재는 바뀌지 않음. 변형 8개(두 분기마다 예외·분기 삭제·200·새 폼으로 다시 그리기) 모두 잡음. 시험 1,342 → 1,343. 메모: 숨김 칸 `updated_at` 의 오류는 화면에 보이지 않고 다시 그린 폼에서도 비어 있다(조작한 요청에서만 생김, 캠페인 수정·광고 이름 폼도 같음) — 고치지 않았다.
 
+### 8.4.13 6-12 코드 정리 (리팩터링 6차 — 시험 코드 포함, 기준 코드·문서 `d62f184`)
+
+**무엇**: 6-7~6-11(캠페인·광고·소재 구조 재편, 구성별 반응 비율 과금, 화면 용어, 광고 상세의 이미지 칸) 뒤의 제품 코드와 **시험 코드**를 정리한다. 기능을 더하거나 빼지 않고 동작도 바꾸지 않는다 — 응답 코드, 렌더된 화면의 문구·구조, DB 쓰기, 잠금 대상과 순서, 질의 수, 감사 기록, 이벤트가 그대로다. 계약·설계 결정은 바뀌지 않는다. 리팩터링 세션이 ponytail-audit(과잉 설계 점검)으로 영역 넷(L0·L1과 scripts, L2, L3·L4, 시험)을 훑어 후보를 냈다(HEAD `39e8986`, 시험 1,342).
+
+**정한 것** [2026-10-13 — 사용자가 진행을 리팩터링 세션에 맡겼고, 리팩터링 세션의 권장안대로 한다]
+- **D-1 폼 제출 틀**: "폼 검증 → 서비스 호출 → 거절이면 폼에 오류(`form_errors`)와 응답 코드(`status_of`) → 다시 그리기"가 콘솔·운영 뷰 14곳에 되풀이된다. 6-6f는 광고그룹 화면만 묶었고, 6-9 뒤 소재·캠페인·광고 만들기 화면에 같은 틀이 다시 생겼다. 12곳이 `console/errors.submit` 하나를 쓴다. 가입(`ValidationError`만 잡는다)과 내 정보·비밀번호(응답 코드가 400 고정 — 아래 "보고만" R6)는 그대로 둔다.
+- **D-2 구성별 결과 표**: 광고 만들기의 미리보기와 광고 상세에 있는 같은 표 두 벌을 조각 하나(include)로. 렌더 HTML은 공백만 달라진다(문구·구조·열은 같다) — 바꾸기 전후 HTML을 공백을 정규화해 비교한다.
+- **D-3**: 위협 모델·DRD가 인용한 동시 제출 화면 시험(`test_the_same_form_sent_twice_at_once_creates_once`)은 남긴다. 잠금 안의 키 재확인은 서비스 경쟁 시험만 잡지만, 화면 입구의 보안 인용 시험이고 아끼는 것(0.7초)이 작다.
+- **D-4 문서**: 이번에도 리팩터링 세션이 고친다(6-6과 같다) — 이 절·§8 요약·§10, 위협 모델 인용(시험을 지우기 **전에** 대체 시험으로, 6-12b), 이 계획의 낡은 표에 "6-N에서 바뀜" 표시, 설계 §2·§8.
+
+**시험을 지우는 기준**: 6-6과 같다. 지울 시험이 잡는 결함을 제품 코드 변형으로 만들어 **대체 시험이 같은 변형을 잡는지** HEAD 사본에서 돌린다(6-12c 착수 때). 못 잡으면 지우지 않고 단언을 옮기거나 남긴다. 제품 코드를 바꾸는 단계(6-12d~6-12f)는 바꿀 곳을 지키는 시험이 있는지 변형으로 먼저 보고, 없으면 단언을 먼저 더한다.
+
+**단계** (한 단계 = 한 커밋, `check.sh`(`DB_NAME=ads_refactor6`))
+
+| 단계 | 할 일 | 완료 |
+|---|---|---|
+| **6-12a 시험 먼저** | 리팩터링(D-1)이 지날 분기 중 시험이 없던 곳: 소재 수정·이미지 교체의 폼 검증 실패 분기(아래 "보고만" R10) | `d62f184`(구현 세션, §8.4.12 보완) — 시험 1,342 → 1,343 |
+| **6-12b 문서: 결정·계획·인용** | 이 절·§8 요약·§10, 위협 모델 T35의 인용(`test_audience_cannot_be_changed_after_creation` → 본문이 같은 `test_slot_audience_immutable`), Step 1 표(§5·§6.8.1)의 소재·과금 단위 행에 "6-9·6-10에서 바뀜" 표시, §8.4.8 ③의 정정, 6-9f·6-10f·6-11 해시, 설계 §2·§8 Step 6 | **이 커밋** |
+| **6-12c 시험 정리** | 아래 "시험" | |
+| **6-12d L0·L1·scripts** | 아래 "L0·L1·scripts" | |
+| **6-12e L2** | 아래 "L2" | |
+| **6-12f L3·L4** | 아래 "L3·L4"(D-1·D-2). 바뀐 화면의 렌더 HTML을 바꾸기 전후로 비교 | |
+| **6-12g 마무리** | `check.sh`, 150 동시 부하, `failure_test.py` processor-kill·relay-kill, 서빙 질의 수(결정 11 · 반응 40 · 클릭 37), 문서 정합 점검·완료 기록, DB 정리 | |
+
+**시험**(6-12c, 시험 1,343 → 약 1,336)
+- 폐기: `test_slot_audience::test_audience_cannot_be_changed_after_creation`(본문이 `test_masters_models::test_slot_audience_immutable`과 같다 — 6-10d에서 단위 시험을 고치다 둘이 됐다) · `test_creative_pages::test_an_edit_from_the_detail_page_returns_there`(소재 상세 수정 시험 둘) · `test_creative_library::test_a_failed_ad_leaves_no_ad_group`(광고 만들기 서비스 시험 셋과 종료 가드)
+- 합치기: 화면 용어 시험 둘(`test_screens_say_ad_not_ad_group`·`test_screens_say_composition_not_placement`) → 금지어를 도는 하나(화면별 "과금 단위" 단언 둘도) · `test_pricing_unit_is_no_longer_a_field` → 광고그룹 수정의 잘못된 입력 반복(모르는 필드 검사를 지키는 유일한 시험이라 옮긴다) · `AdGroupCreatedSlotsTests` → `test_an_ad_may_combine_any_slots` · `test_schema_version_is_per_event_kind` → outbox 봉투 시험 · `test_payload_shapes`의 비율·`pricing_unit` 단언(결정 이벤트 전체 비교와 겹친다) · 광고 만들기 시험의 새 소재 부분집합 · 남의 소재 404 람다 둘
+- 옮기기(이름 그대로): `test_ad_group_pages`에 남은 소재 상세 시험 → `test_creative_pages` · 두 파일에 흩어진 광고 만들기 서비스 시험 → 한곳 · 캠페인 만들기 화면 시험 → `test_campaign_pages`
+- 도우미: 일괄 구성 + 광고 + 소재, 광고그룹 + 소재 준비(각 6곳) → `tests/factories`
+- 낡은 것: 없어진 설정 `MAX_CREATIVES_PER_AD_GROUP`을 덮어쓰는 `override_settings` 둘, 과금 단위 시절의 도우미 이름·설명(`shares_for`·`unit=`·`UNIT`), 없어진 정책 이름 `by-unit/v1` 데이터, 옛 금액을 적은 docstring, 같은 화면을 뜻 없는 매개변수로 한 번 더 그리는 화면 점검 주소
+
+**L0·L1·scripts**(6-12d): `foundation/access.owned_queryset`(제품 코드 호출 없음)을 `owned_or_404` 안으로, 틀린 docstring("모든 조회가 이것을 지난다")도 · 호출자 하나뿐인 `masters._validate_audience`·`foundation/http._html_error` · `create_slot`의 `slot.media = media`(만들 때 이미 채워진다) · `load_test.run()`의 단계 반복을 반복문으로, 손으로 센 집계를 `collections.Counter`로(`verify_hops` 포함) · `failure_test`의 DB 고르기·`lag` 정리 · 낡은 주석(`masters/models.py`, `load_test`의 옛 금액)
+
+**L2**(6-12e): `campaigns._locked_group`이 바로 뒤의 `tr.assert_open`까지 한다(호출 4곳 모두 같다, 잠금 순서 그대로) · 호출자 하나뿐인 `_flag`(6-9b 뒤)·`_check_creative_count` · billing의 지갑 404 변환 두 벌 → 하나 · 낡은 docstring(`charged_amounts`의 "과금 단위가 아닌 유형", `create_creative`의 "올려서 연결", `_part`의 이유, `campaigns/models.py`의 엉뚱한 줄에 붙은 이력 주석)
+
+**L3·L4**(6-12f): `console/errors.submit`(D-1) · ID만 넘기는 상세 감싸개 뷰 4개(`ad_group_detail`·`creative_detail`·`media_detail`·`advertiser_detail`) · 구성별 결과 표 include(D-2) · `policy_bulk.html`의 칸 반복 · 호출자 하나뿐인 `console/views/campaigns._back` · 어떤 화면에도 `disabled`가 없어 죽은 CSS 규칙 하나(옛 단위 단계) · 소재 상세의 `(소재 ID, 폼)` 튜플 → 폼, 광고 만들기 context `chosen` · `records._record_click`의 읽지 않는 반환값 · 낡은 docstring(`CreativeUploadForm`, `records.charge_shares`)
+
+**정리하지 않는 것**: 두 상시 명령의 `stamped()`(6-3b 결정, §8.4.5) · `foundation/http._has_unpaired_surrogate`를 `json.dumps(…).encode()`로(신뢰 경계에서 영리한 대체이고, 서빙 경로에서 본문을 한 번 더 직렬화한다) · `assets.ValidatedImage`의 `content_type`·`width`·`height`(시험만 읽지만, 지우면 계약 시험의 기대값을 제품 코드의 값으로 바꿔야 해 시험이 약해진다) · `PASSWORD_MIN_LENGTH`·`PASSWORD_MAX_LENGTH`(문서가 인용) · `engine/types` 검증 반복 합치기(어느 오류가 먼저 나는지가 바뀐다) · `events/api` 기록 함수의 한 줄화(잘못 부를 때의 예외 종류가 바뀐다) · 렌더 HTML에만 있는 class(`creative-new`·`creative-existing` — 지우면 HTML이 바뀐다) · 값 객체의 쓰이지 않는 기본값(줄이 줄지 않는다) · 이전 차수에서 남긴 것(§8.2.4·§8.3.4·§8.4.5·§8.4.7 — `ChargePolicy` Protocol 포함: 6-10c에서 구현이 `share/v1`로 바뀌었을 뿐 교체 지점이라는 근거는 그대로다)
+
+**보고만**(동작 변화라 구현 세션 몫 — 리팩터링 세션이 6-12 후보를 찾다 발견, 2026-10-13. R10은 6-12a에서 시험을 더했다)
+- 화면·서비스
+  - R1 광고 만들기: 등록된 소재가 없는 광고주가 "등록된 소재 쓰기"로 집행하면 400인데, 오류가 붙는 `creative_id` 칸을 그리지 않아 화면에 오류가 보이지 않는다(`ad_create.html`의 `has_creatives` 분기, `AdCreateForm.clean`).
+  - R2 광고 만들기: 구성 칸 오류가 있으면 `id="id_slot_ids_error"`가 둘이 된다(템플릿의 바깥 `div`와 Django 6.1 오류 목록의 `ul`).
+  - R3 `creative.linked` 감사 기록의 `selected`는 요청 플래그다 — 선택된 소재가 없어 연결과 함께 자동 선택돼도 `false`가 남는다.
+  - R4 그 자동 선택(`campaigns._link`)은 광고그룹의 `updated_at`을 올리지 않아, 화면이 본 시각 대조(`_assert_seen`)가 이 변경을 보지 못한다. 명시적 선택은 올린다.
+  - R5 `campaigns._created_by_key`는 `create_ad`가 받은 `now`를 쓰지 않고 지금 시각으로 중복 응답의 캠페인 상태를 만든다(`ad_created_by_key`에는 `now` 인자도 없다).
+  - R6 비밀번호 변경 서비스는 그 사이 계정 상태가 바뀌면 `Conflict`(409)도 던지는데 화면은 400으로 그린다(시험이 400을 고정한다). §8.4.8 ③의 "계정 화면은 `ValidationError`만"은 틀렸다(정정 표시함).
+  - R7 빈 POST의 응답 코드가 화면마다 다르다: 운영의 매체·정책·일괄 변경은 200(언바운드 폼), 소재 목록·캠페인 상세는 400.
+  - R8 광고 상세의 "이 이미지로 바꾸기" 버튼이 이미지마다 같은 이름이다(구별되는 접근 이름 없음). 광고 만들기·광고 상세에서는 주 메뉴에 `aria-current`가 없다.
+  - R9 `create_ad`는 역할 검사보다 입력 검사·요청 키 조회를 먼저 해, 광고주가 아닌 사용자가 403 대신 400·409를 받을 수 있다.
+- 시험의 빈 곳
+  - R10 소재 수정·이미지 교체의 폼 검증 실패 분기 — **6-12a `d62f184`에서 더함**.
+  - R11 광고 개수 상한을 **다른 캠페인**으로 동시에 넘기는 경쟁 시험이 없다(같은 캠페인이면 캠페인 행 잠금이 광고주 잠금을 가린다).
+  - R12 이름과 단언이 어긋나는 시험: 매체별 묶음·입찰 이력을 이름에 쓰고 단언하지 않는 화면 시험 둘, 지금은 캠페인을 만드는 `test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit`(위협 모델 인용), 마지막 단언이 늘 참인 `test_other_advertisers_unaffected`.
+  - R13 JS 없는 흐름의 입찰 `"40"`은 하한 100보다 낮아 하한 미만 경로만 지난다(의도 확인) · 소재 삭제 성공·이미지 고르기 실패 메시지를 보는 시험이 없다 · 비공개 함수 호출 수를 세는 단언 둘.
+- 질의(보류 묶음 — §8.4.7 ④에 더함)
+  - R14 `create_ad`의 광고주 재잠금은 이제 새 소재 −4·재사용 −2이고, 재사용 경로는 연결 결과 뷰의 질의 2개를 버린다.
+  - R15 `list_owned_creatives`의 사용처 집계를 광고 상세·광고 만들기가 버리고, 소재 상세는 소재 하나를 찾으려고 목록 전체를 읽는다. 소재·구성 화면의 오류 경로는 같은 것을 두 번 읽는다.
+- 문서·설계
+  - R16 Step 1 표의 과금 단위·소재 행 — **6-12b에서 "바뀜" 표시**.
+  - R17 소재 선택 경로가 둘(`update_ad_group(creative_id)`·`link_creative(select=True)`)이고, 화면 호출자가 없는 C6 대응 함수(`list_creatives`·`list_ad_groups`)가 있다 — 정리는 C6 결정.
+  - R18 판정에 쓰이지 않는 `Candidate.base`·`bid_created_at` · 하한 ≥ 100 제약에 포함되는 `floor > 0` 제약(마이그레이션 필요) · 모델은 "기본값 없음"인데 `create_slot(audience=INDIVIDUAL)` 기본값.
+- scripts
+  - R19 `failure_test`의 `wait_ready`가 `docker exec`를 시간 제한 없이 부른다(R5 규칙) · 정리 루프의 `wait(timeout=30)`에 kill 대체가 없어 걸리면 남은 점검을 건너뛴다 · `mongo_temp_rs`의 primary 대기 두 벌의 제한이 다르다.
+
 # 9. 위험과 대응
 
 | 위험 | 대응 |
@@ -1757,7 +1822,8 @@ DRD는 outbox `event_id` 행과 검증 표의 PK 규칙 행(6-7c)만 고친다.
 | **Step 2 전체** | **승인 (2026-10-08, 외부 검토 `1fe79e9` — V1 범위: SQLite·로컬 파일 독립 서버)** | §7.1 종료 점검표(사람의 일: 매체 담당자와 계약 공유). 구현: `serving_api`·`records`(수신함·처리)·`masters`(매체 키) |
 | 2-11 마무리 | 완료 (2026-10-08) | 계약 `info.version` **`1.1.0`**(draft 해제, `[v1.1]` 표시 정리, 순서·`occurred_at` 허용 오차 문구를 구현과 맞춤, 400 검사는 404·403 뒤), 매체용 요약 [contracts/README.md](contracts/README.md)를 v1.1로(슬롯 두 종류, `click_url` 이동, 반응 순서·기간·보류와 사유 표), DRD §5.2·5.3 v1.1 반영(0.12), 위협 모델 **T38(클릭 관측)·T39(반응 판정)·T40(성과 집계)** 추가(Step 3의 T41·T42로 번호 이동), 부하 시험 단계 **H(클릭 경유 전체 퍼널)·J(일괄 슬롯 사람별 + 노출 없는 임의 `s` 클릭)·I(보류 해소 지연: 처리 프로세스가 없으면 보류로 남고 뜨면 약 5초에 풀림)** 추가, 규칙을 끄면 실패함을 확인. 150 동시 재측정은 Step DB의 DB-1d로 이관(MySQL로 잼). `load-test.md` §6. **Step 2 전체(v1.1 포함) 구현 완료.** 테스트 671개(시험 코드 변경 없음, 부하 시험만 확장) |
 | 2-10 퍼널 집계 | 완료 (2026-10-08) | `records.api.daily_report`(`records/report.py`): 광고주의 일별 노출·클릭·전환(인정된 `ACCEPTED`만, 일괄 슬롯은 사람마다)·소진 포인트와 직전 같은 길이 구간 합계, 구간의 모든 날을 0 으로 채움, CTR·전환율은 합계의 파생 속성(분모 0 이면 `None`). 범위는 결정의 `owner_id`·`campaign_id`·`ad_group_id`(남의 캠페인·광고그룹은 404, 광고주만), 구간은 예산 일 경계·최대 92일(아니면 400), 날짜는 수신 시각의 예산 일(`BUDGET_DAY_OFFSET_HOURS` 반영). 소진은 실제 받은 포인트(잔액 부족분 제외): 캠페인·광고주는 `CampaignSpend`, 광고그룹은 원장 과금에서 읽어 합이 캠페인과 일치. `billing.api`에 `spend_by_day`·`charged_amounts`·`day_start`, `campaigns.api`에 `campaign_ids_of`, 결정 인덱스 `(owner_id, campaign_id, ad_group_id)`(마이그레이션 `records/0008`). 질의 수는 데이터 양과 무관(시험으로 고정). 새 시험 `tests/test_funnel_report.py` 16개, 변형 13종(살아남은 2개는 질의 하한 최적화라 결과에 영향 없는 동등 변형). 테스트 655 → 671 |
-| **Step 6-11** 광고 상세의 이미지 칸 — 고르기만·올리기만(기준 코드·문서 `d8e48de`) | **완료 (2026-10-13)** — 한 커밋(이 커밋) | §8.4.12. 사용자 요청(브라우저 검토): "소재" → "이미지"(내 이미지 중 고르기만, 연결은 고를 때 함께), "소재 더하기" → "이미지 업로드"(올리기만), 수정·교체는 소재 상세에서만 |
+| **Step 6-12** 코드 정리(리팩터링 6차 — 시험 코드 포함, 기준 코드·문서 `d62f184`) | **진행 중 (2026-10-13~)** — 6-12a `d62f184` 시험 먼저(구현 세션) · 6-12b 결정·계획·인용(이 커밋) | §8.4.13. 사용자가 진행을 맡김(D-1~D-4 권장안). 동작 불변, 계약·설계 결정 그대로. "보고만" R1~R19(R10은 6-12a) |
+| **Step 6-11** 광고 상세의 이미지 칸 — 고르기만·올리기만(기준 코드·문서 `d8e48de`) | **완료 (2026-10-13)** — 한 커밋 `39e8986`(+ 시험 보완 `d62f184`) | §8.4.12. 사용자 요청(브라우저 검토): "소재" → "이미지"(내 이미지 중 고르기만, 연결은 고를 때 함께), "소재 더하기" → "이미지 업로드"(올리기만), 수정·교체는 소재 상세에서만 |
 | **Step 6-10** 과금 재설계 — 구성별 반응 비율(기준 코드·문서 `55f0e6b`) | **완료 (2026-10-13)** — 6-10a `267e68c`·`4fabd96` 결정·계획 · 6-10b `7e1e829` 구성 정책에 비율 · 6-10c `1fd6d83` 과금 전환 · 6-10d `57b7081` 단위 제거 + 광고주 화면 · 6-10e `b9c255d` 화면 용어 · 6-10f 측정·완료 기록. 시험 1,337 → 1,341, 150 동시 부하·장애 시험 두 시나리오 통과, 서빙 질의 수 11 · 40 · 37(클릭도 과금) | §8.4.11. 사용자 결정 B1~B10, 계획을 쓰며 나온 K1~K6(2026-10-13): 옛 데이터 이전 없음 — 6-10b 착수 때 모든 DB를 지우고 새로 만든다(호환 코드 없음), 종류별 스키마 버전, 비율 열·`charge_shares`, DB 제약(하한 ≥ 100 포함), `share/v1`(`by-unit/v1` 삭제), 광고그룹 소진액은 모든 유형 |
 | **Step 6-9** 구조 재편 — 캠페인 · 광고 · 소재(기준 코드·문서 `cedd5e6`) | **완료 (2026-10-13)** — 6-9a `c9d04d6` 결정·계획 · 6-9b `99e3f38` 소재 끄기 제거 · 6-9c `b903bae` 소재 목록·연결(서비스) · 6-9d `6899d2a` 화면 · 6-9e `3a23ad7` 화면 용어 · 6-9f 측정·완료 기록. 시험 1,308 → 1,337, 150 동시 부하·장애 시험 두 시나리오 통과, 서빙 질의 수 11 · 40 · 28 그대로 | §8.4.10. 다음은 6-10 과금 재설계 |
 | **Step 6-8** 브라우저 검토 후속 — 작은 수정(기준 코드·문서 `5ce2790`) | **완료 (2026-10-13)** — 6-8a `0c71d31` 결정·계획 · 6-8b `42d4148` 모니터링 링크 · 6-8c `cedd5e6` 사유 기본값·완료 기록 | §8.4.9. 다음은 6-9 구조 재편·6-10 과금 재설계(§8.4.9 "다음") |
