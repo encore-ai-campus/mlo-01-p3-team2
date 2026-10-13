@@ -87,42 +87,19 @@ $topologyConfig.topology.accounts.account1.ami_id
 
 ## 3. 테스트용 공인 IP 조회와 게임 접속 허용 설정
 
-이 절의 game_client_cidrs는 ALB 활성 프로필에서만 웹 접속 규칙을 만든다. 현재 기본 및 current 설정은 ALB가 비활성화돼 있으므로 아래 목록을 바꿔도 Front의 80·443이 열리지 않는다. Front 직접 HTTPS는 별도 후속 설정이다.
+현재 게임·광고 Front는 각각 TCP 80·443을 0.0.0.0/0에 공개한다. 공인 IP가 바뀌어도 웹 접속용 허용 목록을 갱신할 필요가 없다. Nginx·Certbot의 실제 설치와 Backend 응답은 [Front별 HTTPS 설치](deployment-runbook.md#front별-https-설치)에서 별도로 확인한다.
 
-현재 PC가 연결된 네트워크의 공인 IPv4를 조회하고, 그 IP 하나를 허용하는 `/32` 형식으로 저장한다. `game_client_cidrs` 목록은 현재 IP 하나로 교체하며 다른 설정은 유지한다. 학교·사무실에서 조회하면 해당 네트워크의 공인 IP가 나오고, 집에서 조회하면 집 네트워크의 공인 IP가 나온다.
+아래는 현재 PC의 공인 IPv4를 확인하는 명령이다. 설정 파일을 변경하지 않는다.
 
 ```powershell
-Set-Location C:\third_project\aws-infra
-
-# 현재 네트워크의 공인 IP를 조회하고 접속 허용 범위를 표시합니다.
+# 접속 장소의 공인 IP를 확인한다. 서버 EIP와는 다른 주소다.
 $testPublicIp = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com').Trim()
 "$testPublicIp/32"
-
-# 기존 설정을 읽고 게임 접속 허용 IP만 변경합니다.
-$trafficPath = 'C:\third_project\aws-infra\infra\config\traffic.tfvars.json'
-$trafficConfig = Get-Content -Raw -LiteralPath $trafficPath | ConvertFrom-Json
-$trafficConfig.traffic.game_client_cidrs = @("$testPublicIp/32")
-
-# 기존 설정 전체를 UTF-8(BOM 없음) JSON으로 저장합니다.
-$trafficJson = $trafficConfig | ConvertTo-Json -Depth 50
-[System.IO.File]::WriteAllText(
-    $trafficPath,
-    $trafficJson,
-    [System.Text.UTF8Encoding]::new($false)
-)
-
-# 파일에 실제로 저장된 접속 허용 IP를 확인합니다.
-$savedTrafficConfig = Get-Content -Raw -LiteralPath $trafficPath | ConvertFrom-Json
-$savedTrafficConfig.traffic.game_client_cidrs
 ```
 
-이번 PC의 조회 결과는 `211.117.107.63/32`였다. 다른 네트워크에서는 조회값이 달라질 수 있다.
+Bastion SSH가 필요하면 선택한 프로필의 traffic.admin_public_cidrs에 이 /32 주소가 있는지 확인한다. 기존 팀원 IP를 유지할지 검토한 뒤 필요한 주소를 반영하고, 영향 계정 workload의 새 Plan을 검토해 Apply한다. 현재 기본값은 222.112.208.69/32다. Account 2~5 Private 관리자 SSH 규칙도 이 목록을 사용하므로 변경 영향을 함께 확인한다. Account 1 네 서비스에는 공인 IP SSH를 추가하지 않고 Bastion을 경유한다. 설정 변경 후 이전 저장 Plan은 재사용하지 않는다.
 
-위 명령은 로컬 설정 파일을 저장한다. 실제 AWS 반영은 Account 1 workload의 새 Plan을 검토한 뒤 Apply할 때 이루어진다. 나중에 학교의 공인 IP 대역을 확보하면 `game_client_cidrs`의 테스트 IP를 해당 대역으로 교체하고 같은 절차로 적용한다. 설정을 바꾼 뒤에는 이전 저장 Plan을 사용할 수 없다.
-
-선택적으로 활성화하는 ALB 모듈은 HTTP 80 listener만 지원한다. certificate_arn은 공통 타입에 남아 있지만 인증서가 없다는 이유로 workload Plan·Apply를 중단하지 않는다. /static/*는 Front:80, /ads/*는 광고:8000, 기본 경로는 game:8000으로 보낸다. HTTPS/WSS 공개는 현재 구현과 별도로 설계해야 한다.
-
-이 절은 게임 접속용 game_client_cidrs만 바꾼다. 배스천 SSH 허용 범위인 admin_public_cidrs는 별도이며 [SSH 연결 장애](#72-ssh-인증-또는-접속-시간-초과)에서 구분한다. 변경한 구성으로 [workload Plan·Apply](deployment-runbook.md#53-서비스-ec2ebs통신-규칙alb-workload)를 진행한다.
+traffic.game_client_cidrs는 이전 edge의 HTTPS 및 public_http_cidrs가 없는 프로필의 HTTP 허용 범위에 남아 있다. 현재 두 Front의 접속 제한 설정이 아니다. 선택 ALB의 HTTP 80 범위는 public_http_cidrs를 우선 사용한다. 기본 및 current의 ALB는 비활성화돼 있으며, ALB를 켜는 것만으로 현재 Front별 HTTPS 구성을 대체할 수 없다.
 
 ## 4. 배스천 상태 조회와 중지·시작
 
@@ -326,7 +303,7 @@ Windows PowerShell과 배스천·프라이빗 EC2의 터미널을 먼저 구분�
 
 EC2 재생성이나 배스천 재시작 뒤에는 [4절 상태 확인](#4-배스천-상태-조회와-중지시작)과 [4.1절 주소 갱신](#41-배스천-주소가-바뀐-뒤-다시-연결)을 먼저 한다. 현재 PC가 다른 네트워크에 있다면 관리자 공인 IP 허용 범위를 대조한다.
 
-게임 접속용 game_client_cidrs는 ALB 활성 시 HTTP 접속 범위이고 배스천 SSH용 admin_public_cidrs와 다르다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과를 바탕으로 선택한 traffic의 해당 목록을 구분해서 수정하고, 영향을 받는 계정 workload의 새 Plan을 검토한다. 전체 인터넷 대역을 열어 우회하지 않는다.
+현재 Front 웹 80·443은 전체 공개이고, Bastion SSH는 admin_public_cidrs로 제한한다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과와 선택한 traffic의 관리자 목록을 대조하고, 변경 시 영향을 받는 계정 workload의 새 Plan을 검토한다. Account 1 네 서비스 SSH는 Bastion 경유를 유지한다.
 
 파일·권한·네트워크를 확인했는데 실제 등록 키 전환이 필요한 경우에만 [5절 키 전환](#5-계정별-새-ssh-키-준비와-기존-서버-등록)을 따른다. 복구 뒤 [WSL 접속 검사](deployment-runbook.md#73-wsl-실행-환경과-인벤토리-확인)에서 ping을 다시 확인한다.
 

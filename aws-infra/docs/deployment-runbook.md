@@ -496,9 +496,9 @@ ansible-playbook -i "$inventory" site.yml --tags common --limit all
 현재 플랫폼 방화벽 규칙이 있는 역할에 방화벽 적용:
 
 ```bash
-# game·ad는 9.3절의 역할·통신 규칙을 정한 뒤 별도로 적용한다.
+# 최신 인벤토리로 Front·Backend를 포함한 기존 역할의 방화벽을 적용한다.
 ansible-playbook -i "$inventory" site.yml --tags firewall \
-  --limit 'bastion:frontend:mysql:mongodb:kafka:spark'
+  --limit 'bastion:game_frontend:ad_frontend:game:ad:mysql:mongodb:kafka:spark'
 ```
 
 방화벽 적용 후 SSH와 프록시가 유지되는지 확인한다.
@@ -516,7 +516,7 @@ ansible-playbook -i "$inventory" prepare-proxy.yml --tags proxy_verify --limit a
 
 ### 11.1 MySQL InnoDB Cluster
 
-현재 인프라 기본값은 MySQL 세 대다. mysql-1(account3 Private A)·mysql-2(account5 Private C)·mysql-3(account4 Private A)를 모두 포함해야 한다. 2026-10-10 current 프로필의 mysql-3 EC2·EBS·SG 반영은 완료됐지만 아래 설치 명령을 이번 작업에서 실행하지 않았다. 같은 프로필로 Inventory·Proxy를 다시 실행하고 새 서버의 데이터 EBS 마운트·공통 OS 설정·방화벽을 준비한다. 멤버 간 TCP 3306과 game·Spark·선택 backend → MySQL TCP 3306의 실제 연결도 확인한다. [MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 전체 mysql 그룹 3~9대를 요구하고 기존 ReplicaSet의 자동 데이터 이전은 제공하지 않는다.
+현재 인프라 기본값은 MySQL 세 대다. mysql-1(account3 Private A)·mysql-2(account5 Private A)·mysql-3(account4 Private A)를 모두 포함해야 한다. 2026-10-10 current 프로필의 mysql-3 EC2·EBS·SG 반영은 완료됐지만 아래 설치 명령을 이번 작업에서 실행하지 않았다. 같은 프로필로 Inventory·Proxy를 다시 실행하고 새 서버의 데이터 EBS 마운트·공통 OS 설정·방화벽을 준비한다. 멤버 간 TCP 3306과 game·Spark·선택 backend → MySQL TCP 3306의 실제 연결도 확인한다. [MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 전체 mysql 그룹 3~9대를 요구하고 기존 ReplicaSet의 자동 데이터 이전은 제공하지 않는다.
 
 ```bash
 ansible-playbook -i "$inventory" site.yml --tags mysql --limit mysql
@@ -674,48 +674,60 @@ flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 �
 3. ALB와 참조 규칙이 제거된 후 account1 foundation의 새 Plan에서 ALB SG 제거와 다른 자원의 유지 여부를 확인하고 적용한다.
 4. 새 foundation 출력으로 account1 workload를 다시 계획하고 Inventory를 갱신한다. 다른 미적용 변경은 별도로 검토한다.
 
-이 단계만으로 Front 직접 웹 접속이나 HTTPS가 활성화되지는 않는다. Front 외부 80·443 규칙과 Nginx·인증서 설치는 후속 작업이다. 실제 AWS 상태·잔존 SG 참조와 삭제 성공은 아직 확인하지 않았다.
+ALB 제거만으로 Front HTTPS 설치가 완료되지는 않는다. 현재 코드의 Front 외부 80·443 규칙 적용과 아래 Front별 Nginx·Certbot 설치가 필요하다. 실제 AWS 상태·잔존 SG 참조와 삭제 성공은 아직 확인하지 않았다.
 
-## 진입용 edge-1 추가
+## Account 1의 현재 배치와 전환 확인
 
-기본 및 current 설정은 edge-1(account1 Public A, t3a.small, OS gp3 20GiB, EIP 1개, role=edge)을 선언한다. 정규 모드는 기존 전체 서버 구성을 유지하고, 초기 구축 모드는 아래 절차로 edge-1만 먼저 생성한다. 외부 SG의 ACME 80·사용자 443·관리자 22를 선언하며 Nginx·Certbot 설치는 플랫폼 단계다.
+기본 및 current 설정에는 edge-1이 없다. 모든 서버는 논리 A(apne2-az1)에 배치하며 C 서브넷은 유지한다. Account 1 서비스 구성은 다음과 같다.
 
-- ALB 정리가 끝난 환경: account1 foundation Plan에서 edge SG 추가를 검토·적용한 뒤 account1 workload Plan에서 새 EC2·OS 디스크·EIP·연결 및 SG 규칙을 검토·적용한다. 그 뒤 Inventory를 갱신해 edge 그룹과 edge-1을 확인하고 Proxy·공통 OS 준비를 진행한다.
-- 기존 ALB나 참조 규칙이 남은 환경: 새 edge SG가 없으므로 최신 설정으로 workload를 먼저 실행하면 SG 조회에 실패한다. 반대로 foundation을 먼저 적용하면 사용 중인 ALB SG 삭제와 충돌할 수 있다. 먼저 edge 추가 전의 ALB 비활성화 입력을 별도 전환 프로필로 준비해 앞 절의 ALB 정리를 완료한 후 최신 edge 설정을 적용한다. 전환 입력은 최신 설정에서 nodes.edge-1·connections.edge_front 및 admin_nodes.targets·forward_proxy.sources의 edge만 제외하고 alb.enabled=false와 ALB 전용 연결 제거는 유지한 구성이다. 기본·current 파일을 이 전환 입력으로 덮어쓰지 않는다.
+| 서버 | 역할 | 서브넷 | 사양 | 공인 주소 |
+| --- | --- | --- | --- | --- |
+| front-a | game_frontend | Public A | t3.small | 게임 Front EIP |
+| front-b | ad_frontend | Public A | t3.small | 광고 Front EIP |
+| game-server | game | Private A | t3.large | 없음 |
+| ad-server | ad | Private A | t3.large | 없음 |
 
-실제 AWS 상태와 이전 미적용 변경은 조회하지 않았다. 따라서 저장 계획은 새로 만들고 기존 EC2·EIP·디스크 삭제·교체가 섞이지 않았는지 확인한다. Public EC2와 EIP를 선언한 것만으로 HTTPS나 부하 분산이 활성화되지는 않는다.
+선택 Bastion은 별도 bastion 상태에서 생성·삭제하며 자동 공인 IP를 사용한다. Front 각각에 Nginx·Certbot을 설치하고 자기 EIP의 인증서를 발급·갱신한다. edge라는 Ansible 역할·플레이북 이름은 설치 코드 재사용을 위한 이름이며 별도 edge EC2를 생성한다는 뜻이 아니다.
 
-## edge 단독 초기 구축
+빈 환경에서는 본문의 foundation 5계정 → connectivity → workload → 선택 Bastion 순서를 따른다. 기존 환경은 옛 edge·frontend SG를 EC2나 다른 계정 규칙이 참조하는지 먼저 확인한다. 최신 foundation을 바로 적용하면 사용 중인 SG 제거와 충돌할 수 있다. 저장 상태와 새 Plan으로 참조 정리·새 SG 준비·EC2 변경 범위를 확인하기 전에는 일괄 Apply하지 않는다. 이 문서는 기존 AWS 자원의 삭제나 이관 완료를 확인한 기록이 아니다.
 
-다른 EC2가 없는 환경에서 진입 서버만 먼저 만들 때 사용한다. Account 1 foundation을 준비하고 ALB를 비활성화해야 한다. 초기 구축은 다른 계정 foundation·connectivity를 요구하지 않는다. 기존 전체 workload가 있는 환경에서는 사용하지 않는다. 생성 계획에 기존 자원 삭제·교체나 edge-1(t3a.small) 외 EC2가 있으면 실행기가 거부한다.
+## Front별 HTTPS 설치
+
+현재 프로필로 인프라 Plan·검토·Apply를 마친 뒤 Inventory를 재생성한다. 다른 프로필을 사용한다면 같은 ProfileDirectory와 그 platform.json의 inventory_name을 끝까지 사용한다.
 
 ```powershell
-# aws-infra 폴더에서 선택한 구성으로 edge-1의 저장 계획을 만든다.
-$edgeProfile = (Resolve-Path .\infra\config\profiles\current).Path
-.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Plan -ConfigurationDirectory $edgeProfile -EdgeBootstrapOnly
-
-# EC2 한 대·EIP·키·SG 연결만 추가되는지 검토한 뒤 적용한다.
-.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Apply -ConfigurationDirectory $edgeProfile -EdgeBootstrapOnly
-.\infra\scripts\infra.ps1 -Account account1 -Stage workload -Action Output -ConfigurationDirectory $edgeProfile
+# aws-infra 폴더에서 현재 주소로 플랫폼 인벤토리를 갱신한다.
+.\infra\scripts\deploy.ps1 -ProfileDirectory .\infra\config\profiles\current -Action Inventory
 ```
 
-다음 날 접속 장소가 달라지면 선택한 traffic의 admin_public_cidrs와 game_client_cidrs를 실제 접속 IP로 갱신하고 새 Plan·Apply를 만든다. 이 값은 서버 EIP와 별개다. 인증서 검증용 80은 외부에서 접근 가능해야 하며 Nginx가 검증 경로만 제공한다.
+생성 인벤토리에서 다음 값을 확인한다. Inventory는 현재 구현상 서비스 서버와 Bastion이 실행 중이어야 생성할 수 있다.
 
-전체 서버 구축은 다섯 foundation과 connectivity를 준비한 다음 EdgeBootstrapOnly 없이 정규 workload를 Plan한다. 같은 backend·자원 주소를 사용하므로 기존 edge를 유지하며 다른 서버를 추가한다. 현재 선택한 프로필과 기본 config가 다르면 전체 삭제가 사용하는 기본 입력도 반드시 대조한다. 전체 삭제는 상태의 초기 구축 표식을 자동으로 읽어 모드를 맞추며 EC2와 EIP까지 삭제한다. 생성·설치·삭제 성공은 각 실행 결과와 검증 기록으로 구분한다.
+- game_frontend와 ad_frontend 그룹에 각각 front-a·front-b가 있다.
+- 각 Front의 public_ip는 자기 EIP이고 edge_frontend_upstreams는 대응 Backend 사설 IP:8000 한 개다.
+- edge_frontend_mode=true, edge_http_redirect=true, edge_https_allowed_cidrs=[0.0.0.0/0]이다.
+- 광고 Front만 edge_client_max_body_size=3m이며 게임 Front는 역할 기본값 1m을 사용한다.
+- Account 1 네 서비스에는 account1_service_restricted=true가 있고 SSH는 준비된 Bastion·개인키를 경유한다.
 
-## edge HTTPS 설치와 허용 IP 갱신
-
-2026-10-11에는 Account 1 foundation과 edge-1만 실제 생성하고 [플랫폼 edge.yml](../../aws-platform/platform/edge.yml)을 실행했다. Front·게임·광고 애플리케이션 연결은 아직 구성하지 않았다. 현재 HTTPS 응답은 설치 확인 페이지다. 실제 자원과 검증 범위는 [검증 기록](infra-routing/verification.md#2026-10-11-edge-https-실제-구축)을 따른다.
+공통 WSL·SSH 준비 후 플랫폼 폴더에서 실행한다. 이 명령은 실제 서버 설정과 인증서 발급을 수행한다. 아래 예시는 current의 inventory_name=hosts.current.yml 기준이다.
 
 ```bash
-# WSL에서 platform 폴더로 이동한 뒤 별도 edge 인벤토리로 설치한다.
+# aws-platform/platform 폴더에서 두 Front에 각각 Nginx·Certbot과 방화벽을 설치한다.
 export ANSIBLE_CONFIG="$PWD/ansible.cfg"
 "$HOME/.venvs/platform/bin/ansible-playbook" \
-  -i ../../aws-infra/infra/.local/edge-https/hosts.edge.yml edge.yml
+  -i inventory/hosts.current.yml edge.yml \
+  --limit 'game_frontend:ad_frontend'
 ```
 
-위 인벤토리는 Git에 저장하지 않는 로컬 파일이다. 새 PC에서는 EC2 Output의 EIP·사설 IP, 해당 개인키 경로, edge_https_allowed_cidrs, proxy_enabled=false를 확인해 준비한다. 정규 전체 인벤토리는 deploy.ps1 Inventory로 생성하며 전체 설치는 site.yml에서 실행한다.
+게임 Front는 게임 Backend, 광고 Front는 광고 Backend의 사설 IP:8000으로 전달한다. /static/·/assets/도 해당 Backend로 넘기며 두 Front 사이의 전달은 구성하지 않는다. 각 Front 80·443은 전체 IPv4 공개이고 송신도 전체 IPv4를 허용한다. Account 1 Backend 8000 수신은 해당 Front SG만, 네 서비스 SSH 22는 Bastion SG만 허용한다. 동일한 제한이 서버 방화벽에도 적용되도록 인벤토리와 Ansible 적용 결과를 확인한다.
 
-부트캠프·PC 공인 IP가 바뀌면 선택한 traffic.game_client_cidrs를 변경하고 workload의 새 Plan·Apply로 443 규칙을 반영한다. SSH 접속 IP도 바뀌면 admin_public_cidrs도 갱신한다. 단독 구축 중에는 EdgeBootstrapOnly를 계속 지정한다. 이어 인벤토리의 edge_https_allowed_cidrs를 같은 값으로 갱신하고 edge.yml --tags firewall,edge를 실행해 OS 방화벽과 Nginx를 맞춘다. 서버 EIP가 그대로면 인증서 재발급은 필요 없다.
+HTTP의 /.well-known/acme-challenge/는 검증 파일을 제공하고 나머지 경로는 HTTPS로 308 리다이렉트한다. 공인 IP HTTPS 구성에는 HSTS를 추가하지 않는다. 설치 후 각 Front에서 인증서·갱신 타이머, HTTP 리다이렉트, 대응 Backend 응답을 따로 확인한다. TLS 성공만으로 Django·광고 앱 배포까지 완료된 것은 아니다. 앱 실행·정적 파일 제공·환경변수는 별도 작업이다.
 
-전체 삭제 스크립트는 edge와 EIP를 함께 삭제한다. 인증서·Nginx 설정은 EC2 OS 디스크에 있으므로 서버 재생성 후 edge.yml로 다시 설치한다.
+접속 장소의 공인 IP가 바뀌어도 공개 웹 80·443의 허용 목록은 바꾸지 않는다. 관리 SSH가 필요하면 admin_public_cidrs를 확인한다. Front 재생성으로 EIP가 바뀌면 Inventory를 다시 생성하고 각 Front의 인증서·Nginx와 앱에서 사용하는 외부 주소를 갱신한다.
+
+<a id="진입용-edge-1-추가"></a>
+<a id="edge-단독-초기-구축"></a>
+<a id="edge-https-설치와-허용-ip-갱신"></a>
+
+## 과거 edge 단독 구축 기록
+
+2026-10-11의 edge-1 생성·설치 결과는 [과거 AWS 검증 기록](infra-routing/verification.md#2026-10-11-edge-https-실제-구축)에 남긴다. 당시의 설치 확인 페이지나 별도 hosts.edge.yml을 현재 Front 배포 결과로 보지 않는다. -EdgeBootstrapOnly는 이전 edge 전용 구성에 남은 옵션이며 현재 기본·current 프로필에는 사용하지 않는다. 현재 실행 절차는 위의 Front별 HTTPS 설치를 따른다.

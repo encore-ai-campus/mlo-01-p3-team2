@@ -4,7 +4,7 @@
 
 
 이 문서는 **infra.ps1** 명령어를 단어별로 읽는 방법과 각 계정에 배포할 자원, 실행 순서를 설명한다.
-2026-10-10의 [실행기](infra.ps1)와 [배치 설정](../config/topology.tfvars.json)을 기준으로 작성했다. 아래 표는 코드의 배포 대상이며, 실제 AWS에 생성됐다는 의미는 아니다.
+2026-10-13의 [실행기](infra.ps1)와 [배치 설정](../config/topology.tfvars.json)을 기준으로 작성했다. 아래 표는 코드의 배포 대상이며, 실제 AWS에 생성됐다는 의미는 아니다.
 
 전체 준비 사항은 [공통 실행 안내](../infra.md), 구조와 역할은 [설계 문서](../terraform-restructure-plan.md), Windows 도구 설치는 [설치 안내](../setup-windows/setup-windows.md)를 참고한다.
 
@@ -31,7 +31,7 @@ Set-Location C:\third_project\aws-infra
 | `-Account` | 대상 계정을 선택하는 옵션 | 바로 뒤의 계정 키를 읽음 |
 | `account2` | 배치 설정에 있는 계정 키 | Account 2의 AWS 계정 ID·CLI 프로필을 선택 |
 | `-Stage` | 작업 묶음을 선택하는 옵션 | 바로 뒤의 단계 이름을 읽음 |
-| `workload` | 서버와 서비스 연결을 관리하는 단계 | Mongo-1·Spark-2, 해당 디스크·키페어·보안규칙 |
+| `workload` | 서버와 서비스 연결을 관리하는 단계 | Mongo-1·Spark-2·flatten-1, 해당 디스크·키페어·보안규칙 |
 | `-Action` | 수행할 동작을 선택하는 옵션 | 바로 뒤의 동작 이름을 읽음 |
 | `Plan` | 변경 계획 생성 | AWS 계정과 상태를 확인하고 계획 파일 저장. 자원 변경 적용은 하지 않음 |
 
@@ -45,7 +45,7 @@ Set-Location C:\third_project\aws-infra
 
 | `-Account` 값 | AWS 계정 ID | CLI 프로필 | VPC CIDR | workload의 서버 대상 |
 | --- | --- | --- | --- | --- |
-| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server, edge-1 — 5대 |
+| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server — 4대 |
 | `account2` | `529088287882` | `account2` | `10.20.0.0/16` | mongo-1, spark-2, flatten-1 — 3대 |
 | `account3` | `667879771148` | `account3` | `10.30.0.0/16` | kafka-1, mysql-1, spark-1, mongo-2 — 4대 |
 | `account4` | `688567306400` | `account4` | `10.40.0.0/16` | kafka-2, mysql-3, spark-3 — 3대 |
@@ -57,33 +57,32 @@ Set-Location C:\third_project\aws-infra
 `-Account`를 생략하면 코드의 기본값은 `account1`이다. 이 문서의 명령은 대상을 분명히 하도록 항상 명시한다. 다른 CLI 프로필을 사용하려면 설정의 `accounts.<계정>.profile`을 바꾼다. 실행기에 별도의 `-Profile` 옵션은 없다.
 
 <details>
-<summary>계정별 서버·AZ·사양·데이터 디스크 19대 상세</summary>
+<summary>계정별 서버·AZ·사양·데이터 디스크 18대 상세(Bastion 포함)</summary>
 
 | 계정 | 서버 키 | 영역 | 논리 AZ | 사양 | 별도 데이터 gp3 |
 | --- | --- | --- | --- | --- | --- |
 | account1 | bastion | Public | A | t3a.small | 없음 |
-| account1 | edge-1 | Public | A | t3a.small | 없음 |
-| account1 | front-a | Public | A | t3a.small | 없음 |
-| account1 | front-b | Public | C | t3a.small | 없음 |
-| account1 | game-server | Private | A | t3a.large | 없음 |
+| account1 | front-a | Public | A | t3.small | 없음 |
+| account1 | front-b | Public | A | t3.small | 없음 |
+| account1 | game-server | Private | A | t3.large | 없음 |
 | account2 | mongo-1 | Private | A | t3a.small | 900GiB |
 | account2 | spark-2 | Private | A | t3a.large | 100GiB |
 | account2 | flatten-1 | Private | A | t3a.medium | 없음 |
-| account1 | ad-server | Private | A | t3a.large | 없음 |
+| account1 | ad-server | Private | A | t3.large | 없음 |
 | account3 | kafka-1 | Private | A | t3a.large | 200GiB |
 | account3 | mysql-1 | Private | A | t3a.small | 100GiB |
 | account3 | spark-1 | Private | A | t3a.large | 100GiB |
-| account3 | mongo-2 | Private | C | t3a.small | 900GiB |
+| account3 | mongo-2 | Private | A | t3a.small | 900GiB |
 | account4 | kafka-2 | Private | A | t3a.large | 200GiB |
 | account4 | mysql-3 | Private | A | t3a.small | 100GiB |
-| account4 | spark-3 | Private | C | t3a.large | 100GiB |
-| account5 | mysql-2 | Private | C | t3a.small | 100GiB |
+| account4 | spark-3 | Private | A | t3a.large | 100GiB |
+| account5 | mysql-2 | Private | A | t3a.small | 100GiB |
 | account5 | mongo-3 | Private | A | t3a.small | 900GiB |
-| account5 | kafka-3 | Private | C | t3a.large | 200GiB |
+| account5 | kafka-3 | Private | A | t3a.large | 200GiB |
 
 모든 서버의 OS 디스크는 별도 20GiB다. 데이터 용량은 현재 설정값이며 성능을 보장하는 권장값이라는 의미는 아니다.
 논리 A는 `apne2-az1`, C는 `apne2-az3`에 대응한다. 계정 콘솔의 AZ 이름 끝 글자가 아니라 설정한 물리 AZ ID 기준이다.
-기본 및 current 설정의 ALB는 비활성화돼 있으며 전용 연결 3개도 제거했다. 위 상세 표의 Bastion은 workload 대상이 아닌 전용 bastion 단계이며 선택 생성한다. 서비스 EC2는 18대다. flatten-1은 Kafka 평탄화 Consumer 전용이며 role=consumer다. 생성 후 인벤토리의 consumer 그룹으로 등록되고, 평탄화 프로그램 설치는 별도로 수행한다.
+기본 및 current 설정의 ALB는 비활성화돼 있으며 전용 연결 3개도 제거했다. 위 상세 표의 Bastion은 workload 대상이 아닌 전용 bastion 단계이며 선택 생성한다. 서비스 EC2는 17대다. flatten-1은 Kafka 평탄화 Consumer 전용이며 role=consumer다. 생성 후 인벤토리의 consumer 그룹으로 등록되고, 평탄화 프로그램 설치는 별도로 수행한다.
 
 </details>
 
@@ -141,8 +140,8 @@ foundation의 보안그룹 생성과 workload의 보안규칙 적용은 다른 �
 | 같은 파일 | `topology.accounts.<계정>.ami_id` | 해당 계정 workload Plan·Apply |
 | 같은 파일 | `topology.accounts.<계정>.ssh_public_key_path` | 해당 계정 workload Plan·Apply. `.pem` 개인키가 아닌 OpenSSH `.pub` 공개키 |
 | 같은 파일 | topology.alb.certificate_arn | 공통 타입에 남은 키. 현재 HTTP ALB에 전달하지 않으며 인증서 필수 검사 없음 |
-| [traffic.tfvars.json](../config/traffic.tfvars.json) | **traffic.admin_public_cidrs** | Bastion·edge SSH에 허용할 관리자 공인 IP 범위. 빈 배열이면 해당 CIDR 허용 없음 |
-| 같은 파일 | **traffic.game_client_cidrs** | edge HTTPS 443의 사용자 IP 범위. ALB 활성 시 HTTP 80에도 사용 |
+| [traffic.tfvars.json](../config/traffic.tfvars.json) | **traffic.admin_public_cidrs** | Bastion SSH의 관리자 공인 IP. Account 2~5 Private SG에도 SSH CIDR 규칙 사용. Account 1 네 서비스의 SSH는 Bastion만 허용 |
+| 같은 파일 | **traffic.game_client_cidrs** | 이전 edge 및 public_http_cidrs가 없는 프로필의 HTTP 허용 범위. 현재 두 Front의 80·443 전체 공개 정책에는 사용하지 않음 |
 
 공개키 상대 경로는 `infra/`를 기준으로 해석한다. 예를 들어 `config/keys/account1.pub`는 `infra/config/keys/account1.pub`를 뜻한다.
 AWS 자격 증명은 로컬 CLI 프로필에 등록한 것을 사용하며 이 설정 파일에 액세스 키·시크릿 키를 넣지 않는다.
@@ -155,7 +154,7 @@ AWS 자격 증명은 로컬 CLI 프로필에 등록한 것을 사용하며 이 �
 | --- | --- | --- | --- |
 | 1 | account1, account2, account3, account4, account5 각각 | foundation | 5개 계정의 네트워크·보안그룹 |
 | 2 | shared | connectivity | 5개 계정 사이의 연결 |
-| 3 | account1, account2, account3, account4, account5 각각 | workload | 전체 18대 서버·보안규칙, 활성 프로필에서만 ALB |
+| 3 | account1, account2, account3, account4, account5 각각 | workload | 전체 17대 서비스 서버·보안규칙, 활성 프로필에서만 ALB |
 
 ### 6-1. 정적 검증
 
@@ -200,7 +199,7 @@ Account 1의 변경 계획을 만든다.
 
 ### 6-4. 각 계정의 workload
 
-아래는 Account 2 예시다. 대상 서버는 mongo-1·spark-2·ad-server이며, 해당 계정의 보안규칙·키페어·설정된 데이터 디스크도 함께 계획한다.
+아래는 Account 2 예시다. 대상 서버는 mongo-1·spark-2·flatten-1이며, 해당 계정의 보안규칙·키페어·설정된 데이터 디스크도 함께 계획한다.
 
 ```powershell
 .\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Plan
@@ -275,7 +274,7 @@ $deploymentProfile = 'C:\third_project\aws-infra\infra\config\profiles\budget'
 | 통신·프록시 포트 | traffic.tfvars.json |
 | 개인키 경로·역할 이름 연결·WSL 환경 | platform.json의 ssh_keys·role_groups·wsl_distribution·ansible_venv |
 
-서버 이름과 디스크 키는 Terraform 식별자다. 계정 이동·노드 제거·디스크 축소는 기존 데이터를 자동으로 이전하지 않는다. 실행기는 데이터 EBS의 prevent_destroy를 변경하지 않으며 현재 값은 true다. 데이터 삭제·교체가 포함된 계획은 실패할 수 있으며 데이터 보관·이전은 별도로 준비한다. 한 역할을 완전히 제거하면 traffic의 역할 연결과 ALB 조건도 함께 수정해야 한다. 현재 5개 계정·서울 두 AZ·account1 배스천 구조는 유지한다.
+서버 이름과 디스크 키는 Terraform 식별자다. 계정 이동·노드 제거·디스크 축소는 기존 데이터를 자동으로 이전하지 않는다. 실행기는 데이터 EBS의 prevent_destroy를 변경하지 않으며 현재 값은 true다. 데이터 삭제·교체가 포함된 계획은 실패할 수 있으며 데이터 보관·이전은 별도로 준비한다. 한 역할을 완전히 제거하면 traffic의 역할 연결과 ALB 조건도 함께 수정해야 한다. 현재 5개 계정·A/C 서브넷·account1 배스천 구조는 유지한다. 모든 서버는 A에 둔다.
 
 기존 환경에서 사양만 조정할 때는 해당 workload Plan을 먼저 확인한다.
 
@@ -312,4 +311,4 @@ Proxy는 선택한 클라이언트 외에 공용 배스천의 Squid·APT·방화
 
 mysql-3 추가 후 current 프로필의 실제 적용 결과와 ALB 복원 보류는 [AWS 검증 기록](../../docs/infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 따른다. 당시에는 alb.enabled=true를 유지했으나 2026-10-11 기본 및 current 설정을 false로 바꾸고 전용 연결을 제거했다. 기존 자원 정리는 [배포 순서](../../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. 이번 적용은 MySQL 관련 범위만 검토해 수행했으며, Cluster 설치 전 Inventory·Proxy·새 데이터 디스크 마운트·OS 방화벽 준비가 필요하다.
 
-edge-1은 Public A의 t3a.small 진입 서버이며 EIP·전용 SG·Front 80·Bastion 관리 연결을 선언한다. ACME 검증 80·사용자 CIDR 443·관리자 CIDR 22·인터넷 HTTPS 송신을 허용한다. 빈 환경에서 이 서버만 먼저 만들 때는 [edge 단독 초기 구축](../../docs/deployment-runbook.md#edge-단독-초기-구축)의 -EdgeBootstrapOnly 옵션을 Plan·Apply에 동일하게 전달한다. 일반 전체 배포 명령은 모든 기존 노드와 edge를 함께 처리한다. deploy.ps1의 Proxy는 다운로드 준비이며 Nginx·인증서 등 프로그램 설치는 플랫폼 Ansible 실행 단계다.
+현재 Account 1은 Public A의 front-a(game_frontend)·front-b(ad_frontend), Private A의 game-server·ad-server를 생성한다. Front는 각각 t3.small·EIP, Backend는 각각 t3.large다. edge-1은 생성하지 않으며 현재 구성에 -EdgeBootstrapOnly를 사용하지 않는다. Inventory로 두 Front의 자기 공인 IP와 대응 Backend 사설 IP:8000을 갱신한 뒤 [Front별 HTTPS 설치](../../docs/deployment-runbook.md#front별-https-설치)를 따른다. Proxy는 다운로드 준비이며 Nginx·Certbot 설치는 별도 Ansible 단계다.

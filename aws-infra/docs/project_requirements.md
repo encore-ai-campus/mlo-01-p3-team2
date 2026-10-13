@@ -1,6 +1,6 @@
 # AWS 인프라 요구사항과 현재 구현의 경계
 
-문서 갱신: 2026-10-10. 아래 현재 구현은 로컬 코드·설정과 라우팅 문서에 근거한다. 과거 대화의 요구사항과 실제 배포 성공 여부를 동일하게 취급하지 않는다.
+문서 갱신: 2026-10-13. 아래 현재 구현은 로컬 코드·설정과 라우팅 문서에 근거한다. 과거 대화의 요구사항과 실제 배포 성공 여부를 동일하게 취급하지 않는다.
 
 ## 1. 프로젝트 목적
 
@@ -8,23 +8,23 @@
 
 ## 2. 운영·예산 요구
 
-서울 리전의 AWS 계정 5개와 물리 AZ 2개를 사용한다. 과거 운영 일정은 2026-10-13·14·15·16·19, 매일 09:00~18:00의 총 45시간이다. 계정당 최초 크레딧 $60, 총 $300과 19일 이후 만료 조건은 사용자 답변 기록이며 현재 잔액·정확한 만료 시각은 미확인이다. 준비·테스트 비용과 운영 후 자원 보관료도 계정별 예산에 포함해야 한다.
+서울 리전의 AWS 계정 5개를 사용하며 모든 서버를 논리 A(apne2-az1)에 배치한다. A·C 서브넷과 공통 AZ 설정은 유지한다. 과거 운영 일정은 2026-10-13·14·15·16·19, 매일 09:00~18:00의 총 45시간이다. 계정당 최초 크레딧 $60, 총 $300과 19일 이후 만료 조건은 사용자 답변 기록이며 현재 잔액·정확한 만료 시각은 미확인이다. 준비·테스트 비용과 운영 후 자원 보관료도 계정별 예산에 포함해야 한다.
 
 50·100·150명, 1인당 초당 30개 이벤트는 견적 시나리오다. 서버가 이 부하를 처리한다는 성능 검증 결과가 아니다. 원본을 계속 보관하려는 의도는 유지하지만 백업·장기 보관·삭제 시점은 별도 결정 사항이다.
 
 ## 3. 현재 기본 서버 구성
 
-[현재 계정별 배치](costs/account-allocation.md)는 서비스 18대와 선택적 배스천 1대다. Account 1은 Front 2대·game·ad·진입용 edge-1과 별도 배스천을, Account 2는 Mongo-1·Spark-2와 평탄화 Consumer flatten-1을 가진다. flatten-1은 t3a.medium, Private A(apne2-az1), role=consumer이며 Kafka 세 브로커의 9092에 접속한다. 프로그램 배포는 별도다. MySQL 3대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
+[현재 구성](../README.md#서버-수와-사양)은 서비스 17대와 선택적 배스천 1대다. Account 1은 게임 Front(front-a)·광고 Front(front-b)·game·ad와 별도 배스천을, Account 2는 Mongo-1·Spark-2와 평탄화 Consumer flatten-1을 가진다. flatten-1은 t3a.medium, Private A(apne2-az1), role=consumer이며 Kafka 세 브로커의 9092에 접속한다. 프로그램 배포는 별도다. MySQL 3대·MongoDB 3대·Kafka 3대·Spark 3대이며 크기·대수는 배포 프로필에서 변경할 수 있다. 계정별 자원·통신 비용이 균등하다는 보장은 없다.
 
-인프라에는 MySQL EC2 세 대가 선언돼 있다. mysql-3는 Account 4 Private A의 t3a.small이며 2026-10-10 current 프로필의 EC2·디스크·SG를 실제 반영했다. [플랫폼 MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 3~9대의 InnoDB Cluster를 요구한다. 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽·Cluster 설치와 장애 전환 검증은 별도다. 기존 ReplicaSet은 이전 구현이며 자동 데이터 이전은 제공하지 않는다. Spark는 Master 2개·Worker 3개, ZooKeeper ensemble 3개다. Kafka는 Broker/Controller 3개, MongoDB는 Replica Set 3개다. AZ A에 다수 노드가 있는 배치는 A 전체 장애에서도 클러스터 가용성을 보장하지 않는다.
+인프라에는 MySQL EC2 세 대가 선언돼 있다. mysql-3는 Account 4 Private A의 t3a.small이며 2026-10-10 current 프로필의 EC2·디스크·SG를 실제 반영했다. [플랫폼 MySQL 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)은 3~9대의 InnoDB Cluster를 요구한다. 인벤토리 재생성·Proxy·데이터 마운트·OS 방화벽·Cluster 설치와 장애 전환 검증은 별도다. 기존 ReplicaSet은 이전 구현이며 자동 데이터 이전은 제공하지 않는다. Spark는 Master 2개·Worker 3개, ZooKeeper ensemble 3개다. Kafka는 Broker/Controller 3개, MongoDB는 Replica Set 3개다. 모든 서버를 AZ A에 둔 배치는 A 전체 장애에서도 클러스터 가용성을 보장하지 않는다.
 
-기본 t3a.small / t3a.medium / t3a.large, OS 20GiB/대, 전체 EBS 4,280GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
+Account 1의 게임·광고 Front는 Public A의 t3.small, 게임·광고 Backend는 Private A의 t3.large다. 다른 역할은 기존 t3a.small / t3a.medium / t3a.large를 사용한다. OS 20GiB/대, 데이터 EBS 합계 3,900GiB, 선택 Bastion을 포함한 전체 EBS 4,260GiB는 현재 설정 값이다. 데이터 EBS 포맷·마운트가 자동화되지 않았으므로 별도 볼륨을 만들었다는 사실만으로 서비스 데이터가 그 볼륨에 저장된다고 판단하지 않는다.
 
 ## 4. 네트워크와 다운로드
 
-VPC CIDR은 10.10·20·30·40·50.0.0/16이다. 기본 및 current 설정의 ALB는 비활성화돼 있다. Front→game/ad TCP 8000은 유지하며, Front 직접 웹 인바운드와 Nginx·HTTPS 인증서 배포는 아직 구현하지 않았다.
+VPC CIDR은 10.10·20·30·40·50.0.0/16이다. 기본 및 current 설정의 ALB는 비활성화돼 있다. 게임 Front→game, 광고 Front→ad TCP 8000만 Backend 수신에 허용한다. 두 Front의 TCP 80·443은 0.0.0.0/0에 공개하며, 각각 Nginx·Certbot으로 자기 공인 IP의 HTTPS를 처리하는 설치 코드가 있다. HTTP는 ACME 검증 경로 외 요청을 HTTPS로 리다이렉트하고 /static/·/assets/도 해당 Backend로 전달한다. 광고 Front 본문 제한은 3m, 게임 Front는 기본 1m이다. 실제 인증서 발급·앱 응답 성공은 별도 검증한다.
 
-기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대와 edge-1에는 EIP를 할당하고 배스천은 자동 공인 IP를 사용한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
+기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대에만 EIP를 할당하고 배스천은 자동 공인 IP를 사용한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
 
 ## 5. 자동화가 하는 일
 
@@ -63,4 +63,4 @@ Terraform은 foundation·connectivity·workload·bastion 상태를 분리해 서
 
 이번 MySQL 증설의 [AWS 검증 기록](infra-routing/verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)을 현재 상태 근거로 추가했다. 당시에는 ALB 설정을 활성화한 채 재생성을 보류했다. 이후 2026-10-11 사용자 요청으로 기본 및 current 설정의 ALB와 전용 연결을 제거했다. AWS 적용은 하지 않았으며 다른 프로필은 별도 확인한다.
 
-2026-10-11 edge-1의 EC2·EIP·전용 SG·Front 연결을 기본 및 current 설정에 추가했다. Nginx·least_conn·인증서 설치와 실제 AWS 생성은 후속 작업이다.
+과거 기록: 2026-10-11에는 edge-1을 추가했다. 2026-10-13 현재 설정에서는 edge-1을 제거하고 두 Front가 HTTPS를 각각 담당한다. 과거 배포 결과는 현재 Front 구성의 실제 적용 완료를 뜻하지 않는다.
