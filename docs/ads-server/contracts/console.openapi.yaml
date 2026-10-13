@@ -15,7 +15,8 @@ info:
 
     ## 규약
 
-    - **자원 중심(RESTful)**. 계층: 캠페인 → 광고그룹 → 소재. 입찰은 광고그룹의 하위 자원이며 **추가만 가능**하다(버전).
+    - **자원 중심(RESTful)**. 계층: 캠페인 → 광고그룹. 입찰은 광고그룹의 하위 자원이며 **추가만 가능**하다(버전).
+      소재는 **광고주 소유 목록**(`/creatives`)이고 광고그룹에 연결해 그중 하나를 선택한다(6-9c).
       조회·생성은 중첩 경로(`/campaigns/{id}/ad-groups`), 개별 접근은 얕은 경로(`/ad-groups/{id}`)를 쓴다.
     - **버전**: URL(`/api/console/v1`). 형식: JSON(UTF-8), 오류는 `application/problem+json`(RFC 9457), `snake_case`, ID는 UUID.
     - **시각은 UTC**(RFC 3339 `...Z`). KST 변환은 프론트가 한다(표시, 그리고 KST로 받은 입력을 UTC로 바꿔 보냄). **날짜 구간의 "일" 경계는 예산의 일 경계와 같다**
@@ -40,9 +41,10 @@ info:
     | 입력은 거절하지 않는다 | 하한 미만·상한 초과 입찰도 저장된다. 응답의 `effects`가 **슬롯별 노출 여부와 적용 금액**을 알려준다 |
     | 동시 수정 보호 | 입찰 생성 시 본 버전(`expected_version`)이 현재와 다르면 409 `stale_version`. 캠페인·광고그룹·소재 수정과 소재 이미지 교체는 본 마지막 변경 시각(`expected_updated_at`, 선택)을 함께 보내고 다르면 409 `stale_version`(켜기·끄기·종료는 대조하지 않음) |
     | 관리자 중단 | `SUSPENDED` 캠페인은 광고주가 `status`를 바꿀 수 없다(409 `suspended`). 사유는 읽을 수 있다. **그 밖의 수정(소재·입찰·기간 등)은 허용**하고, 고친 뒤 **재검토 요청**(`POST .../review-requests`)으로 관리자에게 알린다. 요청은 정지 중에만, 동시에 하나만(409 `not_suspended`·`review_pending`) |
-    | 종료는 확정 | `ENDED`(기간이 끝났거나 `POST .../end`로 조기 종료)는 **어떤 값도 수정할 수 없다**(409 `ended`). 소속 광고그룹·소재·입찰의 쓰기도 막힌다. 판정은 저장된 `status`가 아니라 `ends_at ≤ 현재`다(상태 갱신 전에도 같다) |
+    | 종료는 확정 | `ENDED`(기간이 끝났거나 `POST .../end`로 조기 종료)는 **어떤 값도 수정할 수 없다**(409 `ended`). 소속 광고그룹·입찰의 쓰기와 광고그룹의 소재 연결·선택도 막힌다. 소재 자체는 캠페인 밖이라 수정할 수 있다(그 소재를 쓰는 광고그룹에 다음 결정부터 — 과거 결정은 그대로, 6-9c). 판정은 저장된 `status`가 아니라 `ends_at ≤ 현재`다(상태 갱신 전에도 같다) |
     | 종료일 변경 | 종료 전에는 늘리거나 줄일 수 있다. 새 값은 현재 시각보다 뒤여야 한다(400) |
-    | 상한(쿼터) | 광고주당 캠페인·광고그룹·소재 수와 업로드 총량 상한(설정값)을 넘으면 409 `limit_exceeded` |
+    | 상한(쿼터) | 광고주당 캠페인·광고그룹·소재 수(보관한 소재는 빼고)와 업로드 총량(보관한 소재 포함) 상한(설정값)을 넘으면 409 `limit_exceeded` |
+    | 소재 목록 | 소재는 광고주 소유다. 광고그룹에 여러 개 **연결**(`PUT /ad-groups/{id}/creatives/{creative_id}`, 끊지 않음)하고 그중 하나를 **선택**(광고그룹의 `creative_id`)한다 — 처음 연결하면 선택된다. 남의 소재·보관한 소재는 404. "삭제"는 **보관**(`POST /creatives/{id}/archive`)이고, 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고그룹에 연결돼 있으면(선택 여부와 무관) 409다 |
     | 예산·잔액은 상태가 아님 | 예산 소진·잔액 부족은 `status`가 아니라 `today`·`alerts`로 나타난다 |
 
 servers:
@@ -739,10 +741,11 @@ paths:
     get:
       tags: [creatives]
       operationId: listCreatives
-      summary: 광고그룹의 소재 목록
+      summary: 광고그룹에 연결된 소재 목록
+      description: 보관한 소재도 나온다(끝난 캠페인의 광고그룹). 선택된 것은 광고그룹의 `creative_id`다.
       responses:
         "200":
-          description: 소재 목록(V1은 최대 1개)
+          description: 연결된 소재 목록(만든 순서)
           content:
             application/json:
               schema:
@@ -760,12 +763,13 @@ paths:
     post:
       tags: [creatives]
       operationId: createCreative
-      summary: 소재를 만든다 (이미지 업로드)
+      summary: 소재를 올려 이 광고그룹에 연결한다 (이미지 업로드)
       description: |
+        소재는 광고주의 목록에 올라가고(`POST /creatives`와 같다) 이 광고그룹에 연결된다. 선택된 소재가 없으면 이것을 선택한다.
+        광고그룹당 연결 수 상한은 없다(광고주당 소재 수 상한은 있다). 끝난 캠페인은 409 `ended`.
         `multipart/form-data`. 이미지는 **내용으로 판별**한다(JPEG·PNG만, 확장자·`Content-Type`은 신뢰하지 않음).
         용량·픽셀 수 상한을 넘거나 애니메이션·손상 파일은 거부한다. 저장 시 **다시 인코딩**해서 메타데이터를 제거하고,
         파일 이름은 내용 해시가 된다. `redirect_url`은 **`https`만** 허용한다.
-        V1은 광고그룹당 소재 1개라 이미 있으면 409 `limit_exceeded`다.
       requestBody:
         required: true
         content:
@@ -800,6 +804,109 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
 
+  /ad-groups/{ad_group_id}/creatives/{creative_id}:
+    parameters:
+      - $ref: "#/components/parameters/AdGroupId"
+      - $ref: "#/components/parameters/CreativeId"
+    put:
+      tags: [creatives]
+      operationId: linkCreative
+      summary: 등록된 소재를 이 광고그룹에 연결한다 (재사용)
+      description: |
+        이미 연결돼 있으면 그대로다(멱등). 선택된 소재가 없으면 이것을 선택한다. 연결은 끊지 않는다 — 다른 소재를 쓰려면 선택을 바꾼다
+        (`PATCH /ad-groups/{id}`의 `creative_id`). 남의 소재·보관한 소재는 404, 끝난 캠페인은 409 `ended`.
+      responses:
+        "200":
+          description: 광고그룹
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdGroup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /creatives:
+    get:
+      tags: [creatives]
+      operationId: listOwnedCreatives
+      summary: 내 소재 목록 (연결된 광고그룹 포함)
+      description: 보관하지 않은 소재(만든 순서)와 소재마다 연결된 광고그룹. `uses`에 끝나지 않은 캠페인이 있으면 보관할 수 없다.
+      responses:
+        "200":
+          description: 소재 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OwnedCreative"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [creatives]
+      operationId: createLibraryCreative
+      summary: 소재를 목록에 올린다 (이미지 업로드, 연결하지 않음)
+      description: 이미지·이동 주소 규칙은 `POST /ad-groups/{id}/creatives`와 같다. 연결은 `PUT /ad-groups/{id}/creatives/{creative_id}`로 한다.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreativeCreate"
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        "201":
+          description: 만들어짐
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+  /creatives/{creative_id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/CreativeId"
+    post:
+      tags: [creatives]
+      operationId: archiveCreative
+      summary: 소재를 보관한다 (화면의 "삭제")
+      description: |
+        행은 남고 목록에서 빠진다. 보관한 소재는 연결·선택·수정할 수 없고, 소재 수 상한에서 빠지며 업로드 총량에는 남는다.
+        끝나지 않은 캠페인(일시 중지·중단 포함)의 광고그룹에 **연결돼** 있으면(선택 여부와 무관) 409 — 그 광고그룹으로 이미 나간 결정이
+        화면에 남아 있을 수 있다.
+      responses:
+        "200":
+          description: 보관한 소재
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Creative"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /creatives/{creative_id}:
     parameters:
       - $ref: "#/components/parameters/CreativeId"
@@ -822,7 +929,7 @@ paths:
       tags: [creatives]
       operationId: updateCreative
       summary: 소재의 제목·이동 주소를 수정한다
-      description: 이미지는 `PUT /creatives/{creative_id}/image`로 바꾼다. 수정은 **이후 광고 선택부터** 반영되고 과거 결정은 그대로다.
+      description: 이미지는 `PUT /creatives/{creative_id}/image`로 바꾼다. 수정은 그 소재를 쓰는 **모든 광고그룹의 이후 광고 선택부터** 반영되고 과거 결정은 그대로다. 보관한 소재는 404.
       requestBody:
         required: true
         content:
@@ -1412,7 +1519,7 @@ components:
 
     AdGroup:
       type: object
-      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, current_bid, effects, created_at, updated_at]
+      required: [ad_group_id, campaign_id, name, pricing_unit, slot_ids, enabled, creative_id, current_bid, effects, created_at, updated_at]
       additionalProperties: false
       properties:
         ad_group_id:
@@ -1430,6 +1537,11 @@ components:
             $ref: "#/components/schemas/Uuid"
         enabled:
           type: boolean
+        creative_id:
+          description: 선택된 소재 — 결정에 나가는 것(연결된 소재 중 하나). 없으면 `null`(노출되지 않는다).
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
         current_bid:
           description: 현재 입찰(최대 버전). 아직 없으면 `null`(노출되지 않는다).
           oneOf:
@@ -1466,6 +1578,9 @@ components:
         bid_amount:
           description: 함께 보내면 입찰 버전 1이 만들어진다.
           $ref: "#/components/schemas/Money"
+        creative_id:
+          description: 함께 보내면 등록된 소재를 같은 요청에서 연결·선택한다(재사용). 새 소재는 먼저 `POST /creatives`로 올린다.
+          $ref: "#/components/schemas/Uuid"
 
     AdGroupUpdate:
       type: object
@@ -1487,6 +1602,9 @@ components:
         pricing_unit:
           description: 보내면 항상 409(`unit_immutable`)다. 과금 단위는 바꿀 수 없다.
           $ref: "#/components/schemas/PricingUnit"
+        creative_id:
+          description: 선택할 소재. 이 광고그룹에 연결된 소재만(아니면 400), 남의 것·보관한 것은 404.
+          $ref: "#/components/schemas/Uuid"
         expected_updated_at:
           $ref: "#/components/schemas/DateTimeUtc"
           description: 선택. 폼을 열 때 본 광고그룹의 `updated_at`. 현재와 다르면 409 `stale_version`(같은 칸의 옛 폼이 최신 변경을 덮지 않게). 켜기·끄기에는 보내지 않는다.
@@ -1540,12 +1658,10 @@ components:
 
     Creative:
       type: object
-      required: [creative_id, ad_group_id, title, redirect_url, image, created_at, updated_at]
+      required: [creative_id, title, redirect_url, image, archived, created_at, updated_at]
       additionalProperties: false
       properties:
         creative_id:
-          $ref: "#/components/schemas/Uuid"
-        ad_group_id:
           $ref: "#/components/schemas/Uuid"
         title:
           type: string
@@ -1558,6 +1674,9 @@ components:
           maxLength: 2048
         image:
           $ref: "#/components/schemas/CreativeImage"
+        archived:
+          type: boolean
+          description: 보관했다(화면의 "삭제"). 보관한 소재는 연결·선택·수정할 수 없고 목록(`GET /creatives`)에 나오지 않는다.
         created_at:
           $ref: "#/components/schemas/DateTimeUtc"
         updated_at:
@@ -1582,6 +1701,39 @@ components:
           type: integer
         size_bytes:
           type: integer
+
+    CreativeUse:
+      type: object
+      required: [ad_group_id, ad_group_name, campaign_id, campaign_name, campaign_open, selected]
+      additionalProperties: false
+      properties:
+        ad_group_id:
+          $ref: "#/components/schemas/Uuid"
+        ad_group_name:
+          type: string
+        campaign_id:
+          $ref: "#/components/schemas/Uuid"
+        campaign_name:
+          type: string
+        campaign_open:
+          type: boolean
+          description: 캠페인이 끝나지 않았다(일시 중지·중단 포함). 하나라도 참이면 소재를 보관할 수 없다.
+        selected:
+          type: boolean
+          description: 그 광고그룹이 지금 이 소재를 선택했다.
+
+    OwnedCreative:
+      type: object
+      required: [creative, uses]
+      additionalProperties: false
+      properties:
+        creative:
+          $ref: "#/components/schemas/Creative"
+        uses:
+          type: array
+          description: 이 소재가 연결된 광고그룹(연결한 순서).
+          items:
+            $ref: "#/components/schemas/CreativeUse"
 
     CreativeCreate:
       type: object
