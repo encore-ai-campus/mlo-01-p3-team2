@@ -688,7 +688,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 | 과금 단위 불변(슬롯·광고그룹) | — | 모델 `save()` 거부, `unit_immutable` | `test_*_pricing_unit_immutable` |
 | 광고그룹의 슬롯은 같은 단위·활성 | — | `unit_mismatch` | `test_ad_group_unit_must_match_slots` |
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
-| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_concurrent_charges_on_one_wallet_get_distinct_gapless_seqs` |
+| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
 | 모든 PK는 UUIDv7 | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
@@ -1235,6 +1235,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 0.12 | 2026-10-08 | 2-11: C1 v1.1 절(§5.2·5.3)에 `audience`·`click_url`·반응 `subject_id`·새 규칙·보류 반영 |
+| 0.39 | 2026-10-13 | Step 6-6c 시험 정리(구현 계획 §8.4.7): 원장 순번 행의 검증 시험을 같은 지갑에 과금·조정·읽기를 함께 돌리는 시험으로 바꿨다(지운 동시 과금 시험의 부분집합 관계, 스키마 변화 없음) |
 | 0.38 | 2026-10-13 | Step 6-5f 정합: 인터페이스 표(§2·§5)의 C1·C3 HTTPS는 앞단 nginx에서 끝나고 Django는 HTTP로 받는다(설계서 §10 "배포 구성", 형식·스키마 변화 없음) |
 | 0.37 | 2026-10-13 | Step 6-5e 정적 파일 서빙(설계서 §10 "정적 파일 서빙"): §2.2 정적 파일은 운영에서도 Django가 WhiteNoise로 서빙(스키마 변화 없음) |
 | 0.36 | 2026-10-13 | Step 6-5b 가입 시도 제한 제거(설계서 §10 "가입 시도 제한"): A2 `foundation_signup_attempt` 표 삭제(마이그레이션 `foundation/0003`, 엔터티 목록·A2 절은 [제거]로 남김), 광고주 가입 흐름에서 A2를 뺌, 보존 기간 표의 가입 시도 행, L2의 IP 주소(감사 로그·로그인 잠금 기록) |
