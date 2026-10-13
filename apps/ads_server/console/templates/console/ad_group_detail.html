@@ -2,7 +2,7 @@
 {% load kst console_format %}
 {% block title %}{{ group.name }}{% endblock %}
 {% block content %}
-<p><a href="{% url 'campaign_detail' page.campaign.campaign_id %}">← {{ page.campaign.name }}</a></p>
+<p><a href="{% url 'campaign_detail' group.campaign_id %}">← {{ page.campaign_name }}</a></p>
 
 <section class="card" aria-label="광고그룹">
   <h1>{{ group.name }} <span class="status{% if not group.enabled %} paused{% endif %}">{% if group.enabled %}켜짐{% else %}꺼짐{% endif %}</span></h1>

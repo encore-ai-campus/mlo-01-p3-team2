@@ -8,7 +8,7 @@ from masters import api as masters
 @dataclass(frozen=True)
 class AdGroupPage:
     group: object  # AdGroupView
-    campaign: object  # CampaignView
+    campaign_name: str  # 속한 캠페인(소유는 `get_ad_group` 이 확인했다 — 이름만 읽는다)
     bids: list  # BidView, 최신 버전부터
     creatives: list  # CreativeView
     linked: dict  # {slot_id: SlotView} 지금 고른 위치(꺼진 위치 포함)
@@ -28,7 +28,7 @@ def ad_group_page(user, ad_group_id):
     linked = masters.get_slots_with_policy(group.slot_ids)
     effects = campaigns.bid_effects(group.current_bid.amount, list(group.slot_ids), slots=linked) if group.current_bid else ()  # 위치 정보와 같은 읽기
     return AdGroupPage(
-        group=group, campaign=campaigns.get_campaign(user, group.campaign_id), bids=campaigns.list_bids(user, group.ad_group_id),
+        group=group, campaign_name=campaigns.campaign_names([group.campaign_id])[group.campaign_id], bids=campaigns.list_bids(user, group.ad_group_id),
         creatives=campaigns.list_creatives(user, group.ad_group_id), linked=linked,
         choices=[s for s in masters.list_slots(active_only=True) if s.pricing_unit == group.pricing_unit], effects=effects,
     )
