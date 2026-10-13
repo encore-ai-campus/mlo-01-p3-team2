@@ -1,0 +1,45 @@
+{% extends "console/base.html" %}
+{% load static console_format %}
+{% block title %}소재{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>소재</h1>
+  <p class="muted">소재는 여러 광고에 다시 쓸 수 있습니다. 고치면 그 소재를 쓰는 모든 광고에 다음 결정부터 적용됩니다. 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고에 쓰인 소재는 삭제할 수 없습니다.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">소재</th><th scope="col">이동 주소</th><th scope="col">쓰는 광고</th><th scope="col">삭제</th></tr></thead>
+      <tbody>
+      {% for item in items %}{% with c=item.creative %}
+        <tr>
+          <td><img class="thumb" src="{% url 'creative_image_file' c.creative_id %}" alt="" width="96" height="54"> <a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></td>
+          <td><strong>{{ c.redirect_url|domain }}</strong></td>
+          <td>{% for u in item.uses %}<a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 나가는 중{% endif %})</span>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">없음</span>{% endfor %}</td>
+          <td>
+            {% if item.deletable %}
+            <form method="post" action="{% url 'creative_archive' c.creative_id %}" data-confirm="‘{{ c.title }}’ 소재를 삭제합니다.">{% csrf_token %}
+              <button type="submit" class="secondary" aria-label="{{ c.title }} 삭제">삭제</button>
+            </form>
+            {% else %}<span class="muted">사용 중</span>{% endif %}
+          </td>
+        </tr>
+      {% endwith %}{% empty %}
+        <tr><td colspan="4">소재가 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="upload">
+  <h1 id="upload">소재 올리기</h1>
+  <form method="post" enctype="multipart/form-data" novalidate>{% csrf_token %}
+    {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    {{ form.title.as_field_group }}
+    {{ form.redirect_url.as_field_group }}
+    {{ form.image.as_field_group }}
+    <p class="muted">PNG·JPEG. 올린 소재는 광고 만들기나 광고 상세에서 고를 수 있습니다.</p>
+    <button type="submit">올리기</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script>{% endblock %}

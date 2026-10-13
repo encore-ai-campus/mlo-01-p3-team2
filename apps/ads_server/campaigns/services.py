@@ -176,21 +176,54 @@ def _review_view(r):
 
 # ---------------------------------------------------------------- 캠페인
 
-def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None):
+def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None, request_key=None):
+    """캠페인만 만든다(6-9d — 광고는 `create_ad` 로 따로). `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키로는 한 번만** 만든다:
+    두 번 누름·동시 제출·응답 실패 뒤 재시도는 처음 만든 캠페인을 돌려준다(키는 캠페인 행에 같은 트랜잭션으로 저장, 유일 제약)."""
     require_advertiser(user)
     now = _now(now)
+    request_key = clean_request_key(request_key)
+    done = _campaign_by_key(user, request_key, now)
+    if done is not None:
+        return done
     name = clean_text(name, "캠페인 이름", "/name")
     starts_at = _utc_time(starts_at, "/starts_at")
     ends_at = None if ends_at is None else _utc_time(ends_at, "/ends_at")
     daily_budget = _amount(daily_budget, "/daily_budget")
     if ends_at is not None:
         _check_ends_at(ends_at, starts_at, now)
-    with transaction.atomic():
-        _lock_quota(user)
-        if Campaign.objects.filter(owner=user).count() >= settings.MAX_CAMPAIGNS_PER_ADVERTISER:
-            raise LimitExceeded("캠페인 개수 상한에 도달했습니다.")
-        c = Campaign.objects.create(owner=user, name=name, starts_at=starts_at, ends_at=ends_at, daily_budget=daily_budget, created_at=now, updated_at=now)
-        _audit(user, "campaign.created", ("campaigns.campaign", c.campaign_id), {"name": name, "daily_budget": daily_budget})
+    try:
+        with transaction.atomic():
+            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
+            done = _campaign_by_key(user, request_key, now)  # 첫 조회와 앞선 요청의 커밋 사이의 틈
+            if done is not None:
+                return done
+            if Campaign.objects.filter(owner=user).count() >= settings.MAX_CAMPAIGNS_PER_ADVERTISER:
+                raise LimitExceeded("캠페인 개수 상한에 도달했습니다.")
+            c = Campaign.objects.create(owner=user, name=name, starts_at=starts_at, ends_at=ends_at, daily_budget=daily_budget, created_at=now, updated_at=now,
+                                        request_key=request_key)
+            _audit(user, "campaign.created", ("campaigns.campaign", c.campaign_id), {"name": name, "daily_budget": daily_budget})
+    except IntegrityError:
+        done = _campaign_by_key(user, request_key, now)
+        if done is None:
+            raise
+        return done
+    return _campaign_view(c, now)
+
+
+def campaign_created_by_key(user, request_key, now=None):
+    """이 요청 키로 이미 만든 캠페인, 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다(이미 성공한 제출의 다시 보냄은 처음 결과로). 남의 키면 409."""
+    require_advertiser(user)
+    return _campaign_by_key(user, request_key, _now(now)) if is_request_key(request_key) else None
+
+
+def _campaign_by_key(user, request_key, now):
+    if request_key is None:
+        return None
+    c = Campaign.objects.filter(request_key=request_key).first()
+    if c is None:
+        return None
+    if c.owner_id != user.pk:
+        raise errors.Conflict("이 캠페인 만들기 폼은 이미 처리됐습니다. 새로 불러와 다시 만드세요.")
     return _campaign_view(c, now)
 
 
@@ -406,22 +439,24 @@ class _MonitoringRows:
         rows = list(self.campaigns[window])
         ids = [c.campaign_id for c in rows]
         open_reviews = dict(ReviewRequest.objects.filter(status=ReviewStatus.OPEN, campaign_id__in=ids).values_list("campaign_id", "review_request_id"))
-        creatives = _creatives_by_campaign(ids)
-        return [MonitoredCampaign(_campaign_view(c, self.now, open_reviews.get(c.campaign_id)), tuple(creatives.get(c.campaign_id, ())), c.last_changed_at)
-                for c in rows]
+        creatives, selected = _creatives_by_campaign(ids)
+        return [MonitoredCampaign(_campaign_view(c, self.now, open_reviews.get(c.campaign_id)), tuple(creatives.get(c.campaign_id, ())), c.last_changed_at,
+                                  frozenset(selected.get(c.campaign_id, ()))) for c in rows]
 
 
 def _creatives_by_campaign(campaign_ids):
-    """캠페인별로 그 광고그룹들에 **연결된** 소재 `{campaign_id: [CreativeView]}`(만든 순서, 같은 소재는 한 번). 선택하지 않은 연결도 보인다 —
-    언제든 선택될 수 있어 운영자가 이동 주소를 확인해야 한다. 질의 한 번."""
-    found, seen = {}, set()
+    """캠페인별로 그 광고그룹들에 **연결된** 소재 `{campaign_id: [CreativeView]}`(만든 순서, 같은 소재는 한 번)와 그중 광고그룹이 **선택한** 소재 ID
+    `{campaign_id: {creative_id}}`. 선택하지 않은 연결도 보인다 — 언제든 선택될 수 있어 운영자가 이동 주소를 확인해야 한다. 질의 한 번."""
+    found, seen, selected = {}, set(), {}
     links = AdGroupCreative.objects.select_related("creative", "ad_group").filter(ad_group__campaign_id__in=campaign_ids).order_by("creative__created_at", "creative_id")
     for link in links:
         key = (link.ad_group.campaign_id, link.creative_id)
+        if link.ad_group.creative_id == link.creative_id:
+            selected.setdefault(link.ad_group.campaign_id, set()).add(link.creative_id)
         if key not in seen:
             seen.add(key)
             found.setdefault(link.ad_group.campaign_id, []).append(_creative_view(link.creative))
-    return found
+    return found, selected
 
 
 def advertiser_usage(actor, owner_ids):
@@ -447,8 +482,9 @@ def open_review_queue(actor, now=None):
     require_admin(actor)
     now = _now(now)
     rows = list(ReviewRequest.objects.select_related("campaign").filter(status=ReviewStatus.OPEN).order_by("created_at"))
-    creatives = _creatives_by_campaign([r.campaign_id for r in rows])
-    return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id), tuple(creatives.get(r.campaign_id, ()))) for r in rows]
+    creatives, selected = _creatives_by_campaign([r.campaign_id for r in rows])
+    return [ReviewQueueItem(_review_view(r), _campaign_view(r.campaign, now, r.review_request_id), tuple(creatives.get(r.campaign_id, ())),
+                            frozenset(selected.get(r.campaign_id, ()))) for r in rows]
 
 
 # ---------------------------------------------------------------- 광고그룹·입찰
@@ -721,10 +757,10 @@ def list_owned_creatives(user, now=None):
     return [OwnedCreative(_creative_view(c), tuple(uses.get(c.creative_id, ()))) for c in creatives]
 
 
-# ---------------------------------------------------------------- 광고 만들기 (S3, 설계 D3-3)
+# ---------------------------------------------------------------- 광고 만들기 (6-9d, 설계 §10 "광고 만들기 흐름" — D3-3 대체)
 
 def _part(prefix, create, *args, **kwargs):
-    """한 부분을 만든다. 입력 오류의 위치(`pointer`)에 부분 이름을 붙인다 — 세 부분 모두 `/name` 같은 칸이 있어 어느 쪽인지 알려야 한다."""
+    """한 부분을 만든다. 입력 오류의 위치(`pointer`)에 부분 이름을 붙인다 — 두 부분 모두 `/title` 같은 칸이 있을 수 있어 어느 쪽인지 알려야 한다."""
     try:
         return create(*args, **kwargs)
     except errors.ApiError as e:
@@ -733,39 +769,8 @@ def _part(prefix, create, *args, **kwargs):
         raise
 
 
-def create_ad(user, campaign, ad_group, creative, now=None, request_key=None):
-    """캠페인·광고그룹(입찰 포함)·소재를 **한 트랜잭션**으로 만든다(광고 만들기 화면의 한 번 제출). 하나라도 실패하면 아무것도 남지 않는다
-    (이미지가 거절돼도 빈 캠페인이 남지 않는다). 규칙은 각 부분의 서비스 그대로다. `campaign`·`ad_group`·`creative` 는 그 서비스의 인자(dict).
-    입력 오류의 위치는 `/campaign/…`·`/ad_group/…`·`/creative/…` 다. 이미지 거절(`ImageRejected`)은 그대로 전달한다. 역할 검사는 각 부분 서비스가 한다.
-
-    `request_key`(화면 폼 하나마다 새 값)를 주면 **같은 키로는 한 번만** 만든다: 키는 캠페인 행에 같은 트랜잭션으로 저장되고(유일 제약), 두 번 누름·
-    동시 제출·응답이 실패한 뒤 재시도는 처음 만든 것을 `duplicate=True` 로 돌려준다(세션 토큰은 이 경우들을 막지 못했다 — 3-1d 외부 검토)."""
-    now = _now(now)
-    request_key = clean_request_key(request_key)
-    done = _created_by_key(user, request_key)
-    if done is not None:
-        return done
-    try:
-        with transaction.atomic():
-            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
-            done = _created_by_key(user, request_key)  # 첫 조회와 앞선 요청의 커밋 사이의 틈: 잠금 안에서 다시 본다(안 보면 상한 오류로 끝났다)
-            if done is not None:
-                return done
-            c = _part("/campaign", create_campaign, user, now=now, **campaign)
-            g = _part("/ad_group", create_ad_group, user, c.campaign_id, now=now, **ad_group)
-            _part("/creative", create_creative, user, g.ad_group_id, now=now, **creative)  # 연결하고 선택한다
-            if request_key is not None:
-                Campaign.objects.filter(pk=c.campaign_id).update(request_key=request_key)  # 동시에 같은 키가 오면 여기서 유일 제약이 막는다
-    except IntegrityError:
-        done = _created_by_key(user, request_key)
-        if done is None:
-            raise
-        return done
-    return _created_ad(AdGroup.objects.select_related("campaign", "creative").get(pk=g.ad_group_id), now)
-
-
-def create_ad_for_campaign(user, campaign_id, ad_group, creative=None, creative_id=None, now=None, request_key=None):
-    """**이미 있는** 캠페인에 광고(광고그룹 + 입찰)와 소재를 한 트랜잭션으로 만든다(6-9c, 설계 §10 "광고 만들기 흐름"). 소재는 `creative`(새로 올리기 —
+def create_ad(user, campaign_id, ad_group, creative=None, creative_id=None, now=None, request_key=None):
+    """**이미 있는** 캠페인에 광고(광고그룹 + 입찰)와 소재를 한 트랜잭션으로 만든다(6-9c·6-9d, 설계 §10 "광고 만들기 흐름" — 캠페인은 `create_campaign` 으로 따로). 소재는 `creative`(새로 올리기 —
     `create_creative` 의 인자) 또는 `creative_id`(등록된 소재 재사용) 중 하나이고, 광고그룹에 연결·선택된다. 입력 오류의 위치는 `/ad_group/…`·`/creative/…`.
     `request_key` 는 광고그룹 행에 저장한다 — 같은 키로는 한 번만 만든다(두 번 누름·동시 제출·응답 실패 뒤 재시도는 처음 것을 `duplicate=True` 로)."""
     now = _now(now)
@@ -810,16 +815,12 @@ def ad_created_by_key(user, request_key):
 
 
 def _created_by_key(user, request_key):
-    """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 남의 것에 붙은 키(위조한 폼)면 409.
-    키는 기존 캠페인에 만든 광고면 광고그룹 행에(`create_ad_for_campaign`), 캠페인까지 한 번에 만든 광고면 캠페인 행에(`create_ad`) 있다."""
+    """이 요청 키로 이미 만든 광고(`duplicate=True`), 없으면 `None`. 키는 광고그룹 행에 있다. 남의 것에 붙은 키(위조한 폼)면 409."""
     if request_key is None:
         return None
     g = AdGroup.objects.select_related("campaign", "creative").filter(request_key=request_key).first()
     if g is None:
-        c = Campaign.objects.filter(request_key=request_key).first()
-        if c is None:
-            return None
-        g = AdGroup.objects.select_related("campaign", "creative").filter(campaign=c).order_by("created_at").first()
+        return None
     if g.campaign.owner_id != user.pk:
         raise errors.Conflict("이 광고 만들기 폼은 이미 처리됐습니다. 새로 불러와 다시 만드세요.")
     return _created_ad(g, _now(), duplicate=True)

@@ -62,6 +62,7 @@
 
 <section class="card" aria-label="광고그룹">
   <h1>광고그룹</h1>
+  {% if campaign.status != "ENDED" %}<p><a href="{% url 'ad_create' %}?campaign={{ campaign.campaign_id }}">+ 이 캠페인에 광고 만들기</a></p>{% endif %}
   <div class="table-wrap">
     <table>
       <thead><tr><th scope="col">광고그룹</th><th scope="col">과금 단위</th><th scope="col">상태</th><th scope="col" class="num">입찰</th><th scope="col">게재 위치</th></tr></thead>

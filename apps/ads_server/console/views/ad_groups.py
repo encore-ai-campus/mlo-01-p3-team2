@@ -1,18 +1,17 @@
-"""광고그룹 상세(Step 3-2d): 위치별 결과, 입찰 이력과 새 입찰(낙관적 잠금), 이름·위치·켜기/끄기, 소재(미리보기·제목/주소 수정·켜기/끄기·이미지 교체).
+"""광고그룹(화면의 "광고") 상세(Step 3-2d): 위치별 결과, 입찰 이력과 새 입찰(낙관적 잠금), 이름·위치·켜기/끄기, 소재(연결된 소재와 선택·올려서 연결·
+등록된 소재 연결, 6-9d — 소재의 제목/주소 수정·이미지 교체 뷰는 `views/creatives.py`가 이 화면으로 돌아온다).
 
 동작마다 작은 폼을 따로 둔다 — 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다(소재의 제목·주소는 한 폼이라 화면이 본 변경 시각과 대조한다).
 뷰는 서비스를 부르고 그리기만 한다. 과금 단위는 바꿀 수 없고, 입찰은 추가만 된다(서비스 규칙).
 """
 from django.contrib import messages
-from django.http import FileResponse, Http404
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_POST, require_safe
+from django.views.decorators.http import require_POST
 
-from assets.api import asset_exists, content_type, open_asset
 from campaigns import api as campaigns
 
 from ..errors import HANDLED, fetch, form_errors, run_action, status_of
-from ..forms import BidForm, CreativeEditForm, GroupNameForm, GroupSlotsForm, ImageForm
+from ..forms import BidForm, CreativeEditForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm, ImageForm
 from ..queries.ad_groups import ad_group_page
 
 
@@ -24,6 +23,7 @@ def _page(request, ad_group_id, status=200, edit=None, image=None, **bound):
         "bid_form": BidForm(initial={"expected_version": group.current_bid.bid_version if group.current_bid else None}),
         "name_form": GroupNameForm(initial={"name": group.name, "updated_at": group.updated_at.isoformat()}),
         "slots_form": GroupSlotsForm(slots=page.choices, initial={"slot_ids": [str(s) for s in group.slot_ids], "updated_at": group.updated_at.isoformat()}),
+        "upload_form": CreativeUploadForm(prefix="new"),
         **bound,
     }
     edits = {c.creative_id: _edit_form(c) for c in page.creatives}
@@ -95,50 +95,30 @@ def ad_group_slots(request, ad_group_id):
 
 
 @require_POST
+def ad_group_creative_upload(request, ad_group_id):
+    """소재를 올려 이 광고에 연결한다(선택된 소재가 없으면 선택 — 서비스). 소재는 소재 목록에도 남는다."""
+    form = CreativeUploadForm(request.POST, request.FILES, prefix="new")
+    return _submit(request, ad_group_id, form, lambda d: campaigns.create_creative(request.user, ad_group_id, d["title"], d["redirect_url"], d["image"]),
+                   "소재를 올려 이 광고에 연결했습니다.", image_field="image", upload_form=form)
+
+
+@require_POST
+def ad_group_creative_link(request, ad_group_id):
+    """등록된 소재를 이 광고에 연결한다(재사용). 남의 소재·보관한 소재는 서비스가 404."""
+    run_action(request, campaigns.link_creative, request.user, ad_group_id, request.POST.get("creative_id"), success="등록된 소재를 이 광고에 연결했습니다.")
+    return redirect("ad_group_detail", ad_group_id=ad_group_id)
+
+
+@require_POST
+def ad_group_creative_select(request, ad_group_id):
+    """연결된 소재 중 하나를 이 광고에 나갈 소재로 고른다(다음 결정부터 — 이미 나간 결정은 그대로)."""
+    run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"creative_id": request.POST.get("creative_id")},
+               success="이 광고에 나갈 소재를 바꿨습니다. 다음 결정부터 적용됩니다.")
+    return redirect("ad_group_detail", ad_group_id=ad_group_id)
+
+
+@require_POST
 def ad_group_enabled(request, ad_group_id):
     enabled = request.POST.get("enabled") == "1"
     run_action(request, campaigns.update_ad_group, request.user, ad_group_id, {"enabled": enabled}, success="광고그룹을 켰습니다." if enabled else "광고그룹을 껐습니다.")
     return redirect("ad_group_detail", ad_group_id=ad_group_id)
-
-
-def _back_group(request):
-    """소재 폼이 돌아갈 광고그룹(폼의 숨김 칸 — 소재는 여러 광고그룹에 연결될 수 있다, 6-9c). 남의 것·없는 것은 404."""
-    return fetch(campaigns.get_ad_group, request.user, request.POST.get("ad_group_id")).ad_group_id
-
-
-@require_POST
-def creative_edit(request, creative_id):
-    current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
-    group_id = _back_group(request)
-    form = _edit_form(current, request.POST)
-    if form.is_valid():
-        changes = {name: form.cleaned_data[name] for name in CreativeEditForm.EDITABLE if name in form.changed_data}
-        if not changes:
-            messages.info(request, "바뀐 것이 없습니다.")
-            return redirect("ad_group_detail", ad_group_id=group_id)
-        try:
-            campaigns.update_creative(request.user, creative_id, changes, expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e)
-            return _page(request, group_id, status=status_of(e), edit=(current.creative_id, form))
-        return _done(request, group_id, "소재를 수정했습니다.")
-    return _page(request, group_id, status=400, edit=(current.creative_id, form))
-
-
-@require_POST
-def creative_image(request, creative_id):
-    current = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
-    group_id = _back_group(request)
-    form = _image_form(current, request.POST, request.FILES)
-    return _submit(request, group_id, form, lambda d: campaigns.replace_creative_image(request.user, creative_id, d["image"], expected_updated_at=d["updated_at"]),
-                   "이미지를 바꿨습니다. 이전 이미지는 이미 나간 광고를 위해 보관합니다.", image_field="image", image=(current.creative_id, form))
-
-
-@require_safe
-def creative_image_file(request, creative_id):
-    """광고주 본인 소재의 현재 이미지(계획 S4). 공개 경로(`/assets/…`)는 중단·종료 캠페인의 이미지를 막지만, 광고주는 자기 소재를 계속 봐야 한다.
-    소유를 확인한 뒤에만 내려 주고(남의 것·익명은 404), 공개 경로와 같은 `nosniff` 에 캐시는 남기지 않는다(기본 `no-store`)."""
-    creative = fetch(campaigns.get_creative, request.user, creative_id)
-    if not asset_exists(creative.image_name):
-        raise Http404
-    return FileResponse(open_asset(creative.image_name), content_type=content_type(creative.image_name))

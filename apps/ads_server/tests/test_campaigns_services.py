@@ -457,36 +457,36 @@ class ConcurrentBidTests(TransactionTestCase):
 
 @tag("security")
 class CreateAdTests(TestCase):
-    """Step 3-0 S3: 광고 만들기(`create_ad`) — 캠페인·광고그룹·소재를 한 트랜잭션으로. 하나라도 실패하면 아무것도 남지 않는다(설계 D3-3)."""
+    """광고 만들기(`create_ad`, 6-9d — Step 3-0 S3 를 대체): 이미 있는 캠페인에 광고그룹(입찰 포함)과 소재를 한 트랜잭션으로. 하나라도 실패하면 아무것도
+    남지 않는다(설계 §10 "광고 만들기 흐름"). 캠페인은 `create_campaign` 으로 따로 만든다."""
 
     def setUp(self):
         self.admin = make_admin()
         self.adv = make_advertiser()
         self.slot = make_slot(self.admin, unit="CLICK")
+        self.campaign = api.create_campaign(self.adv, "가을 캠페인", NOW, NOW + 10 * DAY, 5000, now=NOW)
 
-    def create(self, campaign=None, ad_group=None, creative=None, user=None):
+    def create(self, ad_group=None, creative=None, user=None, campaign_id=None):
         return api.create_ad(
-            user or self.adv,
-            campaign={"name": "가을 캠페인", "starts_at": NOW, "ends_at": NOW + 10 * DAY, "daily_budget": 5000, **(campaign or {})},
+            user or self.adv, campaign_id or self.campaign.campaign_id,
             ad_group={"name": "로비 배너", "pricing_unit": "CLICK", "slot_ids": [self.slot.slot_id], "bid_amount": 30, **(ad_group or {})},
             creative={"title": "제목", "redirect_url": "https://example.com/landing", "image_file": png_file(), **(creative or {})},
             now=NOW,
         )
 
     def assertNothingCreated(self):
-        self.assertEqual((Campaign.objects.count(), AdGroup.objects.count(), Bid.objects.count(), Creative.objects.count()), (0, 0, 0, 0))
-        self.assertFalse(AuditLog.objects.filter(action__in=["campaign.created", "ad_group.created", "creative.created"]).exists())
+        self.assertEqual((AdGroup.objects.count(), Bid.objects.count(), Creative.objects.count()), (0, 0, 0))
+        self.assertFalse(AuditLog.objects.filter(action__in=["ad_group.created", "creative.created"]).exists())
 
-    def test_creates_all_three_and_returns_their_views(self):
+    def test_creates_the_ad_group_and_its_creative_in_one_go(self):
         ad = self.create()
         self.assertIsInstance(ad, api.CreatedAd)
-        self.assertEqual((ad.campaign.name, ad.ad_group.name, ad.creative.title), ("가을 캠페인", "로비 배너", "제목"))
+        self.assertEqual((ad.campaign.campaign_id, ad.ad_group.name, ad.creative.title), (self.campaign.campaign_id, "로비 배너", "제목"))
         self.assertEqual((ad.ad_group.campaign_id, ad.ad_group.creative_id), (ad.campaign.campaign_id, ad.creative.creative_id))  # 연결하고 선택했다
         self.assertEqual(ad.ad_group.current_bid.amount, 30)
-        self.assertEqual(Campaign.objects.get().owner, self.adv)
         self.assertEqual(sorted(AuditLog.objects.filter(actor_id=self.adv.pk).values_list("action", flat=True)), ["ad_group.created", "campaign.created", "creative.created"])
 
-    def test_a_rejected_image_leaves_no_campaign_or_ad_group(self):
+    def test_a_rejected_image_leaves_no_ad_group(self):
         with self.assertRaises(ImageRejected):
             self.create(creative={"image_file": io.BytesIO(b"not an image")})
         self.assertNothingCreated()
@@ -494,21 +494,20 @@ class CreateAdTests(TestCase):
     def test_a_failure_in_any_part_leaves_nothing(self):
         other_unit = make_slot(self.admin, unit="IMPRESSION")
         cases = {
-            "캠페인 이름": ({"name": ""}, None, None),
-            "광고그룹 위치의 과금 단위": (None, {"slot_ids": [other_unit.slot_id]}, None),
-            "입찰 금액": (None, {"bid_amount": 0}, None),
-            "이동 주소": (None, None, {"redirect_url": "http://example.com"}),
-            "소재 제목": (None, None, {"title": ""}),
+            "광고그룹 이름": ({"name": ""}, None),
+            "광고그룹 위치의 과금 단위": ({"slot_ids": [other_unit.slot_id]}, None),
+            "입찰 금액": ({"bid_amount": 0}, None),
+            "이동 주소": (None, {"redirect_url": "http://example.com"}),
+            "소재 제목": (None, {"title": ""}),
         }
-        for label, (campaign, ad_group, creative) in cases.items():
+        for label, (ad_group, creative) in cases.items():
             with self.subTest(label), self.assertRaises(InvalidRequest):
-                self.create(campaign, ad_group, creative)
+                self.create(ad_group, creative)
             self.assertNothingCreated()
 
     def test_errors_say_which_part_they_belong_to(self):
-        """세 부분 모두 `/name` 같은 같은 이름의 칸이 있다 — 오류가 어느 부분의 칸인지 알려야 화면이 그 칸 옆에 보여 준다."""
+        """두 부분에 같은 이름의 칸이 있을 수 있다 — 오류가 어느 부분의 칸인지 알려야 화면이 그 칸 옆에 보여 준다."""
         for part, override, pointer in (
-            ("campaign", {"campaign": {"name": ""}}, "/campaign/name"),
             ("ad_group", {"ad_group": {"name": ""}}, "/ad_group/name"),
             ("creative", {"creative": {"title": ""}}, "/creative/title"),
         ):
@@ -516,7 +515,16 @@ class CreateAdTests(TestCase):
                 self.create(**override)
             self.assertEqual([x["pointer"] for x in e.exception.errors], [pointer])
 
-    @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=0)
+    def test_another_advertisers_or_an_ended_campaign_is_refused(self):
+        theirs = api.create_campaign(make_advertiser(), "남의 캠페인", NOW, None, 1000, now=NOW)
+        with self.assertRaises(Http404):
+            self.create(campaign_id=theirs.campaign_id)
+        api.end_campaign(self.adv, self.campaign.campaign_id, now=NOW)
+        with self.assertRaises(api.CampaignEnded):
+            self.create()
+        self.assertNothingCreated()
+
+    @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=0)
     def test_a_limit_leaves_nothing(self):
         with self.assertRaises(api.LimitExceeded):
             self.create()
@@ -526,7 +534,6 @@ class CreateAdTests(TestCase):
         with self.assertRaises(Forbidden):
             self.create(user=self.admin)
         self.assertNothingCreated()
-
 
 class CampaignEndsAtTests(TestCase):
     def setUp(self):

@@ -13,7 +13,7 @@
         <td><a href="{% url 'operator:advertiser_detail' c.owner_id %}">{{ person.nickname }}({{ person.class_label }})</a>{% if person and not person.is_active %}<br><strong>광고주 비활성 — 해제해도 광고가 나가지 않습니다</strong>{% endif %}</td>
         <td>{{ c.suspension.reason }}</td>
         <td>{{ r.message|default:"(없음)" }}</td>
-        <td>{% include "operator/_creatives.html" with creatives=item.creatives %}</td>
+        <td>{% include "operator/_creatives.html" with creatives=item.creatives selected=item.selected_creative_ids %}</td>
         <td>{{ r.created_at|kst }}</td>
         <td>
           <form method="post" action="{% url 'operator:campaign_release' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="reviews">

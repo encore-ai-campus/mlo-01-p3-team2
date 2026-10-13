@@ -37,7 +37,7 @@ class Campaign(models.Model):
     suspended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
-    request_key = models.CharField(max_length=64, null=True, blank=True)  # 광고 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다)
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 캠페인 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다, 6-9d)
 
     class Meta:
         db_table = "campaigns_campaign"

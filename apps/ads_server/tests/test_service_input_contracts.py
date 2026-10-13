@@ -22,13 +22,14 @@ class RequestKeyContractTests(TestCase):
         self.media = masters.create_media(self.w.admin, "키 매체")
 
     def entries(self):
-        """요청 키를 받는 네 입구. 키 말고는 모두 맞는 값이다."""
+        """요청 키를 받는 다섯 입구. 키 말고는 모두 맞는 값이다."""
         return {
             "issue_media_key": lambda key: masters.issue_media_key(self.w.admin, self.media.media_id, request_key=key),
             "rotate_media_key": lambda key: masters.rotate_media_key(self.w.admin, self.media.media_id, 60, request_key=key),
             "adjust": lambda key: billing.adjust(self.w.admin, self.w.adv.pk, 10, "보정", request_key=key),
+            "create_campaign": lambda key: campaigns.create_campaign(self.w.adv, "새 캠페인", NOW, None, 1000, now=NOW, request_key=key),
             "create_ad": lambda key: campaigns.create_ad(
-                self.w.adv, campaign={"name": "새 캠페인", "starts_at": NOW, "ends_at": None, "daily_budget": 1000},
+                self.w.adv, self.w.campaign.campaign_id,
                 ad_group={"name": "새 그룹", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 30},
                 creative={"title": "새 제목", "redirect_url": "https://example.com/new", "image_file": png_file()}, now=NOW, request_key=key),
         }
@@ -59,15 +60,18 @@ class RequestKeyContractTests(TestCase):
             self.assertEqual([e["pointer"] for e in caught.exception.errors], [pointer])
 
     def test_create_ad_checks_the_key_before_its_parts(self):
-        with self.assertRaises(errors.InvalidRequest) as caught:
-            campaigns.create_ad(self.w.adv, campaign={"name": ""}, ad_group={}, creative={}, now=NOW, request_key="")
-        self.assertEqual(caught.exception.errors, KEY_ERROR)
+        for call in (lambda: campaigns.create_ad(self.w.adv, self.w.campaign.campaign_id, ad_group={}, creative={}, now=NOW, request_key=""),
+                     lambda: campaigns.create_campaign(self.w.adv, "", NOW, None, 0, now=NOW, request_key="")):
+            with self.subTest(call), self.assertRaises(errors.InvalidRequest) as caught:
+                call()
+            self.assertEqual(caught.exception.errors, KEY_ERROR)
 
     def test_ad_created_by_key_answers_none_for_a_malformed_or_unknown_key(self):
-        for key in (*BAD_KEYS, None):
-            with self.subTest(key=key), self.assertNumQueries(0):  # 형식이 틀린 키는 찾아보지도 않는다
-                self.assertIsNone(campaigns.ad_created_by_key(self.w.adv, key))
-        self.assertIsNone(campaigns.ad_created_by_key(self.w.adv, "x" * 64))
+        for lookup in (campaigns.ad_created_by_key, campaigns.campaign_created_by_key):
+            for key in (*BAD_KEYS, None):
+                with self.subTest(lookup.__name__, key=key), self.assertNumQueries(0):  # 형식이 틀린 키는 찾아보지도 않는다
+                    self.assertIsNone(lookup(self.w.adv, key))
+            self.assertIsNone(lookup(self.w.adv, "x" * 64))
 
 
 class EnabledValueContractTests(TestCase):

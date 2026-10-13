@@ -10,7 +10,8 @@ class AdGroupPage:
     group: object  # AdGroupView
     campaign_name: str  # 속한 캠페인(소유는 `get_ad_group` 이 확인했다 — 이름만 읽는다)
     bids: list  # BidView, 최신 버전부터
-    creatives: list  # CreativeView
+    creatives: list  # CreativeView — 이 광고그룹에 연결된 것(선택된 것은 group.creative_id)
+    library: list  # CreativeView — 아직 연결하지 않은 내 소재(등록된 소재 연결, 6-9d)
     linked: dict  # {slot_id: SlotView} 지금 고른 위치(꺼진 위치 포함)
     choices: list  # 고를 수 있는 위치(켜져 있고 단위가 같은 것)
     effects: tuple  # 현재 입찰의 위치별 결과(SlotEffect), 입찰이 없으면 빈 튜플
@@ -27,8 +28,10 @@ def ad_group_page(user, ad_group_id):
     group = campaigns.get_ad_group(user, ad_group_id)
     linked = masters.get_slots_with_policy(group.slot_ids)
     effects = campaigns.bid_effects(group.current_bid.amount, list(group.slot_ids), slots=linked) if group.current_bid else ()  # 위치 정보와 같은 읽기
+    creatives = campaigns.list_creatives(user, group.ad_group_id)
+    attached = {c.creative_id for c in creatives}
     return AdGroupPage(
         group=group, campaign_name=campaigns.campaign_names([group.campaign_id])[group.campaign_id], bids=campaigns.list_bids(user, group.ad_group_id),
-        creatives=campaigns.list_creatives(user, group.ad_group_id), linked=linked,
+        creatives=creatives, library=[o.creative for o in campaigns.list_owned_creatives(user) if o.creative.creative_id not in attached], linked=linked,
         choices=[s for s in masters.list_slots(active_only=True) if s.pricing_unit == group.pricing_unit], effects=effects,
     )

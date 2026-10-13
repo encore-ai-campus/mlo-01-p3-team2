@@ -12,7 +12,7 @@ from html.parser import HTMLParser
 from django.test import Client, TestCase, tag
 from django.urls import reverse
 
-from campaigns.models import Campaign
+from campaigns.models import Campaign, Creative
 from tests.factories import PW, World, png_file
 
 
@@ -114,28 +114,43 @@ class NoJsJourneyTests(TestCase):
         self.assertRedirects(done, reverse("login"))
         self.login(self.adv, "nojs_user")
 
-        # 광고 만들기: 단위 고르기(다시 그림) → 미리보기(서버 계산) → 집행
-        page = submit(self.adv, self.go(self.adv, reverse("ad_create")), lambda a: "ad-create" in a.get("class", ""), button="unit", pricing_unit="IMPRESSION")
-        self.assertEqual(page.status_code, 200)
-        slot = str(self.w.slot.slot_id)
-        filled = dict(campaign_name="자바 없는 캠페인", ends_at="2030-12-31T09:00", daily_budget="3000", group_name="그룹", slot_ids=[slot], bid_amount="25",
-                      title="제목", redirect_url="https://example.com/nojs")
-        page = submit(self.adv, page, lambda a: "ad-create" in a.get("class", ""), button="preview", **filled)
-        self.assertContains(page, "지금 정책 기준")
-        done = submit(self.adv, page, lambda a: "ad-create" in a.get("class", ""), button="create", files={"image": png_file((1, 2, 3))})  # 미리보기 뒤 이미지는 다시 고른다
+        # 캠페인 만들기(광고는 따로, 6-9d)
+        done = submit(self.adv, self.go(self.adv, reverse("campaign_create")), no_action, name="자바 없는 캠페인", ends_at="2030-12-31T09:00", daily_budget="3000")
         campaign = Campaign.objects.get(name="자바 없는 캠페인")
         detail = reverse("campaign_detail", args=[campaign.campaign_id])
         self.assertRedirects(done, detail)
+
+        # 그 캠페인에 광고 만들기: 단위 고르기(다시 그림) → 미리보기(서버 계산) → 집행(새 소재)
+        ad_form = lambda a: "ad-create" in a.get("class", "")  # noqa: E731
+        page = submit(self.adv, self.go(self.adv, f"{reverse('ad_create')}?campaign={campaign.campaign_id}"), ad_form, button="unit", pricing_unit="IMPRESSION")
+        self.assertEqual(page.status_code, 200)
+        slot = str(self.w.slot.slot_id)
+        filled = dict(group_name="그룹", slot_ids=[slot], bid_amount="25", title="제목", redirect_url="https://example.com/nojs")
+        page = submit(self.adv, page, ad_form, button="preview", **filled)
+        self.assertContains(page, "지금 정책 기준")
+        done = submit(self.adv, page, ad_form, button="create", files={"image": png_file((1, 2, 3))})  # 미리보기 뒤 이미지는 다시 고른다
+        group = campaign.ad_groups.get()
+        group_url = reverse("ad_group_detail", args=[group.ad_group_id])
+        self.assertRedirects(done, group_url)
 
         # 캠페인 수정(화면이 본 변경 시각을 싣는다)
         self.assertRedirects(submit(self.adv, self.go(self.adv, detail), no_action, name="바꾼 이름"), detail)
         self.assertContains(self.go(self.adv, detail), "바꾼 이름")
 
-        # 광고그룹: 새 입찰(화면이 본 버전을 싣는다)
-        group = campaign.ad_groups.get()
-        group_url = reverse("ad_group_detail", args=[group.ad_group_id])
+        # 광고: 새 입찰(화면이 본 버전을 싣는다)
         self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="40"), group_url)
         self.assertEqual(group.bids.order_by("-bid_version").first().amount, 40)
+
+        # 소재 목록에 올린 소재를 광고에 연결하고 선택한다(재사용, 6-9d)
+        done = submit(self.adv, self.go(self.adv, reverse("creative_list")), lambda a: a.get("enctype") == "multipart/form-data",
+                      files={"new-image": png_file((4, 5, 6))}, **{"new-title": "재사용 소재", "new-redirect_url": "https://example.com/reuse"})
+        reused = Creative.objects.get(title="재사용 소재")
+        self.assertRedirects(done, reverse("creative_detail", args=[reused.creative_id]))
+        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_creative_link", args=[group.ad_group_id]))), group_url)
+        page = self.go(self.adv, group_url)
+        self.assertRedirects(submit(self.adv, page, action(reverse("ad_group_creative_select", args=[group.ad_group_id]))), group_url)
+        group.refresh_from_db()
+        self.assertEqual(group.creative_id, reused.creative_id)
 
         # 관리자: 모니터링에서 중단(사유)
         self.login(self.admin, self.w.admin.username)

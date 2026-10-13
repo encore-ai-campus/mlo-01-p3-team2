@@ -87,7 +87,7 @@ class OwnedCreative:
 
 @dataclass(frozen=True)
 class CreatedAd:
-    """광고 만들기(`create_ad`)가 한 번에 만든 세 가지."""
+    """광고 만들기(`create_ad`)의 결과: 캠페인(이미 있던 것)과 만든 광고그룹, 연결·선택한 소재."""
 
     campaign: CampaignView
     ad_group: AdGroupView
@@ -100,8 +100,9 @@ class MonitoredCampaign:
     """관리자 광고 모니터링의 한 줄(S5): 캠페인과 그 소재, 캠페인·소재 중 늦은 마지막 변경 시각."""
 
     campaign: CampaignView
-    creatives: tuple  # CreativeView 들
+    creatives: tuple  # CreativeView 들(그 캠페인의 광고그룹에 연결된 것)
     last_changed_at: datetime
+    selected_creative_ids: frozenset = frozenset()  # 그중 광고그룹이 지금 선택한 것(결정에 나가는 것, 6-9d)
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,7 @@ class ReviewQueueItem:
     review: ReviewRequestView
     campaign: CampaignView
     creatives: tuple = ()  # CreativeView 들
+    selected_creative_ids: frozenset = frozenset()
 
 
 @dataclass(frozen=True)

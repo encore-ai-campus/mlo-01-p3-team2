@@ -132,6 +132,16 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertIn("&lt;script&gt;x&lt;/script&gt;", html)
         self.assertNotIn("<script>x</script>", html)
 
+    def test_every_linked_creative_is_listed_and_the_selected_one_is_marked(self):
+        """연결만 된 소재도 운영자가 이동 주소를 본다(언제든 선택될 수 있다). 지금 나가는 것은 표시한다(6-9d)."""
+        spare = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "예비 소재", "https://spare.example/", png_file((7, 7, 7)), now=NOW)
+        html = self.client.get(self.monitor).content.decode()
+        self.assertIn("제목 <strong>(나가는 중)</strong>", html)
+        self.assertIn("예비 소재<br>", html)
+        self.assertIn("<strong>spare.example</strong>", html)
+        campaigns.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"creative_id": spare.creative_id}, now=NOW)
+        self.assertIn("예비 소재 <strong>(나가는 중)</strong>", self.client.get(self.monitor).content.decode())
+
     def test_suspend_needs_a_reason_and_is_seen_by_the_advertiser_at_once(self):
         self.assertRedirects(self.suspend(reason="  "), self.monitor)
         self.assertEqual(campaigns.get_campaign(self.w.adv, self.cid).status, "ACTIVE")  # 사유 없이 중단 불가

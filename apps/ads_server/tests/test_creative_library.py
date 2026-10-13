@@ -58,7 +58,7 @@ class CreativeLibraryTests(TestCase):
                      lambda: api.update_creative(self.w.adv, theirs, {"title": "x"}, now=NOW),
                      lambda: api.archive_creative(self.w.adv, theirs, now=NOW),
                      lambda: api.get_creative(self.w.adv, theirs),
-                     lambda: api.create_ad_for_campaign(self.w.adv, self.w.campaign.campaign_id, self.ad_group(), creative_id=theirs, now=NOW)):
+                     lambda: api.create_ad(self.w.adv, self.w.campaign.campaign_id, self.ad_group(), creative_id=theirs, now=NOW)):
             with self.assertRaises(Http404):
                 call()
         self.assertEqual(AdGroupCreative.objects.filter(creative_id=theirs).count(), 1)  # 남의 소재에는 아무것도 붙지 않았다
@@ -146,30 +146,30 @@ class CreativeLibraryTests(TestCase):
 
     def test_an_ad_is_made_in_an_existing_campaign_with_a_new_or_reused_creative(self):
         cid = self.w.campaign.campaign_id
-        fresh = api.create_ad_for_campaign(self.w.adv, cid, self.ad_group(), creative={"title": "새로", "redirect_url": "https://example.com/a", "image_file": png_file((4, 4, 4))},
+        fresh = api.create_ad(self.w.adv, cid, self.ad_group(), creative={"title": "새로", "redirect_url": "https://example.com/a", "image_file": png_file((4, 4, 4))},
                                            now=NOW, request_key="k-new")
         self.assertEqual((fresh.campaign.campaign_id, fresh.ad_group.creative_id, fresh.creative.title), (cid, fresh.creative.creative_id, "새로"))
-        reused = api.create_ad_for_campaign(self.w.adv, cid, self.ad_group(name="재사용"), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-reuse")
+        reused = api.create_ad(self.w.adv, cid, self.ad_group(name="재사용"), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-reuse")
         self.assertEqual(reused.ad_group.creative_id, self.w.creative.creative_id)
-        again = api.create_ad_for_campaign(self.w.adv, cid, self.ad_group(name="재사용"), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-reuse")
+        again = api.create_ad(self.w.adv, cid, self.ad_group(name="재사용"), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-reuse")
         self.assertEqual((again.duplicate, again.ad_group.ad_group_id), (True, reused.ad_group.ad_group_id))  # 같은 키로는 한 번만
         self.assertEqual(api.ad_created_by_key(self.w.adv, "k-new").ad_group.ad_group_id, fresh.ad_group.ad_group_id)
         with self.assertRaises(errors.Conflict):
             api.ad_created_by_key(make_advertiser(), "k-new")  # 남의 키(위조한 폼)
         for creative, creative_id in ((None, None), ({"title": "x"}, self.w.creative.creative_id)):
             with self.assertRaises(errors.InvalidRequest):
-                api.create_ad_for_campaign(self.w.adv, cid, self.ad_group(), creative=creative, creative_id=creative_id, now=NOW)
+                api.create_ad(self.w.adv, cid, self.ad_group(), creative=creative, creative_id=creative_id, now=NOW)
 
     def test_a_failed_ad_leaves_no_ad_group(self):
         before = api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id)
         with self.assertRaises(errors.InvalidRequest) as caught:
-            api.create_ad_for_campaign(self.w.adv, self.w.campaign.campaign_id, self.ad_group(),
+            api.create_ad(self.w.adv, self.w.campaign.campaign_id, self.ad_group(),
                                        creative={"title": "x", "redirect_url": "http://insecure.example", "image_file": png_file()}, now=NOW)
         self.assertEqual(caught.exception.errors[0]["pointer"], "/creative/redirect_url")
         self.assertEqual(api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id), before)
         api.end_campaign(self.w.adv, self.w.campaign.campaign_id, now=NOW)
         with self.assertRaises(api.CampaignEnded):
-            api.create_ad_for_campaign(self.w.adv, self.w.campaign.campaign_id, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW)
+            api.create_ad(self.w.adv, self.w.campaign.campaign_id, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW)
 
 
 @tag("security")

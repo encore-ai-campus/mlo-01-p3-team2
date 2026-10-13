@@ -20,7 +20,7 @@ from axes.models import AccessFailureLog
 from django.contrib import admin
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
-from django.test import Client, TestCase, override_settings, tag
+from django.test import Client, TestCase, tag
 from django.urls import resolve, reverse
 
 from billing import api as billing
@@ -106,8 +106,7 @@ class ScreenQualityTests(TestCase):
         self.suspended = campaigns.create_campaign(self.w.adv, "<b>중단된 캠페인</b>", self.w.campaign.starts_at, None, 1000)
         campaigns.suspend_campaign(self.w.admin, self.suspended.campaign_id, "<i>사유</i>")
         campaigns.create_review_request(self.w.adv, self.suspended.campaign_id, "고쳤습니다")
-        with override_settings(MAX_CREATIVES_PER_AD_GROUP=2):  # 소재마다 폼이 되풀이된다(V1 은 1개, 설정으로 늘린다)
-            campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))
+        campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)))  # 소재마다 폼이 되풀이된다
         # 관리자 사이트의 모든 모델 상세 화면을 보려고 줄을 하나씩 둔다
         Client().post(reverse("login"), {"username": "nobody", "password": "wrong-password-xyz"})  # 잠금 시도
         Client().post(reverse("login"), {"username": self.w.admin.username, "password": PW})  # 접속 기록
@@ -122,6 +121,7 @@ class ScreenQualityTests(TestCase):
         adv = [reverse(n, args=a) for n, a in (
             ("advertiser_home", []), ("campaign_list", []), ("campaign_detail", [self.w.campaign.campaign_id]),
             ("campaign_detail", [self.suspended.campaign_id]), ("ad_group_detail", [self.w.group.ad_group_id]), ("ad_create", []),
+            ("campaign_create", []), ("creative_list", []), ("creative_detail", [self.w.creative.creative_id]),
             ("points", []), ("my_account", []),
         )] + [reverse("ad_create") + "?unit=IMPRESSION"]
         operator = [reverse(n, args=a) for n, a in (

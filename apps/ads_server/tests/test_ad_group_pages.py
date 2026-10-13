@@ -168,7 +168,7 @@ class CreativeTests(AdGroupPageBase):
         self.assertEqual(r.status_code, 400)
         self.assertEqual(re.findall(r'id="([^"]+_error)"', html), [f"image_{second.creative_id}-image_error"])  # 그 소재 아래에만
         files = re.findall(r'<input type="file"[^>]*id="([^"]+)"', html)
-        self.assertEqual(len(set(files)), 2)
+        self.assertEqual((len(files), len(set(files))), (3, 3))  # 소재 둘의 교체 폼 + 올려서 연결(6-9d) — 이름표가 겹치지 않는다
 
     @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")
     def test_the_owner_sees_the_image_while_suspended_and_nobody_else_does(self):
@@ -198,6 +198,13 @@ class IsolationTests(AdGroupPageBase):
         group = campaigns.get_ad_group(other.adv, gid)
         self.assertEqual((group.name, group.enabled, group.current_bid.amount), ("그룹", True, 30))
         self.assertEqual(campaigns.get_creative(other.adv, crid).title, "제목")
+        forged = {**self.edit_fields(title="위조"), "ad_group_id": str(gid)}  # 내 소재의 맞는 수정이어도 돌아갈 곳(숨김 칸)이 남의 광고면 404(6-9d)
+        self.assertEqual(self.client.post(reverse("creative_edit", args=[self.crid]), forged).status_code, 404)
+        self.assertEqual(self.creative().title, "제목")  # 고치기 전에 막는다
+        self.assertEqual(self.client.post(reverse("creative_image", args=[self.crid]), {**self.image_fields(png_file((3, 3, 3))), "ad_group_id": str(gid)}).status_code, 404)
+        for name in ("ad_group_creative_link", "ad_group_creative_select"):  # 남의 광고에 내 소재를 연결·선택할 수 없다
+            self.assertEqual(self.client.post(reverse(name, args=[gid]), {"creative_id": str(self.crid)}).status_code, 404, name)
+        self.assertEqual(campaigns.get_ad_group(other.adv, gid).creative_id, other.creative.creative_id)
 
 
 class StaleSameFieldTests(AdGroupPageBase):

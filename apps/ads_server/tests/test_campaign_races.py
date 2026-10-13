@@ -10,7 +10,7 @@ from django.urls import reverse
 
 from assets.api import validate_image
 from campaigns import api
-from campaigns.models import Campaign, Creative, CreativeImage, ReviewRequest
+from campaigns.models import AdGroup, Campaign, Creative, CreativeImage, ReviewRequest
 from foundation.api import errors
 from foundation.models import AuditLog
 from tests.concurrency import overlap
@@ -34,10 +34,12 @@ class QuotaRaceTests(TransactionTestCase):
     def setUp(self):
         self.w = World(ends_in=None)
 
+    def campaign(self, key):
+        return lambda: api.create_campaign(self.w.adv, f"캠페인 {key}", NOW, None, 1000, request_key=key)
+
     def ad(self, key, color):
         return lambda: api.create_ad(
-            self.w.adv,
-            campaign={"name": f"광고 {key}", "starts_at": NOW, "ends_at": None, "daily_budget": 1000},
+            self.w.adv, self.w.campaign.campaign_id,
             ad_group={"name": "그룹", "pricing_unit": "IMPRESSION", "slot_ids": [self.w.slot.slot_id], "bid_amount": 30},
             creative={"title": "제목", "redirect_url": "https://example.com/", "image_file": png_file(color)},
             request_key=key,
@@ -51,16 +53,23 @@ class QuotaRaceTests(TransactionTestCase):
 
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)  # 이미 1개
     def test_two_new_ads_with_different_keys_do_not_pass_the_campaign_limit(self):
-        second = self.overlap(self.ad("k1", (1, 1, 1)), "INSERT", "campaigns_campaign", self.ad("k2", (2, 2, 2)))
+        """캠페인 만들기(6-9d — 광고와 따로) 두 개가 겹쳐도 캠페인 상한을 넘지 않는다."""
+        second = self.overlap(self.campaign("k1"), "INSERT", "campaigns_campaign", self.campaign("k2"))
         self.assertEqual([type(e) for e in second.errors], [api.LimitExceeded])
         self.assertEqual(Campaign.objects.filter(owner=self.w.adv).count(), 2)
 
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)
+    def test_an_overlapping_resubmission_of_the_same_campaign_form_creates_once(self):
+        second = self.overlap(self.campaign("same"), "INSERT", "campaigns_campaign", self.campaign("same"))
+        self.assertEqual(second.errors, [])
+        self.assertEqual(Campaign.objects.filter(owner=self.w.adv).count(), 2)
+
+    @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=2)  # 이미 1개
     def test_an_overlapping_resubmission_of_the_same_key_finds_the_first_ad_not_the_limit(self):
-        second = self.overlap(self.ad("same", (1, 1, 1)), "INSERT", "campaigns_campaign", self.ad("same", (1, 1, 1)))
+        second = self.overlap(self.ad("same", (1, 1, 1)), "INSERT", "campaigns_ad_group", self.ad("same", (1, 1, 1)))
         self.assertEqual(second.errors, [])
         self.assertTrue(second.result.duplicate)
-        self.assertEqual(Campaign.objects.filter(owner=self.w.adv).count(), 2)
+        self.assertEqual(AdGroup.objects.filter(campaign__owner=self.w.adv).count(), 2)
 
     def test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota(self):
         other = api.create_campaign(self.w.adv, "둘째", NOW, None, 1000)
