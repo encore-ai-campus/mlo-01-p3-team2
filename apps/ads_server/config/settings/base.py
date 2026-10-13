@@ -96,7 +96,7 @@ AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 감사 로그와 같은 
 AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
 AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 화면)을 끄고 foundation/admin.py 가 읽기 전용으로 다시 등록한다(위협 모델 T44)
 
-# 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다).
+# 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다). prod 는 필수·1 이상(앞단 nginx, 6-5c)
 TRUSTED_PROXY_COUNT = 0
 
 # --- 세션·쿠키: 게임 서버와 같은 호스트에서 돌 때 충돌하지 않도록 전용 이름 ---

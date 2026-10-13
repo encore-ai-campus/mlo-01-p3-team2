@@ -30,10 +30,23 @@ class ProdSettingsTests(SimpleTestCase):
         self.assertNotEqual(r.returncode, 0)
 
     def test_prod_requires_allowed_hosts_database_and_admin_path(self):
-        for missing in ("ALLOWED_HOSTS", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "ADMIN_URL_PATH", "MEDIA_ROOT", "ASSET_PUBLIC_BASE_URL"):
+        for missing in ("ALLOWED_HOSTS", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "ADMIN_URL_PATH", "MEDIA_ROOT", "ASSET_PUBLIC_BASE_URL", "TRUSTED_PROXY_COUNT"):
             env = {k: v for k, v in PROD_ENV.items() if k != missing}
             r = run_python(SHOW_SECRET, "config.settings.prod", env)
             self.assertNotEqual(r.returncode, 0, missing)
+
+    def test_prod_requires_a_trusted_proxy_count_of_at_least_one(self):
+        """6-5c(설계 §10 "배포 구성"): 운영은 앞단 nginx 뒤라 신뢰할 프록시 수가 필수이고 1 이상이다(기본값 없음).
+        0 이면 모든 요청이 nginx IP 하나로 보여 로그인 잠금·감사 로그의 IP 가 무너진다 — 6-3h 의 추정 경고 대신 기동 단계에서 막는다."""
+        show = "from django.conf import settings; print(settings.TRUSTED_PROXY_COUNT)"
+        for bad in ("0", "-1", "one"):
+            r = run_python(show, "config.settings.prod", dict(PROD_ENV, TRUSTED_PROXY_COUNT=bad))
+            self.assertNotEqual(r.returncode, 0, bad)
+            self.assertIn("TRUSTED_PROXY_COUNT", r.stderr, bad)
+        r = run_python(show, "config.settings.prod", dict(PROD_ENV, TRUSTED_PROXY_COUNT="2"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "2"), r.stderr[-300:])
+        r = run_python(show, "config.settings.dev", DB_ENV)  # dev(로컬 runserver)는 지금처럼 0
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "0"), r.stderr[-300:])
 
     def test_prod_starts_with_valid_env(self):
         r = run_python(SHOW_SECRET, "config.settings.prod", PROD_ENV)

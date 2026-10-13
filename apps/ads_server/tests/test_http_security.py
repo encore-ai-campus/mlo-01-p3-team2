@@ -4,7 +4,6 @@ import sys
 import os
 import subprocess
 
-from django.core.checks import Tags, run_checks
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings, tag
 from django.urls import reverse
 
@@ -282,20 +281,3 @@ class DeployCheckTests(SimpleTestCase):
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("WARNINGS", r.stdout + r.stderr)
-
-    PROXY_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # prod 가 BEHIND_TLS_PROXY=1 일 때 켜는 값
-
-    def own_security_ids(self, deploy=True):
-        return [m.id for m in run_checks(tags=[Tags.security], include_deployment_checks=deploy) if m.id.startswith("foundation.")]
-
-    def test_a_tls_proxy_without_a_trusted_proxy_count_warns_on_the_deploy_check_only(self):
-        """6-3h: 프록시 뒤인데 신뢰할 프록시 수를 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다(가입 제한·로그인 잠금·감사 로그)."""
-        for count in (0, -1):  # 0 이하면 client_ip 가 REMOTE_ADDR(프록시)만 쓴다
-            with self.subTest(count=count), override_settings(SECURE_PROXY_SSL_HEADER=self.PROXY_HEADER, TRUSTED_PROXY_COUNT=count):
-                self.assertEqual(self.own_security_ids(), ["foundation.W001"])
-                self.assertEqual(self.own_security_ids(deploy=False), [])  # check --deploy 에서만
-
-    def test_no_proxy_warning_with_a_trusted_proxy_count_or_without_a_tls_proxy(self):
-        for header, count in ((self.PROXY_HEADER, 1), (None, 0)):
-            with self.subTest(header=header, count=count), override_settings(SECURE_PROXY_SSL_HEADER=header, TRUSTED_PROXY_COUNT=count):
-                self.assertEqual(self.own_security_ids(), [])

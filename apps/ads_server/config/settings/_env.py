@@ -20,9 +20,11 @@ def env_bool(name, default=False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def env_int(name, default=0, minimum=None):
+def env_int(name, default=0, minimum=None, required=False):
     value = os.environ.get(name)
     if value is None or value == "":
+        if required:
+            raise ImproperlyConfigured(f"환경변수 {name} 이(가) 필요합니다.")
         return default
     try:
         number = int(value)

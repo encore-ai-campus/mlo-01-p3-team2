@@ -27,7 +27,7 @@ check_deploy() {
   env -i PATH="$PATH" DJANGO_SETTINGS_MODULE=config.settings.prod SECRET_KEY="$key" \
     ALLOWED_HOSTS=ads.example.com ADMIN_URL_PATH=ops-check/ \
     DB_NAME="${DB_NAME:-ads_server}" DB_USER="${DB_USER:-}" DB_PASSWORD="${DB_PASSWORD:-}" DB_HOST="${DB_HOST:-127.0.0.1}" DB_PORT="${DB_PORT:-3306}" \
-    MEDIA_ROOT=/tmp/ads-check-media ASSET_PUBLIC_BASE_URL=https://ads.example.com \
+    MEDIA_ROOT=/tmp/ads-check-media ASSET_PUBLIC_BASE_URL=https://ads.example.com TRUSTED_PROXY_COUNT=1 \
     "$PY" -m django check --deploy --fail-level WARNING
 }
 

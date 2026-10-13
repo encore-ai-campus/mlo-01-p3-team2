@@ -30,4 +30,5 @@ PROD_ENV = {
     "ADMIN_URL_PATH": "ops-9f3a/",
     "MEDIA_ROOT": "/tmp/ads-test-media",
     "ASSET_PUBLIC_BASE_URL": "https://ads.example.com",
+    "TRUSTED_PROXY_COUNT": "1",  # 앞단 nginx 1단(prod 필수, 6-5c)
 }

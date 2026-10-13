@@ -18,7 +18,7 @@ python manage.py runserver 127.0.0.1:8001
 - **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
 - 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 `.env`의 설정 모듈을 따르지 않고 실제 환경변수가 없으면 prod다(아래 "운영 배포").
-- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`이 없으면 기동하지 않는다.
+- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`·`TRUSTED_PROXY_COUNT`(1 이상)가 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
 - dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
 
@@ -85,7 +85,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 
 - **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 **`.env`의 설정 모듈을 따르지 않는다** — 실제 환경변수에 있으면 그 값, 없으면 prod다(`.env`의 다른 값은 그대로 읽는다, Step 6-3a). 그래서 `.env`에 dev가 남아 있어도 웹은 dev로 뜨지 않는다.
 - **배포 순서**: `migrate` → `ensure_event_store` → 상시 프로세스(아래). 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
-- **배포 점검 — 리버스 프록시 뒤면 `TRUSTED_PROXY_COUNT`(신뢰할 프록시 수)를 설정한다.** 빠뜨리면 모든 요청이 프록시 IP 하나로 보인다. 그러면 로그인 잠금(아이디 + IP 기준)은 아이디만 보는 것과 같아져 남이 계정을 잠글 수 있으며, 감사 로그의 IP는 모두 프록시 IP가 된다. TLS 종단 프록시 뒤(`BEHIND_TLS_PROXY=1`)에서 빠뜨리면 `check --deploy`가 `foundation.W001`로 알린다. 그 밖의 프록시 구성은 잡지 못하니 직접 확인한다.
+- **배포 점검 — 신뢰할 프록시 수 `TRUSTED_PROXY_COUNT`는 prod 필수이고 1 이상이다**(앞단 nginx 1단 = `1`, 설계 §10 "배포 구성"). 없거나 0 이하면 기동하지 않는다. 앱은 `X-Forwarded-For`의 오른쪽에서 이 수만큼째 값을 클라이언트 IP로 쓴다. 실제 프록시 수보다 적으면 모든 요청이 프록시 IP 하나로 보여 로그인 잠금(아이디 + IP 기준)이 아이디만 보는 것과 같아지고(남이 계정을 잠글 수 있다) 감사 로그의 IP가 모두 프록시 IP가 된다. 많으면 `X-Forwarded-For` 앞쪽의 위조 값을 믿게 된다. **Django 포트는 nginx 밖에 열지 않는다**(127.0.0.1 바인딩) — 열려 있으면 nginx를 거치지 않고 `X-Forwarded-For`를 위조해 IP를 고를 수 있다.
 - **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
 
 ## 상시·주기 작업
@@ -153,7 +153,7 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 
 0-4 이후 prod 설정의 경고는 **0**이다(`python -m django check --deploy --fail-level WARNING`, 테스트로 강제).
 `security.W021`(HSTS 프리로드)만 **의도적으로 끈다**: 내부 서비스이고 프리로드 등록은 되돌리기 어렵다(`config/settings/prod.py`에 사유).
-직접 만든 경고는 `foundation.W001` 하나다(6-3h): 프록시 뒤(`BEHIND_TLS_PROXY=1`)인데 `TRUSTED_PROXY_COUNT`가 0 이하면 경고한다. `check --deploy`에서만 돌고, 샘플 환경(프록시 아님)의 경고는 그대로 0이다. 실제 배포에서 빠뜨리면 `--fail-level WARNING`이 실패한다.
+직접 만든 경고는 없다. 6-3h의 프록시 설정 누락 경고(`foundation.W001`)는 6-5c에서 지웠다 — 신뢰할 프록시 수가 prod 필수값(1 이상)이 되어 빠뜨리면 기동하지 않는다.
 
 ## 알려진 사항
 

@@ -14,7 +14,8 @@ if SECRET_KEY == INSECURE_DEV_KEY or len(SECRET_KEY) < 50:
 DEBUG = False  # 환경변수로 바꿀 수 없다.
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
-TRUSTED_PROXY_COUNT = env_int("TRUSTED_PROXY_COUNT", 0)
+# 앞단 nginx 뒤라 필수이고 1 이상이다(설계 §10 "배포 구성", 6-5c). 기본값을 두지 않는다 — 1 을 기본으로 두면 Django 포트가 nginx 밖에 열렸을 때 X-Forwarded-For 위조가 그대로 통한다
+TRUSTED_PROXY_COUNT = env_int("TRUSTED_PROXY_COUNT", required=True, minimum=1)
 ADMIN_URL_PATH = validate_admin_path(env_str("ADMIN_URL_PATH", required=True))  # 기본값 admin/ 금지
 
 # --- HTTPS (TLS 종단은 인프라 소관) ---
