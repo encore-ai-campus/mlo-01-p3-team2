@@ -19,6 +19,7 @@ from django.urls import reverse
 from records import api as records
 from records.models import Reaction
 from tests.support.factories import NOW, SUBJECT, World, make_admin
+from tests.support.cases import Cases
 
 OTHER = "0197a5c0-0000-7000-8000-000000000002"
 
@@ -42,8 +43,8 @@ class InboxBase(TestCase):
 
 
 @tag("security")
-class InboxStatusTests(InboxBase):
-    def test_counts_are_disjoint_and_the_oldest_wait_leaves_out_stuck_reactions(self):
+class InboxStatusTests(Cases, InboxBase):
+    def case_counts_are_disjoint_and_the_oldest_wait_leaves_out_stuck_reactions(self):
         stuck = self.receive(0)
         self.set(stuck, attempts=settings.REACTION_MAX_ATTEMPTS, checked_at=NOW + timedelta(seconds=5))  # 보류된 적이 있어도 stuck 이다(보류로 세지 않는다)
         held = self.receive(20)
@@ -53,10 +54,10 @@ class InboxStatusTests(InboxBase):
         self.assertEqual(records.process_reaction(self.receive(40, other), now=NOW), "ACCEPTED")  # 끝난 반응은 세지 않는다
         self.assertEqual(records.inbox_status(now=NOW + timedelta(seconds=100)), {"received": 3, "held": 1, "stuck": 1, "oldest_age_seconds": 80.0})
 
-    def test_an_empty_inbox(self):
+    def case_an_empty_inbox(self):
         self.assertEqual(records.inbox_status(now=NOW), {"received": 0, "held": 0, "stuck": 0, "oldest_age_seconds": None})
 
-    def test_the_moment_a_reaction_becomes_stuck_is_logged_once(self):
+    def case_the_moment_a_reaction_becomes_stuck_is_logged_once(self):
         inbox_id = self.receive(0)
         self.set(inbox_id, attempts=settings.REACTION_MAX_ATTEMPTS - 1)
         with mock.patch("records.processing.billing.charge_for_reaction", side_effect=RuntimeError("billing down")):
@@ -67,24 +68,27 @@ class InboxStatusTests(InboxBase):
                 records.process_reaction(inbox_id, now=NOW)
         self.assertEqual(records.inbox_status(now=NOW)["stuck"], 1)
 
-    def test_a_hold_is_logged_at_debug_with_its_rule_and_reason(self):
+    def case_a_hold_is_logged_at_debug_with_its_rule_and_reason(self):
         self.receive(0)
         later = self.receive(1)  # 먼저 접수된 같은 유형이 끝나길 기다린다
         with self.assertLogs("records.processing", "DEBUG") as logs:
             self.assertEqual(records.process_reaction(later, now=NOW), "PENDING")
         self.assertTrue(any(f"inbox={later} rule=once-per-type reason=duplicate_type" in line for line in logs.output), logs.output)
 
+    def test_inbox_status(self):
+        self.run_cases()
+
 
 @tag("security")
-class ProcessReactionsStatusOutputTests(InboxBase):
-    def test_status_prints_the_inbox_status_and_processes_nothing(self):
+class ProcessReactionsStatusOutputTests(Cases, InboxBase):
+    def case_status_prints_the_inbox_status_and_processes_nothing(self):
         inbox_id = self.receive(0)
         out = io.StringIO()
         call_command("process_reactions", "--status", stdout=out)
         self.assertEqual(out.getvalue().strip(), str(records.inbox_status()))  # 시각 없이 그대로(감시가 읽는다)
         self.assertEqual(Reaction.objects.get(pk=inbox_id).status, "RECEIVED")
 
-    def test_an_idle_processor_reports_at_start_when_stuck_changes_and_every_heartbeat(self):
+    def case_an_idle_processor_reports_at_start_when_stuck_changes_and_every_heartbeat(self):
         """한가해도 조용하지 않다: 시작 직후, stuck 이 바뀌면 바로, 그 밖에는 60초마다. 그 사이에는 찍지 않는다."""
         clock = [0.0]
         steps = iter([(30, False), (31, False), (1, False), (1, True)])  # 0(시작) → 30(조용) → 61(주기) → 62(조용 — 주기 기준이 61 로 옮겨 갔다) → 63(stuck 변화)
@@ -104,9 +108,12 @@ class ProcessReactionsStatusOutputTests(InboxBase):
         self.assertEqual(len(idle), 3, out.getvalue())
         self.assertEqual([("'stuck': 1" in line) for line in idle], [False, False, True])
 
+    def test_process_reactions_status_output(self):
+        self.run_cases()
+
 
 @tag("security")
-class AdminIndexInboxCardTests(InboxBase):
+class AdminIndexInboxCardTests(Cases, InboxBase):
     """6-3i: 로그를 보지 않는 운영자도 관리자 첫 화면에서 stuck(과금되지 않은 반응)과 처리기 멈춤을 본다."""
 
     def card(self):
@@ -114,7 +121,7 @@ class AdminIndexInboxCardTests(InboxBase):
         html = self.client.get(reverse("admin:index")).content.decode()
         return {th.split("(")[0]: td for th, td in re.findall(r'<th scope="row">([^<]*)</th><td>(.*?)</td>', html)}, html
 
-    def test_the_card_shows_each_count_and_flags_stuck_reactions(self):
+    def case_the_card_shows_each_count_and_flags_stuck_reactions(self):
         for seconds in (0, 1):
             self.set(self.receive(seconds), attempts=settings.REACTION_MAX_ATTEMPTS)
         self.set(self.receive(2), checked_at=NOW)
@@ -124,7 +131,10 @@ class AdminIndexInboxCardTests(InboxBase):
         self.assertEqual(rows["stuck"], "<strong>2 — 과금되지 않은 반응이 있습니다</strong>")
         self.assertRegex(rows["가장 오래된 대기"], r"^\d+초$")
 
-    def test_an_empty_inbox_shows_no_alarm(self):
+    def case_an_empty_inbox_shows_no_alarm(self):
         rows, html = self.card()
         self.assertEqual((rows["대기"], rows["보류"], rows["stuck"], rows["가장 오래된 대기"]), ("0", "0", "0", "없음"))
         self.assertNotIn("과금되지 않은 반응이 있습니다", html)
+
+    def test_admin_index_inbox_card(self):
+        self.run_cases()

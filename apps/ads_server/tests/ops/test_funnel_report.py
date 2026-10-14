@@ -20,6 +20,7 @@ from masters import api as masters
 from records import api as records
 from records.models import Reaction
 from tests.support.factories import DAY, NOW, SHARES, SUBJECT, World, make_admin, make_advertiser, png_file
+from tests.support.cases import Cases
 
 D7 = datetime(2026, 10, 7, tzinfo=timezone.utc)  # NOW 가 속한 예산 일의 시작
 SEC = timedelta(seconds=1)
@@ -75,7 +76,7 @@ class ReportBase(ReportMixin, TestCase):
 
 
 @tag("security")
-class DailyReportCountsTests(ReportBase):
+class DailyReportCountsTests(Cases, ReportBase):
     def setUp(self):
         super().setUp()
         self.full_funnel(NOW)  # 10/7: 노출 1·클릭 1·전환 1
@@ -83,14 +84,14 @@ class DailyReportCountsTests(ReportBase):
         self.impression(NOW + DAY)  # 10/8: 노출 1
         self.impression(NOW - DAY + HOUR)  # 10/6(직전 구간): 노출 1
 
-    def test_counts_spent_and_every_day_of_the_window(self):
+    def case_counts_spent_and_every_day_of_the_window(self):
         report = self.report_for()
         self.assertEqual(self.by_date(report), {date(2026, 10, 7): (2, 1, 1, 594), date(2026, 10, 8): (1, 0, 0, 294), date(2026, 10, 9): (0, 0, 0, 0)})
         self.assertEqual((report.start, report.end), window())
         t = report.totals
         self.assertEqual((t.impressions, t.clicks, t.conversions, t.spent), (3, 1, 1, 888))  # 입찰 300 · 비율 98/1/1: 노출 294 · 클릭 3 · 전환 3
 
-    def test_the_previous_period_of_the_same_length_is_totalled_for_comparison(self):
+    def case_the_previous_period_of_the_same_length_is_totalled_for_comparison(self):
         previous = self.report_for().previous_totals
         self.assertEqual((previous.impressions, previous.clicks, previous.conversions, previous.spent), (1, 0, 0, 294))
         longer = self.report_for(window(5)).previous_totals  # 10/2~10/6
@@ -98,7 +99,7 @@ class DailyReportCountsTests(ReportBase):
         shifted = self.report_for(window(1, D7 + DAY))  # 10/8 하루 → 직전은 10/7 하루
         self.assertEqual((shifted.totals.impressions, shifted.previous_totals.impressions), (1, 2))
 
-    def test_ratios_are_computed_and_undefined_without_a_denominator(self):
+    def case_ratios_are_computed_and_undefined_without_a_denominator(self):
         report = self.report_for()
         self.assertAlmostEqual(report.totals.ctr, 1 / 3)
         self.assertEqual(report.totals.conversion_rate, 1.0)
@@ -107,7 +108,7 @@ class DailyReportCountsTests(ReportBase):
         clickless = self.report_for(window(1, D7 + DAY)).totals
         self.assertEqual((clickless.ctr, clickless.conversion_rate), (0.0, None))
 
-    def test_only_accepted_reactions_are_counted(self):
+    def case_only_accepted_reactions_are_counted(self):
         decision = self.impression(NOW + 4 * HOUR, subject=C)
         records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW + 4 * HOUR, {}, now=NOW + 4 * HOUR + 5 * SEC)  # 중복 → 거부될 것
         records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "CONVERSION", NOW + 4 * HOUR, {}, now=NOW + 4 * HOUR + 6 * SEC)  # 클릭 없는 전환 → 보류
@@ -117,7 +118,7 @@ class DailyReportCountsTests(ReportBase):
         self.assertEqual(self.report_for().totals.impressions, 4)  # 노출 3 + 이 결정의 인정된 노출 1
         self.assertEqual(self.report_for().totals.conversions, 1)  # 보류 중인 전환은 세지 않는다
 
-    def test_the_window_includes_from_and_excludes_to(self):
+    def case_the_window_includes_from_and_excludes_to(self):
         edge = self.w
         before = records.decide(edge.slot.media_id, edge.slot.slot_id, subject_id=A, now=D7 - SEC, rng=Random(1))
         self.report(before, "IMPRESSION", D7)  # 정확히 from → 포함(10/7)
@@ -129,7 +130,7 @@ class DailyReportCountsTests(ReportBase):
         self.assertEqual(self.report_for(window(1, D7 + 3 * DAY)).totals.impressions, 1)  # 다음 구간의 첫날에 속한다
 
     @override_settings(BUDGET_DAY_OFFSET_HOURS=9)
-    def test_days_follow_the_budget_day_boundary_setting(self):
+    def case_days_follow_the_budget_day_boundary_setting(self):
         """예산 일 경계가 KST 자정(= UTC 15:00)이면 날짜도 그 경계로 잘린다."""
         w = World()
         start = datetime(2026, 10, 6, 15, tzinfo=timezone.utc)  # 10/7 KST 자정
@@ -142,9 +143,12 @@ class DailyReportCountsTests(ReportBase):
         with self.assertRaises(InvalidRequest):  # UTC 자정은 이 설정에서 일 경계가 아니다
             records.daily_report(w.adv, D7, D7 + DAY)
 
+    def test_daily_report_counts(self):
+        self.run_cases()
+
 
 @tag("security")
-class ConversionRateCohortTests(ReportBase):
+class ConversionRateCohortTests(Cases, ReportBase):
     """검토 2-12 ②: 전환율 = 그 구간에 받은 **클릭 중** 전환으로 이어진 비율. 전환 수는 수신일, 클릭도 수신일이라 나누면 이전 구간 클릭의 전환이 섞여 1 을 넘을 수 있었다."""
 
     def clicked(self, when, subject=SUBJECT):
@@ -152,7 +156,7 @@ class ConversionRateCohortTests(ReportBase):
         self.report(decision, "CLICK", when + 2 * SEC)
         return decision
 
-    def test_conversions_of_the_previous_periods_clicks_do_not_inflate_the_rate(self):
+    def case_conversions_of_the_previous_periods_clicks_do_not_inflate_the_rate(self):
         yesterday = NOW - DAY
         prior = [self.clicked(yesterday + n * HOUR, subject=s) for n, s in enumerate((A, B))]  # 10/6 에 받은 클릭 2개
         for decision in prior:
@@ -164,7 +168,7 @@ class ConversionRateCohortTests(ReportBase):
         before = self.report_for(window(1)).previous_totals
         self.assertEqual((before.clicks, before.conversions, before.converted_clicks, before.conversion_rate), (2, 0, 2, 1.0))  # 전환은 클릭이 속한 구간의 몫
 
-    def test_a_conversion_that_comes_after_the_period_still_counts_for_its_click(self):
+    def case_a_conversion_that_comes_after_the_period_still_counts_for_its_click(self):
         decision = self.clicked(NOW)
         self.report(decision, "CONVERSION", NOW + 2 * DAY)  # 10/9
         day7 = self.report_for(window(1)).totals
@@ -172,13 +176,13 @@ class ConversionRateCohortTests(ReportBase):
         day9 = self.report_for(window(1, D7 + 2 * DAY)).totals
         self.assertEqual((day9.clicks, day9.conversions, day9.conversion_rate), (0, 1, None))  # 클릭이 없는 구간은 정의되지 않는다
 
-    def test_a_click_without_a_conversion_is_in_the_denominator_only(self):
+    def case_a_click_without_a_conversion_is_in_the_denominator_only(self):
         self.clicked(NOW, subject=A)
         self.report(self.clicked(NOW + HOUR, subject=B), "CONVERSION", NOW + 2 * HOUR)
         totals = self.report_for(window(1)).totals
         self.assertEqual((totals.clicks, totals.converted_clicks, totals.conversion_rate), (2, 1, 0.5))
 
-    def test_a_rejected_or_pending_conversion_does_not_make_its_click_converted(self):
+    def case_a_rejected_or_pending_conversion_does_not_make_its_click_converted(self):
         rejected, pending = self.clicked(NOW, subject=A), self.clicked(NOW + HOUR, subject=B)
         view, _ = records.receive_reaction(rejected.media_id, rejected.decision_id, uuid.uuid4(), "CONVERSION", NOW + DAY, {}, now=NOW + 3 * SEC)  # 보고 시각이 미래 → 거부
         self.assertEqual(records.process_reaction(view.inbox_id, now=NOW + 3 * SEC), "REJECTED")
@@ -186,7 +190,7 @@ class ConversionRateCohortTests(ReportBase):
         totals = self.report_for(window(1)).totals
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 0, 0, 0.0))
 
-    def test_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
+    def case_in_a_shared_slot_a_conversion_belongs_to_its_own_viewers_click(self):
         slot, group = self.w.shared_ad()
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B):
@@ -196,7 +200,7 @@ class ConversionRateCohortTests(ReportBase):
         totals = self.report_for(window(1), ad_group_id=group.ad_group_id).totals
         self.assertEqual((totals.clicks, totals.conversions, totals.converted_clicks, totals.conversion_rate), (2, 1, 1, 0.5))
 
-    def test_the_rate_never_exceeds_one_and_rows_add_up_to_the_totals(self):
+    def case_the_rate_never_exceeds_one_and_rows_add_up_to_the_totals(self):
         for n, subject in enumerate((A, B, C)):
             decision = self.clicked(NOW - DAY + n * HOUR, subject=subject)
             if n != 1:
@@ -211,7 +215,7 @@ class ConversionRateCohortTests(ReportBase):
         self.assertEqual(report.rows[0].totals.conversion_rate, 2 / 3)  # 10/6 클릭 3개 중 2개가 전환으로 이어졌다
         self.assertEqual(report.rows[1].totals.conversion_rate, None)  # 10/7 은 클릭이 없다(전환만 받았다)
 
-    def test_another_advertisers_clicks_and_conversions_never_enter_the_rate(self):
+    def case_another_advertisers_clicks_and_conversions_never_enter_the_rate(self):
         other = World()
         decision = records.decide(other.slot.media_id, other.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         self.report(decision, "IMPRESSION", NOW + SEC)
@@ -220,10 +224,13 @@ class ConversionRateCohortTests(ReportBase):
         mine = self.report_for(window(1)).totals
         self.assertEqual((mine.clicks, mine.converted_clicks, mine.conversion_rate), (0, 0, None))
 
+    def test_conversion_rate_cohort(self):
+        self.run_cases()
+
 
 @tag("security")
-class DailyReportScopeTests(ReportBase):
-    def test_other_advertisers_data_never_shows_up(self):
+class DailyReportScopeTests(Cases, ReportBase):
+    def case_other_advertisers_data_never_shows_up(self):
         other = World()
         self.full_funnel(NOW)
         self.impression(NOW + HOUR, world=other)
@@ -232,7 +239,7 @@ class DailyReportScopeTests(ReportBase):
         self.assertEqual((mine.impressions, mine.clicks, mine.spent), (1, 1, 300))  # 노출 294 + 클릭 3 + 전환 3
         self.assertEqual((theirs.impressions, theirs.clicks, theirs.spent), (2, 0, 588))
 
-    def test_campaign_scope_and_ownership(self):
+    def case_campaign_scope_and_ownership(self):
         second = self.w.api.create_campaign(self.w.adv, "두 번째", NOW - DAY, NOW + 10 * DAY, 5000, now=NOW)
         slot2 = self.new_slot("둘째 슬롯")
         group2 = self.w.api.create_ad_group(self.w.adv, second.campaign_id, "그룹2", [slot2.slot_id], bid_amount=400, now=NOW)
@@ -250,7 +257,7 @@ class DailyReportScopeTests(ReportBase):
     def new_slot(self, name):
         return masters.create_slot(self.w.admin, self.media, name, 100, 200, 500, "초기", audience="individual", **SHARES)
 
-    def test_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
+    def case_ad_group_scope_reads_the_ledger_and_reconciles_with_the_campaign(self):
         slot2 = self.new_slot("둘째 슬롯")
         group2 = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "그룹2", [slot2.slot_id], bid_amount=400, now=NOW)
         self.w.api.create_creative(self.w.adv, group2.ad_group_id, "광고2", "https://example.com/two", png_file((9, 9, 9)), now=NOW)
@@ -265,7 +272,7 @@ class DailyReportScopeTests(ReportBase):
         for day in whole.rows:
             self.assertEqual(day.totals.spent, self.by_date(g1)[day.date][3] + self.by_date(g2)[day.date][3])
 
-    def test_a_group_must_belong_to_the_campaign_and_to_the_caller(self):
+    def case_a_group_must_belong_to_the_campaign_and_to_the_caller(self):
         other = World()
         for scope in (dict(ad_group_id=other.group.ad_group_id), dict(ad_group_id=uuid.uuid4()),
                       dict(campaign_id=self.w.campaign.campaign_id, ad_group_id=other.group.ad_group_id)):
@@ -275,7 +282,7 @@ class DailyReportScopeTests(ReportBase):
         with self.assertRaises(Http404):  # 내 광고그룹이어도 다른 캠페인의 것이면 맞지 않는 쌍이다
             self.report_for(campaign_id=second.campaign_id, ad_group_id=self.w.group.ad_group_id)
 
-    def test_spent_is_what_was_actually_received_when_the_balance_ran_short(self):
+    def case_spent_is_what_was_actually_received_when_the_balance_ran_short(self):
         decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         view, _ = records.receive_reaction(self.media, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW + SEC)
         billing.adjust(self.w.admin, self.w.adv.pk, -(50_000 - 10), "잔액 부족 시험", now=NOW)
@@ -283,7 +290,7 @@ class DailyReportScopeTests(ReportBase):
         self.assertEqual(self.report_for().totals.spent, 10)  # 과금액 294 가 아니라 받은 10
         self.assertEqual(self.report_for(ad_group_id=self.w.group.ad_group_id).totals.spent, 10)
 
-    def test_shared_slot_counts_every_viewer(self):
+    def case_shared_slot_counts_every_viewer(self):
         slot, group = self.w.shared_ad()
         decision = records.decide(self.media, slot.slot_id, subject_id=None, now=NOW, rng=Random(1))
         for person in (A, B, C):
@@ -291,10 +298,13 @@ class DailyReportScopeTests(ReportBase):
         totals = self.report_for(ad_group_id=group.ad_group_id).totals
         self.assertEqual((totals.impressions, totals.spent), (3, 1176))  # 결정은 하나, 과금은 사람마다 한 번(400 × 98% = 392)
 
+    def test_daily_report_scope(self):
+        self.run_cases()
+
 
 @tag("security")
-class DailyReportInputTests(ReportBase):
-    def test_only_an_active_advertiser_may_ask(self):
+class DailyReportInputTests(Cases, ReportBase):
+    def case_only_an_active_advertiser_may_ask(self):
         from django.contrib.auth.models import AnonymousUser
 
         for user in (make_admin(), AnonymousUser()):
@@ -306,7 +316,7 @@ class DailyReportInputTests(ReportBase):
         with self.assertRaises(Forbidden):
             records.daily_report(inactive, *window())
 
-    def test_the_window_must_be_aligned_ordered_utc_and_at_most_92_days(self):
+    def case_the_window_must_be_aligned_ordered_utc_and_at_most_92_days(self):
         ok = records.daily_report(self.w.adv, D7, D7 + timedelta(days=92))
         self.assertEqual(len(ok.rows), 92)
         bad = {
@@ -319,15 +329,18 @@ class DailyReportInputTests(ReportBase):
                 records.daily_report(self.w.adv, start, end)
             self.assertTrue(caught.exception.errors[0]["pointer"] in ("/from", "/to"))
 
+    def test_daily_report_input(self):
+        self.run_cases()
+
 
 @tag("security")
-class DailyReportCostTests(ReportBase):
+class DailyReportCostTests(Cases, ReportBase):
     def count_queries(self, **scope):
         with CaptureQueriesContext(connection) as queries:
             self.report_for(**scope)
         return len(queries)
 
-    def test_the_number_of_queries_does_not_grow_with_the_data(self):
+    def case_the_number_of_queries_does_not_grow_with_the_data(self):
         self.impression(NOW)
         few = {"owner": self.count_queries(), "campaign": self.count_queries(campaign_id=self.w.campaign.campaign_id)}
         for hours in range(1, 30):  # 반응도 결정도 훨씬 많아진다
@@ -336,7 +349,7 @@ class DailyReportCostTests(ReportBase):
         self.assertEqual(few, many)
         self.assertLessEqual(max(many.values()), 8)
 
-    def test_the_ad_group_scope_costs_one_ledger_query_per_500_reactions_not_one_per_reaction(self):
+    def case_the_ad_group_scope_costs_one_ledger_query_per_500_reactions_not_one_per_reaction(self):
         for index in range(12):
             self.impression(NOW + index * 60 * SEC, subject=str(uuid.uuid4()))
         with CaptureQueriesContext(connection) as queries:
@@ -344,10 +357,13 @@ class DailyReportCostTests(ReportBase):
         self.assertEqual(report.totals.impressions, 12)
         self.assertLessEqual(len(queries), 9)  # 소유 확인 몇 번 + 반응 1 + 원장 1(500건 이하)
 
+    def test_daily_report_cost(self):
+        self.run_cases()
+
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class ReportSnapshotTests(ReportMixin, TransactionTestCase):
+class ReportSnapshotTests(Cases, ReportMixin, TransactionTestCase):
     """검토 2-13 후속 P2-2: 보고서를 읽는 도중 다른 연결이 새 퍼널을 인정해도 **분자(전환으로 이어진 클릭)와 분모(클릭)가 같은 데이터 상태**를 본다.
 
     `READ COMMITTED` 에서는 SELECT 마다 새 스냅샷이므로, 분자·분모를 따로 읽으면 사이에 커밋된 퍼널이 한쪽에만 들어가 전환율이 1 을 넘는다.
@@ -371,7 +387,7 @@ class ReportSnapshotTests(ReportMixin, TransactionTestCase):
         self.assertEqual(errors, [])
         self.assertFalse(thread.is_alive())
 
-    def test_a_funnel_committed_mid_report_cannot_split_the_numerator_from_the_denominator(self):
+    def case_a_funnel_committed_mid_report_cannot_split_the_numerator_from_the_denominator(self):
         self.full_funnel(NOW, subject=A)  # 보고서가 시작될 때 이미 있는 퍼널
         fired = []
 
@@ -389,9 +405,12 @@ class ReportSnapshotTests(ReportMixin, TransactionTestCase):
         self.assertLessEqual(totals.conversion_rate, 1.0)
         self.assertEqual(self.report_for(window(1)).totals.clicks, 2)  # 새 퍼널은 다음 조회에 보인다
 
-    def test_the_reaction_counts_are_one_select(self):
+    def case_the_reaction_counts_are_one_select(self):
         self.full_funnel(NOW, subject=A)
         with CaptureQueriesContext(connection) as queries:
             self.report_for(window(1))
         reaction_selects = [q["sql"] for q in queries if "records_reaction" in q["sql"]]
         self.assertEqual(len(reaction_selects), 1)
+
+    def test_report_snapshot(self):
+        self.run_cases()

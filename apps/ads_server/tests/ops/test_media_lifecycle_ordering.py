@@ -17,6 +17,7 @@ from records import api as records
 from records.models import Decision, Reaction
 from tests.support.concurrency import BLOCKED, WAIT, Uncommitted, Worker, arriving_before, pausing_before
 from tests.support.factories import SUBJECT, World, at
+from tests.support.cases import Cases
 
 OTHER_SUBJECT = "0197a5c0-0000-7000-8000-000000000002"
 THIRD_SUBJECT = "0197a5c0-0000-7000-8000-000000000003"
@@ -65,13 +66,13 @@ class MediaLifecycleBase(TransactionTestCase):
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class JudgmentWaitsForDeactivationTests(MediaLifecycleBase):
+class JudgmentWaitsForDeactivationTests(Cases, MediaLifecycleBase):
     """판정 쪽(6-2a): 판정 앞 대기가 결정 행 다음에 결정 소유 매체 행을 공유 잠금으로 지나간다."""
 
     def judging(self, view, when):
         return self.blocked(lambda: records.process_reaction(view.inbox_id, now=at(when)), "판정")
 
-    def test_the_review_scenario_judges_both_reactions_the_same_whatever_the_order(self):
+    def case_the_review_scenario_judges_both_reactions_the_same_whatever_the_order(self):
         """검토 재현: +10 에 끄는 트랜잭션이 커밋 전일 때 +20 에 접수된 두 반응 — 커밋 전에 시작한 판정도 커밋을 기다렸다가 거부한다.
         커밋 뒤에 판정한 반응과 상태·사유·근거가 같고 과금은 없다."""
         second_decision = self.decide(self.w, OTHER_SUBJECT)  # 같은 유형 1회 조건과 섞이지 않게 사람을 나눈다
@@ -87,7 +88,7 @@ class JudgmentWaitsForDeactivationTests(MediaLifecycleBase):
             self.assertEqual((row.reason_code, row.applied_rule, row.basis["media_deactivated_at"]), ("media_deactivated", "media-period", at(10).isoformat()))
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 0)
 
-    def test_a_reaction_received_before_the_in_flight_deactivation_is_still_accepted(self):
+    def case_a_reaction_received_before_the_in_flight_deactivation_is_still_accepted(self):
         """기다려도 비활성화 전에 접수된 반응의 판정은 그대로다(늦게 판정해도 인정)."""
         view = self.receive(5)
         with self.deactivation(10) as off:
@@ -97,7 +98,7 @@ class JudgmentWaitsForDeactivationTests(MediaLifecycleBase):
         self.assertEqual((worker.errors, worker.result), ([], "ACCEPTED"))
         self.assertIsNone(self.row(view).basis["media_deactivated_at"])
 
-    def test_another_medias_report_on_this_decision_does_not_wait(self):
+    def case_another_medias_report_on_this_decision_does_not_wait(self):
         """남의 결정에 대한 보고는 기다리지 않는다(판정은 어차피 매체 불일치) — 다른 매체가 이 매체의 비활성화 대기에 끼지 않는다."""
         other = World()
         view = self.receive(20, media=other.slot.media_id)
@@ -105,7 +106,7 @@ class JudgmentWaitsForDeactivationTests(MediaLifecycleBase):
             outcome = self.finishes(lambda: records.process_reaction(view.inbox_id, now=at(20)), "남의 보고의 판정")
         self.assertEqual((outcome, self.row(view).reason_code), ("REJECTED", "media_mismatch"))
 
-    def test_judging_another_medias_reaction_does_not_wait(self):
+    def case_judging_another_medias_reaction_does_not_wait(self):
         """잠금은 매체 단위다: 이 매체를 끄는 중이어도 다른 매체 반응의 판정은 막히지 않는다."""
         other = World()
         view = self.receive(20, self.decide(other, SUBJECT))
@@ -113,16 +114,19 @@ class JudgmentWaitsForDeactivationTests(MediaLifecycleBase):
             outcome = self.finishes(lambda: records.process_reaction(view.inbox_id, now=at(20)), "다른 매체 반응의 판정")
         self.assertEqual(outcome, "ACCEPTED")
 
+    def test_judgment_waits_for_deactivation(self):
+        self.run_cases()
+
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class DecisionWaitsForDeactivationTests(MediaLifecycleBase):
+class DecisionWaitsForDeactivationTests(Cases, MediaLifecycleBase):
     """결정 쪽(6-2b): 결정 저장 트랜잭션이 매체 행을 공유 잠금으로 다시 읽고 커밋까지 쥔다."""
 
     def decisions(self):
         return Decision.objects.filter(media_id=self.media).count()
 
-    def test_a_decision_requested_during_an_in_flight_deactivation_waits_and_is_forbidden(self):
+    def case_a_decision_requested_during_an_in_flight_deactivation_waits_and_is_forbidden(self):
         """재현: +10 에 끄는 트랜잭션이 커밋 전일 때 +15 결정 요청 — 전에는 활성으로 보고 비활성화보다 뒤의 결정을 만들었다. 이제 커밋을 기다린 뒤 403, 결정 없음."""
         before = self.decisions()
         with self.deactivation(10) as off:
@@ -132,7 +136,7 @@ class DecisionWaitsForDeactivationTests(MediaLifecycleBase):
         self.assertEqual([type(error) for error in worker.errors], [errors.Forbidden])
         self.assertEqual(self.decisions(), before)
 
-    def test_a_deactivation_waits_for_an_in_flight_decision_which_it_then_ends(self):
+    def case_a_deactivation_waits_for_an_in_flight_decision_which_it_then_ends(self):
         """진행 중인 결정이 있으면 비활성화가 그 커밋을 기다린다 — 그 결정은 비활성화보다 앞이 되고, 다시 켠 뒤 접수된 반응은 `media_deactivated`.
         결정을 **저장 직전**에 멈춘다(결정이 스스로 연 트랜잭션): 활성 확인의 잠금이 그 트랜잭션 끝까지 쥐어져 있어야 한다."""
         paused, release = threading.Event(), threading.Event()
@@ -150,13 +154,16 @@ class DecisionWaitsForDeactivationTests(MediaLifecycleBase):
         self.assertEqual(records.process_reaction(view.inbox_id, now=at(30)), "REJECTED")
         self.assertEqual(self.row(view).reason_code, "media_deactivated")
 
-    def test_decisions_do_not_block_each_other(self):
+    def case_decisions_do_not_block_each_other(self):
         """공유 잠금끼리는 충돌하지 않는다: 진행 중인 결정이 같은 매체의 다른 결정을 막지 않는다(배타 잠금이면 매체 하나의 결정이 줄을 선다)."""
         with Uncommitted(lambda: self.decide(self.w, OTHER_SUBJECT, when=15)):
             self.finishes(lambda: self.decide(self.w, THIRD_SUBJECT, when=16), "같은 매체의 다른 결정")
 
-    def test_another_medias_decision_does_not_wait(self):
+    def case_another_medias_decision_does_not_wait(self):
         """잠금은 매체 단위다: 이 매체를 끄는 중이어도 다른 매체의 결정은 막히지 않는다."""
         other = World()
         with self.deactivation(10):
             self.finishes(lambda: self.decide(other, SUBJECT, when=15), "다른 매체의 결정")
+
+    def test_decision_waits_for_deactivation(self):
+        self.run_cases()

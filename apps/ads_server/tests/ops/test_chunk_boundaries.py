@@ -15,6 +15,7 @@ from records.models import Decision
 from tests.support.factories import NOW, SUBJECT, make_advertiser
 from tests.support.mongo_support import MongoDatabaseMixin
 from tests.ops.test_event_relay import enqueue_decisions
+from tests.support.cases import Cases
 
 T0 = datetime.datetime(2026, 10, 10, 3, 0, tzinfo=datetime.timezone.utc)
 
@@ -26,12 +27,12 @@ def sent_outbox_rows(n):
     return rows
 
 
-class RelayLookupChunkTests(MongoDatabaseMixin, TestCase):
+class RelayLookupChunkTests(Cases, MongoDatabaseMixin, TestCase):
     def setUp(self):
         super().setUp()
         store.ensure()
 
-    def test_missing_event_ids_answers_across_chunks_in_input_order(self):
+    def case_missing_event_ids_answers_across_chunks_in_input_order(self):
         in_outbox = enqueue_decisions(2)
         relay.relay_batch(now=T0)
         in_mongo_only = enqueue_decisions(2, start=T0 + datetime.timedelta(minutes=1))
@@ -42,7 +43,7 @@ class RelayLookupChunkTests(MongoDatabaseMixin, TestCase):
         wanted = [absent[0], event_ids[in_outbox[0]], event_ids[in_mongo_only[0]], absent[1], event_ids[in_outbox[1]], event_ids[in_mongo_only[1]], absent[2]]
         self.assertEqual(relay.missing_event_ids(wanted, chunk=2), absent)
 
-    def test_sent_but_not_in_mongo_crosses_the_1000_row_batches(self):
+    def case_sent_but_not_in_mongo_crosses_the_1000_row_batches(self):
         rows = sent_outbox_rows(1002)
         present = rows[1001]  # 마지막 덜 찬 묶음에 MongoDB 에 있는 행 하나
         store.collection().insert_one(relay.to_document(present))
@@ -52,6 +53,9 @@ class RelayLookupChunkTests(MongoDatabaseMixin, TestCase):
         for limit in (5, 1000, 1001, 5000):
             self.assertEqual(relay.sent_but_not_in_mongo(limit=limit), everything[:limit], limit)
         self.assertEqual(relay.sent_but_not_in_mongo(), everything[:1000])  # 기본 상한
+
+    def test_relay_lookup_chunk(self):
+        self.run_cases()
 
 
 class LedgerLookupChunkTests(TestCase):
@@ -81,20 +85,23 @@ class EventGapsChunkTests(MongoDatabaseMixin, TestCase):
         self.assertEqual({g["event_id"] for g in gaps}, {str(events.event_id_for("ad.decision", d.decision_id)) for d in decisions})
 
 
-class ChunkSizeContractTests(TestCase):
+class ChunkSizeContractTests(Cases, TestCase):
     """청크 크기가 1 미만이면 '없다'·'할 일 없음'으로 답하지 않고 무엇이 잘못됐는지 알리며 실패한다(계획 4-4a, R6)."""
 
-    def test_missing_event_ids_refuses_a_chunk_below_one(self):
+    def case_missing_event_ids_refuses_a_chunk_below_one(self):
         for chunk in (0, -1):
             with self.assertRaisesRegex(ValueError, "chunk"):
                 relay.missing_event_ids([uuid.uuid4()], chunk=chunk)
             with self.assertRaisesRegex(ValueError, "chunk"):
                 relay.missing_event_ids([], chunk=chunk)  # 입력이 비어도 같은 계약
 
-    def test_backfill_refuses_a_chunk_below_one_before_reading_the_input(self):
+    def case_backfill_refuses_a_chunk_below_one_before_reading_the_input(self):
         for chunk in (0, -1):
             with self.assertRaisesRegex(ValueError, "chunk"):
                 records.backfill_events("/nonexistent/event_gaps.manifest.json", chunk=chunk)
+
+    def test_chunk_size_contract(self):
+        self.run_cases()
 
 
 class MissingEventIdsTests(TestCase):

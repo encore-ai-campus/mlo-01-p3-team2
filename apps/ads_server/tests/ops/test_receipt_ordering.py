@@ -17,11 +17,12 @@ from records.models import Reaction
 from tests.support.concurrency import BLOCKED, WAIT, Uncommitted, Worker, arriving_before
 from tests.support.factories import NOW, SUBJECT, World, at
 from tests.ops.test_funnel_rules import FunnelMixin
+from tests.support.cases import Cases
 
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
+class ReceiptOrderingTests(Cases, FunnelMixin, TransactionTestCase):
     UNIT = "CLICK"
 
     def receive(self, rtype, when, decision=None, rid=None):
@@ -37,7 +38,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         worker.join(BLOCKED)
         self.assertTrue(worker.is_alive(), f"{what}: 진행 중인 접수를 기다리지 않았다")
 
-    def test_a_later_receipt_cannot_commit_ahead_of_an_in_flight_earlier_one(self):
+    def case_a_later_receipt_cannot_commit_ahead_of_an_in_flight_earlier_one(self):
         """같은 결정의 접수는 결정 행 잠금으로 줄을 선다: 앞 접수가 커밋되기 전에는 뒤 접수가 끝나지 않는다."""
         with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
             later = Worker(lambda: self.receive("IMPRESSION", 301.1))
@@ -48,7 +49,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertEqual(later.errors, [])
         self.assertEqual(Reaction.objects.filter(decision_id=self.decision.decision_id).count(), 2)
 
-    def test_the_review_scenario_ends_with_the_earlier_impression_as_the_representative(self):
+    def case_the_review_scenario_ends_with_the_earlier_impression_as_the_representative(self):
         """검토 재현: 클릭 t+1(허용 기한 t+301), 먼저 받은 노출 t+300.9(커밋 직전), 뒤 노출 t+301.1 — 최종 상태는 이른 노출 인정·클릭 인정·30 과금."""
         click = self.click(when=1)
         with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
@@ -70,7 +71,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertEqual(click.status, "ACCEPTED")
         self.assertEqual(self.balance(), 50_000 - 3 - 294)  # 클릭 98% 세계: 노출 1% · 클릭 98%
 
-    def test_judging_waits_for_an_in_flight_earlier_receipt_and_then_sees_it(self):
+    def case_judging_waits_for_an_in_flight_earlier_receipt_and_then_sees_it(self):
         """뒤 반응이 이미 커밋돼 있어도, 판정이 시작될 때 더 이른 시각의 접수가 진행 중이면 그 커밋을 기다린 뒤 판정한다."""
         later, _ = self.receive("IMPRESSION", 301.1)
         with Uncommitted(lambda: self.receive("IMPRESSION", 300.9)) as early:
@@ -83,7 +84,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertEqual(judging.result, "PENDING")  # 더 이른 유효 후보가 있으니 대표가 되지 않고 기다린다
         self.assertEqual(Reaction.objects.get(pk=later.inbox_id).status, "RECEIVED")
 
-    def test_a_click_waits_for_an_in_flight_impression_of_a_later_decision(self):
+    def case_a_click_waits_for_an_in_flight_impression_of_a_later_decision(self):
         """표시 교체 신호(이후 결정의 노출)도 같다: 클릭 t+100 이 커밋돼 있고 이후 결정의 노출 t+90 이 진행 중이면, 판정은 그 커밋을 기다려 `display_ended` 로 거부한다(인정하면 과다 과금)."""
         self.accept_impression()
         second = self.decide(self.w.slot, SUBJECT, when=at(10))
@@ -99,7 +100,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         click.refresh_from_db()
         self.assertEqual((click.reason_code, self.balance()), ("display_ended", 50_000 - 3))  # 노출(1%)만 과금
 
-    def test_a_conversion_waits_for_an_in_flight_click_of_its_decision(self):
+    def case_a_conversion_waits_for_an_in_flight_click_of_its_decision(self):
         self.accept_impression()
         conversion = self.report("CONVERSION", when=50)
         with Uncommitted(lambda: records.observe_click(self.decision.decision_id, None, now=at(40))) as click:
@@ -111,7 +112,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertEqual(judging.errors, [])
         self.assertEqual(judging.result, "PENDING")  # 클릭(t+40)이 보이고 아직 처리 전이라 기다린다(클릭이 없다고 거부하지 않는다)
 
-    def test_other_decisions_do_not_wait_for_each_other(self):
+    def case_other_decisions_do_not_wait_for_each_other(self):
         other = self.decide(self.w.slot, "0197a5c0-0000-7000-8000-0000000000b2", when=at(1))  # 다른 사람 = 다른 표시 단위의 다른 결정
         with Uncommitted(lambda: self.receive("IMPRESSION", 10)):
             quick = Worker(lambda: self.receive("IMPRESSION", 11, decision=other))
@@ -126,7 +127,7 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
             self.assertFalse(judging.is_alive(), "다른 결정의 판정이 막혔다")
             self.assertEqual(judging.result, "ACCEPTED")
 
-    def test_the_receipt_time_is_taken_after_the_lock_is_acquired(self):
+    def case_the_receipt_time_is_taken_after_the_lock_is_acquired(self):
         """시각을 잠근 뒤에 정하므로, 앞 접수를 기다린 뒤 받은 반응의 `received_at` 은 앞 접수가 풀린 시각 이후다."""
         released = []
         with Uncommitted(lambda: self.receive("IMPRESSION", 10)) as early:
@@ -141,10 +142,13 @@ class ReceiptOrderingTests(FunnelMixin, TransactionTestCase):
         self.assertTrue(created)
         self.assertGreaterEqual(view.received_at, released[0])  # 기다리기 전에 시각을 정했다면 이보다 이르다
 
+    def test_receipt_ordering(self):
+        self.run_cases()
+
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTestCase):
+class ForeignReportsDoNotJoinTheOwnersOrderingTests(Cases, FunnelMixin, TransactionTestCase):
     """검토 2-13 후속 P2(974c28b): 접수는 남의 결정에 대한 보고도 저장하지만, 그런 보고가 **결정 소유 매체**의 접수·판정을 기다리게 하거나 막으면 안 된다.
 
     잠금은 소유 매체의 접수만 잡고(소유 확인은 잠금 전 일반 조회), 판정 앞 대기도 반응의 매체와 결정 소유 매체가 같을 때만 한다.
@@ -171,19 +175,19 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
         self.assertEqual(worker.errors, [])
         return worker.result
 
-    def test_the_owners_receipt_does_not_wait_for_another_medias_in_flight_report(self):
+    def case_the_owners_receipt_does_not_wait_for_another_medias_in_flight_report(self):
         with Uncommitted(lambda: self.foreign_receive(10)):
             view, created = self.finishes(lambda: self.own_receive(11), "소유 매체의 접수")
         self.assertTrue(created)
 
-    def test_judging_a_foreign_report_does_not_wait_for_the_owners_in_flight_receipt(self):
+    def case_judging_a_foreign_report_does_not_wait_for_the_owners_in_flight_receipt(self):
         foreign_view, _ = self.foreign_receive(10)
         with Uncommitted(lambda: self.own_receive(11)):
             outcome = self.finishes(lambda: records.process_reaction(foreign_view.inbox_id, now=at(12)), "남의 보고의 판정")
         self.assertEqual(outcome, "REJECTED")
         self.assertEqual(Reaction.objects.get(pk=foreign_view.inbox_id).reason_code, "media_mismatch")
 
-    def test_the_owners_judgment_does_not_wait_for_another_medias_in_flight_report_and_does_not_count_a_failure(self):
+    def case_the_owners_judgment_does_not_wait_for_another_medias_in_flight_report_and_does_not_count_a_failure(self):
         """잠금 대기 초과로 소유 매체의 정상 반응에 실패 횟수가 쌓이면 안 된다(자동 재처리에서 빠진다). 판정 연결의 잠금 대기 제한을 1초로 줄여도 기다리지 않는다."""
         mine, _ = self.own_receive(10)
         with Uncommitted(lambda: self.foreign_receive(11)):
@@ -196,10 +200,13 @@ class ForeignReportsDoNotJoinTheOwnersOrderingTests(FunnelMixin, TransactionTest
         self.assertEqual(outcome, "ACCEPTED")
         self.assertEqual(Reaction.objects.get(pk=mine.inbox_id).attempts, 0)
 
-    def test_a_report_for_a_missing_decision_takes_no_lock_and_is_still_stored(self):
+    def case_a_report_for_a_missing_decision_takes_no_lock_and_is_still_stored(self):
         locked = threading.Event()
         view, created = arriving_before("FOR UPDATE", "records_decision", lambda: records.receive_reaction(
             self.media, uuid.uuid4(), uuid.uuid4(), "IMPRESSION", at(1), {}, now=at(1),
         ), locked)()
         self.assertTrue(created)  # 존재 여부를 이유로 접수를 거절하지 않는다(계약)
         self.assertFalse(locked.is_set(), "없는 결정에 대한 접수가 결정 행을 잠갔다")
+
+    def test_foreign_reports_do_not_join_the_owners_ordering(self):
+        self.run_cases()
