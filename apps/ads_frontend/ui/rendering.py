@@ -69,12 +69,11 @@ class Message(SimpleNamespace):
 class DisplayPage(list):
     """쪽 나누기(Django `Page` 와 같은 이름으로): 줄을 돌고, 번호·앞뒤 쪽을 묻는다."""
 
-    def __init__(self, items, number, num_pages, count):
+    def __init__(self, items, number, num_pages):
         super().__init__(items)
-        self.number, self.paginator = number, SimpleNamespace(num_pages=num_pages, count=count)
+        self.number, self.paginator = number, SimpleNamespace(num_pages=num_pages)
         self.has_previous, self.has_next = number > 1, number < num_pages
         self.previous_page_number, self.next_page_number = number - 1, number + 1
-        self.object_list = list(items)
 
 
 def from_data(value):
@@ -91,7 +90,7 @@ def from_data(value):
         if key == "$form":
             return display_form(inner)
         if key == "$page":
-            return DisplayPage(from_data(inner["items"]), inner["number"], inner["num_pages"], inner["count"])
+            return DisplayPage(from_data(inner["items"]), inner["number"], inner["num_pages"])
     return Record({k: from_data(v) for k, v in value.items()})
 
 

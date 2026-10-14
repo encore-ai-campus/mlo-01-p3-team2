@@ -25,7 +25,7 @@ def present(request, template, context=None, status=200, session=True):
     `Vary: Cookie`·쿠키를 남기지 않는다(이미지 오류 응답에 쿠키가 없게, 계약 C3). DB 장애의 500 이 세션을 읽다 다시 실패할 일도 없다(6-16e)."""
     data = {key: to_data(value) for key, value in (context or {}).items() if key not in SKIPPED}
     if session:
-        data["user"] = _user(getattr(request, "user", None))  # 인증 미들웨어 앞에서 끊는 오류(본문 크기 등)에는 사용자가 아직 없다
+        data["user"] = _user(request.user)  # 세션을 싣는 화면은 모두 인증 미들웨어 뒤다(그 앞에서 끊는 본문 크기 오류는 오류 화면)
         data["messages"] = [{"message": str(m), "tags": m.tags, "level_tag": m.level_tag} for m in get_messages(request)]
         data["csrf_token"] = get_token(request)
     return JsonResponse({"presentation": {"template": template, "context": data}}, status=status)
@@ -43,8 +43,7 @@ def to_data(value):
     if isinstance(value, forms.BaseForm):
         return {"$form": _form(value)}
     if isinstance(value, Page):
-        return {"$page": {"items": [to_data(v) for v in value], "number": value.number, "num_pages": value.paginator.num_pages,
-                          "count": value.paginator.count}}
+        return {"$page": {"items": [to_data(v) for v in value], "number": value.number, "num_pages": value.paginator.num_pages}}
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         data = {f.name: to_data(getattr(value, f.name)) for f in dataclasses.fields(value)}
         data.update({name: to_data(getattr(value, name)) for name, _ in inspect.getmembers(type(value), lambda a: isinstance(a, property))})
@@ -87,11 +86,8 @@ def _widget_name(widget):
 
 
 def _user(user):
-    if user is None or not user.is_authenticated:
+    if not user.is_authenticated:
         return {"is_authenticated": False, "is_active": False, "is_staff": False}
-    data = {"is_authenticated": True, "is_active": user.is_active, "is_staff": user.is_staff, "username": user.username,
+    return {"is_authenticated": True, "is_active": user.is_active, "is_staff": user.is_staff, "username": user.username,
             "role": user.role, "nickname": user.nickname, "class_label": user.class_label,
             "get_username": user.get_username(), "has_usable_password": user.has_usable_password()}  # get_* 는 관리 템플릿이 부르는 메서드의 값
-    if hasattr(user, "get_short_name"):  # 없으면 관리 템플릿은 빈 값으로 본다 — 싣지 않으면 프론트도 같다
-        data["get_short_name"] = user.get_short_name()
-    return data

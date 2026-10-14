@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.views import View
@@ -44,7 +44,3 @@ class ConsoleLoginView(LoginView):
 
     def render_to_response(self, context, **response_kwargs):
         return present(self.request, self.template_name, context, status=response_kwargs.get("status", 200))  # 화면 데이터(6-15)
-
-
-class ConsoleLogoutView(LogoutView):
-    """POST 만 받는다(Django 기본)."""

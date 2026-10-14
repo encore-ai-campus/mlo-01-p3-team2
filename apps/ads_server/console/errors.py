@@ -48,8 +48,8 @@ def form_errors(form, error, pointers=None, image_field=None):
     _not_shown(error)
     if isinstance(error, ValidationError):
         if hasattr(error, "error_dict"):
-            for field, messages in error.message_dict.items():
-                form.add_error(field if field != NON_FIELD_ERRORS and field in form.fields else None, messages)
+            for field, texts in error.message_dict.items():
+                form.add_error(field if field != NON_FIELD_ERRORS and field in form.fields else None, texts)
         else:
             form.add_error(None, error.messages)
     elif isinstance(error, ImageRejected):

@@ -160,7 +160,7 @@ def error_response(request, error, message):
     """API 경로는 problem+json, 화면 경로는 오류 화면의 화면 데이터(프론트가 그린다 — 설계 §6.6 "6-15 분리")."""
     if request.path.startswith(API_PREFIX):
         return problem_response(request, error)
-    return present(request, "foundation/error.html", {"status": error.status, "title": error.title, "message": message}, status=error.status, session=False)
+    return present(request, "foundation/error.html", {"title": error.title, "message": message}, status=error.status, session=False)
 
 
 def lockout(request, original_response=None, credentials=None):

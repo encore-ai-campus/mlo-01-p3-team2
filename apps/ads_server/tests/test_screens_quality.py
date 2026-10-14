@@ -17,7 +17,6 @@ from random import Random
 from django.conf import settings
 from axes.models import AccessFailureLog
 from django.contrib import admin
-from django.contrib.auth.models import Group
 from django.test import Client, TestCase, tag
 from django.urls import resolve, reverse
 
@@ -110,7 +109,6 @@ class ScreenQualityTests(TestCase):
         Client().post(reverse("login"), {"username": "nobody", "password": "wrong-password-xyz"})  # 잠금 시도
         Client().post(reverse("login"), {"username": self.w.admin.username, "password": PW})  # 접속 기록
         AccessFailureLog.objects.create(username="nobody", ip_address="127.0.0.1", user_agent="test", path_info="/", locked_out=False)  # 설정이 꺼져 있어도 화면은 있다
-        Group.objects.create(name="점검")
         masters.issue_media_key(self.w.admin, self.w.slot.media_id, "점검")
         masters.set_media_active(self.w.admin, masters.create_media(self.w.admin, "끈 매체").media_id, False)  # 매체 비활성화 기록
         records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))

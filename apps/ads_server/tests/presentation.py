@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 from django.conf import settings
-from django.template import Context
 from django.test import Client, RequestFactory
 from django.urls import Resolver404, resolve
 
@@ -29,8 +28,7 @@ class PresentationClient(Client):
                 html, context = rendering.render(frontend_request(response.wsgi_request), data["presentation"])
                 response.content = html.encode()
                 response["Content-Type"] = "text/html; charset=utf-8"
-                response.context = Context(context)
-                response.presentation = data["presentation"]
+                response.context = context
         return response
 
 
