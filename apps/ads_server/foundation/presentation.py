@@ -19,13 +19,15 @@ from django.utils.functional import Promise
 SKIPPED = {"view", "site"}  # Django 의 클래스 뷰가 문맥에 넣는 객체 — 화면이 쓰지 않는다
 
 
-def present(request, template, context=None, status=200, csrf=True):
+def present(request, template, context=None, status=200, session=True):
     """`render(request, template, context, status)` 자리에 쓴다. 문맥 처리기(사용자·메시지·CSRF)가 하던 것도 여기서 싣는다.
-    `csrf=False`: 폼이 없는 화면(오류 화면) — 토큰을 만들지 않아 CSRF 쿠키를 심지 않는다(이미지 오류 응답에 쿠키가 없게, 계약 C3)."""
+    `session=False`: 세션을 건드리지 않는 화면(오류 화면 — 제목·문구만 그린다). 사용자·메시지·CSRF 토큰을 싣지 않아 그 사이의 안내 메시지를 먹지 않고
+    `Vary: Cookie`·쿠키를 남기지 않는다(이미지 오류 응답에 쿠키가 없게, 계약 C3). DB 장애의 500 이 세션을 읽다 다시 실패할 일도 없다(6-16e)."""
     data = {key: to_data(value) for key, value in (context or {}).items() if key not in SKIPPED}
-    data["user"] = _user(getattr(request, "user", None))  # 인증 미들웨어 앞에서 끊는 오류(본문 크기 등)에는 사용자가 아직 없다
-    data["messages"] = [{"message": str(m), "tags": m.tags, "level_tag": m.level_tag} for m in get_messages(request)]
-    data["csrf_token"] = get_token(request) if csrf else ""
+    if session:
+        data["user"] = _user(getattr(request, "user", None))  # 인증 미들웨어 앞에서 끊는 오류(본문 크기 등)에는 사용자가 아직 없다
+        data["messages"] = [{"message": str(m), "tags": m.tags, "level_tag": m.level_tag} for m in get_messages(request)]
+        data["csrf_token"] = get_token(request)
     return JsonResponse({"presentation": {"template": template, "context": data}}, status=status)
 
 

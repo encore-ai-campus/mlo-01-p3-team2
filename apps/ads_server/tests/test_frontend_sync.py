@@ -84,9 +84,25 @@ class PresentationDataTests(TestCase):
     def test_an_error_screen_sets_no_csrf_cookie(self):
         """오류 화면에는 폼이 없다 — 이미지 경로의 404 도 쿠키를 심지 않는다(계약 C3)."""
         request = RequestFactory().get("/assets/missing.png")
-        response = present(request, "foundation/error.html", {"status": 404, "title": "t", "message": "m"}, status=404, csrf=False)
+        response = present(request, "foundation/error.html", {"status": 404, "title": "t", "message": "m"}, status=404, session=False)
         self.assertNotIn("CSRF_COOKIE", request.META)
         self.assertEqual(response.status_code, 404)
+
+    def test_an_error_screen_leaves_the_session_and_its_messages_alone(self):
+        """6-16e(E4): 6-15c 뒤 오류 화면이 사용자·메시지를 읽어, 그 사이의 404 가 세션을 건드리고(`Vary: Cookie`·`Set-Cookie`) 다음 화면에 보일
+        안내 메시지를 먹었다. 분리 전처럼 오류 화면은 제목·문구만 싣는다 — DB 장애의 500 이 세션을 읽다 다시 실패할 일도 없다."""
+        w = World(ends_in=None)
+        self.client.force_login(w.adv)
+        key = re.search(r'name="request_key" value="([^"]+)"', self.client.get(reverse("campaign_create")).content.decode()).group(1)
+        made = self.client.post(reverse("campaign_create"), {"request_key": key, "name": "메시지 캠페인", "starts_at": "2026-10-01T09:00",
+                                                            "ends_at": "", "daily_budget": "3000"})
+        self.assertEqual(made.status_code, 302)  # 안내 메시지를 남기고 다음 화면으로
+        missing = {path: self.client.get(path) for path in ("/nowhere/", "/advertiser/nowhere/")}
+        for path, r in missing.items():
+            self.assertEqual((r.status_code, list(r.cookies)), (404, []), path)
+        # 로그인 확인이 없는 경로는 세션을 읽지 않는다(/advertiser/ 아래는 역할 확인이 로그인 여부를 보느라 읽는다 — 응답이 쿠키에 따라 달라 Vary: Cookie 가 맞다)
+        self.assertNotIn("Cookie", missing["/nowhere/"].get("Vary", ""))
+        self.assertContains(self.client.get(made["Location"]), "캠페인을 만들었습니다")  # 메시지는 다음 화면에 그대로
 
 
 class CsrfThroughTheFrontendTests(TestCase):
