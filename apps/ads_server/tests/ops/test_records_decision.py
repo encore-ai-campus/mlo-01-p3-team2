@@ -16,6 +16,7 @@ from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
 from tests.support.factories import DAY, NOW, SHARES, SUBJECT, WHOLE, World, png_file
+from tests.support.cases import Cases
 
 
 
@@ -27,8 +28,8 @@ def decide(w, **kw):
 
 
 @tag("security")
-class DecisionSnapshotTests(TestCase):
-    def test_decision_snapshot_survives_edits(self):
+class DecisionSnapshotTests(Cases, TestCase):
+    def case_decision_snapshot_survives_edits(self):
         """입찰·정책·소재를 고치고 캠페인을 중단·종료해도 과거 결정은 변하지 않는다(설계 §4.4-1)."""
         w = World()
         d = decide(w, subject_id="learner-1")
@@ -49,7 +50,7 @@ class DecisionSnapshotTests(TestCase):
         self.assertEqual(list(Decision.objects.values()), raw_before)  # 저장된 행도 그대로
         self.assertEqual((after.chosen.title, after.chosen.redirect_url, after.chosen.image_name), ("제목", "https://example.com/landing", w.creative.image_name))
 
-    def test_decision_is_append_only(self):
+    def case_decision_is_append_only(self):
         w = World()
         d = decide(w)
         row = Decision.objects.get(decision_id=d.decision_id)
@@ -69,13 +70,13 @@ class DecisionSnapshotTests(TestCase):
             Decision.objects.bulk_create([clone], update_conflicts=True, update_fields=["selection_policy"], unique_fields=["decision_id"])
         self.assertEqual(Decision.objects.get(pk=row.pk).applied_amount, 300)
 
-    def test_chosen_columns_are_all_or_none_in_db(self):
+    def case_chosen_columns_are_all_or_none_in_db(self):
         base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="p", candidate_count=0)
         with self.assertRaises(IntegrityError), transaction.atomic():
             Decision.objects.create(campaign_id=uuid.uuid4(), **base)  # 일부만 채움
         Decision.objects.create(**base)  # 광고 없음
 
-    def test_charge_shares_follow_the_policy_rule_in_db(self):
+    def case_charge_shares_follow_the_policy_rule_in_db(self):
         """결정에 남긴 비율(6-10c)도 DB 가 지킨다: 광고가 있으면 각각 1~98·합 100, 광고 없음이면 비어 있다."""
         base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="p", candidate_count=1)
         chosen = dict(owner_id=uuid.uuid4(), campaign_id=uuid.uuid4(), ad_group_id=uuid.uuid4(), creative_id=uuid.uuid4(), bid_amount=300, applied_amount=300,
@@ -93,7 +94,7 @@ class DecisionSnapshotTests(TestCase):
         Decision.objects.create(**base, **chosen, **shares(98, 1, 1))
         Decision.objects.create(**base, **chosen, **shares(1, 1, 98))
 
-    def test_decision_records_both_versions_and_policy_name(self):
+    def case_decision_records_both_versions_and_policy_name(self):
         w = World()
         masters.add_policy_version(w.admin, w.slot.slot_id, 100, 200, 500, "v2", expected_version=1, **SHARES)
         campaigns.add_bid(w.adv, w.group.ad_group_id, 350, expected_version=1, now=NOW)
@@ -107,7 +108,7 @@ class DecisionSnapshotTests(TestCase):
         self.assertTrue(d.chosen.image_url.endswith(f"/assets/{w.creative.image_name}"))
         self.assertEqual(Decision.objects.get(decision_id=d.decision_id).decided_at, NOW)
 
-    def test_no_ad_is_recorded_as_decision(self):
+    def case_no_ad_is_recorded_as_decision(self):
         w = World(with_creative=False)  # 소재가 없어 후보 없음
         d = decide(w)
         self.assertIsNone(d.chosen)
@@ -116,7 +117,7 @@ class DecisionSnapshotTests(TestCase):
         self.assertIsNone(row.creative_id)
         self.assertEqual(Decision.objects.count(), 1)  # 광고 없음도 한 건으로 남는다
 
-    def test_decision_lookup_is_scoped_to_its_media(self):
+    def case_decision_lookup_is_scoped_to_its_media(self):
         w, other = World(), World()
         d = decide(w)
         with self.assertRaises(NotFound):
@@ -125,16 +126,19 @@ class DecisionSnapshotTests(TestCase):
             with self.assertRaises(NotFound):
                 records.get_decision(w.slot.media_id, bad)
 
-    def test_decision_not_saved_when_storage_fails(self):
+    def case_decision_not_saved_when_storage_fails(self):
         w = World()
         with mock.patch.object(Decision._default_manager, "create", side_effect=IntegrityError("disk full")):
             with self.assertRaises(IntegrityError):
                 decide(w)
         self.assertEqual(Decision.objects.count(), 0)  # 예외가 나가서 decision_id 가 응답으로 나가지 않는다
 
+    def test_decision_snapshot(self):
+        self.run_cases()
 
-class SlotValidationTests(TestCase):
-    def test_other_media_and_missing_slots_are_not_found_and_leave_no_decision(self):
+
+class SlotValidationTests(Cases, TestCase):
+    def case_other_media_and_missing_slots_are_not_found_and_leave_no_decision(self):
         w, other = World(), World()
         with self.assertRaises(NotFound):
             records.decide(other.slot.media_id, w.slot.slot_id, now=NOW)  # 다른 매체의 슬롯
@@ -144,22 +148,25 @@ class SlotValidationTests(TestCase):
             records.decide("nope", "nope", now=NOW)
         self.assertEqual(Decision.objects.count(), 0)
 
-    def test_inactive_media_is_forbidden_and_leaves_no_decision(self):
+    def case_inactive_media_is_forbidden_and_leaves_no_decision(self):
         w = World()
         masters.set_media_active(w.admin, w.slot.media_id, False)
         with self.assertRaises(Forbidden):
             decide(w)
         self.assertEqual(Decision.objects.count(), 0)
 
-    def test_context_is_stored_with_the_decision(self):
+    def case_context_is_stored_with_the_decision(self):
         w = World()
         d = decide(w, context={"scene": "lobby"})
         self.assertEqual(Decision.objects.get(pk=d.decision_id).context, {"scene": "lobby"})
         self.assertEqual(Decision.objects.get(pk=decide(w).decision_id).context, {})
 
+    def test_slot_validation(self):
+        self.run_cases()
 
-class GatingTests(TestCase):
-    def test_ended_and_stale_active_campaign_excluded(self):
+
+class GatingTests(Cases, TestCase):
+    def case_ended_and_stale_active_campaign_excluded(self):
         w = World()
         self.assertIsNotNone(decide(w, now=NOW).chosen)
         d = decide(w, now=NOW + 11 * DAY)  # 저장된 상태는 아직 ACTIVE 지만 기간이 지났다 → engine 이 거른다
@@ -167,7 +174,7 @@ class GatingTests(TestCase):
         campaigns.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         self.assertEqual(decide(w).candidate_count, 0)  # 저장된 ENDED 는 구조적으로 후보가 아니다
 
-    def test_pause_suspend_and_disabled_flags_exclude(self):
+    def case_pause_suspend_and_disabled_flags_exclude(self):
         w = World()
         campaigns.update_campaign(w.adv, w.campaign.campaign_id, {"status": "PAUSED"}, now=NOW)
         self.assertIsNone(decide(w).chosen)
@@ -176,7 +183,7 @@ class GatingTests(TestCase):
         campaigns.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
         self.assertIsNone(decide(w).chosen)
 
-    def test_wallet_and_budget_gate_exposure(self):
+    def case_wallet_and_budget_gate_exposure(self):
         w = World()
         owner, cid = w.adv.pk, w.campaign.campaign_id
         self.assertIsNotNone(decide(w).chosen)
@@ -199,7 +206,7 @@ class GatingTests(TestCase):
         self.assertEqual(decide(w).rejected_counts, {"budget_exhausted": 1})
         self.assertIsNotNone(decide(w, now=NOW + DAY).chosen)
 
-    def test_below_floor_bid_is_excluded_and_cap_applies(self):
+    def case_below_floor_bid_is_excluded_and_cap_applies(self):
         w = World()
         campaigns.add_bid(w.adv, w.group.ad_group_id, 50, expected_version=1, now=NOW)  # 하한 100 미만
         self.assertEqual(decide(w).rejected_counts, {"below_floor": 1})
@@ -207,9 +214,12 @@ class GatingTests(TestCase):
         d = decide(w)
         self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (5000, 500))  # 입찰 원금액과 적용 금액이 함께 남는다
 
+    def test_gating(self):
+        self.run_cases()
 
-class PolicySwapTests(TestCase):
-    def test_selection_policy_swap_by_setting_keeps_decision_shape(self):
+
+class PolicySwapTests(Cases, TestCase):
+    def case_selection_policy_swap_by_setting_keeps_decision_shape(self):
         class Lowest:
             name = "lowest-bid/v1"
 
@@ -231,7 +241,7 @@ class PolicySwapTests(TestCase):
                 decide(w)
         self.assertEqual(Decision.objects.count(), 2)  # 설정 오류는 결정을 남기지 않는다
 
-    def test_filters_are_chosen_by_setting(self):
+    def case_filters_are_chosen_by_setting(self):
         w = World()
         campaigns.update_campaign(w.adv, w.campaign.campaign_id, {"status": "ACTIVE"}, now=NOW)
         campaigns.update_ad_group(w.adv, w.group.ad_group_id, {"enabled": True}, now=NOW)
@@ -240,6 +250,9 @@ class PolicySwapTests(TestCase):
         with override_settings(ADS_ENGINE_FILTERS=("status", "period", "floor", "budget", "no-such-filter")):
             with self.assertRaises(engine.UnknownName):
                 decide(w)  # 알 수 없는 필터 이름은 즉시 오류
+
+    def test_policy_swap(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -259,8 +272,8 @@ class OnlyEngineDecidesTests(TestCase):
         self.assertIn("engine_decide(", (root / "services.py").read_text(encoding="utf-8"))
 
 
-class VersionRowIdentityTests(TestCase):
-    def test_decision_records_the_uuids_of_the_exact_bid_and_policy_rows(self):
+class VersionRowIdentityTests(Cases, TestCase):
+    def case_decision_records_the_uuids_of_the_exact_bid_and_policy_rows(self):
         """팀 DRD 의 selected_bid_id·selected_bid_policy_id 에 해당한다: 판정에 쓴 버전 행을 UUID 로 가리킨다."""
         from campaigns.models import Bid
         from masters.models import BidPolicy
@@ -276,7 +289,7 @@ class VersionRowIdentityTests(TestCase):
         self.assertEqual(records.get_decision(w.slot.media_id, d.decision_id).chosen.bid_id, new_bid.bid_id)
         self.assertIsNone(decide(World(with_creative=False)).chosen)
 
-    def test_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row(self):
+    def case_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row(self):
         """6-16d(E3): 소재를 여러 광고에 쓸 수 있게 된 뒤(6-9) 후보 사실을 소재 ID 로 묶어, 같은 소재를 고른 광고그룹 둘이 한 구성에 있으면
         한쪽이 덮였다 — 뽑힌 광고그룹과 다른 광고그룹의 입찰 행이 결정과 C2 `ad.decision` 에 남았다(소유자·제목·이미지는 같아 드러나지 않음)."""
         from campaigns.models import Bid
@@ -294,7 +307,7 @@ class VersionRowIdentityTests(TestCase):
             picked.add(d.chosen.ad_group_id)
         self.assertEqual(picked, {w.group.ad_group_id, second.ad_group_id})  # 둘 다 뽑혀야 이 시험이 어느 쪽이 덮이든 잡는다
 
-    def test_version_rows_have_unique_immutable_uuids_exposed_by_api(self):
+    def case_version_rows_have_unique_immutable_uuids_exposed_by_api(self):
         w = World()
         v1 = campaigns.list_bids(w.adv, w.group.ad_group_id)[0]
         v2 = campaigns.add_bid(w.adv, w.group.ad_group_id, 400, expected_version=1, now=NOW)
@@ -307,9 +320,12 @@ class VersionRowIdentityTests(TestCase):
         facts = campaigns.candidate_facts_for_slot(w.slot.slot_id)
         self.assertEqual(facts[0].bid_id, v2.bid_id)  # 후보 사실도 최신 버전 행을 가리킨다
 
+    def test_version_row_identity(self):
+        self.run_cases()
+
 
 @tag("security")
-class ReactionInboxConstraintTests(TestCase):
+class ReactionInboxConstraintTests(Cases, TestCase):
     """수신함의 무결성은 DB 도 지킨다(서비스가 틀려도 잘못된 행이 들어가지 않는다)."""
 
     def row(self, **kw):
@@ -319,7 +335,7 @@ class ReactionInboxConstraintTests(TestCase):
             values.setdefault("basis", {"v": 1})  # 판정한 행에는 근거가 있어야 한다(DB 제약) — 근거를 일부러 빼는 경우만 basis=None 으로 넘긴다
         return Reaction(**values)
 
-    def test_db_rejects_duplicates_per_media_and_invalid_codes(self):
+    def case_db_rejects_duplicates_per_media_and_invalid_codes(self):
         base = self.row()
         base.save()
         cases = {
@@ -342,7 +358,7 @@ class ReactionInboxConstraintTests(TestCase):
         self.row(status="REJECTED", reason_code="unknown_decision", applied_rule="known-decision", processed_at=NOW).save()
         self.assertEqual(Reaction.objects.count(), 3)
 
-    def test_only_one_reaction_per_type_can_be_accepted_per_person_of_a_decision(self):
+    def case_only_one_reaction_per_type_can_be_accepted_per_person_of_a_decision(self):
         decision, person = uuid.uuid4(), "0197a5c0-0000-7000-8000-000000000001"
         def accepted(person_id=person, rtype="CLICK"):
             return dict(decision_id=decision, type=rtype, status="ACCEPTED", processed_at=NOW, person_id=person_id, accepted_key=f"{decision}:{person_id}:{rtype}")
@@ -363,3 +379,6 @@ class ReactionInboxConstraintTests(TestCase):
             self.row(decision_id=decision, status="RECEIVED").save()
         for _ in range(2):  # 거부는 몇 개든 된다
             self.row(decision_id=decision, status="REJECTED", reason_code="duplicate_type", applied_rule="once-per-type", processed_at=NOW).save()
+
+    def test_reaction_inbox_constraint(self):
+        self.run_cases()

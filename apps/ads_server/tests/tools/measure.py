@@ -229,23 +229,40 @@ def _labels(m, by_line):
     return sorted(ids)
 
 
-def _run_one(copy_dir, n, m, labels, timeout):
-    path = copy_dir / m["file"]
-    original = path.read_text(encoding="utf-8")
-    path.write_text(apply(original, m), encoding="utf-8")
-    started = time.time()
+def _test(copy_dir, n, labels, timeout):
+    """시험을 돌려 (잡혔나, 처음 실패한 시험) — 시간 초과면 그 일꾼의 시험 DB 를 버린다(TransactionTestCase 가 커밋한 행이 남아,
+    뒤의 실행들이 그 행 때문에 실패해 잡힌 것으로 잘못 센다 — 6-18f 에서 찾음. 다음 실행이 새로 만든다)."""
     try:
         done = subprocess.run([python(), "manage.py", "test", "--keepdb", "--failfast", "--noinput", "-v", "1", *labels],
                               cwd=copy_dir / "apps/ads_server", env={**os.environ, "DB_NAME": f"ads_mut{n}"},
                               capture_output=True, text=True, timeout=timeout)
-        failed = FAILED.search(done.stderr)
-        status = "survived" if done.returncode == 0 else "killed"
-        by = failed.group(1) if failed else (None if done.returncode == 0 else done.stderr.strip().splitlines()[-1][:200])
     except subprocess.TimeoutExpired:
-        status, by = "killed", "timeout"
+        _mysql(f"DROP DATABASE IF EXISTS `test_ads_mut{n}`")
+        return True, "timeout"
+    if done.returncode == 0:
+        return False, None
+    failed = FAILED.search(done.stderr)
+    return True, failed.group(1) if failed else done.stderr.strip().splitlines()[-1][:200]
+
+
+def _run_one(copy_dir, n, m, labels, timeout):
+    """변형을 넣고 그 줄을 덮은 시험을 돈다. 잡혔으면 **확인**한다: 잡은 시험만 다시 돌려 또 실패하면 잡힘, 통과하면(일시 실패였을 수 있다)
+    처음과 같은 시험을 한 번 더 돌린 결과를 쓴다 — 함께 도는 일꾼·남은 상태 때문의 일시 실패를 잡힘으로 세지 않는다(6-18f)."""
+    path = copy_dir / m["file"]
+    original = path.read_text(encoding="utf-8")
+    path.write_text(apply(original, m), encoding="utf-8")
+    started, note = time.time(), None
+    try:
+        killed, by = _test(copy_dir, n, labels, timeout)
+        if killed and by != "timeout":
+            again, _ = _test(copy_dir, n, [by] if FAILED.match(f"FAIL: x ({by})") else labels, timeout)
+            if not again:
+                note = f"처음 잡은 시험({by})이 다시는 실패하지 않아 한 번 더 돌림"
+                killed, by = _test(copy_dir, n, labels, timeout)
     finally:
         path.write_text(original, encoding="utf-8")
-    return {"status": status, "by": by, "seconds": round(time.time() - started, 1), "labels": len(labels)}
+    r = {"status": "killed" if killed else "survived", "by": by, "seconds": round(time.time() - started, 1), "labels": len(labels)}
+    return {**r, "note": note} if note else r
 
 
 def run_mutants(mutants_file, cov_dir, out, workers=4, recheck=False, only=None):
@@ -265,7 +282,8 @@ def run_mutants(mutants_file, cov_dir, out, workers=4, recheck=False, only=None)
     def worker(n):
         copy_dir = work / f"w{n}"
         _copy(copy_dir)
-        warm = subprocess.run([python(), "manage.py", "test", "--keepdb", "--noinput", "-v", "0", "tests.ops.test_engine_pricing"],
+        warm_label = ".".join(next(APP.glob("tests/**/test_engine_pricing.py")).relative_to(APP).with_suffix("").parts)  # 옛 배치(tests/test_…)의 기준 코드도 잰다
+        warm = subprocess.run([python(), "manage.py", "test", "--keepdb", "--noinput", "-v", "0", warm_label],
                               cwd=copy_dir / "apps/ads_server", env={**os.environ, "DB_NAME": f"ads_mut{n}"}, capture_output=True, text=True)
         if warm.returncode != 0:  # 변형 없이 실패하면 환경 문제다 — 이 일꾼의 결과는 믿을 수 없다
             print(f"일꾼 {n}: 변형 없는 시험이 실패해 멈춘다\n{warm.stderr[-2000:]}", flush=True)

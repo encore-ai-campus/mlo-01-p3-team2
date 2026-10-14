@@ -158,7 +158,7 @@ OFFLINE_OK=1 ./tests/tools/check.sh        # 네트워크가 없어 pip-audit �
 DB_NAME=ads_impl python tests/tools/clock_shift_test.py --days 40   # 앱 코드의 시계(django.utils.timezone.now)만 앞당겨 전체 시험
 ```
 
-시험을 줄일 때(설계 §10 "시험 구성", 계획서 §8.4.19)는 줄이기 전의 기준선(`tests/tools/measure_baseline/` — 제품 코드 커버리지, 고정 변형 307개와 그때 잡던 것)과 비교한다. 덮이던 줄이 덮이지 않게 되거나 잡던 변형을 놓치면 `compare` 가 비정상 종료한다:
+시험을 줄일 때(설계 §10 "시험 구성", 계획서 §8.4.19)는 줄이기 전의 기준선(`tests/tools/measure_baseline/` — 제품 코드 커버리지, 고정 변형 307개와 그때 잡던 265개)과 비교한다. 덮이던 줄이 덮이지 않게 되거나 잡던 변형을 놓치면 `compare` 가 비정상 종료한다:
 
 ```bash
 python tests/tools/measure.py coverage /tmp/cov                                   # 전체 시험을 커버리지로(시험마다 문맥, 약 3분)

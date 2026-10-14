@@ -5,29 +5,33 @@ from datetime import datetime, timedelta, timezone
 
 from engine.api import AdRequest, Eligible, effect_of, is_expired
 from tests.support.engine_factory import NOW, SLOT, cand
+from tests.support.cases import Cases
 
 
-class EffectTests(unittest.TestCase):
-    def test_effect_table_design_example(self):
+class EffectTests(Cases, unittest.TestCase):
+    def case_effect_table_design_example(self):
         """설계 §4.6: 입찰 30 → 슬롯 A(10~50)는 30, B(10~20)는 20(상한), C(40~100)는 제외."""
         a, b, c = effect_of(30, 10, 50), effect_of(30, 10, 20), effect_of(30, 40, 100)
         self.assertEqual((a.eligible, a.applied_amount, a.reason), (True, 30, "within_range"))
         self.assertEqual((b.eligible, b.applied_amount, b.reason), (True, 20, "capped_at_cap"))
         self.assertEqual((c.eligible, c.applied_amount, c.reason), (False, None, "below_floor"))
 
-    def test_effect_boundaries(self):
+    def case_effect_boundaries(self):
         self.assertEqual(effect_of(10, 10, 50).applied_amount, 10)  # 하한과 같으면 노출
         self.assertEqual(effect_of(50, 10, 50).applied_amount, 50)  # 상한과 같으면 그대로
         self.assertEqual(effect_of(51, 10, 50).applied_amount, 50)  # 상한 + 1 → 상한
         self.assertFalse(effect_of(9, 10, 50).eligible)  # 하한 - 1 → 제외
         self.assertEqual(effect_of(5, 5, 5).applied_amount, 5)  # 하한 = 상한
 
-    def test_effect_rejects_non_integers(self):
+    def case_effect_rejects_non_integers(self):
         for bad in (1.5, True, "30", None):
             with self.assertRaises(TypeError, msg=bad):
                 effect_of(bad, 10, 50)
         with self.assertRaises(ValueError):
             effect_of(-1, 10, 50)
+
+    def test_effect(self):
+        self.run_cases()
 
 
 class IsExpiredTests(unittest.TestCase):
@@ -38,8 +42,8 @@ class IsExpiredTests(unittest.TestCase):
         self.assertFalse(is_expired(None, NOW))  # 무기한
 
 
-class TypeTests(unittest.TestCase):
-    def test_types_reject_bad_values(self):
+class TypeTests(Cases, unittest.TestCase):
+    def case_types_reject_bad_values(self):
         naive = datetime(2026, 10, 7, 12, 0, 0)
         kst = datetime(2026, 10, 7, 12, 0, 0, tzinfo=timezone(timedelta(hours=9)))
         bad = [
@@ -56,7 +60,7 @@ class TypeTests(unittest.TestCase):
             with self.assertRaises((TypeError, ValueError), msg=kw):
                 AdRequest(**{"slot_id": SLOT, "now": NOW, **kw})
 
-    def test_types_are_immutable_and_period_end_may_be_none(self):
+    def case_types_are_immutable_and_period_end_may_be_none(self):
         c = cand(period_end=None)
         with self.assertRaises(dataclasses.FrozenInstanceError):
             c.bid_amount = 99
@@ -65,6 +69,9 @@ class TypeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Eligible.of(c, 0)  # 적용 금액은 1 이상
 
-    def test_request_subject_is_optional(self):
+    def case_request_subject_is_optional(self):
         self.assertIsNone(AdRequest(slot_id=SLOT, now=NOW).subject_id)
         self.assertIsInstance(uuid.uuid4(), uuid.UUID)
+
+    def test_type(self):
+        self.run_cases()
