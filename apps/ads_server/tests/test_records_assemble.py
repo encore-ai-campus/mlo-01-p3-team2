@@ -15,14 +15,14 @@ class AssembleTests(TestCase):
     def test_assemble_maps_facts_policy_wallet_and_remaining_budget(self):
         w = World()
         billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 1_200, "m:r1", now=NOW)
-        candidates, by_creative = assemble(self.slot_view(w), NOW)
+        candidates, by_group = assemble(self.slot_view(w), NOW)
         self.assertEqual(len(candidates), 1)
         c = candidates[0]
         self.assertEqual((c.floor, c.cap, c.policy_version), (100, 500, 1))
         self.assertEqual((c.bid_amount, c.bid_version, c.campaign_status, c.ad_group_enabled), (300, 1, "ACTIVE", True))
         self.assertEqual(c.wallet_balance, 50_000 - 1_200)
         self.assertEqual(c.remaining_daily_budget, 50_000 - 1_200)  # 일예산 - 오늘 소진
-        self.assertEqual(by_creative[c.creative_id].title, "제목")
+        self.assertEqual(by_group[c.ad_group_id].title, "제목")
 
     def test_remaining_budget_never_negative(self):
         w = World()

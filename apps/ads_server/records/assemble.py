@@ -8,7 +8,8 @@ from engine.api import Candidate
 
 
 def assemble(slot, now):
-    """`slot` 은 masters 의 SlotView(현재 정책 포함). 이 슬롯의 `Candidate` 목록을 돌려준다."""
+    """`slot` 은 masters 의 SlotView(현재 정책 포함). 이 슬롯의 `Candidate` 목록과 광고그룹 ID 별 후보 사실을 돌려준다.
+    광고그룹으로 묶는다 — 한 소재를 여러 광고그룹이 고를 수 있어(6-9) 소재로 묶으면 서로 덮인다(6-16d)."""
     facts = campaigns.candidate_facts_for_slot(slot.slot_id)
     if not facts:
         return [], {}
@@ -25,4 +26,4 @@ def assemble(slot, now):
             remaining_daily_budget=max(0, f.daily_budget - spent.get(f.campaign_id, 0)),
         )
         for f in facts
-    ], {f.creative_id: f for f in facts}
+    ], {f.ad_group_id: f for f in facts}

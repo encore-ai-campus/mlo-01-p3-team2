@@ -291,6 +291,24 @@ class VersionRowIdentityTests(TestCase):
         self.assertEqual(records.get_decision(w.slot.media_id, d.decision_id).chosen.bid_id, new_bid.bid_id)
         self.assertIsNone(decide(World(with_creative=False)).chosen)
 
+    def test_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row(self):
+        """6-16d(E3): 소재를 여러 광고에 쓸 수 있게 된 뒤(6-9) 후보 사실을 소재 ID 로 묶어, 같은 소재를 고른 광고그룹 둘이 한 구성에 있으면
+        한쪽이 덮였다 — 뽑힌 광고그룹과 다른 광고그룹의 입찰 행이 결정과 C2 `ad.decision` 에 남았다(소유자·제목·이미지는 같아 드러나지 않음)."""
+        from campaigns.models import Bid
+        from events.models import EventOutbox
+
+        w = World()
+        second = campaigns.create_ad_group(w.adv, w.campaign.campaign_id, "둘째", [w.slot.slot_id], bid_amount=350, now=NOW)
+        campaigns.link_creative(w.adv, second.ad_group_id, w.creative.creative_id, now=NOW, select=True)
+        picked = set()
+        for seed in range(40):
+            d = decide(w, rng=Random(seed))
+            expected = Bid.objects.filter(ad_group_id=d.chosen.ad_group_id).latest("bid_version").bid_id
+            self.assertEqual(d.chosen.bid_id, expected, seed)
+            self.assertEqual(EventOutbox.objects.get(aggregate_id=d.decision_id, event_name="ad.decision").payload["selected"]["bid_id"], str(expected), seed)
+            picked.add(d.chosen.ad_group_id)
+        self.assertEqual(picked, {w.group.ad_group_id, second.ad_group_id})  # 둘 다 뽑혀야 이 시험이 어느 쪽이 덮이든 잡는다
+
     def test_version_rows_have_unique_immutable_uuids_exposed_by_api(self):
         w = World()
         v1 = campaigns.list_bids(w.adv, w.group.ad_group_id)[0]

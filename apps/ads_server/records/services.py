@@ -95,7 +95,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     if not slot.media_is_active:
         raise errors.Forbidden("이 매체는 비활성입니다.")
     _check_subject(slot, subject_id)
-    candidates, facts_by_creative = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
+    candidates, facts_by_group = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
     result = engine_decide(
         candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 노출 광고의 가중 추첨이다(설계 §4.3). 보안 값(키·토큰)을 만들지 않는다
         policy=settings.ADS_SELECTION_POLICY, filters=tuple(settings.ADS_ENGINE_FILTERS),
@@ -104,7 +104,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     trace = result.selection.trace if slot.is_active else {**result.selection.trace, "slot_inactive": True}
     values = {}
     if chosen is not None:
-        fact = facts_by_creative[chosen.creative_id]
+        fact = facts_by_group[chosen.ad_group_id]
         values = dict(
             owner_id=fact.owner_id, campaign_id=chosen.campaign_id, ad_group_id=chosen.ad_group_id, creative_id=chosen.creative_id,
             bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
