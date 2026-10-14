@@ -365,7 +365,7 @@ erDiagram
 | O8 | 광고주 상한 잠금 `campaigns_advertiser_quota` | campaigns | 잠금 전용(값 없음) | 만들기·이미지 교체 | 광고주가 처음 만들 때 | [구현] `7fdc76f` **6-16에서 없어짐(구현 예정 6-16g — 사용자 행 잠금)** |
 | B1 | 지갑 `billing_wallet` | billing | 운영 | 가입 흐름 | 광고주 가입 | [구현] |
 | B2 | 원장 `billing_ledger_entry` | billing | 기록(추가 전용) | 가입 지급·과금·관리자 조정 | 포인트가 움직일 때마다 | [구현] |
-| B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] **6-16에서 없어짐(구현 예정 6-16f — 원장에서 계산)** |
+| B3 | 캠페인 일 소진액 `billing_campaign_spend` | billing | **파생값**(원장에서 재계산) | 과금 | 캠페인·예산 일당 1행 | [구현] **6-16f 에서 없어짐(원장에서 계산 — 이 문서는 6-16j 에서 정리)** |
 | R1 | 결정 `records_decision` | records | 기록(추가 전용 스냅샷) | 광고 요청 | **광고 요청마다**(광고 없음 포함) | [구현] |
 | P2 | 반응 | records | 기록(inbox, 수신 후 상태만 바뀜) | 매체 보고·처리 작업 | **반응 보고마다** | [구현] 수신(2-4)·처리(2-5)·판정 확장(2-9) |
 | P3 | 이벤트 outbox `events_outbox` | events | 전달 대기열 | 결정·접수·판정·과금과 같은 트랜잭션 | 이벤트마다 | [구현] Step 4-1(2026-10-10) |
@@ -644,7 +644,7 @@ IP당 시간당 가입 시도 수 제한(기본 5회)용이었다. 같은 내부
 
 유형별 부호 규칙(DB `CHECK`): `CHARGE`는 `-(2^53−1) ≤ amount ≤ 0`(잔액이 0이면 0으로 기록하고 부족분은 `shortfall`), `SIGNUP_GRANT`·`TOPUP`은 `0 < amount`, `ADMIN_ADJUST`는 0이 아님. 가입 지급은 **지갑당 한 번**(`signup_grant_wallet`의 `UNIQUE`).
 
-#### B3. 캠페인 일 소진액 `billing_campaign_spend` [구현, 파생값]
+#### B3. 캠페인 일 소진액 `billing_campaign_spend` [구현, 파생값] **6-16f 에서 없어짐 — 원장의 과금 줄에서 센다**
 
 | 컬럼 | 타입 | NULL | 키·제약 | 설명 |
 |---|---|:---:|---|---|
