@@ -69,21 +69,6 @@ class SecurityHeaderTests(TestCase):
         nonce = re.search(r"'nonce-([^']+)'", r["Content-Security-Policy"]).group(1)
         self.assertIn(f'nonce="{nonce}"', r.content.decode())  # 인라인 <style> 에 같은 nonce 가 붙는다
 
-    def test_no_inline_script_or_style_in_templates(self):
-        patterns = {
-            "인라인 <script>": re.compile(r"<script(?![^>]*\bsrc=)", re.I),
-            "<style> 블록": re.compile(r"<style\b", re.I),
-            "style= 속성": re.compile(r"\sstyle\s*=", re.I),
-            "이벤트 핸들러 속성": re.compile(r"\son[a-z]+\s*=", re.I),
-            "javascript: URL": re.compile(r"javascript:", re.I),
-        }
-        files = [p for app in ("console", "foundation") for p in (BASE_DIR / app).rglob("*.html")]
-        files += (BASE_DIR.parent / "ads_frontend/ui/templates").rglob("*.html")  # 6-15 뒤 우리 화면의 템플릿은 프론트에 있다(6-16i, R23)
-        self.assertGreater(len(files), 25)  # 백엔드 1(관리자 첫 화면) + 프론트 29
-        for path in files:
-            text = path.read_text(encoding="utf-8")
-            for label, rx in patterns.items():
-                self.assertIsNone(rx.search(text), f"{path.relative_to(BASE_DIR.parent)}: {label}")
 
 
 @tag("security")

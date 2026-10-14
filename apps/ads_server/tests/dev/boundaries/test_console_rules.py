@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, tag
 
 from .checker import imports_of
 from .test_layers import project_files
+from tests.support.cases import Cases
 
 MANAGERS = {"objects", "_default_manager", "_base_manager"}
 
@@ -26,14 +27,14 @@ def console_violations(source):
 
 
 @tag("security")
-class ConsoleHasNoRulesTests(SimpleTestCase):
-    def test_console_only_calls_services(self):
+class ConsoleHasNoRulesTests(Cases, SimpleTestCase):
+    def case_console_only_calls_services(self):
         files = project_files("console")
         self.assertGreater(len(files), 3)  # 검사가 공회전이 아니다
         problems = {str(p.name): v for p in files if (v := console_violations(p.read_text(encoding="utf-8")))}
         self.assertEqual(problems, {})
 
-    def test_the_frontend_has_no_rules_either(self):
+    def case_the_frontend_has_no_rules_either(self):
         """6-16i(R23): 프론트는 그리기만 한다(설계 §6.6 "6-15 분리") — 콘솔에서 옮긴 서식 필터(`console_format`·`console_chart`)를 포함한 프론트 파일에도 같은 통로가 없다."""
         files = list((settings.BASE_DIR.parent / "ads_frontend" / "ui").rglob("*.py"))
         self.assertGreater(len(files), 5)
@@ -41,7 +42,7 @@ class ConsoleHasNoRulesTests(SimpleTestCase):
         problems = {str(p.name): v for p in files if (v := console_violations(p.read_text(encoding="utf-8")))}
         self.assertEqual(problems, {})
 
-    def test_the_rule_sees_each_form(self):
+    def case_the_rule_sees_each_form(self):
         for source in ("from django.db import transaction", "import django.db.models", "from django.db.models import Q",
                        "from engine.api import apply_bid", "User.objects.count()", "Campaign._default_manager.all()"):
             with self.subTest(source):
@@ -49,3 +50,6 @@ class ConsoleHasNoRulesTests(SimpleTestCase):
         for source in ("from django import forms", "from campaigns.api import create_ad", "objects = []", "x.objects_count"):
             with self.subTest(source):
                 self.assertEqual(console_violations(source), [])
+
+    def test_console_has_no_rules(self):
+        self.run_cases()

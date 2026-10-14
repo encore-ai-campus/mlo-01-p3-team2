@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from django.test import SimpleTestCase, tag
 
 from tests.support.contract_support import Contract, closed
+from tests.support.cases import Cases
 
 REQUEST_ID = "11111111-2222-4333-8444-555555555555"
 DECISION = {
@@ -42,19 +43,19 @@ def ok_201(**over):
 
 
 @tag("security")
-class ContractCheckerTests(SimpleTestCase):
+class ContractCheckerTests(Cases, SimpleTestCase):
     contract = Contract("serving")
 
     def problems(self, response, path="/decisions", method=None):
         method = method or ("get" if path.startswith("/assets") else "post")
         return self.contract.response_problems(path, method, response)
 
-    def test_a_conforming_response_passes(self):
+    def case_a_conforming_response_passes(self):
         self.assertEqual(self.problems(ok_201()), [])
         no_ad = {**DECISION, "ad": None}
         self.assertEqual(self.problems(ok_201(body=no_ad)), [])
 
-    def test_status_header_media_type_and_body_are_all_checked(self):
+    def case_status_header_media_type_and_body_are_all_checked(self):
         cases = {
             "undocumented status": (Fake(418, None, {"X-Request-ID": REQUEST_ID}), "문서에 없는 상태 코드"),
             "wrong media type": (ok_201(headers={"Content-Type": "text/html"}), "미디어 타입"),
@@ -68,7 +69,7 @@ class ContractCheckerTests(SimpleTestCase):
             found = self.problems(response)
             self.assertTrue(any(needle in p for p in found), (label, found))
 
-    def test_format_checks_are_really_enabled(self):
+    def case_format_checks_are_really_enabled(self):
         """잘못된 UUID·시각·URI 가 조용히 통과하면 안 된다(format 검사 의존성이 빠진 경우를 잡는다)."""
         bad_bodies = {
             "uuid": {**DECISION, "decision_id": "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0"},
@@ -83,7 +84,7 @@ class ContractCheckerTests(SimpleTestCase):
             found = self.problems(ok_201(body=body))
             self.assertTrue(found, f"{label}: 잘못된 값이 통과했다")
 
-    def test_structural_violations_are_caught(self):
+    def case_structural_violations_are_caught(self):
         extra = {**DECISION, "unexpected": 1}
         missing = {k: v for k, v in DECISION.items() if k != "slot_name"}
         wrong_type = {**DECISION, "slot_name": 5}
@@ -94,7 +95,7 @@ class ContractCheckerTests(SimpleTestCase):
                             "missing audience": no_audience, "unknown audience": bad_audience}.items():
             self.assertTrue(self.problems(ok_201(body=body)), label)
 
-    def test_retry_after_must_be_present_and_an_integer_on_429_and_503(self):
+    def case_retry_after_must_be_present_and_an_integer_on_429_and_503(self):
         problem = {"type": "/problems/rate_limited", "title": "t", "status": 429, "code": "rate_limited", "request_id": REQUEST_ID}
         good = Fake(429, problem, {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID, "Retry-After": "2"})
         self.assertEqual(self.problems(good), [])
@@ -104,7 +105,7 @@ class ContractCheckerTests(SimpleTestCase):
                 headers["Retry-After"] = header
             self.assertTrue(self.problems(Fake(429, problem, headers)), header)
 
-    def test_binary_and_empty_responses(self):
+    def case_binary_and_empty_responses(self):
         image = Fake(200, b"\x89PNG\r\n", {
             "Content-Type": "image/png", "ETag": "abc", "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "cross-origin",
@@ -116,7 +117,7 @@ class ContractCheckerTests(SimpleTestCase):
         self.assertEqual(self.problems(Fake(304, None, {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}"), [])
         self.assertTrue(self.problems(Fake(304, None, {}), "/assets/{asset_name}"))  # 304 에도 ETag·Cache-Control
 
-    def test_problem_status_must_match_the_http_status(self):
+    def case_problem_status_must_match_the_http_status(self):
         """RFC 9457 §3.1.2: 본문 status 가 HTTP 상태와 다르면 클라이언트와 로그가 서로 다른 오류로 읽는다."""
         def problem(status, body_status):
             body = {"type": "/problems/x", "title": "t", "status": body_status, "code": "unavailable", "request_id": REQUEST_ID}
@@ -128,7 +129,7 @@ class ContractCheckerTests(SimpleTestCase):
             found = self.problems(problem(http, body))
             self.assertTrue(any("status" in f and "다르다" in f for f in found), (http, body, found))
 
-    def test_401_must_carry_a_media_key_challenge(self):
+    def case_401_must_carry_a_media_key_challenge(self):
         def unauthorized(challenge):
             headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID}
             if challenge is not None:
@@ -142,25 +143,25 @@ class ContractCheckerTests(SimpleTestCase):
             self.assertTrue(found, label)
             self.assertTrue(any("WWW-Authenticate" in f for f in found), (label, found))
 
-    def test_statuses_that_forbid_a_body_are_checked(self):
+    def case_statuses_that_forbid_a_body_are_checked(self):
         self.assertEqual(self.problems(Fake(304, None, {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}"), [])
         found = self.problems(Fake(304, b"unexpected body", {"ETag": "abc", "Cache-Control": "no-cache"}), "/assets/{asset_name}")
         self.assertTrue(any("본문이 없어야" in f for f in found), found)
 
-    def test_retry_after_accepts_only_ascii_digits(self):
+    def case_retry_after_accepts_only_ascii_digits(self):
         problem = {"type": "/problems/rate_limited", "title": "t", "status": 429, "code": "rate_limited", "request_id": REQUEST_ID}
         for value in ("٣", "３", "²", "1_0"):  # 아라비아-인도·전각·위첨자 숫자, 밑줄
             headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID, "Retry-After": value}
             self.assertTrue(self.problems(Fake(429, problem, headers)), value)
 
-    def test_named_schema_helper_rejects_bad_values(self):
+    def case_named_schema_helper_rejects_bad_values(self):
         self.assertEqual(self.contract.named_schema_errors("Uuid", "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0f"), [])
         for bad in ("x", 5, None, "7d3e5f60-1a2b-4c3d-8e4f-5a6b7c8d9e0"):
             self.assertTrue(self.contract.named_schema_errors("Uuid", bad), bad)
         self.assertEqual(self.contract.named_schema_errors("DateTimeUtc", "2026-10-07T03:21:45Z"), [])
         self.assertTrue(self.contract.named_schema_errors("DateTimeUtc", "2026-10-07T03:21:45+09:00"))
 
-    def test_the_response_check_closes_response_schemas_even_when_the_contract_opens_them(self):
+    def case_the_response_check_closes_response_schemas_even_when_the_contract_opens_them(self):
         """6-2d(설계 §10 "공개 응답 스키마의 추가 필드"): 계약이 응답 스키마를 열어도(소비자는 모르는 필드를 무시) 서버 응답 검사는 계약에 없는 필드를 잡는다 —
         결정·광고·오류 본문 어디서든. 열린 계약을 그대로 쓰면 통과하는 응답이라 검사가 공회전하지 않는다."""
         opened = Contract("serving")
@@ -184,8 +185,11 @@ class ContractCheckerTests(SimpleTestCase):
             body = json.loads(response.content)
             self.assertEqual(opened.schema_errors(opened.resolve(schema)["content"][response.headers["Content-Type"]]["schema"], body), [], label)  # 열린 계약 자체로는 통과한다
 
-    def test_free_form_objects_without_properties_stay_open(self):
+    def case_free_form_objects_without_properties_stay_open(self):
         """`properties` 가 없는 자유 형식 객체(`Context`: 매체가 키를 정한다)는 닫지 않는다."""
         context = self.contract.spec["components"]["schemas"]["Context"]
         self.assertEqual(closed(context), context)
         self.assertEqual(closed({"type": "object", "properties": {"a": {"type": "string"}}})["additionalProperties"], False)
+
+    def test_contract_checker(self):
+        self.run_cases()

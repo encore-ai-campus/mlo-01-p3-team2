@@ -146,6 +146,8 @@ python manage.py test --tag security       # 보안 회귀 묶음만
 OFFLINE_OK=1 ./tests/tools/check.sh        # 네트워크가 없어 pip-audit 을 못 돌릴 때 건너뛰고 표시
 ```
 
+**시험 하나 = 규칙 하나**(설계 §10 "시험 구성" ④): 시험 클래스의 경우는 `case_…` 메서드이고 `test_<규칙>` 하나가 `run_cases` 로 경우마다 따로(준비·정리·DB 격리) 돈다(`tests/support/cases.py`). 실패는 `test_<규칙> [case_…]` 처럼 경우 이름으로 보인다. 경우 하나만 돌리려면 `python manage.py test tests.ops.test_x.Class.case_y`.
+
 **`tests/` 밖은 운영 코드다**(설계 §10 "시험 구성"). 시험과 개발 도구는 모두 `tests/` 아래에 있다: `ops/`(운영용 시험), `dev/`(개발용 시험), `support/`(공용 도우미·시험용 URL·앱), `tools/`(점검·부하·장애·측정 스크립트), `docker/`(InnoDB Cluster 시험 이미지). 예외는 시험·개발 설정 모듈(`config/settings/test.py`·`dev.py`)이다.
 
 `check.sh`는 하나라도 실패하면 비정상 종료한다. `pip-audit`이 네트워크 문제로 못 돌 때와 **실제 취약점이 발견됐을 때**를 구분해 알려준다.

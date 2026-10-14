@@ -8,6 +8,7 @@ from tests.support.helpers import BASE_DIR
 
 sys.path.insert(0, str(BASE_DIR / "tests" / "tools"))
 import mysql_admin  # noqa: E402
+from tests.support.cases import Cases
 
 
 def exists(name):
@@ -21,8 +22,8 @@ def exists(name):
 
 
 @tag("security")
-class DatabaseOwnershipTests(SimpleTestCase):
-    def test_created_database_is_random_and_dropped_only_when_owned(self):
+class DatabaseOwnershipTests(Cases, SimpleTestCase):
+    def case_created_database_is_random_and_dropped_only_when_owned(self):
         a, b = mysql_admin.create_database("ads_t"), mysql_admin.create_database("ads_t")
         self.addCleanup(lambda: [mysql_admin.drop_database(n) for n in (a, b) if exists(n)])
         self.assertNotEqual(a, b)
@@ -32,7 +33,7 @@ class DatabaseOwnershipTests(SimpleTestCase):
         self.assertFalse(exists(a))
         self.assertTrue(exists(b))
 
-    def test_a_database_this_run_did_not_create_is_never_dropped(self):
+    def case_a_database_this_run_did_not_create_is_never_dropped(self):
         """남이 만든 DB(같은 이름이 이미 있는 경우 포함)는 지우기를 거부하고 데이터가 그대로다."""
         other = f"ads_t_other_{uuid.uuid4().hex}"
         conn = mysql_admin.connect()
@@ -48,7 +49,7 @@ class DatabaseOwnershipTests(SimpleTestCase):
             cur.execute(f"SELECT id FROM `{other}`.marker")
             self.assertEqual(cur.fetchone()[0], 7)
 
-    def test_create_does_not_replace_an_existing_database(self):
+    def case_create_does_not_replace_an_existing_database(self):
         """무작위 이름이 우연히 겹쳐도 CREATE 가 실패할 뿐 기존 DB 를 지우지 않는다."""
         other = f"ads_t_fixed_{uuid.uuid4().hex}"
         conn = mysql_admin.connect()
@@ -69,3 +70,6 @@ class DatabaseOwnershipTests(SimpleTestCase):
         with conn.cursor() as cur:
             cur.execute(f"SHOW TABLES FROM `{other}`")
             self.assertEqual(cur.fetchall(), (("marker",),))
+
+    def test_database_ownership(self):
+        self.run_cases()

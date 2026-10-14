@@ -24,7 +24,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[2]  # apps/ads_server
@@ -98,8 +98,9 @@ def summarize(out):
         analysis = cov._analyze(f)
         n = analysis.numbers
         covered = sorted(set(analysis.statements) - set(analysis.missing))
-        files[rel(f)] = {"statements": n.n_statements, "covered": covered, "branches": n.n_branches,
-                         "covered_branches": n.n_branches - n.n_missing_branches}
+        source = Path(f).read_text(encoding="utf-8").splitlines()
+        files[rel(f)] = {"statements": n.n_statements, "covered": covered, "covered_text": [source[ln - 1].strip() for ln in covered],
+                         "branches": n.n_branches, "covered_branches": n.n_branches - n.n_missing_branches}
         totals["statements"] += n.n_statements
         totals["covered"] += len(covered)
         totals["branches"] += n.n_branches
@@ -171,13 +172,17 @@ def sites(path, covered_lines):
 
 
 def apply(src, m):
+    """변형을 넣는다. 제품 코드에 줄이 더해져 자리가 밀렸으면 가까운(±30줄) 같은 원문 자리를 찾는다."""
     lines = src.splitlines(keepends=True)
     l1, c1, l2, c2 = m["span"]
-    start = sum(len(x) for x in lines[:l1 - 1]) + c1
-    end = sum(len(x) for x in lines[:l2 - 1]) + c2
-    if src[start:end] != m["before"]:
-        raise ValueError(f"{m['id']}: 원문이 바뀌었다 — {m['file']}:{l1}")
-    return src[:start] + m["after"] + src[end:]
+    for shift in sorted(range(-30, 31), key=abs):
+        if not 1 <= l1 + shift <= len(lines):
+            continue
+        start = sum(len(x) for x in lines[:l1 + shift - 1]) + c1
+        end = start + len(m["before"])
+        if src[start:end] == m["before"]:
+            return src[:start] + m["after"] + src[end:]
+    raise ValueError(f"{m['id']}: 원문이 바뀌었다 — {m['file']}:{l1}")
 
 
 def make_mutants(cov_dir, out):
@@ -295,7 +300,13 @@ def compare(base_cov, base_run, new_cov, new_run):
     """기준선보다 나빠진 곳만 보인다: 덮이지 않게 된 줄, 기준선에서 잡던 변형 중 지금 살아남은 것. 둘 다 없으면 종료 코드 0."""
     b = json.loads((Path(base_cov) / "coverage.json").read_text(encoding="utf-8"))["files"]
     n = json.loads((Path(new_cov) / "coverage.json").read_text(encoding="utf-8"))["files"]
-    lost = {f: sorted(set(v["covered"]) - set(n.get(f, {}).get("covered", []))) for f, v in b.items()}
+    def lost_lines(f, v):  # 줄의 내용으로 비교한다(제품 코드에 줄이 더해져 번호가 밀려도 같은 줄이다). 내용이 없으면 번호로
+        new = n.get(f, {})
+        if "covered_text" in v and "covered_text" in new:
+            now = {line.strip() for line in (REPO / f).read_text(encoding="utf-8").splitlines()} if (REPO / f).exists() else set()
+            return sorted(t for t in (Counter(v["covered_text"]) - Counter(new["covered_text"])).elements() if t in now)  # 고친·지운 줄은 덮일 수 없다
+        return sorted(set(v["covered"]) - set(new.get("covered", [])))
+    lost = {f: lost_lines(f, v) for f, v in b.items()}
     lost = {f: v for f, v in lost.items() if v}
     br = json.loads(Path(base_run).read_text(encoding="utf-8"))
     nr = json.loads(Path(new_run).read_text(encoding="utf-8"))

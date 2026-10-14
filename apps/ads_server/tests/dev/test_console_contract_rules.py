@@ -14,16 +14,17 @@ from masters.models import MAX_SHARE, MIN_SHARE, Audience
 from records.models import ReactionType
 from tests.support.contract_support import Contract
 from tests.support.factories import NOW, PW, World
+from tests.support.cases import Cases
 
 
 @tag("security")
-class ConsoleContractRuleTests(TestCase):
+class ConsoleContractRuleTests(Cases, TestCase):
     contract = Contract("console")
 
     def schema(self, name):
         return self.contract.spec["components"]["schemas"][name]
 
-    def test_value_lists_and_amounts_match_the_models(self):
+    def case_value_lists_and_amounts_match_the_models(self):
         for schema, choices in (("ReactionType", ReactionType), ("CampaignStatus", CampaignStatus), ("LedgerType", EntryType), ("Audience", Audience),
                                 ("ReviewRequestStatus", ReviewStatus)):
             self.assertEqual(set(self.schema(schema)["enum"]), set(choices.values), schema)
@@ -31,7 +32,7 @@ class ConsoleContractRuleTests(TestCase):
         self.assertEqual((self.schema("ChargeShare")["minimum"], self.schema("ChargeShare")["maximum"]), (MIN_SHARE, MAX_SHARE))  # 반응별 비율(6-10)
         self.assertEqual(set(self.schema("ExpectedCharges")["required"]), set(ReactionType.values))
 
-    def test_text_limits_match_the_services(self):
+    def case_text_limits_match_the_services(self):
         """칸마다 계약의 `maxLength` 글자는 받고, 하나 넘거나 `minLength` 에 못 미치면 거절한다(400 — 서비스의 `InvalidRequest`, 계정 서비스는 `ValidationError`)."""
         w = World(ends_in=None)
         suspended = campaigns.create_campaign(w.adv, "중단된 캠페인", NOW, None, 1000, now=NOW)
@@ -63,3 +64,6 @@ class ConsoleContractRuleTests(TestCase):
                 with self.subTest(f"{schema}.{field} = {bad}자"), self.assertRaises((errors.InvalidRequest, ValidationError)):
                     call(text(bad))
         self.assertEqual(len(cases), 10)
+
+    def test_console_contract_rule(self):
+        self.run_cases()

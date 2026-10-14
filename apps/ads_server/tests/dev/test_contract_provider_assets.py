@@ -6,12 +6,13 @@ from django.test import Client, TestCase, override_settings, tag
 from assets.api import store, validate_image
 from tests.support import image_factory
 from tests.support.contract_support import Contract, ProviderContractMixin
+from tests.support.cases import Cases
 
 PATH = "/assets/{asset_name}"
 
 
 @tag("security")
-class AssetProviderContractTests(ProviderContractMixin, TestCase):
+class AssetProviderContractTests(Cases, ProviderContractMixin, TestCase):
     contract = Contract("serving")
 
     def setUp(self):
@@ -20,7 +21,7 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
             store(image)
             setattr(self, fmt, image)
 
-    def test_png_and_jpeg_responses_match_the_contract(self):
+    def case_png_and_jpeg_responses_match_the_contract(self):
         for image in (self.png, self.jpg):
             response = Client().get(f"/assets/{image.name}")
             self.assertEqual(response.status_code, 200)
@@ -28,13 +29,13 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
             self.assertEqual(response["Content-Type"], image.content_type)
             self.assertEqual(response["ETag"].strip('"'), image.sha256)  # ETag = 내용 해시
 
-    def test_conditional_request_gets_304_with_cache_headers(self):
+    def case_conditional_request_gets_304_with_cache_headers(self):
         first = Client().get(f"/assets/{self.png.name}")
         second = Client().get(f"/assets/{self.png.name}", HTTP_IF_NONE_MATCH=first["ETag"])
         self.assertEqual(second.status_code, 304)
         self.assertContract(self.contract, PATH, "get", second)
 
-    def test_unknown_or_unservable_name_is_404_as_documented(self):
+    def case_unknown_or_unservable_name_is_404_as_documented(self):
         missing = "0" * 64 + ".png"
         response = Client().get(f"/assets/{missing}")
         self.assertEqual(response.status_code, 404)
@@ -44,7 +45,7 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
         self.assertEqual(blocked.status_code, 404)
         self.assertContract(self.contract, PATH, "get", blocked)
 
-    def test_no_cookie_is_set_and_no_auth_is_required(self):
+    def case_no_cookie_is_set_and_no_auth_is_required(self):
         """익명·로그인 세션 모두 쿠키를 만들지 않는다(200·304·404 전부). Django 쿠키는 `response.cookies` 에 있으므로 거기까지 본다."""
         from tests.support.factories import make_advertiser
 
@@ -58,7 +59,7 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
                 self.assertNoCookies(response)
                 self.assertNotIn("Cookie", response.get("Vary", ""))  # 쿠키에 따라 달라지지 않는다 — 공유 캐시가 그대로 쓴다
 
-    def test_the_cookie_check_catches_a_response_that_sets_a_cookie(self):
+    def case_the_cookie_check_catches_a_response_that_sets_a_cookie(self):
         """검사가 공회전하지 않음: 쿠키를 일부러 설정한 응답은 실패해야 한다(headers 만 보면 놓친다)."""
         from tests.support.contract_support import cookie_problems
 
@@ -68,3 +69,6 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
         self.assertTrue(cookie_problems(response))
         with self.assertRaises(AssertionError):
             self.assertNoCookies(response)
+
+    def test_asset_provider_contract(self):
+        self.run_cases()

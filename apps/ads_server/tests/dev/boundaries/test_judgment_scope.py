@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, tag
 from tests.support.helpers import BASE_DIR
 
 from .test_layers import project_files
+from tests.support.cases import Cases
 
 FACTS = BASE_DIR / "records" / "facts.py"
 ENTRANCE = "scoped_reactions"
@@ -88,36 +89,39 @@ def basis_writes(tree):
 
 
 @tag("security")
-class JudgmentFactsScopeTests(SimpleTestCase):
+class JudgmentFactsScopeTests(Cases, SimpleTestCase):
     def tree(self):
         return ast.parse(FACTS.read_text(encoding="utf-8"))
 
-    def test_facts_read_reactions_only_through_the_scope_function(self):
+    def case_facts_read_reactions_only_through_the_scope_function(self):
         found = reaction_reads(self.tree())
         self.assertEqual(found, {ENTRANCE: 1})  # 검사가 공회전이 아니다: 입구가 정확히 한 번 매니저에 닿는다
 
-    def test_the_lookups_that_judgment_needs_all_use_the_entrance(self):
+    def case_the_lookups_that_judgment_needs_all_use_the_entrance(self):
         """표시 교체 신호·앞 단계(노출·클릭)·인정된 유형 조회가 모두 입구를 거친다(하나라도 빠지면 그 조회는 범위 없이 읽는다)."""
         self.assertEqual(callers_of(self.tree(), ENTRANCE), {"gather", "display_signal"})
         source = FACTS.read_text(encoding="utf-8")
         gather = source[source.index("def gather"):]
         self.assertGreaterEqual(len(re.findall(rf"\b{ENTRANCE}\(", gather)), 3)  # 인정된 유형 · 클릭의 노출 · 전환의 클릭
 
-    def test_the_reaction_model_is_not_reached_by_another_name_in_facts(self):
+    def case_the_reaction_model_is_not_reached_by_another_name_in_facts(self):
         """`Reaction` 을 다른 이름으로 가져오거나(`as`), 모델 레지스트리로 얻어 우회하지 못한다."""
         source = FACTS.read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"import[^\n]*\bReaction\s+as\b", source))
         self.assertNotIn("get_model(", source)
         self.assertNotIn("connection", source)  # 원시 SQL 우회
 
-    def test_the_basis_is_written_only_by_the_processor(self):
+    def case_the_basis_is_written_only_by_the_processor(self):
         """판정 근거(`basis`)를 쓰는 곳은 `processing._finish` 하나다. 다른 곳이 쓰면 '한 번 쓰고 바꾸지 않는다'가 깨진다.
         글자(`basis=`)가 아니라 실제 쓰기의 꼴을 본다(`basis_writes`) — 읽은 값을 키워드 인자로 넘기는 것은 쓰기가 아니다. 모델 정의는 쓰기 꼴이 아니므로 저절로 빠지고, 마이그레이션은 보지 않는다."""
         sites = {path.name for path in project_files("records") if "migrations" not in path.parts and basis_writes(ast.parse(path.read_text(encoding="utf-8")))}
         self.assertEqual(sites, {"processing.py"})  # 검사가 공회전이 아니다: 실제로 쓰는 곳 하나를 찾는다
 
+    def test_judgment_facts_scope(self):
+        self.run_cases()
 
-class BasisWriteFormsTests(SimpleTestCase):
+
+class BasisWriteFormsTests(Cases, SimpleTestCase):
     """`basis_writes` 가 무엇을 쓰기로 보는지(외부 검토 Step 4-4 P2: `bulk_create` 의 위치 인자 `update_fields` 를 놓쳤다). 소스 조각을 직접 넣어 본다."""
 
     WRITES = [
@@ -155,12 +159,15 @@ class BasisWriteFormsTests(SimpleTestCase):
         'Reaction.objects.bulk_update([row], fields=["status"])',
     ]
 
-    def test_each_write_form_is_found(self):
+    def case_each_write_form_is_found(self):
         for source in self.WRITES:
             with self.subTest(source):
                 self.assertTrue(basis_writes(ast.parse(source)))
 
-    def test_reads_and_other_fields_are_not_writes(self):
+    def case_reads_and_other_fields_are_not_writes(self):
         for source in self.READS:
             with self.subTest(source):
                 self.assertEqual(basis_writes(ast.parse(source)), [])
+
+    def test_basis_write_forms(self):
+        self.run_cases()
