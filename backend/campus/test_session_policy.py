@@ -48,28 +48,25 @@ class SessionSocketTests(TransactionTestCase):
                 await old.receive_json_from()  # welcome
                 await new.receive_json_from()
                 await observer.receive_json_from()
-                await old.receive_json_from()  # new tab joins
-                await old.receive_json_from()  # observer joins
+                self.assertEqual((await old.receive_output())["code"],4409)
                 await new.receive_json_from()
                 clock.return_value = now + timedelta(seconds=1)
-                await old.send_json_to(self.movement(x=1700.25))
-                await new.receive_json_from()
+                await new.send_json_to(self.movement(x=1700.25))
                 await observer.receive_json_from()
-                await old.send_json_to({"type": "ping"})
-                await old.receive_json_from()
+                await new.send_json_to({"type": "ping"})
+                await new.receive_json_from()
                 clock.return_value = now + timedelta(seconds=2)
                 await new.send_json_to(self.movement(floor="rooftop", x=2200.5, y=1510.75))
-                await old.receive_json_from()
                 await observer.receive_json_from()
                 await new.send_json_to({"type": "ping"})
                 await new.receive_json_from()
                 clock.return_value = now + timedelta(seconds=32)
                 state = await database_sync_to_async(check_session)(key)
                 self.assertEqual(state["reason"], "idle")
-                for ws in (old, new):
+                for ws in (new,):
                     self.assertEqual((await ws.receive_json_from())["type"], "session_expired")
                     self.assertEqual((await ws.receive_output())["code"], 4401)
-                for _ in range(2):
+                for _ in range(1):
                     self.assertEqual((await observer.receive_json_from())["type"], "leave")
                 position = await database_sync_to_async(lambda: Profile.objects.get(user=self.alice).last_position)()
                 self.assertEqual(position, {"floor": "rooftop", "x": 2200.5, "y": 1510.75, "dir": "left"})

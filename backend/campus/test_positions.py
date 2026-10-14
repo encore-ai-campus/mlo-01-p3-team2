@@ -168,15 +168,22 @@ class PositionSocketTests(TransactionTestCase):
                 self.assertEqual((await a.receive_json_from())["type"], "pong")
 
     async def test_stale_tab_disconnect_cannot_overwrite_newer_rooftop_position(self):
-        async with self.connections(self.a, self.a) as (old, new):
-            await self.welcome_pair(old, new)
-            await old.send_json_to(self.movement(x=1800.125))
-            await new.receive_json_from()
-            await new.send_json_to(self.movement(floor="rooftop", x=2200.5, y=1500.75))
+        async with self.connections(self.a) as (old,):
             await old.receive_json_from()
-            await old.disconnect()
-            self.assertEqual((await new.receive_json_from())["type"], "leave")
-            self.assertEqual((await self.snapshot())["floor"], "rooftop")
+            await old.send_json_to(self.movement(x=1800.125))
+            await old.send_json_to({"type":"ping"})
+            await old.receive_json_from()
+            async with self.connections(self.a) as (new,):
+                welcome = await new.receive_json_from()
+                self.assertEqual(welcome["players"][0]["x"],1800.125)
+                self.assertEqual((await old.receive_output())["code"],4409)
+                await new.send_json_to(self.movement(floor="rooftop",x=2200.5,y=1500.75))
+                await new.send_json_to({"type":"ping"})
+                self.assertEqual((await new.receive_json_from())["type"],"pong")
+                await old.disconnect()
+                self.assertEqual(await self.snapshot(),{"floor":"rooftop","x":2200.5,"y":1500.75,"dir":"left"})
+                await new.send_json_to({"type":"ping"})
+                self.assertEqual((await new.receive_json_from())["type"],"pong")
 
     async def test_revoked_socket_cannot_overwrite_the_logout_snapshot(self):
         async with self.connections(self.a) as (a,):

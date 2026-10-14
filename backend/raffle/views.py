@@ -11,13 +11,14 @@ from django.views.decorators.cache import never_cache
 from accounts.models import needs_profile_setup
 from . import service
 from . import survey
+from . import winner_contact
 
 
 def api(method):
     def decorate(view):
         @never_cache
         @wraps(view)
-        def wrapped(request):
+        def wrapped(request, *args, **kwargs):
             if not request.user.is_authenticated:
                 return JsonResponse({"error": "다시 로그인해 주세요."}, status=401)
             if needs_profile_setup(request.user):
@@ -27,7 +28,7 @@ def api(method):
                 response["Allow"] = method
                 return response
             try:
-                return view(request)
+                return view(request, *args, **kwargs)
             except service.RaffleError as exc:
                 return JsonResponse({"error": exc.message}, status=exc.status)
             except DatabaseError:
@@ -104,4 +105,44 @@ def control(request):
                 raise service.RaffleError("시간대가 포함된 예약 시간을 입력해 주세요.", 400)
         times[name] = parsed
     service.control_event(action, data["eventId"], title=title.strip() if title else None, **times)
+    return JsonResponse(service.snapshot(request.user))
+
+
+def private_qr_response():
+    response = HttpResponse(winner_contact.image_bytes(), content_type="image/png")
+    response["Cache-Control"] = "private, no-store, max-age=0"
+    response["Vary"] = "Cookie"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@api("GET")
+def winner_contact_qr(request, event_id):
+    winner_contact.require_winner(request.user, event_id)
+    return private_qr_response()
+
+
+@api("GET")
+def winner_contact_preview(request):
+    if not request.user.is_staff:
+        raise service.RaffleError("관리자만 등록된 QR을 확인할 수 있어요.", 403)
+    return private_qr_response()
+
+
+@api("POST")
+def update_winner_contact(request):
+    if not request.user.is_staff:
+        raise service.RaffleError("관리자만 당첨자 안내를 등록할 수 있어요.", 403)
+    if request.content_type != "multipart/form-data":
+        raise service.RaffleError("QR 이미지 파일을 선택해 주세요.", 415)
+    try:
+        length = int(request.META.get("CONTENT_LENGTH") or 0)
+    except ValueError:
+        raise service.RaffleError("이미지 요청을 확인해 주세요.", 400)
+    if length > winner_contact.MAX_IMAGE_BYTES + 65536:
+        raise service.RaffleError("QR 이미지는 2MB 이하로 등록해 주세요.", 413)
+    files = request.FILES.getlist("qrImage")
+    if len(files) != 1 or set(request.FILES) != {"qrImage"}:
+        raise service.RaffleError("오픈채팅 QR 이미지 한 장을 선택해 주세요.", 400)
+    winner_contact.save_image(files[0])
     return JsonResponse(service.snapshot(request.user))

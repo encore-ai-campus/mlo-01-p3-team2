@@ -153,7 +153,7 @@
     }
     lastContext=JSON.stringify(context());
     document.addEventListener('keyup',event=>{
-      const key=event.key.toLowerCase();
+      const key=window.CampusKeyboard.key(event);
       if(key==='z')setHeld(false,'keyboard');
       if(key==='enter'||key===' ')setHeld(false,'button-key');
     });
@@ -164,8 +164,8 @@
     for(const type of ['pointerup','pointercancel','lostpointercapture'])button?.addEventListener(type,()=>setHeld(false,'pointer'));
     button?.addEventListener('click',()=>{if(suppressClick){suppressClick=false;return;}trigger();});
     button?.addEventListener('keydown',event=>{
-      if(event.isComposing||event.ctrlKey||event.altKey||event.metaKey)return;
-      const key=event.key.toLowerCase();
+      if((event.isComposing&&!window.CampusKeyboard.isGameKey(event))||event.ctrlKey||event.altKey||event.metaKey)return;
+      const key=window.CampusKeyboard.key(event);
       if(key==='z'||key==='enter'||key===' '){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)setHeld(true,key==='z'?'keyboard':'button-key');}
     });
     return {receive,trigger,setHeld,stop,tick,get held(){return held.size>0;}};

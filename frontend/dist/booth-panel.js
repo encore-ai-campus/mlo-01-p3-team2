@@ -7,12 +7,12 @@
     const supported=window.isSecureContext&&typeof window.documentPictureInPicture?.requestWindow==='function';
     const names={youtube:'YouTube 부스',psych:'심리 테스트 존',game:'게임 부스'};
     const games={'gomoku':{name:'오목',url:'/content/gomoku/open/'},'war':{name:'전쟁시대',url:'/content/war/open/'},'dad-and-me':{name:'아빠와 나',url:'/content/dad-and-me/open/'},'minesweeper':{name:'지뢰찾기',url:'/content/minesweeper/open/'},'fruit-box':{name:'사과게임',url:'/content/fruit-box/open/'},'bubble-shooter':{name:'버블슈터',url:'/content/bubble-shooter/open/'},'suika':{name:'수박게임',url:'/content/suika/open/'},'flashman':{name:'후레시맨',url:'/content/flashman/open/'},'tetris':{name:'테트리스',url:'/content/tetris/open/'},'worlds-hardest-game':{name:'세상에서 가장 어려운 게임',url:'/content/worlds-hardest-game/open/'},'bamboo-master':{name:'죽림고수',url:'/content/bamboo-master/open/'},'sword-upgrade':{name:'검 강화하기',url:'/content/sword-upgrade/open/'},'walk-the-stork':{name:'황새와 오래 걷기',url:'/content/walk-the-stork/open/'},'isaac':{name:'아이작',url:'/content/isaac/open/'},'paladog':{name:'팔라독',url:'/content/paladog/open/'},'solitaire':{name:'솔리테어',url:'/content/solitaire/open/'}};
-    const psychUrl='/content/psych-test/open/';
+    const psychUrl='/content/psych-test/open/',youtubeUrl='https://www.youtube.com/';
     const card=panel.querySelector('.booth-service-card'),choices=get('boothGameChoices'),launcher=get('boothEmbeddedSection'),externalLink=get('boothExternalLink');
     let pipWindow=null,contentWindow=null,pending=false,closed=false,restoreModal=false;
     function updateWindowButtons(){
       returnButton.hidden=!pipWindow;pipButton.hidden=!supported||!!pipWindow;
-      if(panel.dataset.platform==='game'||panel.dataset.platform==='psych')pipButton.hidden=true;
+      if(['game','psych','youtube'].includes(panel.dataset.platform))pipButton.hidden=true;
     }
     function openContentWindow(url,{refreshExisting=false}={}){
       try{
@@ -82,6 +82,12 @@
         if(pipWindow){const win=pipWindow;restorePanel();win.close();}
         launcher.hidden=false;externalLink.href=psychUrl;externalLink.textContent='심심테스트 열기';
         launchContent(psychUrl);return;
+      }
+      if(platform==='youtube'){
+        intro.textContent='YouTube 홈페이지를 별도 창에서 이용할 수 있어요.';
+        if(pipWindow){const win=pipWindow;restorePanel();win.close();}
+        launcher.hidden=false;externalLink.href=youtubeUrl;externalLink.textContent='YouTube 열기';
+        launchContent(youtubeUrl,{refreshExisting:true});return;
       }
       if(!supported){showModal();return;}
       if(pipWindow&&!pipWindow.closed){pipWindow.document.title=title.textContent;pipButton.hidden=true;pipWindow.focus();return;}

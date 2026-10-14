@@ -182,11 +182,17 @@ class CampusSocketTests(TransactionTestCase):
             finally:
                 await reconnect.disconnect()
 
-    async def test_two_tabs_of_same_account_have_independent_presence(self):
+    async def test_same_session_tab_replaces_old_presence(self):
         async with self.connections(self.a, self.a) as (a, b):
-            first, second = await self.welcome_pair(a, b)
+            first, second = await a.receive_json_from(), await b.receive_json_from()
             self.assertNotEqual(first["selfId"], second["selfId"])
+            self.assertEqual(len(second["players"]),1)
+            self.assertEqual(second["players"][0]["id"],second["selfId"])
             self.assertEqual({p["nickname"] for p in second["players"]}, {"조원 하나"})
+            self.assertEqual((await a.receive_output())["code"],4409)
+            await a.disconnect()
+            await b.send_json_to({"type":"ping"})
+            self.assertEqual((await b.receive_json_from())["type"],"pong")
 
     async def test_logout_in_another_tab_revokes_socket_and_announces_leave(self):
         with patch.object(consumers.CampusConsumer, "session_check_interval", 0.05):

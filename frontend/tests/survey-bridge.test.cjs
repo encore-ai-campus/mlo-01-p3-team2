@@ -6,7 +6,7 @@ const {test} = require('node:test');
 
 function fixture(){
   const properties = new Map(), items=[], storedResponses=[];
-  let formReads=0, submittedResponses=0;
+  let formReads=0, submittedResponses=0, collectsEmail=true;
   const formId='117DNOSfnLfgmBkv-DkWruqjXKeuFQe--UbeeEg2L34c';
   const formUrl='https://docs.google.com/forms/d/e/1FAIpQLSf4dkDBcM-7uXtJNXjgsYUsstKRHDPUQ_M3WfCaZne_CUcIEA/viewform';
   function item(){
@@ -17,6 +17,7 @@ function fixture(){
     value.createResponse=answer=>({item:value,answer});return value;
   }
   const form={getId:()=>formId,getPublishedUrl:()=>formUrl,getItems:()=>items,moveItem(){},setAllowResponseEdits(){},setConfirmationMessage(){},isPublished:()=>true,isAcceptingResponses:()=>true,
+    setCollectEmail(value){collectsEmail=value;},deleteItem(value){items.splice(items.indexOf(value),1);},
     addTextItem(){const value=item();items.push(value);return value;},getItemById(id){return items.find(i=>i.getId()===id);},
     createResponse(){return {withItemResponse(answer){return {toPrefilledUrl:()=>formUrl+'?usp=pp_url&entry.123456789='+answer.answer,submit(){submittedResponses++;}};}};},
     getResponses(since){formReads++;return storedResponses.filter(r=>r.getTimestamp()>=since);}};
@@ -33,13 +34,21 @@ function fixture(){
     const saved={getId:()=>id,getTimestamp:()=>new Date(when),getItemResponses:()=>[{getItem:()=>({getId:()=>202}),getResponse:()=>token},{getItem:()=>({getId:()=>888}),getResponse:()=>answer}]};
     storedResponses.push(saved);return saved;
   }
-  return {context,properties,items,post,response,get reads(){return formReads;},get submitted(){return submittedResponses;}};
+  return {context,properties,items,post,response,get reads(){return formReads;},get submitted(){return submittedResponses;},get collectsEmail(){return collectsEmail;}};
 }
 
 test('setup adds one token field, reuses its key, and never submits a form response',()=>{
   const f=fixture(),first=f.context.setupRaffleSurvey(),second=f.context.setupRaffleSurvey();
   assert.equal(f.items.length,1);assert.equal(first.accessKey,second.accessKey);assert.equal(first.accessKey.length,64);
   assert.equal(first.tokenParameter,'entry.123456789');assert.equal(f.submitted,0);
+});
+
+test('winner-only contact setup removes the delivery email question and preserves survey items',()=>{
+  const f=fixture();f.items.push({getTitle:()=> '1. 귀하의 이메일을 입력하세요',getId:()=>999},{getTitle:()=> '플랫폼 만족도',getId:()=>555});
+  const first=f.context.setupRaffleSurvey(),second=f.context.setupRaffleSurvey();
+  assert.equal(f.collectsEmail,false);
+  assert.deepEqual(f.items.map(item=>item.getTitle()),['플랫폼 만족도','이벤트 참가 확인 코드']);
+  assert.equal(first.tokenParameter,second.tokenParameter);assert.equal(first.accessKey,second.accessKey);
 });
 test('GET and POST with the wrong key return no metadata or responses',()=>{
   const f=fixture();f.context.setupRaffleSurvey();
