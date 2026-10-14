@@ -6,7 +6,7 @@
 #   PYTHON=/path/to/python        사용할 파이썬(기본: python)
 #
 # 단계: MySQL·MongoDB 접속(없으면 명확히 실패 — 시험을 건너뛰지 않는다) → check --deploy(prod 샘플 환경) → 마이그레이션 최신 여부 → 전체 테스트(경계 검사·보안 회귀 포함)
-#       → 부하 시험(소규모: MySQL·실제 HTTP·별도 처리 프로세스, 불변식) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
+#       → 부하 시험(소규모: MySQL·실제 HTTP·별도 처리 프로세스, 불변식) → 프론트 check --deploy·시험(apps/ads_frontend) → pip-audit(의존성 취약점) → bandit(정적 보안 점검)
 #       150 동시 전체 시험은 `python scripts/load_test.py`(약 40초, docs/ads-server/load-test.md)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -31,6 +31,15 @@ check_deploy() {
     "$PY" -m django check --deploy --fail-level WARNING
 }
 
+# 프론트(apps/ads_frontend, 설계 §6.6 "6-15 분리") — DB 가 없어 DB 단계와 상관없이 돈다. 의존성(Django·python-dotenv·whitenoise)은 백엔드 목록에 모두 있어 pip-audit 이 함께 본다
+check_frontend_deploy() {
+  local key; key="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(60))')"
+  (cd ../ads_frontend && env -i PATH="$PATH" FRONTEND_SECRET_KEY="$key" FRONTEND_ALLOWED_HOSTS=ads.example.com ADMIN_URL_PATH=ops-check/ \
+    BACKEND_URL=http://10.0.0.5:8000 "$PY" manage.py check --deploy --fail-level WARNING)
+}
+
+frontend_tests() { (cd ../ads_frontend && "$PY" manage.py test); }
+
 audit_dependencies() {
   local tmp out rc; tmp="$(mktemp)"
   "$PY" scripts/pinned_requirements.py > "$tmp" || { echo "의존성 목록을 만들지 못했다"; return 1; }
@@ -53,8 +62,10 @@ run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
 run "전체 테스트 (경계 검사·보안 회귀 포함)" "$PY" manage.py test
 run "부하 시험 (20 동시, 불변식)" "$PY" scripts/load_test.py --small
+run "프론트 check --deploy (운영 샘플 환경, 경고 0)" check_frontend_deploy
+run "프론트 시험 (전달·통과·그리기)" frontend_tests
 run "pip-audit (의존성 취약점)" audit_dependencies
-run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing events records serving_api
+run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing events records serving_api ../ads_frontend/config ../ads_frontend/ui
 
 printf '\n======== 요약 ========\n'
 [ ${#skipped[@]} -gt 0 ] && printf '건너뜀: %s\n' "${skipped[*]}"

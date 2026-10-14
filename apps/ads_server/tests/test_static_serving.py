@@ -1,4 +1,5 @@
 """정적 파일은 Django 가 서빙한다(Step 6-5e, 설계 §10 "정적 파일 서빙"): 앞단 nginx 는 통로만 맡고, `collectstatic` 으로 모은 파일을 WhiteNoise 가 내준다.
+6-15 부터 콘솔·운영 화면의 CSS·JS 는 프론트(apps/ads_frontend)에 있고 프론트가 서빙한다(프론트 시험) — 백엔드에는 Django admin 의 것만 남는다.
 
 전에는 웹서버(인프라)가 `STATIC_ROOT` 를 서빙하기로 했고, `DEBUG=False` 인 Django 는 정적 파일을 내주지 않아 nginx 가 통로만 맡으면 관리자·콘솔 화면의 CSS·JS 가 404 였다.
 """
@@ -23,8 +24,8 @@ class StaticFilesServedByDjangoTests(TestCase):
         with override_settings(STATIC_ROOT=self.root):  # WhiteNoise 는 처음 요청 때(미들웨어를 만들 때) 이 폴더를 읽는다
             return Client().get(path)
 
-    def test_collected_console_and_admin_files_are_served_without_login(self):
-        for path, kind in (("/static/console/app.css", "text/css"), ("/static/console/confirm.js", "text/javascript"), ("/static/admin/css/base.css", "text/css")):
+    def test_collected_admin_files_are_served_without_login(self):
+        for path, kind in (("/static/admin/css/base.css", "text/css"), ("/static/admin/js/theme.js", "text/javascript")):
             r = self.get(path)
             self.assertEqual(r.status_code, 200, path)
             self.assertTrue(r["Content-Type"].startswith(kind), (path, r["Content-Type"]))

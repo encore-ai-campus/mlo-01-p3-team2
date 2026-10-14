@@ -1,6 +1,6 @@
 """관리자 운영 화면(Step 3-1: 매체·슬롯·키, 입찰 정책, 광고 모니터링·중단·재검토, 광고주·포인트). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 각 서비스(masters·campaigns·billing·foundation), 예외의 화면 변환은 console/errors.
 
-화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
+화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다 — 그리는 것은 프론트다(화면 데이터, 설계 §6.6 "6-15 분리"). 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
 예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 폼마다 새 요청 키를 실어 서비스가 한 번만 발급한다.
 두 번 하면 안 되는 동작(키 발급·교체, 포인트 조정)의 요청 키는 세션이 아니라 **결과 행과 같은 트랜잭션**에 저장한다 — 세션은 요청마다 따로 읽은
 사본이라 동시 제출을 막지 못하고, 처리 뒤 응답이 실패하면 다시 보낼 수 있었다(외부 검토 3-1d).
@@ -9,13 +9,13 @@ import secrets
 
 from django.contrib import admin, messages
 from django.http import FileResponse, Http404
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.decorators.http import require_POST, require_safe
 
 from assets.api import asset_exists, content_type, open_asset
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import get_advertiser, list_advertisers, profiles, set_advertiser_active
+from foundation.api import get_advertiser, list_advertisers, present, profiles, set_advertiser_active
 from masters import api as masters
 
 from ..errors import HANDLED, fetch, message_of, run_action, submit
@@ -24,7 +24,16 @@ from .forms import AdjustForm, BulkPolicyForm, KeyIssueForm, KeyRotateForm, Medi
 
 
 def _render(request, template, title, status=200, **context):
-    return render(request, template, {**admin.site.each_context(request), "title": title, **context}, status=status)
+    return present(request, template, {**_site_context(request), "title": title, **context}, status=status)
+
+
+def _site_context(request):
+    """관리 사이트 공통 문맥(머리글·사이드바 앱 목록 등) 중 데이터로 보낼 것: 모델 클래스(`model`)와 최근 동작(`log_entries`, 질의)은
+    운영 화면이 상속하는 관리 템플릿(base·nav_sidebar·app_list)이 쓰지 않아 뺀다."""
+    site = admin.site.each_context(request)
+    site.pop("log_entries")
+    site["available_apps"] = [{**app, "models": [{k: v for k, v in m.items() if k != "model"} for m in app["models"]]} for app in site["available_apps"]]
+    return site
 
 
 def media_list(request):

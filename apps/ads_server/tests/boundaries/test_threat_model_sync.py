@@ -18,7 +18,7 @@ class ThreatModelSyncTests(SimpleTestCase):
         if not THREAT_MODEL.exists():  # 앱만 따로 배포된 환경
             self.skipTest("위협 모델 문서가 없다")
         defined = set()
-        for path in (BASE_DIR / "tests").rglob("*.py"):
+        for path in [*(BASE_DIR / "tests").rglob("*.py"), *(BASE_DIR.parent / "ads_frontend/tests").rglob("*.py")]:  # 프론트 시험도(6-15)
             defined |= set(re.findall(r"def (test_\w+)", path.read_text(encoding="utf-8")))
         doc = THREAT_MODEL.read_text(encoding="utf-8")
         prefixes = re.findall(r"`(test_\w+_)\*`", doc)  # `test_parse_json_*` 같은 접두사 표기

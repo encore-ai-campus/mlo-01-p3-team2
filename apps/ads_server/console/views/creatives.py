@@ -5,11 +5,12 @@
 """
 from django.contrib import messages
 from django.http import FileResponse, Http404
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.decorators.http import require_POST, require_safe
 
 from assets.api import asset_exists, content_type, open_asset
 from campaigns import api as campaigns
+from foundation.api import present
 
 from ..errors import fetch, run_action, submit
 from ..forms import CreativeEditForm, CreativeUploadForm, ImageForm
@@ -24,7 +25,7 @@ def creative_list(request):
         if status is None:
             messages.success(request, "소재를 올렸습니다. 광고 만들기나 광고 상세에서 이 소재를 쓸 수 있습니다.")
             return redirect("creative_detail", creative_id=c.creative_id)
-    return render(request, "console/creative_list.html", {"items": campaigns.list_owned_creatives(request.user), "form": form}, status=status)
+    return present(request, "console/creative_list.html", {"items": campaigns.list_owned_creatives(request.user), "form": form}, status=status)
 
 
 def _edit_form(creative, data=None):
@@ -40,7 +41,7 @@ def creative_detail(request, creative_id, status=200, edit=None, image=None):
     """소재 상세. `edit`·`image` 는 다시 그릴 수정·이미지 폼(제출 뷰가 넘긴다). 보관한 소재는 읽기만(쓰는 광고·폼 없음)."""
     creative = fetch(campaigns.get_creative, request.user, creative_id)  # 남의 소재는 404
     owned = next((o for o in campaigns.list_owned_creatives(request.user) if o.creative.creative_id == creative.creative_id), None)
-    return render(request, "console/creative_detail.html", {
+    return present(request, "console/creative_detail.html", {
         "creative": creative, "owned": owned,
         "edit": edit or _edit_form(creative), "image": image or _image_form(creative),
     }, status=status)

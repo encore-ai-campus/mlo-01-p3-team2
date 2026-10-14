@@ -2,7 +2,7 @@
 from django import forms
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
-from django.template import Context, RequestContext, Template
+from django.template import Context, RequestContext
 from django.test import RequestFactory, SimpleTestCase, TestCase, tag
 from django.urls import reverse
 
@@ -11,6 +11,7 @@ from console.errors import form_errors, message_of
 from console.paging import PER_PAGE, page_of
 from foundation.api import errors
 from tests.factories import make_advertiser
+from tests.presentation import rendering
 
 
 class Form(forms.Form):
@@ -65,8 +66,10 @@ class FormErrorsTests(SimpleTestCase):
 
 
 class PointsAndPagingTests(SimpleTestCase):
+    """서식 필터·쪽 나누기 조각은 프론트에 있다(6-15) — 프론트 렌더러의 엔진으로 그린다."""
+
     def render(self, text, **context):
-        return Template("{% load console_format %}" + text).render(Context(context))
+        return rendering.engine().from_string("{% load console_format %}" + text).render(Context(context))
 
     def test_points(self):
         self.assertEqual(self.render("{{ v|points }}", v=1234567), "1,234,567 포인트")
@@ -83,7 +86,7 @@ class PointsAndPagingTests(SimpleTestCase):
     def test_pager_keeps_other_query_values(self):
         request = RequestFactory().get("/", {"page": "2", "from": "2026-10-01"})
         page = page_of(list(range(PER_PAGE * 3)), request)
-        html = Template('{% include "console/_pager.html" %}').render(RequestContext(request, {"page": page}))
+        html = rendering.engine().get_template("console/_pager.html").render(RequestContext(request, {"page": page}))
         self.assertIn("?page=1&amp;from=2026-10-01", html)
         self.assertIn("?page=3&amp;from=2026-10-01", html)
         self.assertIn("2 / 3", html)

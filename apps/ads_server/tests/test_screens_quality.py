@@ -12,14 +12,12 @@
 import re
 import uuid
 from html.parser import HTMLParser
-from pathlib import Path
 from random import Random
 
 from django.conf import settings
 from axes.models import AccessFailureLog
 from django.contrib import admin
 from django.contrib.auth.models import Group
-from django.contrib.staticfiles import finders
 from django.test import Client, TestCase, tag
 from django.urls import resolve, reverse
 
@@ -28,6 +26,7 @@ from campaigns import api as campaigns
 from masters import api as masters
 from records import api as records
 from tests.factories import NOW, PW, SUBJECT, WHOLE, World, png_file
+from tests.presentation import rendering
 from tests.helpers import ROUTE_PARAM, every_route
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
@@ -268,7 +267,7 @@ class ScreenQualityTests(TestCase):
                     self.assertNotIn(word, html, (url, word))
 
     def test_the_design_tokens_have_enough_contrast_in_both_themes(self):
-        css = Path(finders.find("console/app.css")).read_text()
+        css = (rendering.ROOT / "static/console/app.css").read_text()  # 콘솔 CSS 는 프론트에 있다(6-15)
         token = re.compile(r"--([\w-]+):\s*(#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b)")
         head, dark_block = css.split("@media (prefers-color-scheme: dark)", 1)
         light = dict(token.findall(head))

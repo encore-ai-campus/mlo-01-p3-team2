@@ -132,6 +132,8 @@ class AdCreateForm(forms.Form):
     image = forms.FileField(label="이미지", required=False, widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg", "data-preview": "image-preview"}))
     request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
 
+    PRESENTED = ("has_creatives",)  # 화면 데이터에 함께 싣는 폼 속성(템플릿이 읽는다, foundation/presentation.py)
+
     # 서비스 오류의 위치(`create_ad` 가 부분 이름을 붙인다) → 이 폼의 칸
     POINTERS = {
         "/ad_group/name": "group_name", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
