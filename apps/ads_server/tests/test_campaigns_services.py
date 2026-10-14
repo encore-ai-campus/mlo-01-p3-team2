@@ -268,7 +268,7 @@ class ImageHoldingTests(TestCase):
         """과거 결정의 이미지 URL 이 교체 직후 404 가 되면 매체의 광고가 깨진다. 단 중단·종료는 이전 이미지에도 적용된다."""
         from records import api as records
 
-        w = World()
+        w = World(ends_in=None)  # /assets/ 는 실제 시계로 판정한다 — 기간이 있으면 그 끝(실제 날짜)부터 이 시험이 깨진다(6-16b)
         decision = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW)
         old_url_name = decision.chosen.image_name
         api.replace_creative_image(w.adv, w.creative.creative_id, png_file((1, 200, 3)), now=NOW)

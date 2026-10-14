@@ -146,6 +146,12 @@ OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못
 
 `check.sh`는 하나라도 실패하면 비정상 종료한다. `pip-audit`이 네트워크 문제로 못 돌 때와 **실제 취약점이 발견됐을 때**를 구분해 알려준다.
 
+날짜가 지나면 깨지는 시험(실제 시계에 기대는 시험)은 시계를 앞당겨 미리 찾는다. 시간이 두 배라 `check.sh`에는 넣지 않았고, 측정 단계에서 +4일·+40일·+6년으로 돌린다:
+
+```bash
+DB_NAME=ads_impl python scripts/clock_shift_test.py --days 40   # 앱 코드의 시계(django.utils.timezone.now)만 앞당겨 전체 시험
+```
+
 부하·장애 시험(결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md)):
 
 ```bash

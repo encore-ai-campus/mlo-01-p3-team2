@@ -116,7 +116,7 @@ class NoJsJourneyTests(TestCase):
         self.login(self.adv, "nojs_user")
 
         # 캠페인 만들기(광고는 따로, 6-9d)
-        done = submit(self.adv, self.go(self.adv, reverse("campaign_create")), no_action, name="자바 없는 캠페인", ends_at="2030-12-31T09:00", daily_budget="3000")
+        done = submit(self.adv, self.go(self.adv, reverse("campaign_create")), no_action, name="자바 없는 캠페인", ends_at="2099-12-31T09:00", daily_budget="3000")
         campaign = Campaign.objects.get(name="자바 없는 캠페인")
         detail = reverse("campaign_detail", args=[campaign.campaign_id])
         self.assertRedirects(done, detail)

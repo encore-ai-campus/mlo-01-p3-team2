@@ -17,6 +17,7 @@ from django.core import signing
 from django.core.management import call_command
 from django.db import OperationalError
 from django.test import RequestFactory, SimpleTestCase, TestCase, tag
+from django.utils import timezone as app_clock
 from pymongo.errors import ServerSelectionTimeoutError
 
 from foundation import errors
@@ -90,7 +91,7 @@ class OneLine503Tests(SimpleTestCase):
 @tag("security")
 class StampedCommandLinesTests(TestCase):
     def assertStamped(self, lines):
-        now = datetime.now(timezone.utc)
+        now = app_clock.now()  # 명령이 찍는 시계와 같은 시계(시계를 앞당겨 도는 scripts/clock_shift_test.py 에서도 맞게)
         for line in lines:
             match = STAMP.match(line)
             self.assertTrue(match, line)

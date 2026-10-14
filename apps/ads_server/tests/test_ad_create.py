@@ -244,7 +244,7 @@ class CampaignCreatePageTests(TestCase):
 
     def fields(self, **over):
         data = {"request_key": request_key(self.client.get(NEW_CAMPAIGN).content.decode()), "name": "새 캠페인",
-                "starts_at": "2026-10-01T09:00", "ends_at": "2030-12-31T09:00", "daily_budget": "3000"}
+                "starts_at": "2026-10-01T09:00", "ends_at": "2099-12-31T09:00", "daily_budget": "3000"}
         data.update(over)
         return data
 

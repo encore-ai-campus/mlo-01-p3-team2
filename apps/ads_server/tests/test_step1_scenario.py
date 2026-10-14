@@ -48,7 +48,7 @@ class Step1ScenarioTests(TestCase):
 
         # 3. 광고주 1: 캠페인 → 광고그룹(A·B·C) 입찰 300 → 소재(실제 PNG). 광고주 2: 입찰 250
         def launch(adv, name, bid, color):
-            camp = campaigns.create_campaign(adv, f"{name} 캠페인", NOW - DAY, NOW + 30 * DAY, 5_000, now=NOW)
+            camp = campaigns.create_campaign(adv, f"{name} 캠페인", NOW - DAY, None, 5_000, now=NOW)  # 무기한: 아래 /assets/ 는 실제 시계로 판정한다(6-16b)
             group = campaigns.create_ad_group(adv, camp.campaign_id, f"{name} 그룹", [sid["A"], sid["B"], sid["C"]], bid_amount=bid, now=NOW)
             creative = campaigns.create_creative(adv, group.ad_group_id, f"{name} 광고", f"https://{name}.example/landing", png_file(color), now=NOW)
             return camp, group, creative

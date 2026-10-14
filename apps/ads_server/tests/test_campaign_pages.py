@@ -85,12 +85,12 @@ class ToggleTests(CampaignPagesBase):
 
 class EditTests(CampaignPagesBase):
     def test_only_changed_fields_are_sent_and_kst_input_becomes_utc(self):
-        r = self.client.post(self.detail, self.edit_fields(daily_budget="7000", ends_at="2030-12-31T09:00"))
+        r = self.client.post(self.detail, self.edit_fields(daily_budget="7000", ends_at="2099-12-31T09:00"))
         self.assertRedirects(r, self.detail)
         view = self.view()
-        self.assertEqual((view.daily_budget, view.ends_at), (7000, datetime(2030, 12, 31, 0, 0, tzinfo=timezone.utc)))  # KST 09:00 = UTC 00:00
+        self.assertEqual((view.daily_budget, view.ends_at), (7000, datetime(2099, 12, 31, 0, 0, tzinfo=timezone.utc)))  # KST 09:00 = UTC 00:00
         self.assertEqual(AuditLog.objects.filter(action="campaign.updated").latest("created_at").detail["changed"], ["daily_budget", "ends_at"])
-        self.assertIn('value="2030-12-31T09:00"', self.client.get(self.detail).content.decode())  # 다시 KST 로 보인다
+        self.assertIn('value="2099-12-31T09:00"', self.client.get(self.detail).content.decode())  # 다시 KST 로 보인다
 
     def test_a_stale_form_does_not_overwrite_a_change_made_elsewhere(self):
         fields = self.edit_fields(daily_budget="7000")  # 이 탭은 폼을 열어 둔 채
@@ -115,10 +115,10 @@ class EditTests(CampaignPagesBase):
 
     def test_nothing_changed(self):
         """화면은 분 단위라, 초가 있는 끝 시각을 그대로 내도 '바뀌지 않음'이다(끝 시각을 분으로 잘라 몰래 바꾸지 않는다)."""
-        campaigns.update_campaign(self.w.adv, self.cid, {"ends_at": datetime(2030, 12, 31, 0, 0, 30, tzinfo=timezone.utc)})
+        campaigns.update_campaign(self.w.adv, self.cid, {"ends_at": datetime(2099, 12, 31, 0, 0, 30, tzinfo=timezone.utc)})
         self.assertRedirects(self.client.post(self.detail, self.edit_fields()), self.detail, fetch_redirect_response=False)
         self.assertIn("바뀐 것이 없습니다", self.flash())
-        self.assertEqual(self.view().ends_at, datetime(2030, 12, 31, 0, 0, 30, tzinfo=timezone.utc))
+        self.assertEqual(self.view().ends_at, datetime(2099, 12, 31, 0, 0, 30, tzinfo=timezone.utc))
 
 
 class EndTests(CampaignPagesBase):
