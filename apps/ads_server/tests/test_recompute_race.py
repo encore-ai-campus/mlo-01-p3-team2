@@ -261,7 +261,7 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         return result
 
     def test_inside_an_existing_read_committed_transaction_the_check_refuses_instead_of_guessing(self):
-        """검토 7aac929→54363b2: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
+        """검토 7aac929→6fc9664: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
         from django.db import transaction
 
         self.charge(10, "m:r1")

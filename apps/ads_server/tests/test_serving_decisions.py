@@ -213,7 +213,7 @@ class DecisionContextTests(DecisionApiBase):
         self.assertEqual(Decision.objects.get().context, {"e": "😀 😀", "😀": 1})
 
     def test_numbers_outside_the_safe_range_are_400_and_nothing_is_stored(self):
-        """6-2c(외부 검토 a70d769 P2): 10^400 은 MySQL 저장 오류(3140)가 503 이 되어 같은 요청이 끝없이 재시도됐고, 2^64 를 넘는 정수는 조용히 실수로 바뀌어 저장됐다.
+        """6-2c(외부 검토 7c4714b P2): 10^400 은 MySQL 저장 오류(3140)가 503 이 되어 같은 요청이 끝없이 재시도됐고, 2^64 를 넘는 정수는 조용히 실수로 바뀌어 저장됐다.
         이제 저장 전에 400 이고, 범위 안의 값은 되읽어도 같다."""
         for raw in ("1" + "0" * 400, "-1" + "0" * 400, "18446744073709551617", "9007199254740992", "[1e300]"):
             body = '{"slot_id": "%s", "subject_id": "%s", "context": {"n": %s}}' % (self.w.slot.slot_id, SUBJECT, raw)
