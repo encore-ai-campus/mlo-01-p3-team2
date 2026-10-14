@@ -20,7 +20,8 @@ class CreativePageTests(TestCase):
 
     def test_the_list_shows_where_each_creative_is_used_and_only_unused_ones_can_be_deleted(self):
         html = self.client.get(LIST).content.decode()
-        self.assertIn("그룹</a> <span class=\"muted\">(캠페인 · 나가는 중)</span>", html)
+        self.assertIn("그룹</a> <span class=\"muted\">(캠페인 · 선택됨)</span>", html)  # 광고가 고른 소재 — 실제로 나가는지는 광고 상세가 보여 준다(6-16l)
+        self.assertNotIn("나가는 중", html)
         self.assertIn(reverse("creative_archive", args=[self.spare.creative_id]), html)  # 쓰는 광고가 없다 — 삭제 버튼
         self.assertNotIn(reverse("creative_archive", args=[self.w.creative.creative_id]), html)  # 끝나지 않은 캠페인의 광고에 쓰인다
         self.assertIn("사용 중", html)

@@ -12,7 +12,7 @@
   {% else %}
   <h2>쓰는 광고</h2>
   <ul>
-    {% for u in owned.uses %}<li><a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 나가는 중{% endif %})</span></li>
+    {% for u in owned.uses %}<li><a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 선택됨{% endif %})</span></li>
     {% empty %}<li class="muted">아직 쓰는 광고가 없습니다.</li>{% endfor %}
   </ul>
   {% if owned.deletable %}

@@ -154,7 +154,7 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, shares, applied_am
     `shares` = {반응 유형: 비율(%)} — 그 반응의 결정에 남긴 값이다(6-10c, 지금 정책을 다시 읽지 않는다).
 
     **멱등**: 같은 `reaction_ref` 는 몇 번을 불러도 한 번만 차감하고 처음 결과를 돌려준다(최소 한 번 전달 + 멱등 처리).
-    한 트랜잭션에서 ① 원장 `CHARGE` ② 지갑 잔액 ③ 그날 소진액을 함께 바꾼다.
+    한 트랜잭션에서 ① 원장 `CHARGE` ② 지갑 잔액을 함께 바꾼다. 캠페인 소진액은 따로 쌓지 않고 원장의 과금 줄에서 센다(6-16f).
     """
     now = _now(now)
     if not is_int(applied_amount) or not 1 <= applied_amount <= MAX_AMOUNT:  # 소수·bool·범위 밖은 원장·잔액·소진액 어디에도 닿기 전에 거절

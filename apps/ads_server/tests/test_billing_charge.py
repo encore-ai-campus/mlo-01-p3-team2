@@ -70,7 +70,7 @@ class ChargeTests(TestCase):
         with self.assertRaises(ValueError):
             api.register_charge_policy(FlatOne())  # 이름 중복
 
-    def test_charge_updates_campaign_spend_but_not_for_shortfall(self):
+    def test_campaign_spend_counts_what_was_charged_not_the_shortfall(self):
         adv, camp, other = funded(100), uuid.uuid4(), uuid.uuid4()
         charge(adv, 70, "a", camp)
         charge(adv, 70, "b", camp)  # 잔액 30 만 받는다

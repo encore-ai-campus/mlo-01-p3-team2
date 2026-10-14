@@ -13,7 +13,7 @@
         <tr>
           <td><img class="thumb" src="{% url 'creative_image_file' c.creative_id %}" alt="" width="96" height="54"> <a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></td>
           <td><strong>{{ c.redirect_url|domain }}</strong></td>
-          <td>{% for u in item.uses %}<a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 나가는 중{% endif %})</span>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">없음</span>{% endfor %}</td>
+          <td>{% for u in item.uses %}<a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 선택됨{% endif %})</span>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">없음</span>{% endfor %}</td>
           <td>
             {% if item.deletable %}
             <form method="post" action="{% url 'creative_archive' c.creative_id %}" data-confirm="‘{{ c.title }}’ 소재를 삭제합니다.">{% csrf_token %}

@@ -134,14 +134,16 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertNotIn("<script>x</script>", html)
 
     def test_every_linked_creative_is_listed_and_the_selected_one_is_marked(self):
-        """연결만 된 소재도 운영자가 이동 주소를 본다(언제든 선택될 수 있다). 지금 나가는 것은 표시한다(6-9d)."""
+        """연결만 된 소재도 운영자가 이동 주소를 본다(언제든 선택될 수 있다). 광고가 고른 것은 "선택됨"으로 표시한다(6-9d, 6-16l — 꺼진 광고·하한 미만·예산 소진에도
+        보이므로 "나가는 중"이라고 하지 않는다)."""
         spare = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "예비 소재", "https://spare.example/", png_file((7, 7, 7)), now=NOW)
         html = self.client.get(self.monitor).content.decode()
-        self.assertIn("제목 <strong>(나가는 중)</strong>", html)
+        self.assertIn("제목 <strong>(선택됨)</strong>", html)
+        self.assertNotIn("나가는 중", html)
         self.assertIn("예비 소재<br>", html)
         self.assertIn("<strong>spare.example</strong>", html)
         campaigns.link_creative(self.w.adv, self.w.group.ad_group_id, spare.creative_id, now=NOW, select=True)
-        self.assertIn("예비 소재 <strong>(나가는 중)</strong>", self.client.get(self.monitor).content.decode())
+        self.assertIn("예비 소재 <strong>(선택됨)</strong>", self.client.get(self.monitor).content.decode())
 
     def test_suspend_needs_a_reason_and_is_seen_by_the_advertiser_at_once(self):
         self.assertRedirects(self.suspend(reason="  "), self.monitor)
