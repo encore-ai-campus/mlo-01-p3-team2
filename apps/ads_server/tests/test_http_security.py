@@ -78,11 +78,12 @@ class SecurityHeaderTests(TestCase):
             "javascript: URL": re.compile(r"javascript:", re.I),
         }
         files = [p for app in ("console", "foundation") for p in (BASE_DIR / app).rglob("*.html")]
-        self.assertTrue(files)
+        files += (BASE_DIR.parent / "ads_frontend/ui/templates").rglob("*.html")  # 6-15 뒤 우리 화면의 템플릿은 프론트에 있다(6-16i, R23)
+        self.assertGreater(len(files), 25)  # 백엔드 1(관리자 첫 화면) + 프론트 29
         for path in files:
             text = path.read_text(encoding="utf-8")
             for label, rx in patterns.items():
-                self.assertIsNone(rx.search(text), f"{path.relative_to(BASE_DIR)}: {label}")
+                self.assertIsNone(rx.search(text), f"{path.relative_to(BASE_DIR.parent)}: {label}")
 
 
 @tag("security")

@@ -2,10 +2,12 @@
 경로·URL 이름(`ui/routes.py`), 화면 이름표(`ui/labels.py`), KST 표시(`ui/templatetags/kst.py`, 백엔드 Django admin 도 쓴다). 화면 데이터는 그 밖의 값이
 새지 않게 막는다."""
 import ast
+import json
 import re
 from datetime import datetime, timezone
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
@@ -20,7 +22,7 @@ from foundation.presentation import to_data
 from foundation.templatetags.kst import kst as backend_kst
 from masters.api import Audience
 from tests.factories import PW, World
-from tests.helpers import BASE_DIR
+from tests.helpers import BASE_DIR, run_python
 from tests.presentation import PresentationClient, rendering  # noqa: F401 — rendering: 프론트 경로를 sys.path 에 둔다
 from ui import labels, routes
 from ui.templatetags.kst import kst as frontend_kst
@@ -49,6 +51,16 @@ class FrontendSyncTests(SimpleTestCase):
                 names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
                 for name in names:
                     self.assertNotIn(name.split(".")[0], backend, f"{path.relative_to(BASE_DIR.parent)}: {name}")
+
+    def test_the_frontend_sends_the_same_security_headers_as_the_backend(self):
+        """6-16i(R22): 프론트가 그린 HTML 의 보안 헤더·CSP 는 프론트가 붙인다(위협 모델 T46 ⑤ "같은 값"). 프론트는 따로 배포되는 앱이라 새 프로세스에서
+        그 설정을 실제로 읽어 백엔드 설정과 대조한다."""
+        names = ("SECURE_CSP", "SECURE_CONTENT_TYPE_NOSNIFF", "X_FRAME_OPTIONS", "SECURE_REFERRER_POLICY", "SECURE_CROSS_ORIGIN_OPENER_POLICY")
+        code = f"import json, django; django.setup(); from django.conf import settings as s; print(json.dumps({{n: getattr(s, n) for n in {names!r}}}))"
+        done = run_python(code, "config.settings_test", cwd=BASE_DIR.parent / "ads_frontend")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        frontend = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(frontend, json.loads(json.dumps({n: getattr(settings, n) for n in names})))
 
     def test_frontend_labels_match_the_backend_choices(self):
         for data, choices in ((labels.AUDIENCES, Audience), (labels.CAMPAIGN_STATUSES, CampaignStatus), (labels.ENTRY_TYPES, EntryType),

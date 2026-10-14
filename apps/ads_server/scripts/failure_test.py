@@ -239,10 +239,12 @@ def run_scenario(name, db, mongo_container, log):
         elif name == "relay-kill":
             relays[0].send_signal(signal.SIGKILL)
             relays[0].wait(timeout=10)
+            relays[0].log_handle.close()  # 갈아 끼우는 프로세스의 로그 파일도 닫는다(R25)
             relays[0] = start_standing("relay_events", env, tmp, "r1b")
         else:
             processors[0].send_signal(signal.SIGKILL)
             processors[0].wait(timeout=10)
+            processors[0].log_handle.close()
             processors[0] = start_standing("process_reactions", env, tmp, "p1b")
         timeline["recovered_at"] = time.time()
         result.update(injected=injected)

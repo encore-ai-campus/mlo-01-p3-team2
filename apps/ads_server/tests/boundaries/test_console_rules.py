@@ -5,6 +5,7 @@
 """
 import ast
 
+from django.conf import settings
 from django.test import SimpleTestCase, tag
 
 from .checker import imports_of
@@ -29,6 +30,14 @@ class ConsoleHasNoRulesTests(SimpleTestCase):
     def test_console_only_calls_services(self):
         files = project_files("console")
         self.assertGreater(len(files), 3)  # 검사가 공회전이 아니다
+        problems = {str(p.name): v for p in files if (v := console_violations(p.read_text(encoding="utf-8")))}
+        self.assertEqual(problems, {})
+
+    def test_the_frontend_has_no_rules_either(self):
+        """6-16i(R23): 프론트는 그리기만 한다(설계 §6.6 "6-15 분리") — 콘솔에서 옮긴 서식 필터(`console_format`·`console_chart`)를 포함한 프론트 파일에도 같은 통로가 없다."""
+        files = list((settings.BASE_DIR.parent / "ads_frontend" / "ui").rglob("*.py"))
+        self.assertGreater(len(files), 5)
+        self.assertTrue(any(p.name == "console_format.py" for p in files))
         problems = {str(p.name): v for p in files if (v := console_violations(p.read_text(encoding="utf-8")))}
         self.assertEqual(problems, {})
 

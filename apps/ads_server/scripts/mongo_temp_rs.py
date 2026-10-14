@@ -33,12 +33,11 @@ def start():
     docker("run", "-d", "--name", name, "-p", f"127.0.0.1:{port}:{port}", "--entrypoint", "sh", IMAGE, "-c", script)
     try:
         mongosh = ["exec", name, "mongosh", "--quiet", "--port", str(port)]
-        for _ in range(60):
-            if docker(*mongosh, "--eval", "db.hello().ok", check=False).returncode == 0:
-                break
+        deadline = time.time() + 60  # 횟수가 아니라 시간으로(R25 — 횟수면 시도마다 docker 시간 제한까지 걸려 한없이 길어질 수 있었다)
+        while docker(*mongosh, "--eval", "db.hello().ok", check=False).returncode != 0:
+            if time.time() > deadline:
+                raise SystemExit("mongod 가 60초 안에 기동하지 않았다")
             time.sleep(1)
-        else:
-            raise SystemExit("mongod 가 기동하지 않았다")
         docker(*mongosh, "--eval", f'rs.initiate({{_id: "{REPLICA_SET}", members: [{{_id: 0, host: "127.0.0.1:{port}"}}]}})')
         wait_primary(name, port)
         docker(*mongosh, "admin", "--eval",

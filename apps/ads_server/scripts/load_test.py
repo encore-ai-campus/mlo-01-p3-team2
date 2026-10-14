@@ -723,8 +723,7 @@ class Harness:
             while time.perf_counter() - started < limit and Reaction.objects.filter(decision_id__in=ids, source="server", status="ACCEPTED").count() < count:
                 time.sleep(0.25)
         finally:
-            proc.send_signal(signal.SIGTERM)
-            proc.wait(timeout=30)
+            stop_process(proc)
             log_file.close()
         elapsed = round(time.perf_counter() - started, 1)
         done = Reaction.objects.filter(decision_id__in=ids, source="server", status="ACCEPTED").count()
@@ -771,15 +770,13 @@ class Harness:
         exits = {}
         backlog_at_term = Reaction.objects.filter(status="RECEIVED").count()
         t0 = time.perf_counter()
-        procs[0].send_signal(signal.SIGTERM)
-        codes = {"p1": procs[0].wait(timeout=30)}
+        codes = {"p1": stop_process(procs[0])}
         exits["p1_exit_s"] = round(time.perf_counter() - t0, 2)
         time.sleep(inflow_seconds / 3)
         stop.set()
         workers.join(timeout=120)
         t0 = time.perf_counter()
-        procs[1].send_signal(signal.SIGTERM)
-        codes["p2"] = procs[1].wait(timeout=30)
+        codes["p2"] = stop_process(procs[1])
         exits["p2_exit_s"] = round(time.perf_counter() - t0, 2)
         [h.close() for h in logs]
         settings.REACTION_PROCESS_ON_RECEIPT = True
@@ -861,15 +858,20 @@ class Harness:
         self.log(f"G. 결정 요청 1건: 질의 {sum(kinds.values())}개 {kinds}, 서버 안쪽 중앙값 {samples_ms} ms, slot_name 조회 비용 ≈ {cost} ms")
 
 
+def stop_process(proc, timeout=30):
+    """하위 프로세스를 끝내고 종료 코드를 돌려준다(SIGTERM, `timeout` 안에 끝나지 않으면 SIGKILL — 걸린 프로세스가 시험을 붙잡지 않게)."""
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            return proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    return proc.wait()
+
+
 def stop_processes(procs):
-    """살아 있는 하위 프로세스를 끝낸다(SIGTERM, 30초 안에 끝나지 않으면 SIGKILL)."""
     for proc in procs:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        stop_process(proc)
 
 
 # ---------------------------------------------------------------- 실행

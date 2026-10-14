@@ -223,8 +223,7 @@ class AdCreatePageTests(AdCreateBase, TestCase):
     @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=1)
     def test_the_quota_is_explained(self):
         r = self.client.post(URL, self.fields())
-        self.assertContains(r, "광고 개수 상한에 도달했습니다", status_code=r.status_code)
-        self.assertIn(r.status_code, (400, 409, 422))
+        self.assertContains(r, "광고 개수 상한에 도달했습니다", status_code=409)  # 상한은 상태 충돌(캠페인 상한 시험과 같은 코드, 6-16i R26)
         self.assertFalse(self.created().exists())
 
     def test_an_oversized_upload_is_a_readable_page(self):
