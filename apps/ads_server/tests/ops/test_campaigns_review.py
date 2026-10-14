@@ -10,9 +10,10 @@ from campaigns.models import Campaign, ReviewRequest
 from foundation.errors import Conflict, InvalidRequest
 from foundation.models import AuditLog
 from tests.support.factories import DAY, NOW, World
+from tests.support.cases import Cases
 
 
-class ReviewRequestTests(TestCase):
+class ReviewRequestTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
         self.cid = self.w.campaign.campaign_id
@@ -20,7 +21,7 @@ class ReviewRequestTests(TestCase):
     def suspend(self):
         return api.suspend_campaign(self.w.admin, self.cid, "부적절한 소재", now=NOW)
 
-    def test_review_request_only_when_suspended_and_one_open(self):
+    def case_review_request_only_when_suspended_and_one_open(self):
         with self.assertRaises(api.NotSuspended):
             api.create_review_request(self.w.adv, self.cid, "아직 안 막힘", now=NOW)
         view = self.suspend()
@@ -32,13 +33,13 @@ class ReviewRequestTests(TestCase):
         self.assertEqual(api.get_campaign(self.w.adv, self.cid, now=NOW).suspension.open_review_request_id, review.review_request_id)
         self.assertEqual(ReviewRequest.objects.filter(campaign_id=self.cid).count(), 1)
 
-    def test_review_message_is_optional_and_validated(self):
+    def case_review_message_is_optional_and_validated(self):
         self.suspend()
         with self.assertRaises(InvalidRequest):
             api.create_review_request(self.w.adv, self.cid, "x" * 501, now=NOW)
         self.assertEqual(api.create_review_request(self.w.adv, self.cid, now=NOW).message, "")
 
-    def test_reject_keeps_suspension_and_allows_a_new_request(self):
+    def case_reject_keeps_suspension_and_allows_a_new_request(self):
         self.suspend()
         review = api.create_review_request(self.w.adv, self.cid, "고침", now=NOW)
         done = api.reject_review_request(self.w.admin, review.review_request_id, "아직 부족합니다", now=NOW)
@@ -51,7 +52,7 @@ class ReviewRequestTests(TestCase):
         with self.assertRaises(InvalidRequest):
             api.reject_review_request(self.w.admin, api.list_review_requests(self.w.adv, self.cid)[0].review_request_id, " ", now=NOW)
 
-    def test_release_activates_campaign_and_closes_open_request(self):
+    def case_release_activates_campaign_and_closes_open_request(self):
         self.suspend()
         review = api.create_review_request(self.w.adv, self.cid, "고침", now=NOW)
         view = api.release_campaign(self.w.admin, self.cid, now=NOW)
@@ -60,7 +61,7 @@ class ReviewRequestTests(TestCase):
         api.suspend_campaign(self.w.admin, self.cid, "다시", now=NOW)
         self.assertIsNone(api.get_campaign(self.w.adv, self.cid, now=NOW).suspension.open_review_request_id)
 
-    def test_release_without_request_and_when_not_suspended(self):
+    def case_release_without_request_and_when_not_suspended(self):
         with self.assertRaises(api.NotSuspended):
             api.release_campaign(self.w.admin, self.cid, now=NOW)
         self.suspend()
@@ -68,7 +69,7 @@ class ReviewRequestTests(TestCase):
         with self.assertRaises(api.NotSuspended):
             api.release_campaign(self.w.admin, self.cid, now=NOW)
 
-    def test_suspend_requires_reason_and_a_live_state(self):
+    def case_suspend_requires_reason_and_a_live_state(self):
         for reason in ("", " ", "x" * 501):
             with self.assertRaises(InvalidRequest, msg=reason):
                 api.suspend_campaign(self.w.admin, self.cid, reason, now=NOW)
@@ -79,15 +80,18 @@ class ReviewRequestTests(TestCase):
             api.suspend_campaign(self.w.admin, uuid.uuid4(), "사유", now=NOW)
         self.assertEqual(cm.exception.status, 404)
 
-    def test_paused_campaign_can_be_suspended_and_release_returns_to_active(self):
+    def case_paused_campaign_can_be_suspended_and_release_returns_to_active(self):
         api.update_campaign(self.w.adv, self.cid, {"status": "PAUSED"}, now=NOW)
         self.assertEqual(self.suspend().status, "SUSPENDED")
         self.assertEqual(api.release_campaign(self.w.admin, self.cid, now=NOW).status, "ACTIVE")
 
+    def test_review_request(self):
+        self.run_cases()
+
 
 @tag("security")
-class SuspendedStateTests(TestCase):
-    def test_suspended_blocks_advertiser_status_change_but_allows_other_edits(self):
+class SuspendedStateTests(Cases, TestCase):
+    def case_suspended_blocks_advertiser_status_change_but_allows_other_edits(self):
         w = World()
         cid = w.campaign.campaign_id
         api.suspend_campaign(w.admin, cid, "사유", now=NOW)
@@ -105,7 +109,7 @@ class SuspendedStateTests(TestCase):
             api.update_campaign(w.adv, cid, {"name": "취소돼야 함", "status": "ACTIVE"}, now=NOW)
         self.assertEqual(api.get_campaign(w.adv, cid, now=NOW).name, "고침")
 
-    def test_review_and_suspension_actions_are_audited(self):
+    def case_review_and_suspension_actions_are_audited(self):
         w = World()
         cid = w.campaign.campaign_id
         api.suspend_campaign(w.admin, cid, "사유", now=NOW)
@@ -117,8 +121,11 @@ class SuspendedStateTests(TestCase):
             self.assertIn(action, seen)
         self.assertEqual(AuditLog.objects.get(action="campaign.review_rejected").actor_id, w.admin.pk)
 
+    def test_suspended_state(self):
+        self.run_cases()
 
-class ReviewClosingTests(TestCase):
+
+class ReviewClosingTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
         self.cid = self.w.campaign.campaign_id
@@ -129,11 +136,11 @@ class ReviewClosingTests(TestCase):
         (review,) = api.list_review_requests(self.w.adv, self.cid)
         return review.status, review.closed_at, review.response_note
 
-    def test_release_closes_the_open_review_at_that_moment(self):
+    def case_release_closes_the_open_review_at_that_moment(self):
         api.release_campaign(self.w.admin, self.cid, now=NOW + DAY)
         self.assertEqual(self.closed(), ("RELEASED", NOW + DAY, ""))
 
-    def test_ending_a_suspended_campaign_closes_only_the_open_review_at_that_moment(self):
+    def case_ending_a_suspended_campaign_closes_only_the_open_review_at_that_moment(self):
         (rejected,) = api.list_review_requests(self.w.adv, self.cid)
         api.reject_review_request(self.w.admin, rejected.review_request_id, "아직 아닙니다", now=NOW)
         api.create_review_request(self.w.adv, self.cid, "다시 확인 부탁", now=NOW + timedelta(hours=1))
@@ -141,3 +148,6 @@ class ReviewClosingTests(TestCase):
             tr.apply(Campaign.objects.select_for_update().get(pk=self.cid), "expire", tr.SYSTEM, NOW + DAY)
         reviews = [(r.status, r.closed_at, r.response_note) for r in api.list_review_requests(self.w.adv, self.cid)]
         self.assertEqual(reviews, [("CLOSED_ENDED", NOW + DAY, ""), ("REJECTED", NOW, "아직 아닙니다")])  # 이미 닫힌 요청은 그대로
+
+    def test_review_closing(self):
+        self.run_cases()

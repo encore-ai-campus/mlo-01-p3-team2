@@ -15,16 +15,17 @@ from masters import api as masters
 from tests.support import image_factory
 from tests.support.concurrency import run_together
 from tests.support.factories import DAY, NOW, SUBJECT, World, make_admin, make_advertiser, make_slot, png_file
+from tests.support.cases import Cases
 
 SEC = DAY / 86400
 ENDS_AT_ERROR = [{"pointer": "/ends_at", "message": "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다."}]
 
 
-class CampaignServiceTests(TestCase):
+class CampaignServiceTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
 
-    def test_create_campaign_validation(self):
+    def case_create_campaign_validation(self):
         adv = self.w.adv
         bad = [
             dict(name=""), dict(name="x" * 101), dict(daily_budget=0), dict(daily_budget=1.5), dict(daily_budget=True), dict(daily_budget=2**53),
@@ -38,7 +39,7 @@ class CampaignServiceTests(TestCase):
                 api.create_campaign(adv, args["name"], args["starts_at"], args["ends_at"], args["daily_budget"], now=NOW)
         self.assertEqual(len(api.list_campaigns(adv, now=NOW)), 1)
 
-    def test_only_advertisers_use_advertiser_functions_and_only_admins_admin_functions(self):
+    def case_only_advertisers_use_advertiser_functions_and_only_admins_admin_functions(self):
         for actor in (self.w.admin, None):
             with self.assertRaises(Forbidden):
                 api.create_campaign(actor, "c", NOW, None, 10, now=NOW)
@@ -51,13 +52,13 @@ class CampaignServiceTests(TestCase):
             with self.assertRaises(Forbidden):
                 api.reject_review_request(actor, uuid.uuid4(), "사유", now=NOW)
 
-    def test_campaign_view_shows_ended_when_period_passed_even_if_status_not_updated(self):
+    def case_campaign_view_shows_ended_when_period_passed_even_if_status_not_updated(self):
         later = NOW + 11 * DAY
         view = api.get_campaign(self.w.adv, self.w.campaign.campaign_id, now=later)
         self.assertEqual((view.status, view.ended_from), ("ENDED", "ACTIVE"))
         self.assertEqual(api.get_campaign(self.w.adv, self.w.campaign.campaign_id, now=NOW).status, "ACTIVE")
 
-    def test_update_campaign_fields_and_pause_resume(self):
+    def case_update_campaign_fields_and_pause_resume(self):
         cid, adv = self.w.campaign.campaign_id, self.w.adv
         v = api.update_campaign(adv, cid, {"name": "새 이름", "daily_budget": 777, "status": "PAUSED"}, now=NOW)
         self.assertEqual((v.name, v.daily_budget, v.status), ("새 이름", 777, "PAUSED"))
@@ -67,7 +68,7 @@ class CampaignServiceTests(TestCase):
             with self.assertRaises(InvalidRequest, msg=bad):
                 api.update_campaign(adv, cid, bad, now=NOW)
 
-    def test_an_ad_may_combine_any_slots(self):
+    def case_an_ad_may_combine_any_slots(self):
         """과금 단위가 없어(6-10d) 비율이 다른 구성도 한 광고에 함께 고른다 — 과금은 구성마다 그 정책의 비율로 나뉜다.
         만든 결과가 알리는 구성(정렬)은 나중에 읽은 것과 같다."""
         click_heavy = make_slot(self.w.admin, unit="CLICK")  # 클릭 98%
@@ -75,7 +76,7 @@ class CampaignServiceTests(TestCase):
         self.assertEqual(group.slot_ids, tuple(sorted([self.w.slot.slot_id, click_heavy.slot_id], key=str)))
         self.assertEqual(group.slot_ids, api.get_ad_group(self.w.adv, group.ad_group_id).slot_ids)
 
-    def test_ad_group_slot_validation(self):
+    def case_ad_group_slot_validation(self):
         inactive = make_slot(self.w.admin)
         masters.set_slot_active(self.w.admin, inactive.slot_id, False)
         media_off = make_slot(self.w.admin)
@@ -90,7 +91,7 @@ class CampaignServiceTests(TestCase):
             api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "g", [s], bid_amount=0, now=NOW)
         self.assertEqual(len(api.list_ad_groups(self.w.adv, self.w.campaign.campaign_id)), 1)  # 실패한 시도는 남지 않는다
 
-    def test_list_ad_groups_reads_a_fixed_number_of_queries(self):
+    def case_list_ad_groups_reads_a_fixed_number_of_queries(self):
         """계획 3-4g ④: 질의 수가 광고그룹 수와 무관하다(전에는 그룹마다 현재 입찰·게재 위치를 따로 읽어 2 + 2N). 결과는 하나씩 읽은 것과 같다."""
         cid = self.w.campaign.campaign_id
         with CaptureQueriesContext(connection) as one:
@@ -106,7 +107,7 @@ class CampaignServiceTests(TestCase):
                          [("그룹", (1, 300)), ("둘째", None), ("셋째", (2, 450))])
         self.assertEqual(groups, [api.get_ad_group(self.w.adv, g.ad_group_id) for g in groups])  # 게재 위치 순서·입찰 값까지 하나씩 읽은 것과 같다
 
-    def test_update_ad_group_replaces_slots_atomically(self):
+    def case_update_ad_group_replaces_slots_atomically(self):
         other = make_slot(self.w.admin)
         view = api.update_ad_group(self.w.adv, self.w.group.ad_group_id, {"slot_ids": [other.slot_id], "name": "이름", "enabled": False}, now=NOW)
         self.assertEqual((view.slot_ids, view.name, view.enabled), ((other.slot_id,), "이름", False))
@@ -118,7 +119,7 @@ class CampaignServiceTests(TestCase):
             with self.assertRaises(InvalidRequest, msg=bad):
                 api.update_ad_group(self.w.adv, self.w.group.ad_group_id, bad, now=NOW)
 
-    def test_bid_out_of_range_is_stored(self):
+    def case_bid_out_of_range_is_stored(self):
         """입력은 거절하지 않는다: 정책 100~500 에서 50 도 5,000 도 저장된다(적용 금액 계산은 engine 몫)."""
         low = api.add_bid(self.w.adv, self.w.group.ad_group_id, 50, expected_version=1, now=NOW)
         high = api.add_bid(self.w.adv, self.w.group.ad_group_id, 5000, expected_version=2, now=NOW)
@@ -126,12 +127,12 @@ class CampaignServiceTests(TestCase):
         self.assertEqual([b.amount for b in api.list_bids(self.w.adv, self.w.group.ad_group_id)], [5000, 50, 300])
         self.assertEqual(api.get_ad_group(self.w.adv, self.w.group.ad_group_id).current_bid.amount, 5000)
 
-    def test_bid_validation(self):
+    def case_bid_validation(self):
         for bad in (0, -1, 1.5, True, "30", None, 2**53):
             with self.assertRaises(InvalidRequest, msg=bad):
                 api.add_bid(self.w.adv, self.w.group.ad_group_id, bad, expected_version=1, now=NOW)
 
-    def test_bid_stale_version_conflict(self):
+    def case_bid_stale_version_conflict(self):
         gid = self.w.group.ad_group_id
         api.add_bid(self.w.adv, gid, 400, expected_version=1, now=NOW)
         with self.assertRaises(StaleVersion):
@@ -143,7 +144,7 @@ class CampaignServiceTests(TestCase):
         self.assertIsNone(empty.current_bid)
         self.assertEqual(api.add_bid(self.w.adv, empty.ad_group_id, 200, expected_version=None, now=NOW).bid_version, 1)  # 첫 입찰은 None
 
-    def test_quota_limits(self):
+    def case_quota_limits(self):
         adv, cid = self.w.adv, self.w.campaign.campaign_id
         with override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=1):
             with self.assertRaises(api.LimitExceeded):
@@ -160,13 +161,13 @@ class CampaignServiceTests(TestCase):
             with self.assertRaises(api.LimitExceeded):
                 api.create_creative(adv, self.w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
 
-    def test_an_ad_group_links_several_creatives_and_keeps_its_choice(self):
+    def case_an_ad_group_links_several_creatives_and_keeps_its_choice(self):
         """광고그룹당 소재 수 상한은 없다 — 올려서 연결해도 이미 선택한 소재는 그대로다(6-9c)."""
         second = api.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째", "https://a.example", png_file((1, 2, 3)), now=NOW)
         self.assertEqual([c.creative_id for c in api.list_creatives(self.w.adv, self.w.group.ad_group_id)], [self.w.creative.creative_id, second.creative_id])
         self.assertEqual(api.get_ad_group(self.w.adv, self.w.group.ad_group_id).creative_id, self.w.creative.creative_id)
 
-    def test_creative_image_validated_and_urls_https_only(self):
+    def case_creative_image_validated_and_urls_https_only(self):
         w = World(with_creative=False)
         gid = w.group.ad_group_id
         for bad in (b"just text, not an image", image_factory.other_format_bytes("GIF"), image_factory.SVG_WITH_SCRIPT):
@@ -183,7 +184,7 @@ class CampaignServiceTests(TestCase):
         self.assertTrue(asset_exists(c.image_name))
         self.assertTrue(c.image_name.endswith(".png"))
 
-    def test_update_creative_and_replace_image_keeps_old_file(self):
+    def case_update_creative_and_replace_image_keeps_old_file(self):
         cid = self.w.creative.creative_id
         v = api.update_creative(self.w.adv, cid, {"title": "새 제목", "redirect_url": "https://b.example"}, now=NOW)
         self.assertEqual((v.title, v.redirect_url), ("새 제목", "https://b.example"))
@@ -195,9 +196,12 @@ class CampaignServiceTests(TestCase):
         self.assertNotEqual(new.image_name, old)
         self.assertTrue(asset_exists(old) and asset_exists(new.image_name))  # 과거 결정이 참조할 수 있어 지우지 않는다
 
+    def test_campaign_service(self):
+        self.run_cases()
+
 
 @tag("security")
-class ImageHoldingTests(TestCase):
+class ImageHoldingTests(Cases, TestCase):
     """이전 이미지는 지우지 않으므로, 교체를 반복해도 광고주가 **보유한 파일 총량**이 상한을 넘지 못한다."""
 
     def distinct_images(self, n):
@@ -208,7 +212,7 @@ class ImageHoldingTests(TestCase):
 
         return sum(dict(CreativeImage.objects.filter(creative__owner=user).values_list("image_name", "image_bytes")).values())
 
-    def test_repeated_image_replacement_cannot_bypass_the_quota(self):
+    def case_repeated_image_replacement_cannot_bypass_the_quota(self):
         w = World()
         limit = w.creative.image_bytes + w.creative.image_bytes // 2  # 현재 이미지 + 절반
         accepted = 0
@@ -222,7 +226,7 @@ class ImageHoldingTests(TestCase):
         self.assertEqual(accepted, 0)  # 첫 교체부터 (현재 + 새 이미지) 가 상한을 넘는다
         self.assertLessEqual(self.held_bytes(w.adv), limit)
 
-    def test_replacements_up_to_the_limit_then_rejected_and_rejected_uploads_leave_no_file(self):
+    def case_replacements_up_to_the_limit_then_rejected_and_rejected_uploads_leave_no_file(self):
         w = World()
         size = w.creative.image_bytes
         with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=size * 3 + size // 2):
@@ -249,7 +253,7 @@ class ImageHoldingTests(TestCase):
         self.assertFalse(asset_exists(rejected_name))  # 거절된 업로드는 파일을 남기지 않는다
         self.assertEqual(api.get_creative(w.adv, w.creative.creative_id).image_name, current.image_name)
 
-    def test_reuploading_a_file_already_held_adds_nothing(self):
+    def case_reuploading_a_file_already_held_adds_nothing(self):
         w = World()
         limit = w.creative.image_bytes  # 딱 현재 이미지 하나만큼
         with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=limit):
@@ -257,14 +261,14 @@ class ImageHoldingTests(TestCase):
         self.assertEqual(same.image_name, w.creative.image_name)
         self.assertEqual(self.held_bytes(w.adv), limit)
 
-    def test_other_advertisers_quota_is_independent(self):
+    def case_other_advertisers_quota_is_independent(self):
         w, other = World(), World()
         with override_settings(MAX_UPLOAD_BYTES_PER_ADVERTISER=w.creative.image_bytes):
             with self.assertRaises(api.LimitExceeded):
                 api.replace_creative_image(w.adv, w.creative.creative_id, png_file((7, 7, 7)), now=NOW)
             self.assertIsNotNone(api.replace_creative_image(other.adv, other.creative.creative_id, png_file(), now=NOW))  # 같은 이미지는 그대로
 
-    def test_old_image_stays_servable_after_replacement_until_the_campaign_stops(self):
+    def case_old_image_stays_servable_after_replacement_until_the_campaign_stops(self):
         """과거 결정의 이미지 URL 이 교체 직후 404 가 되면 매체의 광고가 깨진다. 단 중단·종료는 이전 이미지에도 적용된다."""
         from records import api as records
 
@@ -288,15 +292,18 @@ class ImageHoldingTests(TestCase):
                 self.assertEqual(client.get(f"/assets/{name}").status_code, 404, name)
         self.assertFalse(api.is_asset_servable(old_url_name, now=NOW + 11 * DAY))
 
+    def test_image_holding(self):
+        self.run_cases()
 
-class InputHardeningTests(TestCase):
+
+class InputHardeningTests(Cases, TestCase):
     def setUp(self):
         self.w = World(with_creative=False)
 
     def create(self, url):
         return api.create_creative(self.w.adv, self.w.group.ad_group_id, "t", url, png_file(), now=NOW)
 
-    def test_malformed_urls_are_input_errors_not_exceptions(self):
+    def case_malformed_urls_are_input_errors_not_exceptions(self):
         for url in ("https://[", "https://example.com:bogus/", "https://example.com:99999/", "https://example.com:0/", "https://[::1", "https://exa mple.com", "https://", "https:///path"):
             with self.assertRaises(InvalidRequest, msg=url):
                 self.create(url)
@@ -304,7 +311,7 @@ class InputHardeningTests(TestCase):
         c = self.create("https://example.com:8443/path")
         self.assertEqual(c.redirect_url, "https://example.com:8443/path")
 
-    def test_bad_url_on_update_changes_nothing(self):
+    def case_bad_url_on_update_changes_nothing(self):
         c = self.create("https://example.com/ok")
         for url in ("https://[", "https://example.com:bogus/", "https://example.com:99999/"):
             with self.assertRaises(InvalidRequest, msg=url):
@@ -312,7 +319,7 @@ class InputHardeningTests(TestCase):
         after = api.get_creative(self.w.adv, c.creative_id)
         self.assertEqual((after.title, after.redirect_url), ("t", "https://example.com/ok"))
 
-    def test_out_of_range_datetimes_are_input_errors(self):
+    def case_out_of_range_datetimes_are_input_errors(self):
         from datetime import datetime, timedelta, timezone
 
         too_early = datetime.min.replace(tzinfo=timezone(timedelta(hours=9)))  # UTC 로 바꾸면 표현 범위를 벗어난다
@@ -323,6 +330,9 @@ class InputHardeningTests(TestCase):
             with self.assertRaises(InvalidRequest, msg=bad):
                 api.update_campaign(self.w.adv, self.w.campaign.campaign_id, {"ends_at": bad}, now=NOW)
         self.assertEqual(len(api.list_campaigns(self.w.adv, now=NOW)), 1)  # 만들어지거나 바뀐 것이 없다
+
+    def test_input_hardening(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -360,8 +370,8 @@ class CampaignOwnershipTests(TestCase):
         self.assertEqual(api.get_ad_group(w.adv, gid).current_bid.amount, 300)
 
 
-class CandidateFactsTests(TestCase):
-    def test_candidate_facts_single_query_and_structure_only(self):
+class CandidateFactsTests(Cases, TestCase):
+    def case_candidate_facts_single_query_and_structure_only(self):
         w = World()
         slot_id = w.slot.slot_id
         second = World()  # 같은 슬롯을 고르지 않는 다른 광고주
@@ -378,7 +388,7 @@ class CandidateFactsTests(TestCase):
         self.assertEqual(api.candidate_facts_for_slot(second.slot.slot_id)[0].ad_group_id, second.group.ad_group_id)  # 슬롯별로 다르다
         self.assertEqual(api.candidate_facts_for_slot(uuid.uuid4()), [])
 
-    def test_latest_bid_is_used_and_structural_exclusions(self):
+    def case_latest_bid_is_used_and_structural_exclusions(self):
         w = World()
         api.add_bid(w.adv, w.group.ad_group_id, 770, expected_version=1, now=NOW)
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id)[0].bid_amount, 770)  # 최대 버전
@@ -393,7 +403,7 @@ class CandidateFactsTests(TestCase):
             change()
             self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 0 if view else 1, view)
 
-    def test_group_without_bid_or_creative_is_not_a_candidate(self):
+    def case_group_without_bid_or_creative_is_not_a_candidate(self):
         w = World(with_creative=False)
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id), [])  # 소재 없음
         creative = api.create_creative(w.adv, w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
@@ -402,15 +412,18 @@ class CandidateFactsTests(TestCase):
         api.link_creative(w.adv, nobid.ad_group_id, creative.creative_id, now=NOW, select=True)
         self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 1)  # 입찰 없는 그룹은 소재가 있어도 빠진다
 
-    def test_expired_but_not_yet_ended_campaign_is_still_returned_for_engine_to_judge(self):
+    def case_expired_but_not_yet_ended_campaign_is_still_returned_for_engine_to_judge(self):
         w = World()
         self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 1)  # 기간 판정은 조회에 넣지 않는다(engine 한 곳)
 
-    def test_campaign_end_times_drop_ids_that_are_not_uuids(self):
+    def case_campaign_end_times_drop_ids_that_are_not_uuids(self):
         """여러 캠페인을 한 번에 찾는 조회는 형식이 틀린 값을 오류 없이 버린다(없는 ID 와 같다)."""
         w = World()
         ids = ["not-a-uuid", "", None, str(uuid.uuid4()), w.campaign.campaign_id]
         self.assertEqual(api.campaign_end_times(ids), {w.campaign.campaign_id: NOW + 10 * DAY})
+
+    def test_candidate_facts(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -452,7 +465,7 @@ class ConcurrentBidTests(TransactionTestCase):
 
 
 @tag("security")
-class CreateAdTests(TestCase):
+class CreateAdTests(Cases, TestCase):
     """광고 만들기(`create_ad`, 6-9d — Step 3-0 S3 를 대체): 이미 있는 캠페인에 광고그룹(입찰 포함)과 소재를 한 트랜잭션으로. 하나라도 실패하면 아무것도
     남지 않는다(설계 §10 "광고 만들기 흐름"). 캠페인은 `create_campaign` 으로 따로 만든다."""
 
@@ -474,7 +487,7 @@ class CreateAdTests(TestCase):
         self.assertEqual((AdGroup.objects.count(), Bid.objects.count(), Creative.objects.count()), (0, 0, 0))
         self.assertFalse(AuditLog.objects.filter(action__in=["ad_group.created", "creative.created"]).exists())
 
-    def test_creates_the_ad_group_and_its_creative_in_one_go(self):
+    def case_creates_the_ad_group_and_its_creative_in_one_go(self):
         ad = self.create()
         self.assertIsInstance(ad, api.CreatedAd)
         self.assertEqual((ad.campaign.campaign_id, ad.ad_group.name, ad.creative.title), (self.campaign.campaign_id, "로비 배너", "제목"))
@@ -482,12 +495,12 @@ class CreateAdTests(TestCase):
         self.assertEqual(ad.ad_group.current_bid.amount, 300)
         self.assertEqual(sorted(AuditLog.objects.filter(actor_id=self.adv.pk).values_list("action", flat=True)), ["ad_group.created", "campaign.created", "creative.created"])
 
-    def test_a_rejected_image_leaves_no_ad_group(self):
+    def case_a_rejected_image_leaves_no_ad_group(self):
         with self.assertRaises(ImageRejected):
             self.create(creative={"image_file": io.BytesIO(b"not an image")})
         self.assertNothingCreated()
 
-    def test_a_failure_in_any_part_leaves_nothing(self):
+    def case_a_failure_in_any_part_leaves_nothing(self):
         cases = {
             "광고그룹 이름": ({"name": ""}, None),
             "광고그룹 위치": ({"slot_ids": [uuid.uuid4()]}, None),
@@ -500,7 +513,7 @@ class CreateAdTests(TestCase):
                 self.create(ad_group, creative)
             self.assertNothingCreated()
 
-    def test_errors_say_which_part_they_belong_to(self):
+    def case_errors_say_which_part_they_belong_to(self):
         """두 부분에 같은 이름의 칸이 있을 수 있다 — 오류가 어느 부분의 칸인지 알려야 화면이 그 칸 옆에 보여 준다."""
         for part, override, pointer in (
             ("ad_group", {"ad_group": {"name": ""}}, "/ad_group/name"),
@@ -510,7 +523,7 @@ class CreateAdTests(TestCase):
                 self.create(**override)
             self.assertEqual([x["pointer"] for x in e.exception.errors], [pointer])
 
-    def test_another_advertisers_or_an_ended_campaign_is_refused(self):
+    def case_another_advertisers_or_an_ended_campaign_is_refused(self):
         theirs = api.create_campaign(make_advertiser(), "남의 캠페인", NOW, None, 1000, now=NOW)
         with self.assertRaises(Http404):
             self.create(campaign_id=theirs.campaign_id)
@@ -520,23 +533,29 @@ class CreateAdTests(TestCase):
         self.assertNothingCreated()
 
     @override_settings(MAX_AD_GROUPS_PER_ADVERTISER=0)
-    def test_a_limit_leaves_nothing(self):
+    def case_a_limit_leaves_nothing(self):
         with self.assertRaises(api.LimitExceeded):
             self.create()
         self.assertNothingCreated()
 
+    def test_create_ad(self):
+        self.run_cases()
 
-class CampaignEndsAtTests(TestCase):
+
+class CampaignEndsAtTests(Cases, TestCase):
     def setUp(self):
         self.adv = make_advertiser()
 
-    def test_create_refuses_an_end_in_the_past_even_after_the_start(self):
+    def case_create_refuses_an_end_in_the_past_even_after_the_start(self):
         with self.assertRaises(InvalidRequest) as caught:
             api.create_campaign(self.adv, "지난 캠페인", NOW - 2 * DAY, NOW - DAY, 1000, now=NOW)
         self.assertEqual(caught.exception.errors, ENDS_AT_ERROR)
 
-    def test_update_refuses_an_end_before_a_future_start(self):
+    def case_update_refuses_an_end_before_a_future_start(self):
         c = api.create_campaign(self.adv, "다음 주 캠페인", NOW + 5 * DAY, None, 1000, now=NOW)
         with self.assertRaises(InvalidRequest) as caught:
             api.update_campaign(self.adv, c.campaign_id, {"ends_at": NOW + DAY}, now=NOW)
         self.assertEqual(caught.exception.errors, ENDS_AT_ERROR)
+
+    def test_campaign_ends_at(self):
+        self.run_cases()

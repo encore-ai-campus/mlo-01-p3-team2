@@ -6,13 +6,14 @@ from campaigns import api
 from campaigns.models import Campaign, ReviewRequest
 from foundation.errors import InvalidRequest
 from tests.support.factories import DAY, NOW, World, png_file
+from tests.support.cases import Cases
 
 LATER = NOW + 11 * DAY  # World 의 캠페인은 NOW + 10일에 끝난다
 
 
 @tag("security")
-class ExpireTests(TestCase):
-    def test_end_expired_moves_all_three_states(self):
+class ExpireTests(Cases, TestCase):
+    def case_end_expired_moves_all_three_states(self):
         w = World()
         paused = api.create_campaign(w.adv, "일시 중지", NOW - DAY, NOW + DAY, 100, now=NOW)
         api.update_campaign(w.adv, paused.campaign_id, {"status": "PAUSED"}, now=NOW)
@@ -26,7 +27,7 @@ class ExpireTests(TestCase):
         self.assertEqual(Campaign.objects.get(pk=active.campaign_id).status, "ENDED")  # 표시값이 아니라 저장된 상태
         self.assertEqual(Campaign.objects.get(pk=w.campaign.campaign_id).status, "ACTIVE")  # 아직 안 끝난 캠페인은 불변
 
-    def test_end_expired_is_idempotent_and_conditional(self):
+    def case_end_expired_is_idempotent_and_conditional(self):
         w = World()
         self.assertEqual(api.end_expired_campaigns(now=NOW), 0)  # 끝난 것이 없으면 아무것도 안 함
         self.assertEqual(api.end_expired_campaigns(now=LATER), 1)
@@ -38,7 +39,7 @@ class ExpireTests(TestCase):
 
         self.assertEqual(AuditLog.objects.filter(action="campaign.expired").count(), 1)  # 한 번만 기록
 
-    def test_end_closes_open_review_request(self):
+    def case_end_closes_open_review_request(self):
         w = World()
         api.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
         review = api.create_review_request(w.adv, w.campaign.campaign_id, "고쳤습니다", now=NOW)
@@ -50,7 +51,7 @@ class ExpireTests(TestCase):
         with self.assertRaises(api.CampaignEnded):
             api.reject_review_request(w.admin, review.review_request_id, "사유", now=LATER)
 
-    def test_expire_before_extend_and_extend_before_expire(self):
+    def case_expire_before_extend_and_extend_before_expire(self):
         w = World()
         cid = w.campaign.campaign_id
         api.update_campaign(w.adv, cid, {"ends_at": LATER + 5 * DAY}, now=NOW + 9 * DAY)  # 연장이 먼저 커밋
@@ -59,6 +60,9 @@ class ExpireTests(TestCase):
         api.end_expired_campaigns(now=LATER + 6 * DAY)  # 전환이 먼저
         with self.assertRaises(api.CampaignEnded):
             api.update_campaign(w.adv, cid, {"ends_at": LATER + 30 * DAY}, now=LATER + 6 * DAY)  # 연장은 거절
+
+    def test_expire(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -81,7 +85,7 @@ class DbPredicatesAgreeWithEngineTests(TestCase):
 
 
 @tag("security")
-class EndedGuardTests(TestCase):
+class EndedGuardTests(Cases, TestCase):
     def writes(self, w, now):
         cid, gid, crid = w.campaign.campaign_id, w.group.ad_group_id, w.creative.creative_id
         return {
@@ -106,14 +110,14 @@ class EndedGuardTests(TestCase):
             with self.assertRaises(api.CampaignEnded, msg=name):
                 call()
 
-    def test_edit_rejected_when_expired_but_status_still_active(self):
+    def case_edit_rejected_when_expired_but_status_still_active(self):
         """전환 작업이 아직 안 돈 구간: 저장된 상태는 ACTIVE 지만 기간이 지났으면 어떤 쓰기도 거절한다(되살리기 방지)."""
         w = World()
         self.assertEqual(Campaign.objects.get(pk=w.campaign.campaign_id).status, "ACTIVE")
         self.check_all_rejected(w, LATER)
         self.assertEqual(Campaign.objects.get(pk=w.campaign.campaign_id).ends_at, NOW + 10 * DAY)  # 아무것도 바뀌지 않았다
 
-    def test_ended_blocks_all_writes_below_but_reads_work(self):
+    def case_ended_blocks_all_writes_below_but_reads_work(self):
         w = World()
         api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         self.check_all_rejected(w, NOW)
@@ -125,7 +129,7 @@ class EndedGuardTests(TestCase):
         # 소재는 캠페인 밖에 있다 — 고치면 그 소재를 쓰는 다른 광고그룹에 다음 결정부터 적용된다(6-9c). 과거 결정은 스냅샷이라 그대로다
         self.assertEqual(api.update_creative(w.adv, w.creative.creative_id, {"title": "끝난 뒤 고침"}, now=NOW).title, "끝난 뒤 고침")
 
-    def test_early_end_sets_ends_at_now_and_is_irreversible(self):
+    def case_early_end_sets_ends_at_now_and_is_irreversible(self):
         w = World()
         v = api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         self.assertEqual((v.status, v.ended_from, v.ends_at), ("ENDED", "ACTIVE", NOW))
@@ -134,7 +138,7 @@ class EndedGuardTests(TestCase):
         with self.assertRaises(api.CampaignEnded):
             api.update_campaign(w.adv, w.campaign.campaign_id, {"status": "ACTIVE"}, now=NOW)  # 되살릴 수 없다
 
-    def test_early_end_from_paused_and_before_start(self):
+    def case_early_end_from_paused_and_before_start(self):
         w = World()
         api.update_campaign(w.adv, w.campaign.campaign_id, {"status": "PAUSED"}, now=NOW)
         self.assertEqual(api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW).ended_from, "PAUSED")
@@ -142,7 +146,7 @@ class EndedGuardTests(TestCase):
         v = api.end_campaign(w.adv, future.campaign_id, now=NOW)
         self.assertEqual((v.status, v.ends_at), ("ENDED", NOW + DAY))  # 시작 전이면 시작 시각으로 확정
 
-    def test_ends_at_must_be_in_future_and_after_start(self):
+    def case_ends_at_must_be_in_future_and_after_start(self):
         w = World()
         cid, adv = w.campaign.campaign_id, w.adv
         for bad in (NOW - DAY, NOW, w.campaign.starts_at, w.campaign.starts_at - DAY):
@@ -152,10 +156,13 @@ class EndedGuardTests(TestCase):
         self.assertEqual(api.update_campaign(adv, cid, {"ends_at": NOW + 50 * DAY}, now=NOW).ends_at, NOW + 50 * DAY)  # 늘리기
         self.assertIsNone(api.update_campaign(adv, cid, {"ends_at": None}, now=NOW).ends_at)  # 기간 제한 없음
 
-    def test_other_advertisers_unaffected(self):
+    def case_other_advertisers_unaffected(self):
         w, other = World(), World()
         api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         api.update_campaign(other.adv, other.campaign.campaign_id, {"name": "계속 됨"}, now=NOW)
         self.assertEqual(api.get_campaign(w.adv, w.campaign.campaign_id, now=NOW).status, "ENDED")
         changed = api.get_campaign(other.adv, other.campaign.campaign_id, now=NOW)
         self.assertEqual((changed.status, changed.name), ("ACTIVE", "계속 됨"))  # 다른 광고주의 캠페인은 끝나지 않고 계속 고칠 수 있다
+
+    def test_ended_guard(self):
+        self.run_cases()

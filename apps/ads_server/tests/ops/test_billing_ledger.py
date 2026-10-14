@@ -14,6 +14,7 @@ from billing.models import LedgerEntry, Wallet
 from foundation.errors import Forbidden, InvalidRequest, NotFound
 from foundation.models import AppendOnlyError, AuditLog, User
 from tests.support.factories import NOW, PW, WHOLE, make_admin, make_advertiser, utc
+from tests.support.cases import Cases
 
 
 def funded(points=None):
@@ -30,8 +31,8 @@ def charge(adv, amount, ref, campaign=None, now=NOW, rtype="IMPRESSION", shares=
     return api.charge_for_reaction(adv.pk, campaign or uuid.uuid4(), rtype, shares, amount, ref, now=now)
 
 
-class SignupGrantTests(TestCase):
-    def test_signup_grants_configured_points_once(self):
+class SignupGrantTests(Cases, TestCase):
+    def case_signup_grants_configured_points_once(self):
         adv = make_advertiser()
         entry = api.grant_signup(adv, now=NOW)
         self.assertEqual((entry.entry_type, entry.amount, entry.balance_after), ("SIGNUP_GRANT", 50_000, 50_000))  # 기본값 50,000
@@ -41,7 +42,7 @@ class SignupGrantTests(TestCase):
         self.assertEqual(LedgerEntry.objects.filter(wallet__owner=adv).count(), 1)
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 50_000)
 
-    def test_grant_amount_is_a_setting_and_zero_means_no_grant(self):
+    def case_grant_amount_is_a_setting_and_zero_means_no_grant(self):
         with override_settings(SIGNUP_GRANT_POINTS=1234):
             self.assertEqual(api.grant_signup(make_advertiser(), now=NOW).amount, 1234)
         zero = make_advertiser()
@@ -49,7 +50,7 @@ class SignupGrantTests(TestCase):
             self.assertIsNone(api.grant_signup(zero, now=NOW))
         self.assertEqual(api.get_wallet(zero, now=NOW).balance, 0)  # 지갑은 만들어지고 지급은 없다
 
-    def test_only_advertisers_have_wallets(self):
+    def case_only_advertisers_have_wallets(self):
         with self.assertRaises(Forbidden):
             api.grant_signup(make_admin(), now=NOW)
 
@@ -57,7 +58,7 @@ class SignupGrantTests(TestCase):
         client = client or Client()
         return client.post(reverse("signup"), {"username": username, "password": PW, "password_confirm": PW, "nickname": "홍길동", "class_label": "1반"}, REMOTE_ADDR="10.9.0.1")
 
-    def test_signup_flow_creates_wallet_with_points_and_audit(self):
+    def case_signup_flow_creates_wallet_with_points_and_audit(self):
         self.assertEqual(self.post_signup().status_code, 302)
         user = User.objects.get(username="ad_wallet1")
         self.assertEqual(api.get_wallet(user, now=NOW).balance, 50_000)
@@ -65,7 +66,7 @@ class SignupGrantTests(TestCase):
         self.assertIn("account.signup", actions)
         self.assertIn("billing.signup_grant", actions)
 
-    def test_signup_and_grant_same_transaction(self):
+    def case_signup_and_grant_same_transaction(self):
         """지급이 실패하면 사용자도, 가입 감사 기록도 남지 않는다."""
         client = Client(raise_request_exception=False)
         with mock.patch("billing.services.grant_signup", side_effect=RuntimeError("boom")):  # 가입 묶음은 billing.register_advertiser
@@ -75,10 +76,13 @@ class SignupGrantTests(TestCase):
         self.assertFalse(AuditLog.objects.filter(action="account.signup").exists())
         self.assertEqual(self.post_signup(username="ad_wallet1").status_code, 302)  # 같은 아이디로 다시 가입할 수 있다
 
+    def test_signup_grant(self):
+        self.run_cases()
+
 
 @tag("security")
-class LedgerIntegrityTests(TestCase):
-    def test_balance_equals_ledger_sum_after_any_sequence(self):
+class LedgerIntegrityTests(Cases, TestCase):
+    def case_balance_equals_ledger_sum_after_any_sequence(self):
         rng = random.Random(20261007)
         users = [funded(rng.choice([0, 100, 5_000, 50_000])) for _ in range(3)]
         admin = make_admin()
@@ -97,7 +101,7 @@ class LedgerIntegrityTests(TestCase):
             self.assertEqual(api.check_ledger(quiescent=True), [], (i, kind))
         self.assertEqual(sum(w.balance for w in Wallet.objects.all()), sum(e.amount for e in LedgerEntry.objects.all()))
 
-    def test_balance_never_below_zero(self):
+    def case_balance_never_below_zero(self):
         adv = funded(100)
         first = charge(adv, 250, "r1")
         self.assertEqual((first.charged, first.shortfall, first.entry.amount, first.entry.balance_after), (100, 150, -100, 0))
@@ -110,7 +114,7 @@ class LedgerIntegrityTests(TestCase):
             Wallet.objects.filter(owner=adv).update(balance=-1)
         self.assertEqual(Wallet.objects.get(owner=adv).balance, 0)  # 어느 쪽이든 값은 그대로다
 
-    def test_ledger_is_append_only_and_cannot_be_overwritten(self):
+    def case_ledger_is_append_only_and_cannot_be_overwritten(self):
         adv = funded(500)
         row = LedgerEntry.objects.get(wallet__owner=adv)
         row.amount = 999_999
@@ -129,7 +133,7 @@ class LedgerIntegrityTests(TestCase):
             LedgerEntry.objects.bulk_create([clone], update_conflicts=True, update_fields=["amount"], unique_fields=["entry_id"])
         self.assertEqual(LedgerEntry.objects.get(pk=row.pk).amount, 500)
 
-    def test_ledger_db_constraints(self):
+    def case_ledger_db_constraints(self):
         adv = funded(500)
         wallet = Wallet.objects.get(owner=adv)
 
@@ -151,7 +155,7 @@ class LedgerIntegrityTests(TestCase):
         LedgerEntry.objects.create(wallet=wallet, seq=next(seqs), entry_type="CHARGE", amount=0, balance_after=500, reaction_ref="ok-ref")
         attempt(entry_type="CHARGE", amount=-1, reaction_ref="ok-ref")  # 같은 반응 키로 두 번 과금 불가(DB)
 
-    def test_check_ledger_detects_tampering(self):
+    def case_check_ledger_detects_tampering(self):
         adv = funded(500)
         charge(adv, 100, "r1")
         self.assertEqual(api.check_ledger(quiescent=True), [])
@@ -168,15 +172,18 @@ class LedgerIntegrityTests(TestCase):
             cur.execute("UPDATE billing_ledger_entry SET balance_after = balance_after + 1 WHERE entry_type = 'CHARGE'")
         self.assertTrue(any("balance_after" in p for p in api.check_ledger(quiescent=True)))
 
+    def test_ledger_integrity(self):
+        self.run_cases()
+
 
 @tag("security")
-class LedgerSequenceTests(TestCase):
+class LedgerSequenceTests(Cases, TestCase):
     """원장 순서는 **지갑 안의 `seq`**(1부터 빈틈없이)다. 자동 증가 PK 에 기대지 않는다(설계 §4, PK 규칙)."""
 
     def seqs(self, adv):
         return list(LedgerEntry.objects.filter(wallet__owner=adv).order_by("seq").values_list("seq", flat=True))
 
-    def test_seq_runs_from_one_without_gaps_and_per_wallet(self):
+    def case_seq_runs_from_one_without_gaps_and_per_wallet(self):
         a, b, admin = funded(1000), funded(1000), make_admin()
         charge(a, 10, "a1")
         api.adjust(admin, a.pk, 5, "보너스", now=NOW)
@@ -186,20 +193,20 @@ class LedgerSequenceTests(TestCase):
         self.assertEqual(self.seqs(b), [1, 2])  # 다른 지갑의 줄이 번호를 건드리지 않는다
         self.assertEqual(api.check_ledger(quiescent=True), [])
 
-    def test_a_duplicate_charge_does_not_consume_a_seq(self):
+    def case_a_duplicate_charge_does_not_consume_a_seq(self):
         adv = funded(1000)
         charge(adv, 10, "same")
         charge(adv, 10, "same")  # 멱등: 줄이 늘지 않는다
         self.assertEqual(self.seqs(adv), [1, 2])
 
-    def test_db_rejects_a_duplicate_or_non_positive_seq(self):
+    def case_db_rejects_a_duplicate_or_non_positive_seq(self):
         adv = funded(1000)
         wallet = Wallet.objects.get(owner=adv)
         for seq in (1, 0):
             with self.assertRaises(IntegrityError, msg=seq), transaction.atomic():
                 LedgerEntry.objects.create(wallet=wallet, seq=seq, entry_type="ADMIN_ADJUST", amount=5, balance_after=5)
 
-    def test_check_ledger_detects_a_gap_in_seq(self):
+    def case_check_ledger_detects_a_gap_in_seq(self):
         adv = funded(1000)
         charge(adv, 10, "r1")
         charge(adv, 10, "r2")
@@ -209,7 +216,7 @@ class LedgerSequenceTests(TestCase):
         problems = api.check_ledger(quiescent=True)
         self.assertTrue(any("seq" in p for p in problems), problems)
 
-    def test_list_ledger_cursor_is_the_seq(self):
+    def case_list_ledger_cursor_is_the_seq(self):
         adv = funded(1000)
         for i in range(4):
             charge(adv, 10, f"c{i}")
@@ -218,6 +225,9 @@ class LedgerSequenceTests(TestCase):
         rest, cursor = api.list_ledger(adv, before=cursor, limit=5)
         self.assertEqual((len(page), len(rest), cursor), (2, 3, None))
         self.assertEqual([e.entry_type for e in rest][-1], "SIGNUP_GRANT")
+
+    def test_ledger_sequence(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -260,7 +270,7 @@ class LedgerListingTests(TestCase):
         self.assertEqual(api.list_ledger(make_advertiser())[0], [])  # 지갑 없는 사용자는 빈 목록
 
 
-class LedgerAndSpendTests(TestCase):
+class LedgerAndSpendTests(Cases, TestCase):
     def setUp(self):
         self.adv, self.other = make_advertiser(), make_advertiser()
         with override_settings(SIGNUP_GRANT_POINTS=1_000_000):
@@ -271,20 +281,23 @@ class LedgerAndSpendTests(TestCase):
         api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 20, "r2", now=utc(2026, 10, 8))  # 예산 일 시작 시각 그대로
         api.charge_for_reaction(self.other.pk, uuid.uuid4(), "IMPRESSION", WHOLE, 40, "r3", now=utc(2026, 10, 8, 1))  # 다른 광고주
 
-    def test_spent_today_counts_the_start_of_the_day_and_only_this_wallet(self):
+    def case_spent_today_counts_the_start_of_the_day_and_only_this_wallet(self):
         self.assertEqual(api.get_wallet(self.adv, now=utc(2026, 10, 8, 2)).spent_today, 20)
 
-    def test_spend_totals_exclude_the_end_day(self):
+    def case_spend_totals_exclude_the_end_day(self):
         self.assertEqual(api.spend_by_day([self.camp], date(2026, 10, 7), date(2026, 10, 8)), {date(2026, 10, 7): 10})
         self.assertEqual(api.spend_by_campaign([self.camp], date(2026, 10, 7), date(2026, 10, 8)), {self.camp: 10})
 
-    def test_a_boolean_cursor_reads_the_first_page(self):
+    def case_a_boolean_cursor_reads_the_first_page(self):
         self.assertEqual(api.list_ledger(self.adv, before=True), api.list_ledger(self.adv))
 
-    def test_the_same_key_safety_net_answers_like_a_repeated_charge(self):
+    def case_the_same_key_safety_net_answers_like_a_repeated_charge(self):
         repeated = api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 10, "r1", now=utc(2026, 10, 9))
         with mock.patch("billing.services._charge", side_effect=IntegrityError("동시에 같은 키")):  # 먼저 넣은 쪽이 유일 제약을 차지한 경우
             raced = api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 10, "r1", now=utc(2026, 10, 9))
         expected = (self.first.entry, 10, 0, True)
         self.assertEqual((repeated.entry, repeated.charged, repeated.shortfall, repeated.duplicate), expected)
         self.assertEqual((raced.entry, raced.charged, raced.shortfall, raced.duplicate), expected)
+
+    def test_ledger_and_spend(self):
+        self.run_cases()

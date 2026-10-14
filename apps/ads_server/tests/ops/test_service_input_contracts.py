@@ -11,12 +11,13 @@ from campaigns import api as campaigns
 from foundation.api import errors
 from masters import api as masters
 from tests.support.factories import DAY, NOW, World, png_file
+from tests.support.cases import Cases
 
 BAD_KEYS = ("", "x" * 65, 123)
 KEY_ERROR = [{"pointer": "/request_key", "message": "1~64자 문자열이어야 합니다."}]
 
 
-class RequestKeyContractTests(TestCase):
+class RequestKeyContractTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
         self.media = masters.create_media(self.w.admin, "키 매체")
@@ -34,20 +35,20 @@ class RequestKeyContractTests(TestCase):
                 creative={"title": "새 제목", "redirect_url": "https://example.com/new", "image_file": png_file()}, now=NOW, request_key=key),
         }
 
-    def test_a_malformed_key_is_refused_with_the_same_problem_everywhere(self):
+    def case_a_malformed_key_is_refused_with_the_same_problem_everywhere(self):
         for name, call in self.entries().items():
             for key in BAD_KEYS:
                 with self.subTest(name, key=key), self.assertRaises(errors.InvalidRequest) as caught:
                     call(key)
                 self.assertEqual(caught.exception.errors, KEY_ERROR)
 
-    def test_no_key_and_a_64_character_key_are_accepted(self):
+    def case_no_key_and_a_64_character_key_are_accepted(self):
         for name, call in self.entries().items():
             for key in (None, name.ljust(64, "x")):  # 입구마다 다른 키(같은 키는 그 입구의 '이미 처리한 요청'이 된다)
                 with self.subTest(name, key=key):
                     self.assertIsNotNone(call(key))
 
-    def test_earlier_checks_fail_first(self):
+    def case_earlier_checks_fail_first(self):
         cases = {
             "/label": lambda: masters.issue_media_key(self.w.admin, self.media.media_id, label="\x00", request_key=""),
             "/grace_seconds": lambda: masters.rotate_media_key(self.w.admin, self.media.media_id, -1, request_key=""),
@@ -59,19 +60,22 @@ class RequestKeyContractTests(TestCase):
                 call()
             self.assertEqual([e["pointer"] for e in caught.exception.errors], [pointer])
 
-    def test_create_ad_checks_the_key_before_its_parts(self):
+    def case_create_ad_checks_the_key_before_its_parts(self):
         for call in (lambda: campaigns.create_ad(self.w.adv, self.w.campaign.campaign_id, ad_group={}, creative={}, now=NOW, request_key=""),
                      lambda: campaigns.create_campaign(self.w.adv, "", NOW, None, 0, now=NOW, request_key="")):
             with self.subTest(call), self.assertRaises(errors.InvalidRequest) as caught:
                 call()
             self.assertEqual(caught.exception.errors, KEY_ERROR)
 
-    def test_ad_created_by_key_answers_none_for_a_malformed_or_unknown_key(self):
+    def case_ad_created_by_key_answers_none_for_a_malformed_or_unknown_key(self):
         for lookup in (campaigns.ad_created_by_key, campaigns.campaign_created_by_key):
             for key in (*BAD_KEYS, None):
                 with self.subTest(lookup.__name__, key=key), self.assertNumQueries(0):  # 형식이 틀린 키는 찾아보지도 않는다
                     self.assertIsNone(lookup(self.w.adv, key))
             self.assertIsNone(lookup(self.w.adv, "x" * 64))
+
+    def test_request_key_contract(self):
+        self.run_cases()
 
 
 class EnabledValueContractTests(TestCase):
@@ -82,7 +86,7 @@ class EnabledValueContractTests(TestCase):
         self.assertEqual(caught.exception.errors, [{"pointer": "/enabled", "message": "true 또는 false 여야 합니다."}])
 
 
-class SeenVersionContractTests(TestCase):
+class SeenVersionContractTests(Cases, TestCase):
     """화면이 본 마지막 변경 시각과 다르면 409, 같으면 그대로 바꾼다."""
 
     def setUp(self):
@@ -102,19 +106,22 @@ class SeenVersionContractTests(TestCase):
             ],
         }
 
-    def test_a_stale_form_is_refused_with_its_message(self):
+    def case_a_stale_form_is_refused_with_its_message(self):
         for verb, calls in self.calls(lambda view: view.updated_at - DAY).items():
             for call in calls:
                 with self.subTest(verb), self.assertRaises(errors.StaleVersion) as caught:
                     call()
                 self.assertEqual(caught.exception.detail, f"다른 곳에서 먼저 바뀌었습니다. 새로 불러와 다시 {verb}.")
 
-    def test_the_seen_value_or_no_value_passes(self):
+    def case_the_seen_value_or_no_value_passes(self):
         for seen in (lambda view: view.updated_at, lambda view: None):  # 켜기/끄기처럼 바꿀 값이 분명한 동작은 시각을 싣지 않는다
             for calls in self.calls(seen).values():
                 for call in calls:
                     with self.subTest(call):
                         self.assertIsNotNone(call())
+
+    def test_seen_version_contract(self):
+        self.run_cases()
 
 
 class AdminCampaignLookupTests(TestCase):

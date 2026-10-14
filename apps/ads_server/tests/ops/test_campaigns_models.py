@@ -7,6 +7,7 @@ from django.test import TestCase, tag
 from campaigns.models import AdGroup, Bid, Campaign, ReviewRequest
 from foundation.models import AppendOnlyError
 from tests.support.factories import DAY, NOW, make_advertiser
+from tests.support.cases import Cases
 
 USER_ID = uuid.uuid4()
 
@@ -17,18 +18,18 @@ def campaign(owner, **kw):
     return Campaign.objects.create(**values)
 
 
-class CampaignConstraintTests(TestCase):
+class CampaignConstraintTests(Cases, TestCase):
     def setUp(self):
         self.owner = make_advertiser()
 
-    def test_budget_and_period_constraints_in_db(self):
+    def case_budget_and_period_constraints_in_db(self):
         for kw in (dict(daily_budget=0), dict(daily_budget=2**53), dict(ends_at=NOW - timedelta(seconds=1))):
             with self.assertRaises(IntegrityError, msg=kw), transaction.atomic():
                 campaign(self.owner, **kw)
         campaign(self.owner, ends_at=None)
         campaign(self.owner, ends_at=NOW)  # 시작과 같은 종료(시작 전 조기 종료)는 허용
 
-    def test_only_one_open_review_request_per_campaign(self):
+    def case_only_one_open_review_request_per_campaign(self):
         c = campaign(self.owner)
         ReviewRequest.objects.create(campaign=c)
         with self.assertRaises(IntegrityError), transaction.atomic():
@@ -37,9 +38,12 @@ class CampaignConstraintTests(TestCase):
         ReviewRequest.objects.create(campaign=c)  # 닫힌 뒤에는 다시 열 수 있다
         ReviewRequest.objects.create(campaign=campaign(self.owner))  # 다른 캠페인은 영향 없음
 
+    def test_campaign_constraint(self):
+        self.run_cases()
+
 
 @tag("security")
-class BidAndAdGroupModelTests(TestCase):
+class BidAndAdGroupModelTests(Cases, TestCase):
     def setUp(self):
         self.group = AdGroup.objects.create(campaign=campaign(make_advertiser()), name="g")
 
@@ -48,7 +52,7 @@ class BidAndAdGroupModelTests(TestCase):
         values.update(kw)
         return Bid(**values)
 
-    def test_bid_constraints_in_db(self):
+    def case_bid_constraints_in_db(self):
         for kw in (dict(amount=0), dict(amount=2**53)):
             with self.assertRaises(IntegrityError, msg=kw), transaction.atomic():
                 self.bid(**kw).save()
@@ -56,7 +60,7 @@ class BidAndAdGroupModelTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self.bid(amount=2).save()  # 같은 (광고그룹, 버전)
 
-    def test_bid_is_append_only_and_cannot_be_overwritten(self):
+    def case_bid_is_append_only_and_cannot_be_overwritten(self):
         self.bid().save()
         row = Bid.objects.get(ad_group=self.group, bid_version=1)
         row.amount = 99
@@ -71,4 +75,7 @@ class BidAndAdGroupModelTests(TestCase):
         with self.assertRaises(AppendOnlyError):
             Bid.objects.bulk_create([self.bid(pk=row.pk, amount=999)], update_conflicts=True, update_fields=["amount"], unique_fields=["bid_id"])
         self.assertEqual(Bid.objects.get(pk=row.pk).amount, 30)
+
+    def test_bid_and_ad_group_model(self):
+        self.run_cases()
 

@@ -13,6 +13,7 @@ from masters import api
 from masters.models import MediaKey
 from tests.support.concurrency import overlap
 from tests.support.factories import DAY, NOW, make_admin, make_advertiser
+from tests.support.cases import Cases
 
 KEY_SHAPE = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 
@@ -22,12 +23,12 @@ def media(admin, name="메타버스"):
 
 
 @tag("security")
-class MediaKeyTests(TestCase):
+class MediaKeyTests(Cases, TestCase):
     def setUp(self):
         self.admin = make_admin()
         self.media = media(self.admin)
 
-    def test_issued_key_is_shown_once_and_only_its_hash_is_stored(self):
+    def case_issued_key_is_shown_once_and_only_its_hash_is_stored(self):
         issued = api.issue_media_key(self.admin, self.media.media_id, "운영", now=NOW)
         self.assertRegex(issued.key, KEY_SHAPE)
         self.assertTrue(issued.key.startswith(issued.key_id.hex + "."))
@@ -44,12 +45,12 @@ class MediaKeyTests(TestCase):
         self.assertEqual(len(keys), 1)
         self.assertTrue(keys[0].active)
 
-    def test_keys_are_unique_and_unpredictable(self):
+    def case_keys_are_unique_and_unpredictable(self):
         issued = [api.issue_media_key(self.admin, self.media.media_id, now=NOW) for _ in range(20)]
         self.assertEqual(len({k.key for k in issued}), 20)
         self.assertEqual(len({k.key_id for k in issued}), 20)
 
-    def test_authenticate_success_and_all_failures_look_the_same(self):
+    def case_authenticate_success_and_all_failures_look_the_same(self):
         issued = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         identity = api.authenticate_media_key(issued.key, now=NOW)
         self.assertEqual((identity.media_id, identity.key_id, identity.media_is_active), (self.media.media_id, issued.key_id, True))
@@ -65,7 +66,7 @@ class MediaKeyTests(TestCase):
         for value in bad:
             self.assertIsNone(api.authenticate_media_key(value, now=NOW), repr(value))
 
-    def test_comparison_is_constant_time_even_for_unknown_keys(self):
+    def case_comparison_is_constant_time_even_for_unknown_keys(self):
         """없는 키도 같은 해시 비교를 한다(응답 시간으로 key_id 의 존재 여부를 알 수 없게)."""
         issued = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         calls = []
@@ -83,7 +84,7 @@ class MediaKeyTests(TestCase):
             api.authenticate_media_key("not even close", now=NOW)
             objects.select_related.assert_not_called()  # 형식이 틀리면 DB 를 보지 않는다
 
-    def test_revoked_and_expired_keys_are_rejected(self):
+    def case_revoked_and_expired_keys_are_rejected(self):
         revoked = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         expiring = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         MediaKey.objects.filter(key_id=expiring.key_id).update(expires_at=NOW + timedelta(seconds=10))
@@ -94,13 +95,13 @@ class MediaKeyTests(TestCase):
         api.revoke_media_key(self.admin, revoked.key_id, now=NOW)  # 다시 폐기해도 변화 없음
         self.assertEqual(AuditLog.objects.filter(action="masters.media_key_revoked").count(), 1)
 
-    def test_inactive_media_still_authenticates_but_is_flagged(self):
+    def case_inactive_media_still_authenticates_but_is_flagged(self):
         issued = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         api.set_media_active(self.admin, self.media.media_id, False)
         identity = api.authenticate_media_key(issued.key, now=NOW)
         self.assertFalse(identity.media_is_active)  # 403 은 호출하는 쪽이 판단한다
 
-    def test_rotation_keeps_both_keys_valid_during_the_grace_period(self):
+    def case_rotation_keeps_both_keys_valid_during_the_grace_period(self):
         old = api.issue_media_key(self.admin, self.media.media_id, "옛", now=NOW)
         new = api.rotate_media_key(self.admin, self.media.media_id, grace_seconds=3600, label="새", now=NOW)
         for t in (NOW, NOW + timedelta(seconds=3599)):
@@ -112,7 +113,7 @@ class MediaKeyTests(TestCase):
         self.assertEqual(views[old.key_id].expires_at, NOW + timedelta(seconds=3600))
         self.assertIsNone(views[new.key_id].expires_at)
 
-    def test_rotation_never_extends_an_earlier_expiry_and_zero_grace_expires_old_now(self):
+    def case_rotation_never_extends_an_earlier_expiry_and_zero_grace_expires_old_now(self):
         old = api.issue_media_key(self.admin, self.media.media_id, now=NOW)
         MediaKey.objects.filter(key_id=old.key_id).update(expires_at=NOW + timedelta(seconds=60))
         api.rotate_media_key(self.admin, self.media.media_id, grace_seconds=3600, now=NOW)
@@ -121,7 +122,7 @@ class MediaKeyTests(TestCase):
         api.rotate_media_key(self.admin, self.media.media_id, grace_seconds=0, now=NOW)
         self.assertIsNone(api.authenticate_media_key(other.key, now=NOW))  # 유예 0: 바로 만료
 
-    def test_rotation_validates_grace_and_other_media_keys_are_untouched(self):
+    def case_rotation_validates_grace_and_other_media_keys_are_untouched(self):
         other_media = media(self.admin, "다른 매체")
         other = api.issue_media_key(self.admin, other_media.media_id, now=NOW)
         for bad in (-1, 1.5, True, "3600", None, 31 * 24 * 3600):
@@ -131,7 +132,7 @@ class MediaKeyTests(TestCase):
         self.assertIsNotNone(api.authenticate_media_key(other.key, now=NOW + DAY))  # 다른 매체의 키는 영향 없음
         self.assertEqual(api.authenticate_media_key(other.key, now=NOW).media_id, other_media.media_id)
 
-    def test_only_admins_manage_keys_and_everything_is_audited_without_the_key(self):
+    def case_only_admins_manage_keys_and_everything_is_audited_without_the_key(self):
         for actor in (make_advertiser(), None):
             for call in (
                 lambda a=actor: api.issue_media_key(a, self.media.media_id),
@@ -151,13 +152,16 @@ class MediaKeyTests(TestCase):
         self.assertNotIn(issued.key.split(".")[1], dump)
         self.assertEqual(AuditLog.objects.get(action="masters.media_key_issued").actor_id, self.admin.pk)
 
-    def test_unknown_media_or_key_is_not_found(self):
+    def case_unknown_media_or_key_is_not_found(self):
         with self.assertRaises(NotFound):
             api.issue_media_key(self.admin, uuid.uuid4())
         with self.assertRaises(NotFound):
             api.rotate_media_key(self.admin, "nope", 10)
         with self.assertRaises(NotFound):
             api.revoke_media_key(self.admin, uuid.uuid4())
+
+    def test_media_key(self):
+        self.run_cases()
 
 
 @tag("security")

@@ -44,6 +44,9 @@ class RequestIdInDjangoSummaryTests(TestCase):
         self.assertEqual((response.status_code, record.request_id), (401, response["X-Request-ID"]))
 
     def test_a_record_without_a_request_keeps_the_placeholder(self):
+        """요청이 끝나면 요청 ID 를 되돌린다 — 앞서 지난 요청의 ID 가 요청 밖의 줄에 붙지 않는다. 요청을 먼저 하나 보내서, 이 시험만 돌려도 되돌림을 본다
+        (6-18h: 되돌림을 빼는 변형은 앞의 다른 시험이 요청을 남겼을 때만 잡혔다 — 시험 순서에 기댔다)."""
+        self.assertEqual(self.client.get("/api/media/v1/health").status_code, 200)
         record = logging.LogRecord("x", logging.INFO, __file__, 1, "msg", (), None)
         RequestIdFilter().filter(record)
         self.assertEqual(record.request_id, "-")

@@ -16,6 +16,7 @@ from records import api as records
 from records.models import Decision
 from tests.support.factories import NOW, SHARES, SUBJECT, World, make_admin
 from tests.ops.test_serving_decisions import DecisionApiMixin
+from tests.support.cases import Cases
 
 
 def shared_slot(admin):
@@ -38,7 +39,7 @@ class SlotModelTests(TestCase):
 
 
 @tag("security")
-class SlotServiceTests(TestCase):
+class SlotServiceTests(Cases, TestCase):
     def setUp(self):
         self.admin = make_admin()
         self.media = masters.create_media(self.admin, "매체")
@@ -46,7 +47,7 @@ class SlotServiceTests(TestCase):
     def create(self, name="슬롯", **kw):
         return masters.create_slot(self.admin, self.media.media_id, name, 100, 200, 500, "초기", **kw, **SHARES)
 
-    def test_the_creator_always_chooses_the_audience(self):
+    def case_the_creator_always_chooses_the_audience(self):
         """R18(6-13f): 성격에는 기본값이 없다(모델·서비스 모두) — 만드는 쪽(운영 폼·시험)이 늘 정한다."""
         with self.assertRaises(TypeError):
             masters.create_slot(self.admin, self.media.media_id, "슬롯", 100, 200, 500, "초기", **SHARES)
@@ -54,35 +55,38 @@ class SlotServiceTests(TestCase):
         self.assertEqual(slot.audience, "individual")
         self.assertEqual(Slot.objects.get(pk=slot.slot_id).audience, "individual")
 
-    def test_shared_slot_is_exposed_through_every_read(self):
+    def case_shared_slot_is_exposed_through_every_read(self):
         slot = self.create("전광판", audience="shared")
         self.assertEqual(slot.audience, "shared")
         self.assertEqual(masters.get_slot(slot.slot_id).audience, "shared")
         self.assertEqual({s.slot_id: s.audience for s in masters.list_slots(media_id=self.media.media_id)}, {slot.slot_id: "shared"})
         self.assertEqual(masters.get_slots_with_policy([slot.slot_id])[slot.slot_id].audience, "shared")
 
-    def test_unknown_audience_is_400_and_nothing_is_saved(self):
+    def case_unknown_audience_is_400_and_nothing_is_saved(self):
         for bad in ("everyone", "", None, 1):
             with self.subTest(bad), self.assertRaises(InvalidRequest) as caught:
                 self.create(audience=bad)
             self.assertEqual(caught.exception.errors[0]["pointer"], "/audience")
         self.assertFalse(Slot.objects.exists())
 
-    def test_creation_is_audited_with_the_audience(self):
+    def case_creation_is_audited_with_the_audience(self):
         slot = self.create(audience="shared")
         entry = AuditLog.objects.filter(action="masters.slot_created", target_id=str(slot.slot_id)).get()
         self.assertEqual(entry.detail["audience"], "shared")
 
+    def test_slot_service(self):
+        self.run_cases()
+
 
 @tag("security")
-class DecisionByAudienceTests(TestCase):
+class DecisionByAudienceTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
 
     def decide(self, slot, **kw):
         return records.decide(slot.media_id, slot.slot_id, now=NOW, rng=Random(1), **kw)
 
-    def test_individual_slot_requires_a_subject(self):
+    def case_individual_slot_requires_a_subject(self):
         with self.assertRaises(InvalidRequest) as caught:
             self.decide(self.w.slot)
         self.assertEqual(caught.exception.errors[0]["pointer"], "/subject_id")
@@ -90,7 +94,7 @@ class DecisionByAudienceTests(TestCase):
         decision = self.decide(self.w.slot, subject_id=SUBJECT)
         self.assertEqual((decision.audience, decision.subject_id), ("individual", SUBJECT))
 
-    def test_shared_slot_rejects_a_subject_and_stores_none(self):
+    def case_shared_slot_rejects_a_subject_and_stores_none(self):
         slot = shared_slot(self.w.admin)
         with self.assertRaises(InvalidRequest) as caught:
             self.decide(slot, subject_id=SUBJECT)
@@ -102,7 +106,7 @@ class DecisionByAudienceTests(TestCase):
         self.assertEqual((stored.audience, stored.subject_id), ("shared", None))
         self.assertEqual(records.get_decision(slot.media_id, decision.decision_id).audience, "shared")
 
-    def test_missing_slot_and_inactive_media_come_before_the_subject_check(self):
+    def case_missing_slot_and_inactive_media_come_before_the_subject_check(self):
         """없는·남의 슬롯(404)과 비활성 매체(403)가 먼저다 — subject_id 가 틀려도 슬롯의 존재 여부를 이 오류로 알 수 없다."""
         other = shared_slot(self.w.admin)
         with self.assertRaises(NotFound):
@@ -113,17 +117,20 @@ class DecisionByAudienceTests(TestCase):
         with self.assertRaises(Forbidden):
             self.decide(self.w.slot)  # 개인 슬롯 + 사람 없음 → 400 이 아니라 403
 
-    def test_inactive_slot_still_checks_the_subject(self):
+    def case_inactive_slot_still_checks_the_subject(self):
         masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
         with self.assertRaises(InvalidRequest):
             self.decide(self.w.slot)  # 광고 없음으로 기록되는 경우에도 요청 형식은 같다
         self.assertIsNone(self.decide(self.w.slot, subject_id=SUBJECT).chosen)
 
-    def test_shared_slot_decides_like_any_other_slot(self):
+    def case_shared_slot_decides_like_any_other_slot(self):
         """일괄 슬롯도 같은 선택·과금 근거 스냅샷을 만든다 — 성격은 사람 유무만 바꾼다."""
         slot, group = self.w.shared_ad()
         decision = self.decide(slot)
         self.assertEqual((decision.chosen.ad_group_id, decision.chosen.applied_amount), (group.ad_group_id, 400))
+
+    def test_decision_by_audience(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -138,7 +145,7 @@ class DecisionDbConstraintTests(TestCase):
 
 
 @tag("security")
-class DecisionApiByAudienceTests(DecisionApiMixin, TestCase):
+class DecisionApiByAudienceTests(Cases, DecisionApiMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.shared = shared_slot(self.w.admin)
@@ -147,7 +154,7 @@ class DecisionApiByAudienceTests(DecisionApiMixin, TestCase):
     def post_shared(self, **body):
         return self.post({"slot_id": str(self.shared.slot_id), **body}, key=self.shared_key)
 
-    def test_individual_decision_response_carries_audience_and_matches_the_contract(self):
+    def case_individual_decision_response_carries_audience_and_matches_the_contract(self):
         response = self.post()
         self.assertEqual(response.status_code, 201)
         self.assertContract(self.contract, "/decisions", "post", response)
@@ -156,7 +163,7 @@ class DecisionApiByAudienceTests(DecisionApiMixin, TestCase):
         self.assertContract(self.contract, "/decisions/{decision_id}", "get", got)
         self.assertEqual(got.json()["audience"], "individual")
 
-    def test_shared_decision_without_subject_is_201_and_stores_no_subject(self):
+    def case_shared_decision_without_subject_is_201_and_stores_no_subject(self):
         response = self.post_shared()
         self.assertEqual(response.status_code, 201)
         self.assertContract(self.contract, "/decisions", "post", response)
@@ -164,7 +171,7 @@ class DecisionApiByAudienceTests(DecisionApiMixin, TestCase):
         stored = Decision.objects.get(pk=response.json()["decision_id"])
         self.assertEqual((stored.audience, stored.subject_id), ("shared", None))
 
-    def test_subject_rules_are_400_with_a_pointer_and_nothing_is_recorded(self):
+    def case_subject_rules_are_400_with_a_pointer_and_nothing_is_recorded(self):
         cases = {
             "individual without subject": self.post({"slot_id": str(self.w.slot.slot_id)}),
             "shared with subject": self.post_shared(subject_id=SUBJECT),
@@ -177,7 +184,10 @@ class DecisionApiByAudienceTests(DecisionApiMixin, TestCase):
             self.assertContract(self.contract, "/decisions", "post", response)
         self.assertEqual(Decision.objects.count(), 0)
 
-    def test_a_foreign_shared_slot_is_404_even_with_the_wrong_subject_rule(self):
+    def case_a_foreign_shared_slot_is_404_even_with_the_wrong_subject_rule(self):
         response = self.post({"slot_id": str(self.shared.slot_id), "subject_id": SUBJECT})  # 다른 매체의 일괄 슬롯 + 사람
         self.assertEqual(response.status_code, 404)
         self.assertContract(self.contract, "/decisions", "post", response)
+
+    def test_decision_api_by_audience(self):
+        self.run_cases()

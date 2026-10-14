@@ -7,6 +7,7 @@ from campaigns import transitions as tr
 from campaigns.errors import CampaignEnded, CampaignSuspended, InvalidTransition
 from campaigns.models import Campaign
 from tests.support.factories import DAY, NOW, make_advertiser
+from tests.support.cases import Cases
 
 ALL = ("ACTIVE", "PAUSED", "SUSPENDED", "ENDED")
 EXPECTED = {
@@ -26,11 +27,11 @@ def make(status):
 
 
 @tag("security")
-class TransitionTableTests(TestCase):
-    def test_transition_table_is_exactly_the_documented_one(self):
+class TransitionTableTests(Cases, TestCase):
+    def case_transition_table_is_exactly_the_documented_one(self):
         self.assertEqual({k: ({str(s) for s in v[0]}, str(v[1]), v[2]) for k, v in tr.TRANSITIONS.items()}, EXPECTED)
 
-    def test_transition_table_allows_only_listed(self):
+    def case_transition_table_allows_only_listed(self):
         for action, (allowed, to, who) in EXPECTED.items():
             for status in ALL:
                 c = make(status)
@@ -43,13 +44,13 @@ class TransitionTableTests(TestCase):
                         tr.apply(c, action, who, NOW)
                     self.assertEqual(Campaign.objects.get(pk=c.pk).status, status)  # 거부되면 상태는 그대로
 
-    def test_actor_kind_is_checked(self):
+    def case_actor_kind_is_checked(self):
         for action, (_allowed, _to, who) in EXPECTED.items():
             wrong = "admin" if who != "admin" else "advertiser"
             with self.assertRaises(ValueError, msg=action):
                 tr.apply(make("ACTIVE"), action, wrong, NOW)
 
-    def test_expire_records_previous_state_and_end_pins_ends_at(self):
+    def case_expire_records_previous_state_and_end_pins_ends_at(self):
         c = make("SUSPENDED")
         tr.apply(c, "expire", "system", NOW + 2 * DAY)
         c.refresh_from_db()
@@ -58,6 +59,9 @@ class TransitionTableTests(TestCase):
         tr.apply(started_later, "end", "advertiser", NOW)
         started_later.refresh_from_db()
         self.assertEqual(started_later.ends_at, NOW + DAY)  # 시작 전이면 시작 시각으로(기간 제약 유지)
+
+    def test_transition_table(self):
+        self.run_cases()
 
 
 @tag("security")

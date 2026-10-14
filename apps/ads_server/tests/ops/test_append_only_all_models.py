@@ -13,6 +13,7 @@ from masters import api as masters
 from masters.models import BidPolicy, MediaDeactivation
 from records.models import Decision
 from tests.support.factories import DAY, NOW, SUBJECT, World
+from tests.support.cases import Cases
 
 OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy", "AdGroupCreative": "linked_at",
              "CreativeImage": "image_bytes", "MediaDeactivation": "deactivated_at"}
@@ -26,7 +27,7 @@ def clone_with_same_pk(row, field, value):
 
 
 @tag("security")
-class AllAppendOnlyModelsTests(TestCase):
+class AllAppendOnlyModelsTests(Cases, TestCase):
     def rows(self):
         w = World()
         decision = __import__("records.api", fromlist=["decide"]).decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT)
@@ -42,7 +43,7 @@ class AllAppendOnlyModelsTests(TestCase):
             "MediaDeactivation": (MediaDeactivation.objects.first(), NOW + DAY),  # 매체를 끈 시각 — 그 전 결정의 반응 판정 근거
         }
 
-    def test_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite(self):
+    def case_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite(self):
         for name, (row, value) in self.rows().items():
             model, field = type(row), OVERWRITE[name]
             original = getattr(row, field)
@@ -66,7 +67,7 @@ class AllAppendOnlyModelsTests(TestCase):
                 model.objects.update_or_create(pk=row.pk, defaults={field: value})
             self.assertEqual(getattr(model.objects.get(pk=row.pk), field), original, name)  # 원본 행은 그대로
 
-    def test_ignore_conflicts_skips_but_never_overwrites(self):
+    def case_ignore_conflicts_skips_but_never_overwrites(self):
         for name, (row, value) in self.rows().items():
             model, field = type(row), OVERWRITE[name]
             before = model.objects.count()
@@ -74,10 +75,13 @@ class AllAppendOnlyModelsTests(TestCase):
             model.objects.bulk_create([clone_with_same_pk(row, field, value)], None, True)  # 위치 인자
             self.assertEqual((model.objects.count(), getattr(model.objects.get(pk=row.pk), field) == value), (before, False), name)
 
-    def test_every_append_only_model_is_covered_here(self):
+    def case_every_append_only_model_is_covered_here(self):
         """이 시험이 다루는 모델 = 프로젝트의 추가 전용 모델 전부(6-16j — 소재 이미지 보유·매체 비활성화 기록이 빠져 있었다). 새 추가 전용 모델은 여기에 더해야 통과한다."""
         from django.apps import apps
 
         from foundation.models import AppendOnlyModel
 
         self.assertEqual({m.__name__ for m in apps.get_models() if issubclass(m, AppendOnlyModel)}, set(OVERWRITE))
+
+    def test_all_append_only_models(self):
+        self.run_cases()

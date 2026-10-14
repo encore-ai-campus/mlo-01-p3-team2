@@ -11,6 +11,7 @@ from foundation.api import errors
 from foundation.models import AuditLog
 from tests.support.concurrency import overlap
 from tests.support.factories import DAY, NOW, World, make_advertiser, png_file
+from tests.support.cases import Cases
 
 
 def upload(w, title="새 소재", color=(1, 2, 3), group=None, now=NOW):
@@ -18,7 +19,7 @@ def upload(w, title="새 소재", color=(1, 2, 3), group=None, now=NOW):
 
 
 @tag("security")
-class CreativeLibraryTests(TestCase):
+class CreativeLibraryTests(Cases, TestCase):
     def setUp(self):
         self.w = World(ends_in=None)
 
@@ -28,7 +29,7 @@ class CreativeLibraryTests(TestCase):
     def titles(self):
         return sorted(f.title for f in api.candidate_facts_for_slot(self.w.slot.slot_id))
 
-    def test_a_link_that_also_selects_is_recorded_and_moves_the_seen_time(self):
+    def case_a_link_that_also_selects_is_recorded_and_moves_the_seen_time(self):
         """R3·R4(6-13b): 선택된 소재가 없는 광고에 연결하면 함께 선택된다(명시적 선택이든 아니든). 감사 기록의 `selected` 는 그 결과를 남기고,
         광고의 변경 시각도 올라 화면이 본 시각 대조(옛 탭의 이름 바꾸기)가 이 변경을 본다. 이미 선택된 소재가 있으면 연결만, 이미 나가는 소재를 다시 골라도 — 시각 그대로."""
         later, mine = NOW + DAY, upload(self.w)
@@ -52,7 +53,7 @@ class CreativeLibraryTests(TestCase):
     def linked(self, group):
         return AuditLog.objects.filter(action="creative.linked", detail__ad_group_id=str(group.ad_group_id)).order_by("log_id").last().detail
 
-    def test_a_library_creative_is_reused_by_another_ad_group(self):
+    def case_a_library_creative_is_reused_by_another_ad_group(self):
         mine = upload(self.w)  # 목록에만 올린다
         self.assertFalse(AdGroupCreative.objects.filter(creative_id=mine.creative_id).exists())
         group = self.second_group()
@@ -66,7 +67,7 @@ class CreativeLibraryTests(TestCase):
         self.assertEqual([(u.ad_group_name, u.selected) for u in second.uses], [("둘째 그룹", True), ("그룹", False)])
         self.assertEqual((first.creative.title, len(first.uses)), ("제목", 1))
 
-    def test_a_creative_is_selected_only_through_the_link(self):
+    def case_a_creative_is_selected_only_through_the_link(self):
         """R17(6-13e, 사용자 결정): 소재를 고르는 길은 연결 하나다(`select=True`). 광고그룹 수정은 소재를 받지 않는다."""
         mine = upload(self.w)
         with self.assertRaises(errors.InvalidRequest) as caught:
@@ -77,7 +78,7 @@ class CreativeLibraryTests(TestCase):
         api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=NOW, select=True)
         self.assertEqual(self.titles(), ["새 소재"])  # 결정에 나가는 것은 선택한 소재다
 
-    def test_choosing_an_unlinked_creative_links_and_selects_it_in_one_go(self):
+    def case_choosing_an_unlinked_creative_links_and_selects_it_in_one_go(self):
         """광고 상세의 "이미지"(6-11): 내 이미지 중 하나를 고르면 아직 연결되지 않았어도 같은 트랜잭션에서 연결하고 선택한다. 끝난 캠페인이면 둘 다 하지 않는다."""
         mine = api.create_creative(self.w.adv, None, "목록의 소재", "https://example.com/2", png_file((9, 9, 9)), now=NOW)
         view = api.link_creative(self.w.adv, self.w.group.ad_group_id, mine.creative_id, now=NOW, select=True)
@@ -92,7 +93,7 @@ class CreativeLibraryTests(TestCase):
             api.link_creative(self.w.adv, self.w.group.ad_group_id, other.creative_id, now=NOW, select=True)
         self.assertFalse(AdGroupCreative.objects.filter(creative_id=other.creative_id).exists())
 
-    def test_another_advertisers_or_an_archived_creative_is_404(self):
+    def case_another_advertisers_or_an_archived_creative_is_404(self):
         other = World(ends_in=None)
         theirs = other.creative.creative_id
         for call in (lambda: api.link_creative(self.w.adv, self.w.group.ad_group_id, theirs, now=NOW),
@@ -113,7 +114,7 @@ class CreativeLibraryTests(TestCase):
             api.update_creative(self.w.adv, archived.creative_id, {"title": "x"}, now=NOW)
         self.assertTrue(api.get_creative(self.w.adv, archived.creative_id).archived)  # 읽기는 된다(끝난 캠페인의 광고그룹 화면)
 
-    def test_a_creative_linked_to_an_unfinished_campaign_cannot_be_archived(self):
+    def case_a_creative_linked_to_an_unfinished_campaign_cannot_be_archived(self):
         unselected = upload(self.w)
         api.link_creative(self.w.adv, self.w.group.ad_group_id, unselected.creative_id, now=NOW)  # 선택하지 않은 연결도 막는다
         cid = self.w.campaign.campaign_id
@@ -131,13 +132,13 @@ class CreativeLibraryTests(TestCase):
         self.assertTrue(api.archive_creative(self.w.adv, unselected.creative_id, now=NOW).archived)
         self.assertTrue(api.archive_creative(self.w.adv, self.w.creative.creative_id, now=NOW).archived)
 
-    def test_a_campaign_past_its_end_time_counts_as_ended(self):
+    def case_a_campaign_past_its_end_time_counts_as_ended(self):
         w = World()  # NOW + 10일에 끝난다
         with self.assertRaises(errors.Conflict):
             api.archive_creative(w.adv, w.creative.creative_id, now=NOW)
         self.assertTrue(api.archive_creative(w.adv, w.creative.creative_id, now=NOW + 10 * DAY).archived)  # 상태는 아직 ACTIVE 여도
 
-    def test_archiving_frees_the_count_but_not_the_image_quota(self):
+    def case_archiving_frees_the_count_but_not_the_image_quota(self):
         spare = upload(self.w, color=(9, 9, 9))
         usage = lambda: api.advertiser_usage(self.w.admin, [self.w.adv.pk])[self.w.adv.pk]  # noqa: E731
         held = usage().image_bytes
@@ -151,14 +152,14 @@ class CreativeLibraryTests(TestCase):
             with self.assertRaises(api.LimitExceeded):
                 upload(self.w, color=(7, 7, 7))  # 보관한 소재의 이미지까지 세어 넘는다
 
-    def test_an_edit_reaches_every_linked_ad_group(self):
+    def case_an_edit_reaches_every_linked_ad_group(self):
         group = self.second_group()
         api.link_creative(self.w.adv, group.ad_group_id, self.w.creative.creative_id, now=NOW)
         api.update_creative(self.w.adv, self.w.creative.creative_id, {"title": "고친 제목"}, now=NOW)
         self.assertEqual(self.titles(), ["고친 제목", "고친 제목"])
 
     @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")
-    def test_switching_the_selection_keeps_earlier_images_public_while_the_campaign_lives(self):
+    def case_switching_the_selection_keeps_earlier_images_public_while_the_campaign_lives(self):
         old = self.w.creative.image_name
         new = upload(self.w, group=self.w.group.ad_group_id)
         api.link_creative(self.w.adv, self.w.group.ad_group_id, new.creative_id, now=NOW, select=True)
@@ -169,7 +170,7 @@ class CreativeLibraryTests(TestCase):
         api.end_campaign(self.w.adv, self.w.campaign.campaign_id, now=NOW)
         self.assertFalse(api.is_asset_servable(old, now=NOW))
 
-    def test_an_image_is_public_only_through_a_link_to_a_living_campaign(self):
+    def case_an_image_is_public_only_through_a_link_to_a_living_campaign(self):
         """연결이 여럿이면 **같은 연결**의 캠페인이 살아 있어야 한다 — 한 캠페인의 상태와 다른 캠페인의 기간이 섞이면 안 된다."""
         shared = upload(self.w, color=(6, 6, 6))
         suspended = api.create_campaign(self.w.adv, "중단된 캠페인", NOW - DAY, None, 1000, now=NOW)  # 기간은 끝이 없지만 상태가 중단
@@ -186,7 +187,7 @@ class CreativeLibraryTests(TestCase):
     def ad_group(self, **over):
         return {"name": "새 광고", "slot_ids": [self.w.slot.slot_id], "bid_amount": 400, **over}
 
-    def test_an_ad_is_made_in_an_existing_campaign_with_a_new_or_reused_creative(self):
+    def case_an_ad_is_made_in_an_existing_campaign_with_a_new_or_reused_creative(self):
         cid = self.w.campaign.campaign_id
         fresh = api.create_ad(self.w.adv, cid, self.ad_group(), creative={"title": "새로", "redirect_url": "https://example.com/a", "image_file": png_file((4, 4, 4))},
                                            now=NOW, request_key="k-new")
@@ -202,7 +203,7 @@ class CreativeLibraryTests(TestCase):
             with self.assertRaises(errors.InvalidRequest):
                 api.create_ad(self.w.adv, cid, self.ad_group(), creative=creative, creative_id=creative_id, now=NOW)
 
-    def test_a_repeated_key_answers_with_the_campaign_as_of_the_given_time(self):
+    def case_a_repeated_key_answers_with_the_campaign_as_of_the_given_time(self):
         """R5(6-13b): 같은 키의 다시 보냄은 받은 `now` 기준의 캠페인으로 답한다(실제 시계가 아니라) — 처음 응답과 같다."""
         short = api.create_campaign(self.w.adv, "짧은 캠페인", NOW - DAY, NOW + DAY, 1000, now=NOW)  # 실제 시계로는 이미 끝났다
         make = lambda: api.create_ad(self.w.adv, short.campaign_id, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-short")
@@ -210,7 +211,7 @@ class CreativeLibraryTests(TestCase):
         self.assertEqual((again.duplicate, again.campaign), (True, first.campaign))
         self.assertEqual(api.ad_created_by_key(self.w.adv, "k-short", now=NOW).campaign, first.campaign)
 
-    def test_only_an_advertiser_may_create_an_ad_whatever_the_input(self):
+    def case_only_an_advertiser_may_create_an_ad_whatever_the_input(self):
         """R9(6-13b): 역할 검사가 입력 검사·요청 키 조회보다 먼저다 — 광고주가 아니면 입력과 상관없이 403."""
         cid = self.w.campaign.campaign_id
         api.create_ad(self.w.adv, cid, self.ad_group(), creative_id=self.w.creative.creative_id, now=NOW, request_key="k-taken")
@@ -218,9 +219,12 @@ class CreativeLibraryTests(TestCase):
             with self.assertRaises(errors.Forbidden):
                 api.create_ad(self.w.admin, cid, self.ad_group(), now=NOW, **kwargs)
 
+    def test_creative_library(self):
+        self.run_cases()
+
 
 @tag("security")
-class LinkArchiveRaceTests(TransactionTestCase):
+class LinkArchiveRaceTests(Cases, TransactionTestCase):
     """연결과 보관이 겹치면 **소재 행 잠금**에서 줄을 선다 — 보관된 소재는 연결되지 않고, 연결된 소재는 보관되지 않는다(설계 §10 "캠페인 행 잠금 규약")."""
 
     def setUp(self):
@@ -233,12 +237,15 @@ class LinkArchiveRaceTests(TransactionTestCase):
     def archive(self):
         return api.archive_creative(self.w.adv, self.mine.creative_id)
 
-    def test_a_link_waiting_behind_an_archive_is_refused(self):
+    def case_a_link_waiting_behind_an_archive_is_refused(self):
         first, second = overlap(self, self.archive, "UPDATE", "campaigns_creative", self.link)  # 둘째는 소재 행 잠금에서 기다린다
         self.assertEqual((first.errors, [type(e) for e in second.errors]), ([], [errors.NotFound]))
         self.assertFalse(AdGroupCreative.objects.filter(creative_id=self.mine.creative_id).exists())
 
-    def test_an_archive_waiting_behind_a_link_is_refused(self):
+    def case_an_archive_waiting_behind_a_link_is_refused(self):
         first, second = overlap(self, self.link, "INSERT", "campaigns_ad_group_creative", self.archive)
         self.assertEqual((first.errors, [type(e) for e in second.errors]), ([], [errors.Conflict]))
         self.assertFalse(api.get_creative(self.w.adv, self.mine.creative_id).archived)
+
+    def test_link_archive_race(self):
+        self.run_cases()

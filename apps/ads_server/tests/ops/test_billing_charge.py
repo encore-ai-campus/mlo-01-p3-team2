@@ -7,6 +7,7 @@ from billing.models import LedgerEntry
 from foundation.errors import InvalidRequest, NotFound
 from tests.support.concurrency import run_together
 from tests.support.factories import NOW, WHOLE, make_advertiser
+from tests.support.cases import Cases
 
 IMPRESSION, CLICK = "IMPRESSION", "CLICK"
 
@@ -23,8 +24,8 @@ def charge(adv, amount, ref, campaign, rtype=IMPRESSION, shares=WHOLE, now=NOW):
 
 
 @tag("security")
-class ChargeTests(TestCase):
-    def test_charge_idempotent_by_reaction_ref(self):
+class ChargeTests(Cases, TestCase):
+    def case_charge_idempotent_by_reaction_ref(self):
         adv, camp = funded(), uuid.uuid4()
         first = charge(adv, 40, "m1:r1", camp)
         again = charge(adv, 40, "m1:r1", camp)
@@ -37,7 +38,7 @@ class ChargeTests(TestCase):
         self.assertEqual(charge(adv, 999, "m1:r1", camp).charged, 40)  # 금액이 달라도 처음 결과(재전송은 같은 내용이어야 한다는 것은 Step 2 의 몫)
         self.assertEqual(api.check_ledger(quiescent=True), [])
 
-    def test_charge_policy_by_share(self):
+    def case_charge_policy_by_share(self):
         """`share/v1`: 반응 하나의 과금 = 내림(적용 금액 × 결정에 남긴 그 유형의 비율 ÷ 100)(설계 §10 "구성별 반응 비율 과금"). 정책 이름이 원장에 남는다."""
         adv, camp = funded(), uuid.uuid4()
         shares = {IMPRESSION: 98, CLICK: 1, "CONVERSION": 1}
@@ -51,7 +52,7 @@ class ChargeTests(TestCase):
         self.assertIsNone(charge(adv, 99, "zero", camp, rtype=CLICK, shares=shares))  # 99 × 1 ÷ 100 = 0 → 과금 없음(하한 100 이상인 결정에서는 생기지 않는다)
         self.assertEqual(LedgerEntry.objects.count(), before)
 
-    def test_charge_policy_swappable_by_setting(self):
+    def case_charge_policy_swappable_by_setting(self):
         class FlatOne:
             name = "flat-one/v1"
 
@@ -70,7 +71,7 @@ class ChargeTests(TestCase):
         with self.assertRaises(ValueError):
             api.register_charge_policy(FlatOne())  # 이름 중복
 
-    def test_campaign_spend_counts_what_was_charged_not_the_shortfall(self):
+    def case_campaign_spend_counts_what_was_charged_not_the_shortfall(self):
         adv, camp, other = funded(100), uuid.uuid4(), uuid.uuid4()
         charge(adv, 70, "a", camp)
         charge(adv, 70, "b", camp)  # 잔액 30 만 받는다
@@ -78,7 +79,7 @@ class ChargeTests(TestCase):
         self.assertEqual(api.spend_today([camp, other], now=NOW), {camp: 100})  # 실제 차감액만 센다
         self.assertEqual(LedgerEntry.objects.get(reaction_ref="b").shortfall, 40)
 
-    def test_charge_validation_and_unknown_wallet(self):
+    def case_charge_validation_and_unknown_wallet(self):
         adv, camp = funded(), uuid.uuid4()
         for ref in ("", None, 5, "x" * 101):
             with self.assertRaises(InvalidRequest, msg=ref):
@@ -88,7 +89,7 @@ class ChargeTests(TestCase):
         self.assertEqual(api.get_wallet(adv, now=NOW).balance, 10_000)
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), 0)  # 실패한 시도는 흔적이 없다
 
-    def test_balances_and_spend_today_are_single_queries(self):
+    def case_balances_and_spend_today_are_single_queries(self):
         users = [funded(100 * (i + 1)) for i in range(3)]
         camps = [uuid.uuid4() for _ in range(3)]
         for u, c, i in zip(users, camps, range(3)):
@@ -99,6 +100,9 @@ class ChargeTests(TestCase):
         with self.assertNumQueries(1):
             spent = api.spend_today(camps + [uuid.uuid4()], now=NOW)
         self.assertEqual(spent, {camps[0]: 10, camps[1]: 20, camps[2]: 30})
+
+    def test_charge(self):
+        self.run_cases()
 
 
 class ConcurrentChargeTests(TransactionTestCase):
@@ -115,13 +119,13 @@ class ConcurrentChargeTests(TransactionTestCase):
 
 
 @tag("security")
-class ChargeInputValidationTests(TestCase):
+class ChargeInputValidationTests(Cases, TestCase):
     def snapshot(self, adv):
         return (
             LedgerEntry.objects.count(), api.get_wallet(adv, now=NOW).balance,
         )
 
-    def test_charge_rejects_non_integer_or_out_of_range_amounts_and_changes_nothing(self):
+    def case_charge_rejects_non_integer_or_out_of_range_amounts_and_changes_nothing(self):
         adv, camp = funded(), uuid.uuid4()
         before = self.snapshot(adv)
         for bad in (0.5, 1.0, True, False, "5", None, 0, -1, 2**53, 2**63):
@@ -131,7 +135,7 @@ class ChargeInputValidationTests(TestCase):
         self.assertEqual(api.check_ledger(quiescent=True), [])
         self.assertEqual(charge(adv, 5, "good", camp).charged, 5)  # 이후 정상 호출은 영향 없음
 
-    def test_charge_rejects_bad_policy_results_and_changes_nothing(self):
+    def case_charge_rejects_bad_policy_results_and_changes_nothing(self):
         class Broken:
             name = "broken/v1"
 
@@ -154,7 +158,7 @@ class ChargeInputValidationTests(TestCase):
         self.assertEqual(self.snapshot(adv), before)
         self.assertEqual(api.check_ledger(quiescent=True), [])
 
-    def test_balance_never_exceeds_max_amount(self):
+    def case_balance_never_exceeds_max_amount(self):
         from foundation.api import MAX_AMOUNT
         from foundation.errors import InvalidRequest as Invalid
         from tests.support.factories import make_admin
@@ -174,7 +178,7 @@ class ChargeInputValidationTests(TestCase):
             Wallet.objects.filter(owner=adv).update(balance=MAX_AMOUNT + 1)
         self.assertEqual(api.check_ledger(quiescent=True), [])
 
-    def test_signup_grant_setting_must_be_a_sane_integer(self):
+    def case_signup_grant_setting_must_be_a_sane_integer(self):
         from django.core.exceptions import ImproperlyConfigured
         from foundation.api import MAX_AMOUNT
 
@@ -183,3 +187,6 @@ class ChargeInputValidationTests(TestCase):
                 with self.assertRaises(ImproperlyConfigured, msg=bad):
                     api.grant_signup(make_advertiser(), now=NOW)
         self.assertEqual(LedgerEntry.objects.count(), 0)
+
+    def test_charge_input_validation(self):
+        self.run_cases()
