@@ -4,7 +4,7 @@ import os
 from functools import wraps
 from django.core.exceptions import ValidationError
 from django.db import OperationalError
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, Q
 from django.http import JsonResponse, Http404
 from config.presentation import presentation_response as render
 from django.contrib.auth.decorators import login_required
@@ -133,6 +133,34 @@ def csrf(request):
 @endpoint('GET')
 def wallet(request):
     return JsonResponse({'balance': wallet_balance(request.user)})
+
+
+@endpoint('GET')
+def wallet_history(request):
+    rows = PointLedger.objects.filter(profile__user=request.user)
+    cursor = request.GET.get('cursor')
+    if cursor:
+        ledger_uuid = services.parse_uuid4(cursor)
+        anchor = rows.filter(pk=ledger_uuid).only('granted_at', 'ledger_uuid').first()
+        if anchor is None:
+            raise services.LearningError('포인트 내역을 다시 불러와 주세요.', 'invalid_cursor')
+        rows = rows.filter(Q(granted_at__lt=anchor.granted_at) |
+                           Q(granted_at=anchor.granted_at, ledger_uuid__lt=anchor.ledger_uuid))
+    page_size = 10
+    page = list(rows.select_related('answer__session_question__session')
+                .order_by('-granted_at', '-ledger_uuid')[:page_size + 1])
+    items = []
+    for ledger in page[:page_size]:
+        item = ledger.answer.session_question
+        session = item.session
+        items.append({'ledger_uuid': str(ledger.pk), 'amount': ledger.delta,
+                      'balance_after': ledger.balance_after, 'granted_at': ledger.granted_at.isoformat(),
+                      'subject': session.subject, 'difficulty': session.difficulty,
+                      'question_type': session.question_type, 'question_order': item.question_order})
+    response = JsonResponse({'items': items,
+                             'next_cursor': str(page[page_size - 1].pk) if len(page) > page_size else None})
+    response['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @endpoint('POST')

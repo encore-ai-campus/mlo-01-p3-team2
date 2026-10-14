@@ -1,11 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 function fixture(subject='python'){
  const nodes={},listeners={},inputs=[],opens=[],commands=[],errors=[];const ctx=new Proxy({},{get:()=>()=>{},set:()=>true});
- for(const id of ['classroomDialog','classroomCanvas','classroomPrompt','classroom-title'])nodes[id]={open:false,events:{},addEventListener(n,fn){this.events[n]=fn;},focus(){},showModal(){this.open=true;},close(){this.open=false;this.events.close?.();},getContext(){return ctx;},getBoundingClientRect(){return {width:800,height:600};}};
+ for(const id of ['classroomDialog','classroomCanvas','classroomPrompt','classroomAreaHint','classroom-title'])nodes[id]={open:false,events:{},addEventListener(n,fn){this.events[n]=fn;},focus(){},showModal(){this.open=true;},close(){this.open=false;this.events.close?.();},getContext(){return ctx;},getBoundingClientRect(){return {width:800,height:600};}};
  let response={type:'learning_open',subject,questionType:'fill_blank'},exited=0;
  const control={setInput(keys){inputs.push([...keys]);},async command(action){commands.push(action);if(response instanceof Error)throw response;return response;}};
- const window={CampusLearning:{blocking:false,open(type,subject){opens.push({type,subject});}},CampusApp:{toast(message){errors.push(message);}},CampusIsometric:{create(){return {projection:{},draw(){}};}},addEventListener(){}};
- const c=vm.createContext({window,document:{getElementById:id=>nodes[id],addEventListener(n,fn){listeners[n]=fn;}}});
+ const window={matchMedia:()=>({matches:false}),CampusLearning:{blocking:false,open(type,subject){opens.push({type,subject});}},CampusApp:{toast(message){errors.push(message);}},CampusIsometric:{create(){return {projection:{},draw(){}};}},addEventListener(){}};
+ const c=vm.createContext({window,performance:{now:()=>0},document:{getElementById:id=>nodes[id],addEventListener(n,fn){listeners[n]=fn;}}});
  for(const file of ['classroom-map.js','classroom.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../learning/static/learning',file),'utf8'),c);
  const controller=window.CampusClassroom.create({getPlayer:()=>({avatar:'female-2',color:'#91a7a1'}),getControl:()=>control,onExit(){exited++;}});
  const state={subject,actor:{x:320,y:455,dir:'up',moving:false},nearby:null};

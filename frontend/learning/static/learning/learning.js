@@ -64,7 +64,9 @@
   const fetchSessionResult = () => request(`sessions/${state.sessionId}/`);
 
   function showBalance(balance) {
-    if (Number.isSafeInteger(balance) && balance >= 0) $('learning-wallet').textContent = `보유 ${balance.toLocaleString('ko-KR')}P`;
+    if (!Number.isSafeInteger(balance) || balance < 0) return;
+    $('learning-wallet').textContent = `보유 ${balance.toLocaleString('ko-KR')}P`;
+    window.dispatchEvent(new CustomEvent('campus:wallet', {detail: {balance}}));
   }
 
   function refreshBalance() {

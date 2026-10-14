@@ -35,23 +35,28 @@
  #wrong-review h3{font-size:17px}.auth-notice,.message{padding:10px;font-size:13px}.loading-message{font-size:12px}
 }
 .learning-host[data-content-type="fill_blank"] .learning-popup-header{background:#e3f8ee;color:#087849;border-color:#c4edda}
-.classroom-screen{box-sizing:border-box;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:16px;border:0;border-radius:0;background:#e7eee8;color:#173b3c;font-family:"Malgun Gothic",system-ui,sans-serif;overflow:hidden}
+.classroom-screen{--classroom-footer-height:49px;box-sizing:border-box;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:16px;border:0;border-radius:0;background:#e7eee8;color:#173b3c;font-family:inherit;overflow:hidden}
 .classroom-screen[open]{display:flex;flex-direction:column;align-items:center;gap:10px}.classroom-screen:not([open]){display:none}.classroom-screen::backdrop{background:#e7eee8}
 .classroom-screen h2{margin:0;font-size:22px}#classroomCanvas{display:block;width:100%;flex:1;min-height:0;outline:none;touch-action:none}#classroomCanvas:focus-visible{outline:2px solid #60a68b;outline-offset:-2px}
-.classroom-instruction{font-size:14px;text-align:center;line-height:1.8;margin:0;min-height:26px;padding:0 12px}
-@media(max-width:600px){.classroom-screen{padding:8px}.classroom-screen h2{font-size:18px}.classroom-instruction{font-size:12px}.learning-host{width:calc(100vw - 24px)}}
+@media(max-width:600px){.classroom-screen{padding:8px}.classroom-screen h2{font-size:18px}.learning-host{width:calc(100vw - 24px)}}
 @scope (.learning-host){:scope{position:fixed;inset:0;margin:auto;min-height:0;height:fit-content;max-height:85vh;max-height:85dvh;width:min(420px,calc(100vw - 24px));max-width:420px;background:#fff;overflow:auto}.difficulty-option[data-difficulty="advanced"]:hover,.difficulty-option[data-difficulty="advanced"]:focus-visible{background:#ffc9d6}.difficulty-option[data-difficulty="intermediate"]:hover,.difficulty-option[data-difficulty="intermediate"]:focus-visible{background:#c5e6ff}.difficulty-option[data-difficulty="beginner"]:hover,.difficulty-option[data-difficulty="beginner"]:focus-visible{background:#c6f6dd}}
 
-/* Classroom-only full viewport; title and instructions overlay the game surface. */
+/* Center the classroom controls over the scene, using the campus map keycaps. */
 .classroom-screen[open]{display:block;padding:0;position:fixed;inset:0}
 .classroom-screen #classroomCanvas{position:absolute;inset:0;width:100%;height:100%}
 .classroom-screen h2{position:absolute;z-index:1;top:10px;left:50%;transform:translateX(-50%);padding:5px 14px;background:#fff9;border-radius:8px;white-space:nowrap;font-size:20px;pointer-events:none}
-.classroom-screen .classroom-instruction{position:absolute;z-index:1;bottom:8px;left:50%;transform:translateX(-50%);max-width:95%;padding:5px 12px;background:#fffd;border-radius:8px;pointer-events:none}
+.classroom-screen .classroom-footer{position:absolute;z-index:1;left:50%;bottom:12px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px);height:auto;margin:0;padding:10px 14px;justify-content:center;gap:8px 18px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;background:#fffffff2;box-shadow:0 3px 14px #254b2715;pointer-events:none}
+.classroom-footer>div{display:flex;justify-content:center;flex:0 0 auto;white-space:nowrap}
+.classroom-footer>div:last-child{display:flex}
+.classroom-footer .classroom-action-guide>kbd{display:inline-flex;flex-shrink:0}
+.classroom-footer #classroomAreaHint,.classroom-footer #classroomPrompt{display:inline}
+.classroom-footer #classroomAreaHint[hidden]{display:none}
+@media(max-width:700px){.classroom-screen{--classroom-footer-height:41px}}
 
 .classroom-screen h2[hidden]{display:none}
 
-.classroom-exit-button{position:absolute;z-index:2;bottom:12px;left:50%;transform:translateX(-50%);padding:10px 26px;border:1px solid #c8d5cc;border-radius:10px;background:#fff;color:#23594b;font-weight:700;font-size:16px;cursor:pointer}
-.classroom-exit-button[hidden],.classroom-screen .classroom-instruction[hidden]{display:none}
+.classroom-exit-button{position:absolute;z-index:2;bottom:calc(var(--classroom-footer-height) + 12px);left:50%;transform:translateX(-50%);padding:10px 26px;border:1px solid #c8d5cc;border-radius:10px;background:#fff;color:#23594b;font-weight:700;font-size:16px;cursor:pointer}
+.classroom-exit-button[hidden]{display:none}
 
 /* Result-only compact spacing; difficulty/question screens keep their approved design. */
 .learning-host:has(#result-screen:not([hidden])) .learning-popup-header{padding:8px 16px}
