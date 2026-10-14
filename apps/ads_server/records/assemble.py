@@ -1,6 +1,6 @@
 """후보 조립. **판정은 하지 않는다** — 각 모듈의 `api` 에서 사실을 모아 engine 의 `Candidate` 로 옮길 뿐이다(설계 §6.2).
 
-질의는 모듈마다 한 번씩이라 후보 수와 무관하다(N+1 없음): 정책(masters) 1, 후보 사실(campaigns) 1, 잔액(billing) 1, 오늘 소진액(billing) 1.
+질의는 모듈마다 한 번씩이라 후보 수와 무관하다(N+1 없음): 후보 사실(campaigns) 1, 잔액(billing) 1, 오늘 소진액(billing) 1. 정책은 `slot` 에 이미 있다.
 """
 from billing import api as billing
 from campaigns import api as campaigns

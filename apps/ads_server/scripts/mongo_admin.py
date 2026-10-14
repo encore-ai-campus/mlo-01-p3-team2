@@ -33,7 +33,7 @@ def preflight():
         mongo.client()[name]["probe"].insert_one({"_id": uuid.uuid4()})
         mongo.client().drop_database(name)
     except PyMongoError as exc:
-        raise SystemExit(f"MongoDB 에 연결하거나 쓰지 못했습니다: {type(exc).__name__}: {str(exc)[:200]}\n"
+        raise SystemExit(f"MongoDB 에 연결하거나 쓰지 못했습니다: {mongo.error_text(exc)}\n"
                          "시험용 컨테이너가 떠 있는지, .env 의 MONGO_* 가 맞는지 확인하세요(README 'MongoDB 시험 환경').")
     finally:
         mongo.close()

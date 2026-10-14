@@ -5,7 +5,7 @@
 from .filters import balance, budget, floor, period, status
 from .policies.weighted_by_bid import WeightedByBid
 
-DEFAULT_POLICY = "weighted-by-bid/v1"
+DEFAULT_POLICY = WeightedByBid.name
 # 순서가 곧 판정 순서다. `floor` 는 적용 금액이 없는 후보(하한 미만)를 거르므로 `budget`·`balance` 보다 앞이어야 한다.
 DEFAULT_FILTERS = ("status", "period", "floor", "budget", "balance")
 

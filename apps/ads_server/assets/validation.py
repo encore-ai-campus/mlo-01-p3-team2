@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from django.conf import settings
 from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 
-ALLOWED_FORMATS = ("JPEG", "PNG")
 FORMAT_INFO = {"JPEG": ("image/jpeg", "jpg"), "PNG": ("image/png", "png")}
+ALLOWED_FORMATS = tuple(FORMAT_INFO)
 JPEG_QUALITIES = (90, 85, 80, 70, 60, 50)  # 재인코딩 결과가 상한을 넘으면 품질을 낮춰 본다
 SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")  # PNG, JPEG 서명. 형식 안내(손상 vs 미지원)에만 쓰고 판정에는 쓰지 않는다
 

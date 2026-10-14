@@ -25,7 +25,6 @@ import math
 import os
 import random
 import shutil
-import signal
 import socketserver
 import statistics
 import subprocess
@@ -917,9 +916,6 @@ def cleanup(res, keep):
         if "django.db" in sys.modules:
             sys.modules["django.db"].connections.close_all()
 
-    def stop_relays():
-        stop_processes(res["relays"])
-
     def drop_mongo():
         name = res["mongo_db"]
         if name and name.startswith("ads_events_load_") and "events" in sys.modules:
@@ -929,7 +925,7 @@ def cleanup(res, keep):
             mongo.close()
 
     steps = [
-        ("중계 프로세스 종료", stop_relays),
+        ("중계 프로세스 종료", lambda: stop_processes(res["relays"])),
         ("서버 종료", stop_server),
         ("연결 닫기", close_connections),
         ("MongoDB 데이터베이스 삭제", drop_mongo),

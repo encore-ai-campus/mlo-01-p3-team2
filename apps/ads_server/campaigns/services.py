@@ -785,9 +785,7 @@ def ad_created_by_key(user, request_key, now=None):
     """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
     이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 41d2288). 남의 키면 409."""
     require_advertiser(user)
-    if not is_request_key(request_key):
-        return None
-    return _created_by_key(user, request_key, _now(now))
+    return _created_by_key(user, request_key, _now(now)) if is_request_key(request_key) else None
 
 
 def _created_by_key(user, request_key, now):

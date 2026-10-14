@@ -175,11 +175,11 @@ def charge_for_reaction(owner_id, campaign_id, reaction_type, shares, applied_am
         return _duplicate(LedgerEntry.objects.get(reaction_ref=reaction_ref))
 
 
-def _charged_on(day, **scope):
-    """원장의 CHARGE 줄로 센 그 예산 일의 받은 포인트. `scope` 는 지갑(`wallet=`)이나 캠페인(`campaign_id=`)."""
+def _charged_on(day, wallet):
+    """원장의 CHARGE 줄로 센 지갑의 그 예산 일 받은 포인트."""
     start = day_start(day)
     total = LedgerEntry.objects.filter(
-        entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1), **scope,
+        entry_type=EntryType.CHARGE, created_at__gte=start, created_at__lt=start + timedelta(days=1), wallet=wallet,
     ).aggregate(s=Sum("amount"))["s"] or 0
     return -total
 
@@ -187,7 +187,7 @@ def _charged_on(day, **scope):
 def _wallet_view(owner_id, now):
     wallet = _wallet(owner_id)
     day = budget_day_of(now)
-    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=_charged_on(day, wallet=wallet), budget_day=day, resets_at=next_reset(now))
+    return WalletView(owner_id=owner_id, balance=wallet.balance, spent_today=_charged_on(day, wallet), budget_day=day, resets_at=next_reset(now))
 
 
 def _cursor(before):
@@ -240,30 +240,32 @@ def balances(owner_ids):
     return dict(Wallet.objects.filter(owner_id__in=list(owner_ids)).values_list("owner_id", "balance"))
 
 
-def _charges(campaign_ids, start, end):
-    """캠페인들의 [start, end) 과금 줄 중 실제로 받은 것. 캠페인 일 소진액은 따로 쌓지 않고 이것을 센다(6-16f — 원장 (캠페인, 시각) 색인)."""
-    return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__in=list(campaign_ids), created_at__gte=start, created_at__lt=end, amount__lt=0)
+def _charges(campaign_ids, start_day, end_day):
+    """캠페인들의 예산 일 [start_day, end_day) 과금 줄 중 실제로 받은 것. 캠페인 일 소진액은 따로 쌓지 않고 이것을 센다(6-16f — 원장 (캠페인, 시각) 색인)."""
+    return LedgerEntry.objects.filter(
+        entry_type=EntryType.CHARGE, campaign_id__in=list(campaign_ids), created_at__gte=day_start(start_day), created_at__lt=day_start(end_day), amount__lt=0,
+    )
 
 
-def _spent(rows):
-    return {key: -total for key, total in rows}
+def _spent(rows, key):
+    """`key` 로 묶은 받은 포인트 합 `{key: 포인트}` — **질의 한 번**. 소진이 없는 것은 결과에 없다(0 으로 읽는다)."""
+    return {k: -total for k, total in rows.values(key).annotate(s=Sum("amount")).values_list(key, "s")}
 
 
 def spend_today(campaign_ids, now=None):
-    """여러 캠페인의 오늘 소진액을 **질의 한 번**으로. 소진이 없으면 결과에 없다(0 으로 읽는다)."""
-    start = day_start(budget_day_of(_now(now)))
-    return _spent(_charges(campaign_ids, start, start + timedelta(days=1)).values("campaign_id").annotate(s=Sum("amount")).values_list("campaign_id", "s"))
+    """여러 캠페인의 오늘 소진액 — 오늘 하루의 `spend_by_campaign`."""
+    day = budget_day_of(_now(now))
+    return spend_by_campaign(campaign_ids, day, day + timedelta(days=1))
 
 
 def spend_by_day(campaign_ids, start_day, end_day):
-    """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}` 를 **질의 한 번**으로. `start_day` 포함, `end_day` 미포함. 소진이 없는 날은 결과에 없다(0 으로 읽는다)."""
-    rows = _charges(campaign_ids, day_start(start_day), day_start(end_day)).annotate(day=budget_day_expression("created_at"))
-    return _spent(rows.values("day").annotate(s=Sum("amount")).values_list("day", "s"))
+    """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}`. `start_day` 포함, `end_day` 미포함."""
+    return _spent(_charges(campaign_ids, start_day, end_day).annotate(day=budget_day_expression("created_at")), "day")
 
 
 def spend_by_campaign(campaign_ids, start_day, end_day):
-    """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함) — **질의 한 번**. 소진이 없는 캠페인은 결과에 없다."""
-    return _spent(_charges(campaign_ids, day_start(start_day), day_start(end_day)).values("campaign_id").annotate(s=Sum("amount")).values_list("campaign_id", "s"))
+    """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함)."""
+    return _spent(_charges(campaign_ids, start_day, end_day), "campaign_id")
 
 
 def charged_amounts(reaction_refs):
