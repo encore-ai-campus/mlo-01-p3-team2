@@ -739,7 +739,7 @@ erDiagram
 | 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `case_chosen_columns_are_all_or_none_in_db` |
 | 결정의 입찰 행은 뽑힌 광고그룹의 것 | — | 후보 사실을 광고그룹으로 묶는다(한 소재를 여러 광고그룹이 고를 수 있다) | `case_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row` |
 | 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `case_decision_not_saved_when_storage_fails` |
-| 업무 데이터와 이벤트는 함께 커밋되거나 함께 되돌려진다 | outbox PK(같은 이벤트는 한 줄) | outbox는 호출한 쪽 트랜잭션 안에서만 쓴다(밖이면 거부) | `test_refuses_to_write_outside_a_transaction`, `test_rolls_back_with_the_business_data`, `test_if_the_event_cannot_be_written_the_decision_is_not_stored`, `test_if_the_charge_event_cannot_be_written_nothing_is_charged_or_judged` |
+| 업무 데이터와 이벤트는 함께 커밋되거나 함께 되돌려진다 | outbox PK(같은 이벤트는 한 줄) | outbox는 호출한 쪽 트랜잭션 안에서만 쓴다(밖이면 거부) | `case_refuses_to_write_outside_a_transaction`, `case_rolls_back_with_the_business_data`, `case_if_the_event_cannot_be_written_the_decision_is_not_stored`, `test_if_the_charge_event_cannot_be_written_nothing_is_charged_or_judged` |
 
 ### 4.5 상태 전이
 
