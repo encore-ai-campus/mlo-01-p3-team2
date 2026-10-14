@@ -23,6 +23,7 @@ from tests.support.concurrency import WAIT, Worker
 from tests.support.factories import NOW, SUBJECT, World
 from tests.support.mongo_support import MongoDatabaseMixin, unreachable_store
 from tests.ops.test_event_outbox import decision_fields
+from tests.support.cases import Cases
 
 T0 = datetime.datetime(2026, 10, 10, 3, 0, 0, 123456, tzinfo=datetime.timezone.utc)
 
@@ -48,8 +49,8 @@ class RelayBase(MongoDatabaseMixin, TestCase):
 
 
 @tag("security")
-class RelayTests(RelayBase):
-    def test_moves_events_faithfully_and_marks_them_sent(self):
+class RelayTests(Cases, RelayBase):
+    def case_moves_events_faithfully_and_marks_them_sent(self):
         enqueue_decisions(3)
         result = relay_batch(now=T0)
         self.assertEqual((result.sent, result.duplicate), (3, 0))
@@ -62,7 +63,7 @@ class RelayTests(RelayBase):
             self.assertEqual(row.sent_at, T0)
         self.assertEqual(relay_batch(), relay.RelayResult())  # 더 없다
 
-    def test_resending_the_same_events_passes_as_duplicates(self):
+    def case_resending_the_same_events_passes_as_duplicates(self):
         """보낸 뒤 표시 전에 죽은 경우: 다시 보내면 같은 내용의 중복으로 통과하고 문서는 늘지 않는다."""
         enqueue_decisions(3)
         relay_batch()
@@ -72,7 +73,7 @@ class RelayTests(RelayBase):
         self.assertEqual(len(stored()), 3)
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 0)
 
-    def test_a_failure_after_the_write_leaves_the_rows_unsent_and_the_retry_passes(self):
+    def case_a_failure_after_the_write_leaves_the_rows_unsent_and_the_retry_passes(self):
         enqueue_decisions(2)
         real_write = relay._write
 
@@ -88,7 +89,7 @@ class RelayTests(RelayBase):
         result = relay_batch()
         self.assertEqual((result.sent, result.duplicate), (0, 2))
 
-    def test_a_different_document_under_the_same_id_stops_the_relay_without_overwriting(self):
+    def case_a_different_document_under_the_same_id_stops_the_relay_without_overwriting(self):
         ids = enqueue_decisions(3)
         bad = EventOutbox.objects.get(aggregate_id=ids[1])
         store.collection().insert_one({"_id": bad.event_id, "event_name": bad.event_name, "schema_version": 1, "produced_at": bad.created_at, "payload": {"decision_id": "다른 내용"}})
@@ -102,7 +103,7 @@ class RelayTests(RelayBase):
         with self.assertRaises(EventConflict):
             relay_batch()  # 다시 해도 계속 멈춘다(건너뛰지 않는다)
 
-    def test_a_different_json_type_is_a_conflict_not_a_duplicate(self):
+    def case_a_different_json_type_is_a_conflict_not_a_duplicate(self):
         """검토: Python 에서는 1 == True 이다 — 입찰 버전 1 과 true 를 같은 내용으로 보고 잘못된 문서를 확정했다. JSON 타입까지 같아야 같은 내용이다."""
         for label, mutate in (
             ("정수 → 불리언", lambda p: p["selected"].update(bid_version=True)),
@@ -132,7 +133,7 @@ class RelayTests(RelayBase):
                 self.assertIsNone(EventOutbox.objects.get(pk=row.pk).sent_at)  # 확정하지 않는다
                 self.assertEqual(decision_id, row.aggregate_id)
 
-    def test_the_same_content_with_different_key_order_is_a_duplicate(self):
+    def case_the_same_content_with_different_key_order_is_a_duplicate(self):
         (decision_id,) = enqueue_decisions(1)
         row = EventOutbox.objects.get()
         doc = relay.to_document(row)
@@ -141,7 +142,7 @@ class RelayTests(RelayBase):
         result = relay_batch(now=T0)
         self.assertEqual((result.sent, result.duplicate), (0, 1))
 
-    def test_batches_are_oldest_first(self):
+    def case_batches_are_oldest_first(self):
         ids = enqueue_decisions(5)
         relay_batch(limit=2, now=T0)
         self.assertEqual(set(EventOutbox.objects.filter(sent_at__isnull=False).values_list("aggregate_id", flat=True)), set(ids[:2]))
@@ -150,7 +151,7 @@ class RelayTests(RelayBase):
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 0)
         self.assertEqual(len(stored()), 5)
 
-    def test_non_duplicate_write_errors_are_not_hidden(self):
+    def case_non_duplicate_write_errors_are_not_hidden(self):
         """봉투 검증을 통과하지 못하는 문서는 중복이 아니다 — 숨기지 않고 실패한다."""
         events_row = enqueue_decisions(1)
         EventOutbox.objects.update(schema_version=1)
@@ -161,7 +162,7 @@ class RelayTests(RelayBase):
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 1)
         self.assertEqual(len(events_row), 1)
 
-    def test_when_mongodb_is_down_the_rows_stay_unsent(self):
+    def case_when_mongodb_is_down_the_rows_stay_unsent(self):
         enqueue_decisions(2)
         with unreachable_store():
             with self.assertRaises(Exception):
@@ -169,14 +170,14 @@ class RelayTests(RelayBase):
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 2)
         self.assertEqual(relay_batch().sent, 2)  # 복구되면 이어서 보낸다
 
-    def test_status_reports_the_backlog(self):
+    def case_status_reports_the_backlog(self):
         enqueue_decisions(3, start=T0)
         status = relay.outbox_status(now=T0 + timedelta(seconds=100))
         self.assertEqual((status["pending"], status["oldest_age_seconds"]), (3, 100.0))
         relay_batch()
         self.assertEqual(relay.outbox_status(), {"pending": 0, "oldest_age_seconds": None})
 
-    def test_a_real_decision_event_arrives_as_the_same_json(self):
+    def case_a_real_decision_event_arrives_as_the_same_json(self):
         w = World()
         view = records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=NOW)
         relay_batch()
@@ -184,9 +185,12 @@ class RelayTests(RelayBase):
         self.assertEqual(doc["payload"], EventOutbox.objects.get(aggregate_id=view.decision_id).payload)
         self.assertEqual(doc["payload"]["decision_id"], str(view.decision_id))
 
+    def test_relay(self):
+        self.run_cases()
+
 
 @tag("security")
-class RelayCommandTests(RelayBase):
+class RelayCommandTests(Cases, RelayBase):
     def run_command(self, *args):
         out, err = io.StringIO(), io.StringIO()
         try:
@@ -195,21 +199,21 @@ class RelayCommandTests(RelayBase):
         except CommandError as error:
             return False, out.getvalue() + str(error)
 
-    def test_once_drains_the_backlog_and_reports(self):
+    def case_once_drains_the_backlog_and_reports(self):
         enqueue_decisions(5)
         ok, text = self.run_command("--once", "--batch", "2")
         self.assertTrue(ok, text)
         self.assertIn("'sent': 5", text)
         self.assertEqual(len(stored()), 5)
 
-    def test_status_only_reads(self):
+    def case_status_only_reads(self):
         enqueue_decisions(2)
         ok, text = self.run_command("--status")
         self.assertTrue(ok)
         self.assertIn("'pending': 2", text)
         self.assertEqual(len(stored()), 0)
 
-    def test_a_conflict_fails_loudly(self):
+    def case_a_conflict_fails_loudly(self):
         (decision_id,) = enqueue_decisions(1)
         row = EventOutbox.objects.get()
         store.collection().insert_one({"_id": row.event_id, "event_name": row.event_name, "schema_version": 1, "produced_at": row.created_at, "payload": {}})
@@ -217,7 +221,7 @@ class RelayCommandTests(RelayBase):
         self.assertFalse(ok)
         self.assertIn("충돌", text)
 
-    def test_once_fails_when_mongodb_is_unreachable(self):
+    def case_once_fails_when_mongodb_is_unreachable(self):
         enqueue_decisions(1)
         with unreachable_store():
             ok, text = self.run_command("--once")
@@ -225,13 +229,16 @@ class RelayCommandTests(RelayBase):
         self.assertIn("중계 실패", text)
         self.assertEqual(EventOutbox.objects.filter(sent_at__isnull=True).count(), 1)
 
-    def test_bad_options(self):
+    def case_bad_options(self):
         self.assertFalse(self.run_command("--batch", "0")[0])
         self.assertFalse(self.run_command("--interval", "0")[0])
         self.assertFalse(self.run_command("--interval", "nan")[0])
 
+    def test_relay_command(self):
+        self.run_cases()
 
-class StandingRelayTests(RelayBase):
+
+class StandingRelayTests(Cases, RelayBase):
     """상시 중계(`--once` 없이)의 동작 중 다른 시험이 덮지 않는 것(계획 4-4e): 실패하면 점점 길게 쉬고(최대 30초) 성공하면 처음으로, 충돌이면 쉬지 않고 멈춤, 신호 처리기 복원."""
 
     def run_standing(self, relay, stop_after_sleeps, interval="1"):
@@ -252,7 +259,7 @@ class StandingRelayTests(RelayBase):
             call_command("relay_events", "--interval", interval, stdout=io.StringIO(), stderr=err)
         return sleeps, err.getvalue()
 
-    def test_failures_back_off_up_to_30_seconds_and_a_success_starts_over(self):
+    def case_failures_back_off_up_to_30_seconds_and_a_success_starts_over(self):
         calls = []
 
         def flaky(**kwargs):
@@ -267,17 +274,17 @@ class StandingRelayTests(RelayBase):
         self.assertIn("(6번째, 30초 뒤 다시)", err)
         self.assertIn("(1번째, 2초 뒤 다시)", err)
 
-    def test_the_interval_scales_the_back_off(self):
+    def case_the_interval_scales_the_back_off(self):
         sleeps, _ = self.run_standing(mock.Mock(side_effect=ServerSelectionTimeoutError("down")), stop_after_sleeps=3, interval="0.25")
         self.assertEqual(sleeps, [0.5, 1.0, 2.0])
 
-    def test_a_conflict_stops_the_standing_relay_without_retrying(self):
+    def case_a_conflict_stops_the_standing_relay_without_retrying(self):
         relay = mock.Mock(side_effect=EventConflict([uuid.uuid4()]))
         with self.assertRaisesRegex(CommandError, "충돌로 중계를 멈춥니다"):
             self.run_standing(relay, stop_after_sleeps=99)
         self.assertEqual(relay.call_count, 1)  # 다시 시도하지 않는다
 
-    def test_the_previous_signal_handler_is_restored(self):
+    def case_the_previous_signal_handler_is_restored(self):
         before = signal.getsignal(signal.SIGTERM)
         call_command("relay_events", "--once", stdout=io.StringIO())
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
@@ -286,6 +293,9 @@ class StandingRelayTests(RelayBase):
                 self.assertRaises(CommandError):  # (충돌 처리가 깨지면 이 시험이 매달리지 않고 실패한다)
             call_command("relay_events", stdout=io.StringIO())
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+
+    def test_standing_relay(self):
+        self.run_cases()
 
 @tag("security")
 class PurgeTests(TestCase):
@@ -346,7 +356,7 @@ def _with_slow_write(slow_write):
 
 @tag("security")
 @override_settings(EVENT_STORE=None)
-class RelayWithoutEventStoreTests(TestCase):
+class RelayWithoutEventStoreTests(Cases, TestCase):
     """이벤트 저장소 설정이 없을 때(Step 6-3e, 설계 §10 "이벤트 저장소 설정"): 웹은 그대로 뜨고, 중계는 재시도하지 않고 바로 멈춘다.
 
     리팩터링 세션 검토 O5: 상시 중계가 `NotConfigured` 도 일시 장애로 보고 최대 30초 간격으로 영원히 재시도했다 — 출력은 계속 나오지만 outbox 만 쌓였다.
@@ -357,7 +367,7 @@ class RelayWithoutEventStoreTests(TestCase):
         mongo.close()  # 앞선 시험이 만든 클라이언트를 버린다(클라이언트는 설정을 처음 한 번만 읽는다)
         self.addCleanup(mongo.close)
 
-    def test_the_standing_relay_stops_at_once_instead_of_retrying(self):
+    def case_the_standing_relay_stops_at_once_instead_of_retrying(self):
         enqueue_decisions(1)
         sleep = mock.Mock(side_effect=AssertionError("설정이 없으면 쉬었다 다시 하지 않는다"))
         with mock.patch("events.management.commands.relay_events.time.sleep", sleep), self.assertRaises(CommandError) as stopped:
@@ -366,8 +376,11 @@ class RelayWithoutEventStoreTests(TestCase):
         self.assertIn("NotConfigured", str(stopped.exception))
         sleep.assert_not_called()
 
-    def test_once_also_stops_with_the_same_message(self):
+    def case_once_also_stops_with_the_same_message(self):
         enqueue_decisions(1)
         with self.assertRaises(CommandError) as stopped:
             call_command("relay_events", "--once", stdout=io.StringIO())
         self.assertIn("이벤트 저장소 설정이 없어 중계를 멈춥니다", str(stopped.exception))
+
+    def test_relay_without_event_store(self):
+        self.run_cases()

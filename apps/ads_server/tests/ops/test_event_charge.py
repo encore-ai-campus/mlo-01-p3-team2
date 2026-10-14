@@ -13,11 +13,12 @@ from records import api as records
 from tests.support.factories import NOW, SUBJECT, World
 from tests.ops.test_records_processing import ProcessingBase
 from tests.ops.test_event_reaction import events_of
+from tests.support.cases import Cases
 
 
 @tag("security")
-class ChargeEventTests(ProcessingBase):
-    def test_a_charge_leaves_one_event_matching_the_ledger_line(self):
+class ChargeEventTests(Cases, ProcessingBase):
+    def case_a_charge_leaves_one_event_matching_the_ledger_line(self):
         view = self.receive("IMPRESSION")
         self.assertEqual(self.process(view), "ACCEPTED")
         entry = LedgerEntry.objects.get(entry_type="CHARGE")
@@ -30,7 +31,7 @@ class ChargeEventTests(ProcessingBase):
         self.assertEqual((p["reaction_ref"], p["budget_day"], p["created_at"]), (f"{self.media}:{self.row(view).reaction_id}", "2026-10-07", entry.created_at.isoformat()))
         self.assertNotIn("balance", str(p))  # 지갑 잔액·광고주 계정은 싣지 않는다
 
-    def test_every_charge_ledger_line_has_exactly_one_event(self):
+    def case_every_charge_ledger_line_has_exactly_one_event(self):
         for _ in range(3):
             self.process(self.receive("IMPRESSION", decision_id=self.new_decision(f"0197a5c0-0000-7000-8000-00000000{_:04d}").decision_id))
         entries = set(LedgerEntry.objects.filter(entry_type="CHARGE").values_list("entry_id", flat=True))
@@ -38,13 +39,13 @@ class ChargeEventTests(ProcessingBase):
         self.assertEqual(ids, {str(i) for i in entries})
         self.assertEqual(len(events_of(schemas.CHARGE)), len(entries))
 
-    def test_a_shortfall_is_reported(self):
+    def case_a_shortfall_is_reported(self):
         Wallet.objects.update(balance=10)  # 과금액(300 × 노출 98% = 294)보다 모자란 잔액
         self.process(self.receive("IMPRESSION"))
         p = events_of(schemas.CHARGE)[0].payload
         self.assertEqual((p["requested_amount"], p["charged_amount"], p["shortfall"]), (294, 10, 284))
 
-    def test_no_charge_no_event(self):
+    def case_no_charge_no_event(self):
         """과금 정책이 0 을 돌려준 반응은 인정되지만 원장도 이벤트도 없다(하한 100 · 비율 1 이상이면 `share/v1` 은 0 을 내지 않는다 — 0 을 내는 정책으로 본다)."""
         class Zero:
             name = "zero/v1"
@@ -63,9 +64,12 @@ class ChargeEventTests(ProcessingBase):
         self.assertEqual(LedgerEntry.objects.filter(entry_type="CHARGE").count(), before)
         self.assertEqual(len(events_of(schemas.CHARGE)), before)
 
-    def test_a_rejected_reaction_has_a_judged_event_but_no_charge_event(self):
+    def case_a_rejected_reaction_has_a_judged_event_but_no_charge_event(self):
         self.process(self.receive("IMPRESSION", decision_id=uuid.uuid4()))
         self.assertEqual((len(events_of(schemas.REACTION)), len(events_of(schemas.CHARGE))), (1, 0))
+
+    def test_charge_event(self):
+        self.run_cases()
 
 
 class ChargeEventAtomicityTests(TransactionTestCase):

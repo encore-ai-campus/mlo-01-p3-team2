@@ -10,6 +10,7 @@ from events import api as events
 from events import schemas
 from events.models import EventOutbox
 from events.outbox import enqueue
+from tests.support.cases import Cases
 
 NOW = datetime.datetime(2026, 10, 10, 3, 0, 0, 123456, tzinfo=datetime.timezone.utc)
 DECISION = uuid.UUID("0199ee00-0000-7000-8000-000000000001")
@@ -26,22 +27,25 @@ def decision_fields(**override):
 
 
 @tag("security")
-class EventIdTests(TestCase):
-    def test_id_is_deterministic_per_source_and_kind(self):
+class EventIdTests(Cases, TestCase):
+    def case_id_is_deterministic_per_source_and_kind(self):
         a = schemas.event_id_of(schemas.DECISION, DECISION)
         self.assertEqual(a, schemas.event_id_of(schemas.DECISION, DECISION))
         self.assertNotEqual(a, schemas.event_id_of(schemas.REACTION, DECISION))  # 종류가 다르면 다른 이벤트
         self.assertNotEqual(a, schemas.event_id_of(schemas.DECISION, uuid.uuid4()))  # 원천이 다르면 다른 이벤트
         self.assertEqual(a.version, 5)
 
-    def test_reaction_received_and_judged_events_of_one_inbox_row_differ(self):
+    def case_reaction_received_and_judged_events_of_one_inbox_row_differ(self):
         inbox = uuid.uuid4()
         self.assertNotEqual(schemas.event_id_of(schemas.REACTION_RECEIVED, inbox), schemas.event_id_of(schemas.REACTION, inbox))
 
+    def test_event_id(self):
+        self.run_cases()
+
 
 @tag("security")
-class EnqueueTests(TestCase):
-    def test_writes_one_row_with_the_envelope(self):
+class EnqueueTests(Cases, TestCase):
+    def case_writes_one_row_with_the_envelope(self):
         event_id = events.record_decision(now=NOW, **decision_fields())
         row = EventOutbox.objects.get()
         self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 2, DECISION, None))
@@ -50,20 +54,20 @@ class EnqueueTests(TestCase):
         self.assertEqual(row.payload["decision_id"], str(DECISION))
         json.dumps(row.payload)  # JSON 으로 직렬화된다
 
-    def test_the_same_event_twice_leaves_one_unchanged_row(self):
+    def case_the_same_event_twice_leaves_one_unchanged_row(self):
         events.record_decision(now=NOW, **decision_fields())
         first = EventOutbox.objects.get()
         events.record_decision(now=NOW + datetime.timedelta(hours=1), **decision_fields(candidate_count=99))  # 재처리: 같은 원천 → 같은 이벤트
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload, row.created_at), (first.payload, first.created_at))  # 처음 것이 그대로다
 
-    def test_sent_rows_stay_sent_when_re_enqueued(self):
+    def case_sent_rows_stay_sent_when_re_enqueued(self):
         events.record_decision(now=NOW, **decision_fields())
         EventOutbox.objects.update(sent_at=NOW)
         events.record_decision(now=NOW, **decision_fields())
         self.assertIsNotNone(EventOutbox.objects.get().sent_at)  # 이미 보낸 이벤트를 다시 대기열로 되돌리지 않는다
 
-    def test_payload_shapes(self):
+    def case_payload_shapes(self):
         p = schemas.decision_payload(**decision_fields(audience="shared", subject_id=None, selected=None))
         self.assertEqual((p["selected"], p["subject_id"], p["decided_at"]), (None, None, "2026-10-10T03:00:00.123456+00:00"))
         self.assertNotIn("owner_id", json.dumps(schemas.decision_payload(**decision_fields())))  # 광고주 계정은 싣지 않는다
@@ -85,7 +89,7 @@ class EnqueueTests(TestCase):
         )
         self.assertEqual((c["budget_day"], c["requested_amount"], c["shortfall"]), ("2026-10-10", 30, 10))
 
-    def test_received_event_carries_only_reported_facts(self):
+    def case_received_event_carries_only_reported_facts(self):
         p = schemas.reaction_received_payload(
             inbox_id=uuid.uuid4(), reaction_id=uuid.uuid4(), media_id=uuid.uuid4(), decision_id=DECISION, type="IMPRESSION", occurred_at=NOW,
             received_at=NOW, subject_id=None, source="media", raw={"type": "IMPRESSION"},
@@ -94,28 +98,34 @@ class EnqueueTests(TestCase):
         self.assertNotIn("audience", p)
         self.assertEqual(p["raw"], {"type": "IMPRESSION"})
 
+    def test_enqueue(self):
+        self.run_cases()
 
-class OutsideTransactionTests(TransactionTestCase):
-    def test_refuses_to_write_outside_a_transaction(self):
+
+class OutsideTransactionTests(Cases, TransactionTestCase):
+    def case_refuses_to_write_outside_a_transaction(self):
         with self.assertRaises(events.OutsideTransaction):
             events.record_decision(now=NOW, **decision_fields())
         self.assertEqual(EventOutbox.objects.count(), 0)
 
-    def test_rolls_back_with_the_business_data(self):
+    def case_rolls_back_with_the_business_data(self):
         with self.assertRaises(RuntimeError):
             with transaction.atomic():
                 events.record_decision(now=NOW, **decision_fields())
                 raise RuntimeError("업무 데이터 저장 실패")
         self.assertEqual(EventOutbox.objects.count(), 0)  # 저장은 안 됐는데 이벤트만 남지 않는다
 
-    def test_commits_with_the_business_data(self):
+    def case_commits_with_the_business_data(self):
         with transaction.atomic():
             events.record_decision(now=NOW, **decision_fields())
         self.assertEqual(EventOutbox.objects.count(), 1)
 
-    def test_outbox_error_other_than_duplicate_is_not_swallowed(self):
+    def case_outbox_error_other_than_duplicate_is_not_swallowed(self):
         """길이 초과 같은 오류가 INSERT IGNORE 처럼 경고로 삼켜지지 않는다."""
         with self.assertRaises(Exception):
             with transaction.atomic():
                 enqueue("x" * 100, uuid.uuid4(), DECISION, {})
         self.assertEqual(EventOutbox.objects.count(), 0)
+
+    def test_outside_transaction(self):
+        self.run_cases()

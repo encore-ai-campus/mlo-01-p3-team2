@@ -25,43 +25,47 @@ from records.models import Decision, Reaction
 from records.processing import reaction_ref
 from tests.support.factories import DAY, NOW, SUBJECT, WHOLE, World
 from tests.support.mongo_support import MongoDatabaseMixin, unreachable_store
+from tests.support.cases import Cases
 
 UTC = timezone.utc
 
 
 @tag("security")
-class CanonicalJsonTests(SimpleTestCase):
-    def test_rfc8785_sample(self):
+class CanonicalJsonTests(Cases, SimpleTestCase):
+    def case_rfc8785_sample(self):
         """RFC 8785 부록의 숫자·문자열·리터럴 예시."""
         sample = json.loads('{"numbers":[333333333.33333329,1E30,4.50,2e-3,0.000000000000000000000000001],"string":"\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/","literals":[null,true,false]}')
         self.assertEqual(hops.canonical_json(sample), '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}')
 
-    def test_keys_sort_by_utf16_code_units_not_code_points(self):
+    def case_keys_sort_by_utf16_code_units_not_code_points(self):
         keys = ["€", "\r", "דּ", "1", "\U0001F600", "\u0080", "ö"]
         ordered = list(json.loads(hops.canonical_json({k: 1 for k in keys})).keys())
         self.assertEqual(ordered, ["\r", "1", "\u0080", "ö", "€", "\U0001F600", "דּ"])  # 😀(D83D DE00)가 U+FB33 보다 앞이다
 
-    def test_number_formats_follow_ecmascript(self):
+    def case_number_formats_follow_ecmascript(self):
         for value, text in ((300.0, "300"), (0.5, "0.5"), (1e21, "1e+21"), (1e-7, "1e-7"), (0.000001, "0.000001"), (1.5e-10, "1.5e-10"), (-2.5, "-2.5"), (0.0, "0"), (2592000.0, "2592000")):
             self.assertEqual(hops.canonical_json(value), text)
         self.assertEqual(hops.canonical_json([1, 1.0, True, False, None]), "[1,1,true,false,null]")  # 불리언은 숫자와 다르다
         with self.assertRaises(ValueError):
             hops.canonical_json(float("nan"))
 
-    def test_document_form_has_millisecond_utc_time_and_lowercase_ids(self):
+    def case_document_form_has_millisecond_utc_time_and_lowercase_ids(self):
         moment = datetime(2026, 10, 10, 3, 0, 1, 987654, tzinfo=UTC)
         doc = hops.normal_document(uuid.UUID("AAAAAAAA-0000-5000-8000-000000000001"), "ad.decision", 1, moment, {"a": 1})
         self.assertEqual((doc["event_id"], doc["produced_at"]), ("aaaaaaaa-0000-5000-8000-000000000001", "2026-10-10T03:00:01.987Z"))  # 반올림하지 않고 자른다
 
+    def test_canonical_json(self):
+        self.run_cases()
+
 
 @tag("security")
-class SummaryTests(SimpleTestCase):
+class SummaryTests(Cases, SimpleTestCase):
     NOW = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
 
     def doc(self, i, at, name="ad.decision", **payload):
         return hops.normal_document(uuid.UUID(int=i), name, 1, at, payload or {"n": i})
 
-    def test_windows_are_utc_days_and_closed_only_after_the_grace(self):
+    def case_windows_are_utc_days_and_closed_only_after_the_grace(self):
         start = datetime(2026, 10, 9, tzinfo=UTC)
         docs = [self.doc(1, start + timedelta(hours=1)), self.doc(2, datetime(2026, 10, 10, 11, tzinfo=UTC))]  # 어제 창, 오늘 창(열림)
         lines, open_windows = hops.summarize(docs, self.NOW, 120)
@@ -71,7 +75,7 @@ class SummaryTests(SimpleTestCase):
         self.assertEqual(hops.summarize(docs[:1], datetime(2026, 10, 10, 0, 1, 59, tzinfo=UTC), 120), ([], [start]))
         self.assertEqual(len(hops.summarize(docs[:1], datetime(2026, 10, 10, 0, 2, 0, tzinfo=UTC), 120)[0]), 1)
 
-    def test_hashes_follow_the_documented_rules_and_ignore_order(self):
+    def case_hashes_follow_the_documented_rules_and_ignore_order(self):
         at = datetime(2026, 10, 9, 5, tzinfo=UTC)
         docs = [self.doc(3, at), self.doc(1, at), self.doc(2, at)]
         (line,), _ = hops.summarize(docs, self.NOW, 120)
@@ -82,7 +86,7 @@ class SummaryTests(SimpleTestCase):
         self.assertEqual(line["content_sha256"], hashlib.sha256(content.encode()).hexdigest())
         self.assertEqual(hops.summarize(list(reversed(docs)), self.NOW, 120)[0], [line])  # 들어온 순서는 상관없다
 
-    def test_a_change_of_content_moves_only_the_content_hash_and_a_missing_event_moves_both(self):
+    def case_a_change_of_content_moves_only_the_content_hash_and_a_missing_event_moves_both(self):
         at = datetime(2026, 10, 9, 5, tzinfo=UTC)
         base = [self.doc(1, at), self.doc(2, at)]
         (line,), _ = hops.summarize(base, self.NOW, 120)
@@ -94,26 +98,29 @@ class SummaryTests(SimpleTestCase):
         (typed2,), _ = hops.summarize([base[0], self.doc(2, at, n=2, flag=1)], self.NOW, 120)
         self.assertNotEqual(typed["content_sha256"], typed2["content_sha256"])  # true 와 1 은 다르다
 
-    def test_an_empty_window_group_is_not_listed_and_event_names_are_separate_lines(self):
+    def case_an_empty_window_group_is_not_listed_and_event_names_are_separate_lines(self):
         at = datetime(2026, 10, 9, 5, tzinfo=UTC)
         lines, _ = hops.summarize([self.doc(1, at), self.doc(2, at, name="ad.charge")], self.NOW, 120)
         self.assertEqual(sorted(l["event_name"] for l in lines), ["ad.charge", "ad.decision"])
         self.assertEqual(hops.summarize([], self.NOW, 120), ([], []))
 
-    def test_hour_windows_are_utc_hours(self):
+    def case_hour_windows_are_utc_hours(self):
         at = datetime(2026, 10, 9, 5, 30, tzinfo=UTC)
         lines, open_windows = hops.summarize([self.doc(1, at), self.doc(2, at + timedelta(minutes=45))], self.NOW, 120, size=hops.HOUR)
         self.assertEqual([(l["window_start"], l["window_end"], l["count"]) for l in lines], [("2026-10-09T05:00:00Z", "2026-10-09T06:00:00Z", 1), ("2026-10-09T06:00:00Z", "2026-10-09T07:00:00Z", 1)])
         self.assertEqual(hops.summarize([self.doc(1, datetime(2026, 10, 10, 11, 59, tzinfo=UTC))], datetime(2026, 10, 10, 12, 1, tzinfo=UTC), 120, size=hops.HOUR), ([], [datetime(2026, 10, 10, 11, tzinfo=UTC)]))  # 여유 2분이 안 됐다
 
-    def test_since_drops_older_windows(self):
+    def case_since_drops_older_windows(self):
         old, new = datetime(2026, 10, 1, 5, tzinfo=UTC), datetime(2026, 10, 9, 5, tzinfo=UTC)
         lines, _ = hops.summarize([self.doc(1, old), self.doc(2, new)], self.NOW, 120, since=datetime(2026, 10, 5, tzinfo=UTC))
         self.assertEqual([l["window_start"] for l in lines], ["2026-10-09T00:00:00Z"])
 
+    def test_summary(self):
+        self.run_cases()
+
 
 @tag("security")
-class WindowedSummaryTests(TestCase):
+class WindowedSummaryTests(Cases, TestCase):
     """외부 검토(00d3067) P3-3: 내보내기는 닫힌 창을 하나씩·종류별로 읽어 요약한다 — 전체 이력을 메모리에 두지 않고, 결과는 전부 읽어 한 번에 요약한 것과 같다."""
 
     AS_OF = NOW + 3 * DAY  # 2026-10-10 12:00 — 10-09 까지의 창은 닫혔고 10-10 은 열려 있다
@@ -134,20 +141,20 @@ class WindowedSummaryTests(TestCase):
         """전부 읽은 기대 이벤트(예전 방식의 입력)."""
         return [events.normal_document(i, name, events.SCHEMA_VERSIONS[name], at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
 
-    def test_the_source_hop_matches_summarizing_everything_at_once(self):
+    def case_the_source_hop_matches_summarizing_everything_at_once(self):
         docs = self.everything()
         self.assertEqual({d["event_name"] for d in docs}, set(self.STREAM))  # 네 종류가 모두 있다(과금 포함)
         for since, size in ((None, hops.DAY), (self.SINCE, hops.DAY), (None, hops.HOUR)):
             lines, open_windows, _read, _largest = events.summarize_windows(records.source_streams(), self.AS_OF, 120, since, size)
             self.assertEqual((lines, open_windows), events.summarize(docs, self.AS_OF, 120, since, size), (since, size))
 
-    def test_the_outbox_hop_matches_summarizing_everything_at_once(self):
+    def case_the_outbox_hop_matches_summarizing_everything_at_once(self):
         docs = [events.normal_document(r.event_id, r.event_name, r.schema_version, r.created_at, r.payload) for r in EventOutbox.objects.all()]
         for since, size in ((None, hops.DAY), (self.SINCE, hops.DAY), (None, hops.HOUR)):
             lines, open_windows, _read, _largest = events.summarize_windows(events.outbox_streams(), self.AS_OF, 120, since, size)
             self.assertEqual((lines, open_windows), events.summarize(docs, self.AS_OF, 120, since, size), (since, size))
 
-    def test_it_reads_only_closed_windows_after_since_one_window_and_kind_at_a_time(self):
+    def case_it_reads_only_closed_windows_after_since_one_window_and_kind_at_a_time(self):
         _lines, _open, read, largest = events.summarize_windows(records.source_streams(), self.AS_OF, 120, self.SINCE)
         produced = [(hops.window_start(hops._produced(d)), self.STREAM[d["event_name"]]) for d in self.everything()]
         in_range = Counter(key for key in produced if self.SINCE <= key[0] < hops.window_start(self.AS_OF))
@@ -155,7 +162,7 @@ class WindowedSummaryTests(TestCase):
         self.assertLess(read, len(produced))
         self.assertEqual(largest, max(in_range.values()))  # 한 번에 든 것은 창 하나·종류 하나
 
-    def test_unresolved_charges_are_counted_without_holding_the_ledger(self):
+    def case_unresolved_charges_are_counted_without_holding_the_ledger(self):
         """창에 놓을 수 없는 과금 원장 줄(반응이 없음·판정 전·키 형식이 틀림)만 센다. 원장을 묶음으로 이어 읽어도(묶음 1) 결과가 같다."""
         self.assertEqual(records.unresolved_charges(), (0, []))  # 정상 과금은 모두 판정한 반응이 있다
         w = World(ends_in=None)
@@ -170,7 +177,7 @@ class WindowedSummaryTests(TestCase):
         self.assertEqual(records.unresolved_charges(batch=1), (count, examples))
         self.assertEqual(records.unresolved_charges(examples=2)[1], examples[:2])
 
-    def test_the_reaction_lookup_reads_only_the_charged_pairs(self):
+    def case_the_reaction_lookup_reads_only_the_charged_pairs(self):
         """재검토(5e8fa8c) P3: 반응 조회가 매체 집합 × 반응 ID 집합의 교차 조합을 읽었다(키 B개에 최대 B²행). 정확한 (매체, 반응) 쌍만 읽는다.
         매체 넷이 같은 반응 ID 넷을 모두 판정했고 과금은 대각선 넷뿐 — 한 묶음(4)의 조회가 4행을 넘지 않는다."""
         ids, worlds = [uuid.uuid4() for _ in range(4)], [World(ends_in=None) for _ in range(4)]
@@ -193,15 +200,18 @@ class WindowedSummaryTests(TestCase):
         self.assertTrue(fetched)
         self.assertLessEqual(max(fetched), 4, fetched)
 
-    def test_unsent_counts_read_only_the_unsent_rows(self):
+    def case_unsent_counts_read_only_the_unsent_rows(self):
         EventOutbox.objects.filter(event_name=events.NAMES["charge"]).update(sent_at=NOW)
         expected = Counter((events.format_time(hops.window_start(r.created_at, hops.HOUR)), r.event_name) for r in EventOutbox.objects.filter(sent_at__isnull=True))
         self.assertEqual(events.unsent_counts(size=hops.HOUR), dict(expected))
         self.assertNotIn(events.NAMES["charge"], {name for _, name in events.unsent_counts()})
 
+    def test_windowed_summary(self):
+        self.run_cases()
+
 
 @tag("security")
-class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
+class ExportHopManifestsTests(Cases, MongoDatabaseMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         store.ensure()
@@ -226,7 +236,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         manifest = ndjson.read_manifest(ndjson.manifest_path(self.dir / out, hop))
         return [json.loads(l) for l in (self.dir / out / manifest["file"]).read_text().splitlines()], manifest
 
-    def test_several_windows_agree_and_only_the_range_is_read(self):
+    def case_several_windows_agree_and_only_the_range_is_read(self):
         """창 여러 개(--since 앞의 창 포함): 세 구간이 창마다 같고, 읽은 이벤트 수는 범위 안의 것뿐이다. 실행 결과에 한 번에 든 최대 이벤트 수와 최대 메모리를 적는다."""
         w = World()
         for at in (NOW - 2 * DAY, datetime(2026, 10, 8, tzinfo=UTC)):  # 10-05(--since 앞), 10-08 의 시작(창 경계)
@@ -242,7 +252,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertRegex(text, r"hop_source: rows=5 events=5 open_windows=0 largest_window=\d+ ")
         self.assertRegex(text, r"peak_rss=\d+(\.\d)?MiB")
 
-    def test_a_charge_that_cannot_be_placed_in_a_window_fails_the_export_and_the_check(self):
+    def case_a_charge_that_cannot_be_placed_in_a_window_fails_the_export_and_the_check(self):
         """외부 검토(e781f20) P2 재현: 반응이 없는 과금 원장 줄(잔액·원장은 서로 맞음, 이벤트 없음)이 원본 구간에서 조용히 빠져 내보내기·대조가 '일치'로 끝났다.
         생성 시각을 정할 수 없으니 추정하지 않고 미해결로 남긴다 — 내보내기는 게시한 뒤 실패로 끝나고 verify_hops 도 실패한다. 정상 이벤트의 대조는 그대로 한다."""
         relay_batch()
@@ -261,7 +271,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn(f"FAIL hop_source: 창에 놓을 수 없는 과금 원장 줄 1건(반응이 없거나 판정 전, 예: {orphan.entry_id})", text)
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
-    def test_a_charge_key_that_only_looks_like_a_judged_reactions_key_is_unresolved(self):
+    def case_a_charge_key_that_only_looks_like_a_judged_reactions_key_is_unresolved(self):
         """재검토(5e8fa8c) P2 재현: 판정한 반응의 키를 다른 UUID 표기(대문자·하이픈 없음·중괄호)로 바꾼 과금 세 건이 원본 구간의 문자열 조회에도,
         UUID 로 해석하는 미해결 검사에도 걸리지 않아 '일치'로 끝났다. 키는 반응에서 만든 표준 문자열과 정확히 같아야 그 반응의 과금이다."""
         relay_batch()
@@ -277,7 +287,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertFalse(ok, text)
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
 
-    def test_manifests_describe_scope_and_are_valid(self):
+    def case_manifests_describe_scope_and_are_valid(self):
         relay_batch()
         self.export()
         for hop in ("hop_source", "hop_outbox", "hop_mongo"):
@@ -289,7 +299,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(self.dir / "out", "hop_source"))["checkpoint"]["scope"], "mysql-repeatable-read-snapshot")
         self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(self.dir / "out", "hop_mongo"))["checkpoint"]["scope"], "mongodb-read-outside-snapshot")
 
-    def test_open_windows_are_not_summarized_but_listed(self):
+    def case_open_windows_are_not_summarized_but_listed(self):
         """기준 시각의 창은 아직 열려 있다 — 줄에 넣지 않고 checkpoint 에만 적는다."""
         w = World()
         as_of = NOW + 3 * DAY  # 내보내기 도우미의 기준 시각
@@ -299,7 +309,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertNotIn(today, {l["window_start"] for l in self.lines("hop_source")[0]})
         self.assertIn(today, self.lines("hop_source")[1]["checkpoint"]["open_windows"])
 
-    def test_the_grace_setting_changes_when_a_window_closes(self):
+    def case_the_grace_setting_changes_when_a_window_closes(self):
         with override_settings(EVENTS_HOP_GRACE_SECONDS=10**9):
             self.export(out="long")
         self.assertEqual(self.lines("hop_source", out="long")[0], [])  # 아주 긴 여유 — 어떤 창도 아직 닫히지 않았다
@@ -313,7 +323,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         except CommandError as error:
             return False, stdout.getvalue() + str(error)
 
-    def test_a_normal_retention_purge_is_not_mistaken_for_corruption(self):
+    def case_a_normal_retention_purge_is_not_mistaken_for_corruption(self):
         """검토 P2-2 재현: 보존 기간이 지나 outbox 행이 모두 지워진 창은 '대조 제외'로 남아야 한다 — 행이 사라졌다고 제외 정보까지 사라져 확정 불일치가 되면 안 된다."""
         relay_batch()
         with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=1):
@@ -330,7 +340,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn("not_comparable", text)
         self.assertEqual(self.lines("hop_source", out="after")[0], self.lines("hop_mongo", out="after")[0])  # 원본과 MongoDB 는 그대로 대조된다
 
-    def test_the_retention_cutoff_inside_a_window_makes_the_whole_window_not_comparable(self):
+    def case_the_retention_cutoff_inside_a_window_makes_the_whole_window_not_comparable(self):
         """보존 기준 시각이 창의 한가운데에 걸리면, 그 창의 앞부분 행은 이미 지워졌을 수 있다 — 창 전체를 대조에서 뺀다."""
         relay_batch()
         with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=3):
@@ -342,13 +352,13 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(self.lines("hop_outbox", out="clear")[1]["checkpoint"]["not_comparable_windows"], [])
         self.assertEqual(len(self.lines("hop_outbox", out="clear")[0]), 4)
 
-    def test_hour_windows_use_the_exact_cutoff_too(self):
+    def case_hour_windows_use_the_exact_cutoff_too(self):
         relay_batch()
         with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=3):
             self.export("--window", "hour", "--as-of", "2026-10-10T12:30:00Z", out="hour")  # 기준 시각 12:30 — 이벤트가 있는 창(12:00~13:00)의 한가운데
         self.assertEqual(self.lines("hop_outbox", out="hour")[1]["checkpoint"]["not_comparable_windows"], ["2026-10-07T12:00:00Z"])
 
-    def test_windows_older_than_the_outbox_retention_are_not_compared_with_the_outbox(self):
+    def case_windows_older_than_the_outbox_retention_are_not_compared_with_the_outbox(self):
         with override_settings(EVENTS_OUTBOX_RETENTION_DAYS=1):  # 2026-10-07 창은 이미 보존 정리 범위 밖
             self.export()
         self.assertEqual(self.lines("hop_outbox")[0], [])
@@ -356,7 +366,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(checkpoint["not_comparable_windows"], ["2026-10-07T00:00:00Z"])
         self.assertTrue(self.lines("hop_source")[0] and self.lines("hop_source")[0] != [])  # 원본 구간에는 그대로 있다
 
-    def test_the_same_data_gives_the_same_lines(self):
+    def case_the_same_data_gives_the_same_lines(self):
         relay_batch()
         self.export(out="a")
         self.export(out="b")
@@ -364,7 +374,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertEqual(self.lines(hop, out="a")[0], self.lines(hop, out="b")[0])
             self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(self.dir / "a", hop))["file"], ndjson.read_manifest(ndjson.manifest_path(self.dir / "b", hop))["file"])  # 같은 내용 = 같은 데이터 파일
 
-    def test_generations_are_chained_and_the_audit_log_holds_the_anchor(self):
+    def case_generations_are_chained_and_the_audit_log_holds_the_anchor(self):
         self.export()
         first = {h: ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", h)) for h in ("hop_source", "hop_outbox", "hop_mongo")}
         relay_batch()  # 상태가 바뀐 뒤 다시 낸다 = 새 세대
@@ -378,7 +388,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(audits[1].detail["anchors"]["hop_source"], ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", "hop_source")))  # 폴더 밖의 고정점
         self.assertEqual(audits[0].detail["anchors"], first)
 
-    def test_the_audit_anchor_is_the_manifest_this_run_published_even_if_another_run_replaced_the_pointer(self):
+    def case_the_audit_anchor_is_the_manifest_this_run_published_even_if_another_run_replaced_the_pointer(self):
         """검토 P2-4: 쓴 직후 다른 실행이 포인터를 바꿔도 감사 로그의 고정점은 이 실행이 게시한 manifest 의 해시다."""
         from events import api as events_api
 
@@ -397,7 +407,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertEqual(anchors[hop], ndjson.manifest_digest(manifest), hop)
             self.assertNotEqual(anchors[hop], ndjson.manifest_sha256(ndjson.manifest_path(self.dir / "out", hop)))  # 포인터는 이미 다른 실행의 것이다
 
-    def test_two_overlapping_exports_leave_the_latest_audit_anchor_equal_to_the_published_pointer(self):
+    def case_two_overlapping_exports_leave_the_latest_audit_anchor_equal_to_the_published_pointer(self):
         """재검토 P2: 세 manifest 게시부터 감사 로그 커밋까지가 한 실행 단위여야 한다 — 겹쳐 실행해도 정상 폴더가 고정점 불일치로 거부되면 안 된다."""
         import threading
 
@@ -436,7 +446,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             self.assertEqual(ndjson.verify_chain(ndjson.manifest_path(self.dir / "out", hop)), [])
         self.assertEqual(AuditLog.objects.filter(action="events.hop_manifests_exported").count(), 2)
 
-    def test_a_missing_or_changed_previous_generation_breaks_the_chain(self):
+    def case_a_missing_or_changed_previous_generation_breaks_the_chain(self):
         self.export()
         self.export()
         self.export()
@@ -448,14 +458,14 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         copy.unlink()
         self.assertIn("없다", " ".join(ndjson.verify_chain(path)))
 
-    def test_mongodb_unreachable_fails_without_publishing(self):
+    def case_mongodb_unreachable_fails_without_publishing(self):
         with unreachable_store():
             ok, text = self.export()
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertFalse((self.dir / "out").exists())
 
-    def test_each_window_option_round_trips_from_the_exporter_to_the_checker(self):
+    def case_each_window_option_round_trips_from_the_exporter_to_the_checker(self):
         """계획 4-4d: 창 옵션마다 내보낸 선언(줄 버전, checkpoint.window, 창 경계, 열린 창·보존 기준 시각)을 대조 쪽이 그대로 읽는다."""
         from events import hopcheck
 
@@ -472,7 +482,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
             cutoff = self.lines("hop_outbox", out=option)[1]["checkpoint"]["retention_cutoff"]
             self.assertIsInstance(hops.parse_time(cutoff), datetime)
 
-    def test_window_option_and_as_of(self):
+    def case_window_option_and_as_of(self):
         relay_batch()
         self.assertTrue(self.export("--window", "hour", out="h")[0])
         line = self.lines("hop_source", out="h")[0][0]
@@ -484,8 +494,11 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(len(self.lines("hop_source", out="early")[1]["checkpoint"]["open_windows"]), 1)
         self.assertFalse(self.export("--as-of", "내일", out="bad")[0])
 
-    def test_since_option(self):
+    def case_since_option(self):
         ok, _ = self.export("--since", "2026-10-08")
         self.assertTrue(ok)
         self.assertEqual(self.lines("hop_source")[0], [])  # 2026-10-07 창은 제외
         self.assertFalse(self.export("--since", "어제")[0])
+
+    def test_event_hops_export_hop_manifests(self):
+        self.run_cases()
