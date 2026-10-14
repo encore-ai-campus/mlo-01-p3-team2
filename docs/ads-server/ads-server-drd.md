@@ -154,7 +154,7 @@ flowchart LR
 | R-2 | **PK 규칙** [확정]: ① **모든 테이블의 PK는 UUIDv7** ② **자동 증가 열은 두지 않는다** ③ 자연 키((광고그룹, `bid_version`), (슬롯, `policy_version`), (매체, 슬롯 이름) 등)는 식별자가 아니라 **업무 규칙을 지키는 유일 제약**으로 유지 ④ 확실한 순서가 필요한 곳은 **원장 하나**이고 `(지갑, seq)` 유일 제약으로 둔다(지갑 잠금 안에서 +1) ⑤ 그 밖의 정렬은 시각 열. **예외**: 이벤트 outbox의 PK `event_id`는 원천 행 ID와 이벤트 종류에서 결정적으로 만든 UUIDv5다(재처리·재전송에도 같은 값) | 정수 PK는 DB 이관·병합 때 번호 충돌과 키 이중화(정수·UUID)를 만든다. MongoDB는 자동 증가가 없고 `_id`에 UUID를 쓴다. MySQL(InnoDB)은 PK가 데이터 정렬 기준이라 무작위 v4 대신 **시각이 앞에 오는 v7**(Python 3.14 `uuid.uuid7`, 같은 밀리초 안에서도 단조 증가)이 새 행을 뒤에 붙인다. 상세는 설계서 §10 "PK 규칙" |
 | R-3 | **시각은 UTC**로 저장·계산·전송한다. 계약은 RFC 3339 `…Z`만 허용. KST는 화면 표시에서만 | 설계서 §3 [확정]. 서비스는 시간대 없는 값(naive)을 거부, `engine`은 UTC가 아니면 생성 단계에서 거부 |
 | R-4 | **금액은 정수 포인트**, 0 이상, 최대 `2^53 − 1`(JSON 정수로 정확히 표현되는 한계) | 설계서 §10 [확정]. DB `CHECK` + 서비스 검증. 팀 DRD의 `DECIMAL(18,2)`와 다르다(§9) |
-| R-5 | **추가 전용(append-only)**: 감사 로그(A3), 입찰 정책(M3), 매체 비활성화 기록(M5), 소재 연결(O9), 입찰(O5), 소재 이미지 보유(O7), 원장(B2), 결정(R1). INSERT만 허용하고 수정·삭제·같은 PK로 덮어쓰기·upsert를 막는다 | `foundation.AppendOnlyModel`(저장은 항상 `force_insert`, `update`·`delete`·`bulk_create(update_conflicts)` 거부). 정정은 반대 부호의 새 행. 전수 시험이 추가 전용 모델 전부를 덮는지까지 본다(`test_every_append_only_model_is_covered_here`) |
+| R-5 | **추가 전용(append-only)**: 감사 로그(A3), 입찰 정책(M3), 매체 비활성화 기록(M5), 소재 연결(O9), 입찰(O5), 소재 이미지 보유(O7), 원장(B2), 결정(R1). INSERT만 허용하고 수정·삭제·같은 PK로 덮어쓰기·upsert를 막는다 | `foundation.AppendOnlyModel`(저장은 항상 `force_insert`, `update`·`delete`·`bulk_create(update_conflicts)` 거부). 정정은 반대 부호의 새 행. 전수 시험이 추가 전용 모델 전부를 덮는지까지 본다(`case_every_append_only_model_is_covered_here`) |
 | R-6 | **삭제 기능이 없다.** 캠페인·광고그룹은 끄기(`status`·`enabled`)로 처리한다. 소재는 끄기가 없고(광고그룹을 끈다), 화면의 "삭제"는 보관(`archived_at`, 행은 남김)이다 | 결정·원장이 참조하는 이력을 지키기 위해. 앱 사이 FK는 `PROTECT` |
 | R-7 | **문자열 입력**: 앞뒤 공백 제거·NFC 정규화, 제어·서식 문자(제로폭 공백 등) 금지, 길이 1~상한 | `foundation.clean_text`. 상한: 이름 100, 제목 200, 사유·메모 500 |
 | R-8 | **코드 값은 대문자**(예 `ACTIVE`, `IMPRESSION`) | DB `choices` + 서비스 검증. 계약의 enum과 같은 값 |
@@ -717,25 +717,25 @@ erDiagram
 
 | 규칙 | DB 제약 | 서비스 규칙 | 테스트(대표) |
 |---|---|---|---|
-| 정책 `100 ≤ 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `test_policy_check_constraint_in_db`, `test_the_floor_is_at_least_100_in_all_three_places` |
-| 정책 비율 각각 1~98, 합 100 | `CHECK` 둘 | 입력 검증(세 곳 같은 검사) | `test_policy_check_constraint_in_db`, `test_charge_shares_are_checked_the_same_way_in_all_three_places` |
+| 정책 `100 ≤ 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `case_policy_check_constraint_in_db`, `case_the_floor_is_at_least_100_in_all_three_places` |
+| 정책 비율 각각 1~98, 합 100 | `CHECK` 둘 | 입력 검증(세 곳 같은 검사) | `case_policy_check_constraint_in_db`, `case_charge_shares_are_checked_the_same_way_in_all_three_places` |
 | 결정 비율 각각 1~98·합 100, 광고 없음이면 비움 | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `case_charge_shares_follow_the_policy_rule_in_db` |
-| 추가 전용 여덟 표(R-5)는 추가만 | — | `AppendOnlyModel` | `test_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite`, `test_every_append_only_model_is_covered_here`, `test_*_is_append_only*` |
+| 추가 전용 여덟 표(R-5)는 추가만 | — | `AppendOnlyModel` | `case_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite`, `case_every_append_only_model_is_covered_here`, `test_*_is_append_only*` |
 | 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
-| 슬롯 성격 불변 | — | 모델 `save()` 거부 | `test_slot_audience_immutable` |
-| 광고그룹의 슬롯은 활성 | — | 400 | `test_ad_group_slot_validation`, `test_an_ad_may_combine_any_slots` |
-| 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
-| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
+| 슬롯 성격 불변 | — | 모델 `save()` 거부 | `case_slot_audience_immutable` |
+| 광고그룹의 슬롯은 활성 | — | 400 | `case_ad_group_slot_validation`, `case_an_ad_may_combine_any_slots` |
+| 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `case_balance_never_below_zero`, `check_ledger` |
+| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `case_seq_runs_from_one_without_gaps_and_per_wallet`, `case_db_rejects_a_duplicate_or_non_positive_seq`, `case_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
 | 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `case_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
-| 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
+| 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `case_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
-| 광고주 상한은 동시 쓰기에도 넘지 않는다 | — | 사용자 행(A1)을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota`, `test_an_account_change_during_a_creation_waits_on_the_advertiser_row_and_both_finish` |
-| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O2 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(화면은 오류 메시지와 함께 광고 만들기 화면으로 302) | `test_the_same_form_sent_twice_at_once_creates_once`, `test_a_resubmission_at_the_quota_still_finds_the_first_ad` |
-| 같은 캠페인 만들기 폼은 캠페인 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 캠페인, 동시 제출은 사용자 행 잠금 안에서 다시 봄, 남의 캠페인에 붙은 키면 409 | `test_the_same_campaign_form_twice_creates_once`, `test_an_overlapping_resubmission_of_the_same_campaign_form_creates_once` |
+| 광고주 상한은 동시 쓰기에도 넘지 않는다 | — | 사용자 행(A1)을 가장 먼저 잠그고 그 안에서 센다 | `case_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`, `case_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit`, `case_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota`, `case_an_account_change_during_a_creation_waits_on_the_advertiser_row_and_both_finish` |
+| 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O2 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(화면은 오류 메시지와 함께 광고 만들기 화면으로 302) | `case_the_same_form_sent_twice_at_once_creates_once`, `case_a_resubmission_at_the_quota_still_finds_the_first_ad` |
+| 같은 캠페인 만들기 폼은 캠페인 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 캠페인, 동시 제출은 사용자 행 잠금 안에서 다시 봄, 남의 캠페인에 붙은 키면 409 | `case_the_same_campaign_form_twice_creates_once`, `case_an_overlapping_resubmission_of_the_same_campaign_form_creates_once` |
 | 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
-| 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
-| 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `test_only_one_open_review_request_per_campaign` |
-| `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
+| 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `case_signup_and_grant_same_transaction` |
+| 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `case_only_one_open_review_request_per_campaign` |
+| `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `case_edit_rejected_when_expired_but_status_still_active` |
 | 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `case_chosen_columns_are_all_or_none_in_db` |
 | 결정의 입찰 행은 뽑힌 광고그룹의 것 | — | 후보 사실을 광고그룹으로 묶는다(한 소재를 여러 광고그룹이 고를 수 있다) | `case_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row` |
 | 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `case_decision_not_saved_when_storage_fails` |
@@ -1271,7 +1271,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 0.52 | 2026-10-14 | Step 6-14a(구현 계획 §8.4.15, 사용자 결정): R1 결정의 `selection_policy` 값이 `weighted-by-bid/v1` 로, `trace` 는 후보 수와 무관한 요약으로(데이터 모양은 그대로 — 문자열·JSON) |
 | 0.51 | 2026-10-14 | Step 6-13f(구현 계획 §8.4.14, 사용자 결정): M3 입찰 정책의 `CHECK 0 < floor` 를 `CHECK floor ≥ 100`(6-10c)에 합침(마이그레이션 `masters/0008`, 빈 DB 전제). M2 슬롯 `audience` 는 모델·서비스 모두 기본값이 없다(만드는 쪽이 정한다) |
 | 0.50 | 2026-10-14 | Step 6-13e(구현 계획 §8.4.14, 사용자 결정): O2 광고그룹 `creative_id`(선택)를 바꾸는 길은 연결 하나 — 고를 때 아직 연결되지 않았으면 함께 연결한다(C6 광고그룹 `PATCH` 의 `creative_id` 삭제). 데이터 모양은 그대로 |
-| 0.49 | 2026-10-14 | Step 6-13d(구현 계획 §8.4.14): 광고주 상한의 동시 쓰기 행 — 인용 시험 이름 정정(캠페인을 만드는 시험이 "ads"라는 이름이었다 → `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`)과 서로 다른 캠페인에 광고를 겹쳐 만드는 시험 `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit` 추가. 데이터 모양은 그대로 |
+| 0.49 | 2026-10-14 | Step 6-13d(구현 계획 §8.4.14): 광고주 상한의 동시 쓰기 행 — 인용 시험 이름 정정(캠페인을 만드는 시험이 "ads"라는 이름이었다 → `case_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`)과 서로 다른 캠페인에 광고를 겹쳐 만드는 시험 `case_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit` 추가. 데이터 모양은 그대로 |
 | 0.48 | 2026-10-13 | Step 6-10f 정합: ERD 관계 줄을 6-9c 소재 목록에 맞춤 — 소재는 광고주 소유이고 광고그룹과는 연결 표(O9)로 잇고, 광고그룹은 그중 하나를 선택한다(엔터티 블록은 6-9c에 이미 고쳐져 있었고 관계 줄 "광고그룹 → 소재"가 남아 있었다) |
 | 0.47 | 2026-10-13 | Step 6-10d 과금 단위 제거(구현 계획 §8.4.11): M2 슬롯·O2 광고그룹의 `pricing_unit` 열 삭제(마이그레이션 `masters/0007`·`campaigns/0008`, 빈 DB 전제), ERD, 무결성 표(슬롯 성격 불변·광고그룹 슬롯 활성), §9 대응. 광고그룹은 아무 슬롯이나 함께 고른다 |
 | 0.46 | 2026-10-13 | Step 6-10c 과금 전환(구현 계획 §8.4.11, 설계서 §10 "구성별 반응 비율 과금"): R1 결정에 `impression_share`·`click_share`·`conversion_share`(`CHECK` 각각 1~98·합 100, 광고 없음이면 NULL) — `pricing_unit` 열 삭제(마이그레이션 `records/0012`, 빈 DB 전제), M3 `CHECK floor ≥ 100`(`masters/0006`), B2 `charge_policy` = `share/v1`, 과금 규칙(인정된 모든 유형, 내림(적용 금액 × 비율 ÷ 100)), P3·§5.6 `schema_version` 종류별(`ad.decision` 2 — `selected.charge_shares`), ERD·무결성 표·멱등 표·§8·§9 대응 |

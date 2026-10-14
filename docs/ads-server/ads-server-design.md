@@ -233,7 +233,7 @@
 - 이 모델에서는 **버전 번호 자체가 잠금 토큰**이다. 이미 "행 추가 + 버전" 구조라 컬럼을 더하지 않는다.
 - `(부모, 버전)` 유니크 제약은 **안전망**이다(다른 DB로 옮겨 쓰기가 병행될 때 검사와 저장 사이의 틈을 막는다). 주된 방어는 `expected_version` 비교다.
 - **적용 범위**: 입찰(`POST .../bids`)과 입찰 정책(단건·일괄). 캠페인·광고그룹·소재의 `PATCH`에는 적용하지 않는다 — 이들은 이력 행이 아니고 필드 단위로 보내서 충돌 범위가 좁으며, 값이 바뀌어도 과거 결정(Decision 스냅샷)이 보존되기 때문이다. 이 영역에서 덮어쓰기 문제가 실제로 생기면 `updated_at` 기반 `If-Match`를 추가한다.
-- 근거 테스트: `test_policy_stale_expected_version_rejected`(순차), `test_concurrent_policy_saves_only_one_wins`(동시), `test_bulk_policy_is_all_or_nothing`. 검사를 일부러 끄면 동시 저장이 둘 다 성공(`['ok','ok']`)하는 것을 확인했다.
+- 근거 테스트: `case_policy_stale_expected_version_rejected`(순차), `test_concurrent_policy_saves_only_one_wins`(동시), `case_bulk_policy_is_all_or_nothing`. 검사를 일부러 끄면 동시 저장이 둘 다 성공(`['ok','ok']`)하는 것을 확인했다.
 
 ## 4.3 광고 선택: 교체 가능한 전략 [확정]
 
