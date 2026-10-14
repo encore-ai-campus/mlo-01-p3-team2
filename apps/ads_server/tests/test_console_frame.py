@@ -2,7 +2,7 @@
 from django import forms
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
-from django.template import Context, RequestContext
+from django.template import Context
 from django.test import RequestFactory, SimpleTestCase, TestCase, tag
 from django.urls import reverse
 
@@ -10,6 +10,7 @@ from assets.api import ImageRejected
 from console.errors import form_errors, message_of
 from console.paging import PER_PAGE, page_of
 from foundation.api import errors
+from foundation.presentation import to_data
 from tests.factories import make_advertiser
 from tests.presentation import rendering
 
@@ -86,7 +87,7 @@ class PointsAndPagingTests(SimpleTestCase):
     def test_pager_keeps_other_query_values(self):
         request = RequestFactory().get("/", {"page": "2", "from": "2026-10-01"})
         page = page_of(list(range(PER_PAGE * 3)), request)
-        html = rendering.engine().get_template("console/_pager.html").render(RequestContext(request, {"page": page}))
+        html, _ = rendering.render(request, {"template": "console/_pager.html", "context": {"page": to_data(page)}})  # 화면 데이터로 — 프론트가 그리는 길
         self.assertIn("?page=1&amp;from=2026-10-01", html)
         self.assertIn("?page=3&amp;from=2026-10-01", html)
         self.assertIn("2 / 3", html)

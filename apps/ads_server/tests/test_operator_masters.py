@@ -32,6 +32,12 @@ class OperatorAccessTests(TestCase):
         for name in ("media_list", "policy_bulk", "campaign_monitor", "review_queue"):
             self.assertContains(r, reverse(f"operator:{name}"), msg_prefix=name)
 
+    def test_the_operator_header_names_the_signed_in_admin(self):
+        """운영 화면 머리글의 이름(관리 템플릿의 `user.get_username`)은 화면 데이터의 사용자에서 온다."""
+        admin = make_admin()
+        self.client.force_login(admin)
+        self.assertContains(self.client.get(reverse("operator:media_list")), f"<strong>{admin.username}</strong>")
+
 
 class OperatorBase(TestCase):
     def setUp(self):

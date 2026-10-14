@@ -396,9 +396,10 @@ class CandidateFactsTests(TestCase):
     def test_group_without_bid_or_creative_is_not_a_candidate(self):
         w = World(with_creative=False)
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id), [])  # 소재 없음
-        api.create_creative(w.adv, w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
+        creative = api.create_creative(w.adv, w.group.ad_group_id, "t", "https://a.example", png_file(), now=NOW)
         self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 1)
         nobid = api.create_ad_group(w.adv, w.campaign.campaign_id, "입찰 없음", [w.slot.slot_id], now=NOW)
+        api.link_creative(w.adv, nobid.ad_group_id, creative.creative_id, now=NOW, select=True)
         self.assertEqual(len(api.candidate_facts_for_slot(w.slot.slot_id)), 1)  # 입찰 없는 그룹은 소재가 있어도 빠진다
 
     def test_expired_but_not_yet_ended_campaign_is_still_returned_for_engine_to_judge(self):

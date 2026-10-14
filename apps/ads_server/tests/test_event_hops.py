@@ -293,11 +293,12 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual(ndjson.read_manifest(ndjson.manifest_path(self.dir / "out", "hop_mongo"))["checkpoint"]["scope"], "mongodb-read-outside-snapshot")
 
     def test_open_windows_are_not_summarized_but_listed(self):
-        """오늘 창은 아직 열려 있다 — 줄에 넣지 않고 checkpoint 에만 적는다."""
+        """기준 시각의 창은 아직 열려 있다 — 줄에 넣지 않고 checkpoint 에만 적는다."""
         w = World()
-        records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=datetime.now(UTC), rng=Random(2))
+        as_of = NOW + 3 * DAY  # 내보내기 도우미의 기준 시각
+        records.decide(w.slot.media_id, w.slot.slot_id, subject_id=SUBJECT, now=as_of - timedelta(hours=1), rng=Random(2))
         self.export()
-        today = hops.window_start(datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        today = hops.window_start(as_of).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.assertNotIn(today, {l["window_start"] for l in self.lines("hop_source")[0]})
         self.assertIn(today, self.lines("hop_source")[1]["checkpoint"]["open_windows"])
 
