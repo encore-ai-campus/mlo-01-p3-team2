@@ -211,7 +211,7 @@ def mysql_config(name, user, password, host, port, isolation_level="read committ
     """MySQL 8.4 접속 설정 (계획 §7.3 S5·S7). 값은 호출한 쪽이 환경변수에서 읽어 넘긴다.
 
     - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다.
-    - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`scripts/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
+    - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`tests/tools/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
       READ COMMITTED 는 두 번 모두 교착 0·잠금 초과 0·불변식 전부 통과, REPEATABLE READ 는 교착 8건(1213)이 나고 불변식 2건이 실패했다
       (같은 `reaction_id` 재전송 폭주에서 201 이 하나가 아니었고, 결정마다 퍼널이 인정되지 않은 결정이 있었다).
       간격 잠금이 같은 유일 키를 노리는 동시 INSERT 를 교착으로 몰기 때문이다. 판정은 유일 제약과 행 잠금에 기대므로 READ COMMITTED 로도 의미가 같다.

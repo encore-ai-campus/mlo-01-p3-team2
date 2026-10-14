@@ -16,12 +16,12 @@ pip install -r requirements.txt
 cp .env.example .env        # 값을 채운다(DB_USER·DB_PASSWORD 필수). .env 는 커밋하지 않는다
 # MySQL 8.4 가 떠 있어야 한다 — 아래 "MySQL 시험 환경"
 python manage.py migrate
-python scripts/run_split.py         # 백엔드 127.0.0.1:8000 + 프론트 127.0.0.1:8001 → 브라우저는 http://127.0.0.1:8001/
+python tests/tools/run_split.py         # 백엔드 127.0.0.1:8000 + 프론트 127.0.0.1:8001 → 브라우저는 http://127.0.0.1:8001/
 ```
 
 - **두 서버를 따로 띄울 때**: 백엔드는 `python manage.py runserver 127.0.0.1:8000`, 프론트는 `../ads_frontend` 에서 `FRONTEND_DEBUG=1 BACKEND_URL=http://127.0.0.1:8000 python manage.py runserver 127.0.0.1:8001`(관리 사이트 경로 `ADMIN_URL_PATH`·업로드 상한 `ASSET_MAX_BYTES` 는 두 쪽이 같아야 한다 — `run_split.py` 는 이 `.env` 에서 받아 넘긴다). 백엔드 주소를 브라우저로 열면 화면 대신 화면 데이터(JSON)가 보인다.
 
-- **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
+- **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `tests/tools/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
 - 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 `.env`의 설정 모듈을 따르지 않고 실제 환경변수가 없으면 prod다(아래 "운영 배포").
 - prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`·`TRUSTED_PROXY_COUNT`(1 이상)·`CSRF_TRUSTED_ORIGINS`가 없으면 기동하지 않는다.
@@ -43,7 +43,7 @@ docker compose up -d --build --wait
 brew install mysql-client pkg-config                # mysqlclient 를 빌드하는 데 필요
 pip install -r requirements.txt
 cp .env.example .env                                # DB_USER·DB_PASSWORD 에 컨테이너 root 값(로컬 시험 전용)
-python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제 권한 점검. 안 되면 이유를 말하고 멈춘다
+python tests/tools/mysql_admin.py                       # 접속·8.4·생성/삭제 권한 점검. 안 되면 이유를 말하고 멈춘다
 ```
 
 - 데이터베이스는 **정렬을 지정해** 만든다. 8.4 기본(`utf8mb4_0900_ai_ci`)은 대소문자·악센트를 구분하지 않아 유일 제약과 비교가 달라진다:
@@ -55,18 +55,18 @@ python scripts/mysql_admin.py                       # 접속·8.4·생성/삭제
 
 ## InnoDB Cluster 시험 환경 (운영 후보 구성)
 
-기본 게이트는 단일 노드 MySQL에서 도는 `scripts/check.sh`다. 운영 후보 구성인 **InnoDB Cluster**(MySQL 3노드 그룹 복제, 단일 primary, 자동 failover + MySQL Router)에서 같은 점검을 돌릴 때는 아래를 쓴다(Docker 필요, 수 분).
+기본 게이트는 단일 노드 MySQL에서 도는 `tests/tools/check.sh`다. 운영 후보 구성인 **InnoDB Cluster**(MySQL 3노드 그룹 복제, 단일 primary, 자동 failover + MySQL Router)에서 같은 점검을 돌릴 때는 아래를 쓴다(Docker 필요, 수 분).
 
 ```bash
-env -u DB_NAME scripts/cluster_check.sh              # 클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
-env -u DB_NAME scripts/cluster_check.sh --failure    # 거기에 클러스터 장애 시험 8개(자체 클러스터를 따로 띄운다)
-eval "$(python scripts/mysql_cluster.py start)"   # 손으로 띄우기: MYSQL_CLUSTER_ID·DB_HOST·DB_PORT(Router 포트)·DB_USER·DB_PASSWORD 를 export
-python scripts/mysql_cluster.py status "$MYSQL_CLUSTER_ID"
-python scripts/mysql_cluster.py stop "$MYSQL_CLUSTER_ID"
-python scripts/failure_test.py --mysql cluster primary-kill switchover   # 클러스터 장애 시나리오를 골라서
+env -u DB_NAME tests/tools/cluster_check.sh              # 클러스터를 띄워 check.sh(전체 시험·20 동시 부하·보안 점검)와 150 동시 부하를 돌리고 지운다
+env -u DB_NAME tests/tools/cluster_check.sh --failure    # 거기에 클러스터 장애 시험 8개(자체 클러스터를 따로 띄운다)
+eval "$(python tests/tools/mysql_cluster.py start)"   # 손으로 띄우기: MYSQL_CLUSTER_ID·DB_HOST·DB_PORT(Router 포트)·DB_USER·DB_PASSWORD 를 export
+python tests/tools/mysql_cluster.py status "$MYSQL_CLUSTER_ID"
+python tests/tools/mysql_cluster.py stop "$MYSQL_CLUSTER_ID"
+python tests/tools/failure_test.py --mysql cluster primary-kill switchover   # 클러스터 장애 시나리오를 골라서
 ```
 
-- **이미지** `ads-innodb-cluster:8.4`(`docker/innodb-cluster/`, 처음 한 번 빌드에 수 분): 서버 8.4.11(인프라 이미지와 같은 generic tarball), Shell·Router 8.4.10(arm64 tarball이 8.4.10까지).
+- **이미지** `ads-innodb-cluster:8.4`(`tests/docker/innodb-cluster/`, 처음 한 번 빌드에 수 분): 서버 8.4.11(인프라 이미지와 같은 generic tarball), Shell·Router 8.4.10(arm64 tarball이 8.4.10까지).
 - **구성**: 노드 3개(GTID·ROW 바이너리 로그, 일관성 `BEFORE_ON_PRIMARY_FAILOVER`, `expelTimeout` 5초, 자동 재합류) + Router 1대. 앱은 **Router 읽기·쓰기 포트로만** 접속한다. 계정은 운영처럼 나눈다: `root`(노드 안), `failover`(클러스터 관리), `router`(부트스트랩이 만듦), `dev`(앱·시험).
 - 포트·비밀번호는 무작위이고 공유 컨테이너(`db-standalone-*`)는 건드리지 않는다. 시험이 실패해도 클러스터 컨테이너와 네트워크를 지운다. `cluster_check.sh`는 시작 전에 환경에 남은 이전 클러스터 값을 비우고, 기동 명령의 종료 코드를 직접 확인한다. 기동에 실패하면 후속 시험 없이 비정상 종료하고, 정리는 **이번 실행이 만든 클러스터에만** 건다(이전 ID를 지우지 않는다).
 - `env -u DB_NAME`: 클러스터에는 `ads_server` 데이터베이스만 만들어지고, `cluster_check.sh`가 비우는 값은 접속 값(`DB_HOST`·`DB_PORT`·`DB_USER`·`DB_PASSWORD`)뿐이다. 동시 시험 때문에 셸에 `DB_NAME`을 따로 정해 두었다면 빼고 돌린다(클러스터는 따로 띄우므로 이름을 나눌 필요가 없다).
@@ -76,7 +76,7 @@ python scripts/failure_test.py --mysql cluster primary-kill switchover   # 클�
 ## MongoDB 시험 환경
 
 이벤트 로그(MongoDB `ad_events`, Step 4부터 중계가 씀)는 **MongoDB 8.0**이다. 같은 `intake/db-standalone` 컨테이너(`mongodb` 서비스, Standalone·인증)를 쓴다. 접속 값은 `.env`의 `MONGO_*`(`.env.example`)이고,
-시험 설정은 접속 값만 읽고 데이터베이스 이름은 시험마다 무작위로 정해 **그 이름만** 지운다. `check.sh`가 맨 앞에서 `scripts/mongo_admin.py`로 접속·쓰기를 점검한다(MongoDB가 없으면 시험을 건너뛰지 않고 멈춘다).
+시험 설정은 접속 값만 읽고 데이터베이스 이름은 시험마다 무작위로 정해 **그 이름만** 지운다. `check.sh`가 맨 앞에서 `tests/tools/mongo_admin.py`로 접속·쓰기를 점검한다(MongoDB가 없으면 시험을 건너뛰지 않고 멈춘다).
 
 ```bash
 python manage.py ensure_event_store    # ad_events 컬렉션(봉투 검증)과 색인을 만든다(멱등, 배포 때 한 번)
@@ -84,7 +84,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 ```
 
 - 레플리카셋 접속(운영과 같은 방식)을 시험하려면 임시 단일 노드 레플리카셋(인증 켜짐)을 띄운다. 포트·비밀번호는 무작위이고 공유 컨테이너는 건드리지 않는다:
-  `eval "$(python scripts/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.test_event_store` → `python scripts/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
+  `eval "$(python tests/tools/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.ops.test_event_store` → `python tests/tools/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
 - 앱(웹 프로세스)은 MongoDB를 호출하지 않는다. 요청은 MySQL의 outbox에 이벤트를 쓰기만 하고, MongoDB로 옮기는 일은 상시 중계(`relay_events`, 아래)가 한다. MongoDB가 끊기면 이벤트는 outbox에 쌓였다가 복구 뒤 옮겨진다(짧은 재시작 시험에서 요청 503 0, 장기 장애는 확인하지 않음 — 설계 §10 "MongoDB 장애와 요청").
 
 ## 운영 배포
@@ -137,35 +137,38 @@ python manage.py verify_hops --dir HOPS            # 구간 대조. 확정 불�
 ## 테스트와 점검
 
 ```bash
-python manage.py test                 # 전체 (경계 검사·보안 회귀 포함)
-python manage.py test --tag security  # 보안 회귀 묶음만
-./scripts/check.sh                    # 일괄 점검: check --deploy, 마이그레이션, 테스트, pip-audit, bandit
-OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못 돌릴 때 건너뛰고 표시
+python manage.py test tests.ops            # 운영용 시험 — 제품 동작
+python manage.py test tests.dev            # 개발용 시험 — 개발 문서·계약 파일·코드 구조와의 대조, 시험 도구의 시험
+python manage.py test --tag security       # 보안 회귀 묶음만
+./tests/tools/check.sh                     # 일괄 점검: check --deploy, 마이그레이션, 운영용·개발용 시험, pip-audit, bandit
+OFFLINE_OK=1 ./tests/tools/check.sh        # 네트워크가 없어 pip-audit 을 못 돌릴 때 건너뛰고 표시
 ```
+
+**`tests/` 밖은 운영 코드다**(설계 §10 "시험 구성"). 시험과 개발 도구는 모두 `tests/` 아래에 있다: `ops/`(운영용 시험), `dev/`(개발용 시험), `support/`(공용 도우미·시험용 URL·앱), `tools/`(점검·부하·장애·측정 스크립트), `docker/`(InnoDB Cluster 시험 이미지). 예외는 시험·개발 설정 모듈(`config/settings/test.py`·`dev.py`)이다.
 
 `check.sh`는 하나라도 실패하면 비정상 종료한다. `pip-audit`이 네트워크 문제로 못 돌 때와 **실제 취약점이 발견됐을 때**를 구분해 알려준다.
 
 날짜가 지나면 깨지는 시험(실제 시계에 기대는 시험)은 시계를 앞당겨 미리 찾는다. 시간이 두 배라 `check.sh`에는 넣지 않았고, 측정 단계에서 +4일·+40일·+6년으로 돌린다:
 
 ```bash
-DB_NAME=ads_impl python scripts/clock_shift_test.py --days 40   # 앱 코드의 시계(django.utils.timezone.now)만 앞당겨 전체 시험
+DB_NAME=ads_impl python tests/tools/clock_shift_test.py --days 40   # 앱 코드의 시계(django.utils.timezone.now)만 앞당겨 전체 시험
 ```
 
-시험을 줄일 때(설계 §10 "시험 구성", 계획서 §8.4.19)는 줄이기 전의 기준선(`scripts/measure_baseline/` — 제품 코드 커버리지, 고정 변형 307개와 그때 잡던 것)과 비교한다. 덮이던 줄이 덮이지 않게 되거나 잡던 변형을 놓치면 `compare` 가 비정상 종료한다:
+시험을 줄일 때(설계 §10 "시험 구성", 계획서 §8.4.19)는 줄이기 전의 기준선(`tests/tools/measure_baseline/` — 제품 코드 커버리지, 고정 변형 307개와 그때 잡던 것)과 비교한다. 덮이던 줄이 덮이지 않게 되거나 잡던 변형을 놓치면 `compare` 가 비정상 종료한다:
 
 ```bash
-python scripts/measure.py coverage /tmp/cov                                   # 전체 시험을 커버리지로(시험마다 문맥, 약 3분)
-python scripts/measure.py run scripts/measure_baseline/mutants.json /tmp/cov /tmp/run.json   # 변형마다 그 줄을 덮은 시험만(일꾼 4, 수십 분)
-python scripts/measure.py compare scripts/measure_baseline scripts/measure_baseline/run.json /tmp/cov /tmp/run.json
+python tests/tools/measure.py coverage /tmp/cov                                   # 전체 시험을 커버리지로(시험마다 문맥, 약 3분)
+python tests/tools/measure.py run tests/tools/measure_baseline/mutants.json /tmp/cov /tmp/run.json   # 변형마다 그 줄을 덮은 시험만(일꾼 4, 수십 분)
+python tests/tools/measure.py compare tests/tools/measure_baseline tests/tools/measure_baseline/run.json /tmp/cov /tmp/run.json
 ```
 
 부하·장애 시험(결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md)):
 
 ```bash
-python scripts/load_test.py --small           # 20 동시(몇 초). check.sh 가 실행한다
-python scripts/load_test.py --json out.json   # 150 동시. 시험 컨테이너에 이 실행 전용 DB(ads_load_*)·MongoDB 데이터베이스(ads_events_load_*)를 만들고 끝나면 지운다
-python scripts/failure_test.py                # 장애 시험: DB 재시작·강제 종료·처리 프로세스 강제 종료·MongoDB 재시작·중계 강제 종료(수 분)
-python scripts/failure_test.py restart crash  # 시나리오를 골라서. --json out.json 으로 결과 저장
+python tests/tools/load_test.py --small           # 20 동시(몇 초). check.sh 가 실행한다
+python tests/tools/load_test.py --json out.json   # 150 동시. 시험 컨테이너에 이 실행 전용 DB(ads_load_*)·MongoDB 데이터베이스(ads_events_load_*)를 만들고 끝나면 지운다
+python tests/tools/failure_test.py                # 장애 시험: DB 재시작·강제 종료·처리 프로세스 강제 종료·MongoDB 재시작·중계 강제 종료(수 분)
+python tests/tools/failure_test.py restart crash  # 시나리오를 골라서. --json out.json 으로 결과 저장
 ```
 
 장애 시험은 Docker로 **임시 MySQL 8.4 컨테이너와 임시 MongoDB 8.0 단일 노드 레플리카셋(인증 켜짐)**을 따로 띄운다(이미지 `db-standalone/mysql:8.4-ubuntu24.04`·MongoDB 이미지, 무작위 포트·비밀번호, 끝나면 삭제). 공유 시험 DB나 다른 컨테이너는 건드리지 않는다. Docker나 이미지가 없으면 건너뛰지 않고 실패하며, 수 분 걸려 `check.sh`에는 넣지 않았다. 끊김 동안 500이 없고, 재시도가 모두 수신 확인되며, 유실 0·이중 과금 0·잔액=원장이어야 한다. 또 상시 처리·중계 프로세스가 살아 있고, **복구 뒤 그 프로세스들만으로 대기열과 미전송 이벤트가 비워져야** 하며, 이벤트가 원본 행·MongoDB와 내용까지 같아야 종료 코드 0이다(시험은 접수 직후 처리를 끄고 별도 명령을 쓰지 않는다). 시나리오는 MySQL 재시작·강제 종료, 처리·중계 프로세스 강제 종료, MongoDB 재시작 다섯 가지다.
@@ -180,7 +183,7 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 
 - 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다. 첫 화면에는 반응 처리 현황 카드(대기·보류·stuck·가장 오래된 대기, stuck이 있으면 강조)가 있다.
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
-- 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
+- 아키텍처 경계(층·`api` 만 import)는 `tests/dev/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
 - 정적 파일(CSS·JS)은 운영에서도 Django가 서빙한다. **콘솔·운영 화면의 것은 프론트 서버**(`apps/ads_frontend`)가, 백 서버는 Django admin 의 것만 내준다(6-15 — 우리 화면은 프론트가 그린다). 백 서버도 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 WhiteNoise가 내준다(시작할 때 읽으므로 모은 뒤 재시작). 앞단 nginx는 통로만 맡는다(설계 §10 "정적 파일 서빙"). 파일 이름에 해시를 붙이지 않아 캐시는 WhiteNoise 기본값(짧은 유효 시간)이다.
 
 ## 매체 키 (C1 인증)
