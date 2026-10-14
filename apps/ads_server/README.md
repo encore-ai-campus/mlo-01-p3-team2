@@ -146,6 +146,8 @@ python manage.py test --tag security       # 보안 회귀 묶음만
 OFFLINE_OK=1 ./tests/tools/check.sh        # 네트워크가 없어 pip-audit 을 못 돌릴 때 건너뛰고 표시
 ```
 
+**시험 수는 서버마다 최대 500 · 권장 300**(설계 §10 "시험 구성" ①): `check.sh` 의 마지막 시험 단계가 백엔드 운영용·개발용·프론트 시험 수를 보이고, 백엔드 운영용이나 프론트가 300 을 넘으면 경고, 백엔드(운영용 + 개발용)나 프론트가 500 을 넘으면 실패한다. 6-18 뒤 백엔드 운영용 283 · 개발용 25 · 프론트 12. 백엔드 화면 시험은 화면 데이터를 프론트 렌더러로 실제로 그려 보므로(`tests/support/presentation.py`) 두 앱이 함께 있는 저장소에서 돈다.
+
 **시험 하나 = 규칙 하나**(설계 §10 "시험 구성" ④): 시험 클래스의 경우는 `case_…` 메서드이고 `test_<규칙>` 하나가 `run_cases` 로 경우마다 따로(준비·정리·DB 격리) 돈다(`tests/support/cases.py`). 실패는 `test_<규칙> [case_…]` 처럼 경우 이름으로 보인다. 경우 하나만 돌리려면 `python manage.py test tests.ops.test_x.Class.case_y`.
 
 **`tests/` 밖은 운영 코드다**(설계 §10 "시험 구성"). 시험과 개발 도구는 모두 `tests/` 아래에 있다: `ops/`(운영용 시험), `dev/`(개발용 시험), `support/`(공용 도우미·시험용 URL·앱), `tools/`(점검·부하·장애·측정 스크립트), `docker/`(InnoDB Cluster 시험 이미지). 예외는 시험·개발 설정 모듈(`config/settings/test.py`·`dev.py`)이다.

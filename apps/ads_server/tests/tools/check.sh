@@ -38,7 +38,23 @@ check_frontend_deploy() {
     BACKEND_URL=http://10.0.0.5:8000 "$PY" manage.py check --deploy --fail-level WARNING)
 }
 
-frontend_tests() { (cd ../ads_frontend && "$PY" manage.py test); }
+# 시험 수 관문(설계 §10 "시험 구성" ①, 6-18k): 서버마다 최대 500 · 권장 300. 시험 출력의 "Ran N tests" 를 변수에 남긴다(macOS bash 3.2 — 연관 배열 없음)
+OPS_N=; DEV_N=; FRONT_N=
+counted() {
+  local var="$1" out rc; shift
+  out="$("$@" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  eval "$var=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9]*\) test.*/\1/p' | tail -1)"
+  return $rc
+}
+frontend_tests() { counted FRONT_N sh -c 'cd ../ads_frontend && exec "$@"' sh "$PY" manage.py test; }
+count_gate() {
+  if [ -z "$OPS_N" ] || [ -z "$DEV_N" ] || [ -z "$FRONT_N" ]; then echo "시험 수를 읽지 못했다"; return 1; fi
+  printf '백엔드 운영용 %s · 개발용 %s(합 %s) · 프론트 %s\n' "$OPS_N" "$DEV_N" "$((OPS_N + DEV_N))" "$FRONT_N"
+  [ "$OPS_N" -gt 300 ] && echo "경고: 백엔드 운영용이 권장 300 을 넘는다"
+  [ "$FRONT_N" -gt 300 ] && echo "경고: 프론트가 권장 300 을 넘는다"
+  [ "$((OPS_N + DEV_N))" -le 500 ] && [ "$FRONT_N" -le 500 ]
+}
 
 audit_dependencies() {
   local tmp out rc; tmp="$(mktemp)"
@@ -60,11 +76,12 @@ run "MongoDB 접속 (이벤트 저장소 시험, 없으면 여기서 멈춘다)"
 if [ ${#failures[@]} -gt 0 ]; then printf '\n실패: %s\nDB 가 필요한 나머지 단계는 실행하지 않았습니다(README "MySQL 시험 환경"·"MongoDB 시험 환경").\n' "${failures[*]}"; exit 1; fi
 run "check --deploy (prod 샘플 환경, 경고 0)" check_deploy
 run "마이그레이션이 최신인가" "$PY" manage.py makemigrations --check --dry-run
-run "운영용 시험 (tests/ops — 제품 동작)" "$PY" manage.py test tests.ops
-run "개발용 시험 (tests/dev — 문서·계약·코드 구조 대조, 시험 도구)" "$PY" manage.py test tests.dev
+run "운영용 시험 (tests/ops — 제품 동작)" counted OPS_N "$PY" manage.py test tests.ops
+run "개발용 시험 (tests/dev — 문서·계약·코드 구조 대조, 시험 도구)" counted DEV_N "$PY" manage.py test tests.dev
 run "부하 시험 (20 동시, 불변식)" "$PY" tests/tools/load_test.py --small
 run "프론트 check --deploy (운영 샘플 환경, 경고 0)" check_frontend_deploy
 run "프론트 시험 (전달·통과·그리기)" frontend_tests
+run "시험 수 (서버당 최대 500 · 권장 300)" count_gate
 run "pip-audit (의존성 취약점)" audit_dependencies
 run "bandit (정적 보안 점검)" "$PY" -m bandit -q -r config foundation console assets masters engine campaigns billing events records serving_api ../ads_frontend/config ../ads_frontend/ui
 
