@@ -213,6 +213,8 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         records.process_reaction(view.inbox_id, now=NOW + timedelta(seconds=7))
 
     def export(self, *flags, out="out"):
+        if "--as-of" not in flags:  # 시험 데이터의 날짜는 고정(2026-10-07)이다 — 실제 지금으로 내보내면 보존 기준(지금 − 7일)이 그 창을 넘는 날부터 대조 제외가 된다(6-14d)
+            flags = ("--as-of", (NOW + 3 * DAY).isoformat(), *flags)
         stdout = io.StringIO()
         try:
             call_command("export_hop_manifests", "--out", str(self.dir / out), *flags, stdout=stdout)
