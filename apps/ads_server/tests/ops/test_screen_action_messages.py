@@ -10,6 +10,7 @@ from console.errors import message_of
 from foundation.api import errors, set_advertiser_active
 from masters import api as masters
 from tests.support.factories import World
+from tests.support.cases import Cases
 
 
 def shown(call):
@@ -34,26 +35,26 @@ class ActionBase(TestCase):
 
 
 @tag("security")
-class OperatorActionMessageTests(ActionBase):
+class OperatorActionMessageTests(Cases, ActionBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.w.admin)
         self.media_id = self.w.slot.media_id
 
-    def test_media_and_slot_switches_leave_no_message_and_unknown_ids_are_404(self):
+    def case_media_and_slot_switches_leave_no_message_and_unknown_ids_are_404(self):
         self.assertEqual(self.post("operator:media_active", [self.media_id], {"active": "0"}, reverse("operator:media_list")), [])
         self.assertEqual(self.post("operator:slot_active", [self.w.slot.slot_id], {"active": "0"}, reverse("operator:media_detail", args=[self.media_id])), [])
         for name in ("operator:media_active", "operator:slot_active"):
             with self.subTest(name):
                 self.assertEqual(self.client.post(reverse(name, args=[uuid.uuid4()]), {"active": "1"}).status_code, 404)
 
-    def test_key_revoke(self):
+    def case_key_revoke(self):
         key = masters.issue_media_key(self.w.admin, self.media_id)
         detail = reverse("operator:media_detail", args=[self.media_id])
         self.assertEqual(self.post("operator:key_revoke", [key.key_id], {"media_id": self.media_id}, detail), [("success", "키를 폐기했습니다.")])
         self.assertEqual(self.client.post(reverse("operator:key_revoke", args=[uuid.uuid4()]), {"media_id": self.media_id}).status_code, 404)
 
-    def test_suspend_reject_and_release(self):
+    def case_suspend_reject_and_release(self):
         monitor, queue = reverse("operator:campaign_monitor"), reverse("operator:review_queue")
         self.assertEqual(self.post("operator:campaign_suspend", [self.cid], {"reason": "부적절한 이동 주소", "back": "reviews"}, queue),
                          [("success", "캠페인을 중단했습니다. 광고주 화면에 사유가 보입니다.")])
@@ -72,7 +73,7 @@ class OperatorActionMessageTests(ActionBase):
         not_suspended = shown(lambda: campaigns.release_campaign(self.w.admin, self.cid))
         self.assertEqual(self.post("operator:campaign_release", [self.cid], {**seen, "back": "reviews"}, queue), [("error", not_suspended)])
 
-    def test_advertiser_activation(self):
+    def case_advertiser_activation(self):
         uid = self.w.adv.pk
         detail = reverse("operator:advertiser_detail", args=[uid])
         already = shown(lambda: set_advertiser_active(self.w.admin, uid, True))
@@ -81,22 +82,25 @@ class OperatorActionMessageTests(ActionBase):
                          [("success", "계정을 비활성화했습니다. 로그인할 수 없고 광고도 나가지 않습니다.")])
         self.assertEqual(self.post("operator:advertiser_active", [uid], {"active": "1"}, detail), [("success", "계정을 다시 활성화했습니다. 광고가 다시 나갑니다.")])
 
+    def test_operator_action_message(self):
+        self.run_cases()
+
 
 @tag("security")
-class AdvertiserActionMessageTests(ActionBase):
+class AdvertiserActionMessageTests(Cases, ActionBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.w.adv)
         self.group_page, self.campaign_page = reverse("ad_group_detail", args=[self.gid]), reverse("campaign_detail", args=[self.cid])
 
-    def test_ad_group_switch(self):
+    def case_ad_group_switch(self):
         self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "0"}, self.group_page), [("success", "광고를 껐습니다.")])
         self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("success", "광고를 켰습니다.")])
         campaigns.end_campaign(self.w.adv, self.cid)
         ended_group = shown(lambda: campaigns.update_ad_group(self.w.adv, self.gid, {"enabled": True}))
         self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("error", ended_group)])
 
-    def test_campaign_status_review_and_end(self):
+    def case_campaign_status_review_and_end(self):
         self.assertEqual(self.post("campaign_status", [self.cid], {"status": "PAUSED", "back": "list"}, reverse("campaign_list")), [("success", "캠페인을 껐습니다.")])
         self.assertEqual(self.post("campaign_status", [self.cid], {"status": "ACTIVE"}, self.campaign_page), [("success", "캠페인을 켰습니다.")])
         not_suspended = shown(lambda: campaigns.create_review_request(self.w.adv, self.cid, ""))
@@ -112,3 +116,6 @@ class AdvertiserActionMessageTests(ActionBase):
 
         campaigns.release_campaign(self.w.admin, self.cid)
         self.assertEqual(self.post("campaign_end", [self.cid], {}, self.campaign_page), [("success", "캠페인을 끝냈습니다. 되돌릴 수 없습니다.")])
+
+    def test_advertiser_action_message(self):
+        self.run_cases()

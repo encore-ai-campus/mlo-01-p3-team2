@@ -11,6 +11,7 @@ from django.urls import reverse
 
 from tests.support.factories import make_admin, make_advertiser
 from tests.support.helpers import ROUTE_PARAM, every_route
+from tests.support.cases import Cases
 
 
 def concrete(route):
@@ -27,7 +28,7 @@ def under(prefix):
 
 
 @tag("security")
-class AccessSweepTests(TestCase):
+class AccessSweepTests(Cases, TestCase):
     def setUp(self):
         self.admin, self.adv = make_admin(), make_advertiser()
         self.advertiser_paths = under("/advertiser/")
@@ -38,7 +39,7 @@ class AccessSweepTests(TestCase):
         if user is not None:
             self.client.force_login(user)
 
-    def test_advertiser_pages_send_anonymous_to_login_and_refuse_admins(self):
+    def case_advertiser_pages_send_anonymous_to_login_and_refuse_admins(self):
         for path in self.advertiser_paths:
             for method in (self.client.get, self.client.post):
                 self.as_user(None)
@@ -48,16 +49,19 @@ class AccessSweepTests(TestCase):
                 self.as_user(self.admin)
                 self.assertEqual(method(path).status_code, 403, path)  # 관리자도 광고주 화면은 못 쓴다
 
-    def test_admin_pages_are_hidden_from_anonymous_and_advertisers(self):
+    def case_admin_pages_are_hidden_from_anonymous_and_advertisers(self):
         for path in self.admin_paths:
             for user in (None, self.adv):
                 self.as_user(user)
                 self.assertEqual(self.client.get(path).status_code, 404, path)
                 self.assertEqual(self.client.post(path).status_code, 404, path)  # 쓰기도 존재를 숨긴다
 
-    def test_the_sweep_covers_the_screens(self):
+    def case_the_sweep_covers_the_screens(self):
         """공회전 방지: 광고주 화면과 운영 화면의 주요 경로가 실제로 목록에 있다."""
         for fragment in ("/campaigns/", "/ad-groups/", "/creatives/", "/ads/new/", "/points/", "/me/"):
             self.assertTrue(any(fragment in p for p in self.advertiser_paths), fragment)
         for fragment in ("operator/media/", "operator/campaigns/", "operator/reviews/", "operator/advertisers/", "foundation/user/"):
             self.assertTrue(any(fragment in p for p in self.admin_paths), fragment)
+
+    def test_access_sweep(self):
+        self.run_cases()

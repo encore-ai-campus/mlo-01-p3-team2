@@ -27,6 +27,7 @@ from records import api as records
 from tests.support.factories import NOW, PW, SUBJECT, WHOLE, World, png_file
 from tests.support.presentation import rendering
 from tests.support.helpers import ROUTE_PARAM, every_route
+from tests.support.cases import Cases
 
 INPUTS_NEEDING_NAMES = {"text", "password", "number", "url", "email", "search", "date", "datetime-local", "file", "checkbox", "radio", None}
 
@@ -98,7 +99,7 @@ class PageAudit(HTMLParser):
 
 
 @tag("security")
-class ScreenQualityTests(TestCase):
+class ScreenQualityTests(Cases, TestCase):
     def setUp(self):
         self.w = World(ends_in=None)
         self.suspended = campaigns.create_campaign(self.w.adv, "<b>중단된 캠페인</b>", self.w.campaign.starts_at, None, 1000)
@@ -147,7 +148,7 @@ class ScreenQualityTests(TestCase):
         self.assertEqual(missing, [], "상세 화면을 볼 줄이 없다(준비 데이터에 더한다)")
         return urls
 
-    def test_no_console_or_operator_screen_is_left_out(self):
+    def case_no_console_or_operator_screen_is_left_out(self):
         """화면 목록은 손으로 적지만 빠뜨리면 실패한다: 광고주·운영 경로를 모두 실제 값으로 GET 해서, HTML 로 그려지는 화면은 위 목록에 있어야 한다.
         POST 전용 동작은 405, 파일(이미지)은 HTML 이 아니다. 실제 값이 없는 경로는 404 라 여기서 실패한다(값을 더한다)."""
         values = {
@@ -175,7 +176,7 @@ class ScreenQualityTests(TestCase):
             screens += 1
         self.assertGreaterEqual(screens, 15)  # 공회전이 아니다
 
-    def test_every_screen_has_the_security_headers_and_no_csp_violations(self):
+    def case_every_screen_has_the_security_headers_and_no_csp_violations(self):
         checked = 0
         for user, urls in self.pages():
             client = Client()
@@ -202,7 +203,7 @@ class ScreenQualityTests(TestCase):
         audit.feed(r.content.decode())
         return audit
 
-    def test_post_only_and_error_screens_are_checked_too(self):
+    def case_post_only_and_error_screens_are_checked_too(self):
         """정상 GET 으로는 나오지 않는 화면: 매체 키 발급(평문은 이 응답 한 번), 로그인 잠금(429), 오류 화면(`foundation/error.html`).
         헤더·마크업·접근성 모두 같은 기준."""
         admin = Client()
@@ -226,7 +227,7 @@ class ScreenQualityTests(TestCase):
         self.assertIn("<title>찾을 수 없습니다</title>", error_page)  # 제목은 오류 종류(`NotFound.title`), 본문은 화면이 정한 문구
         self.assertIn("<p>요청한 페이지를 찾을 수 없습니다.</p>", error_page)
 
-    def test_console_screens_meet_the_accessibility_basics(self):
+    def case_console_screens_meet_the_accessibility_basics(self):
         """콘솔(광고주·로그인·가입) 화면. 관리자 화면의 틀은 Django admin 의 것이라 그 위에 얹은 운영 화면만 같은 기준으로 본다."""
         for user, urls in self.pages():
             client = Client()
@@ -239,7 +240,7 @@ class ScreenQualityTests(TestCase):
                 audit.feed(client.get(url).content.decode())
                 self.assertEqual(audit.report(), [], url)
 
-    def test_every_advertiser_screen_marks_its_menu(self):
+    def case_every_advertiser_screen_marks_its_menu(self):
         """주 메뉴의 현재 위치(`aria-current`)는 화면마다 하나 — 광고 만들기·광고 상세는 캠페인에 속한다(6-13c R8)."""
         menus = {"대시보드": ("advertiser_home",), "캠페인": ("campaign_list", "campaign_detail", "campaign_create", "ad_group_detail", "ad_create"),
                  "소재": ("creative_list", "creative_detail"), "포인트": ("points",), "내 정보": ("my_account",)}
@@ -250,7 +251,7 @@ class ScreenQualityTests(TestCase):
             html = self.client.get(url).content.decode()
             self.assertEqual(re.findall(r'aria-current="page">([^<]+)</a>', html), [menu_of[resolve(url).url_name]], url)
 
-    def test_screens_use_the_screen_terms(self):
+    def case_screens_use_the_screen_terms(self):
         """화면 용어는 "광고"·"구성"이다 — 코드·계약의 광고그룹(`AdGroup`)과 슬롯(`Slot`, 옛 화면 이름 "게재 위치"), 없어진 과금 단위를 화면에 드러내지 않는다
         (6-9e·6-10e·6-10d, 설계 §10 "화면 용어: 광고"·"화면 용어: 구성"). Django admin 의 모델 화면은 범위 밖."""
         for user, urls in self.pages():
@@ -264,7 +265,7 @@ class ScreenQualityTests(TestCase):
                 for word in ("광고그룹", "게재 위치", "과금 단위"):
                     self.assertNotIn(word, html, (url, word))
 
-    def test_the_design_tokens_have_enough_contrast_in_both_themes(self):
+    def case_the_design_tokens_have_enough_contrast_in_both_themes(self):
         css = (rendering.ROOT / "static/console/app.css").read_text()  # 콘솔 CSS 는 프론트에 있다(6-15)
         token = re.compile(r"--([\w-]+):\s*(#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b)")
         head, dark_block = css.split("@media (prefers-color-scheme: dark)", 1)
@@ -275,6 +276,9 @@ class ScreenQualityTests(TestCase):
         for name, tokens in (("light", light), ("dark", dark)):
             for fg, bg in pairs:
                 self.assertGreaterEqual(contrast(tokens[fg], tokens[bg]), 4.5, f"{name}: {fg} on {bg}")
+
+    def test_screen_quality(self):
+        self.run_cases()
 
 
 def contrast(a, b):

@@ -15,11 +15,12 @@ from records import api as records
 from records.models import Reaction
 from tests.support.concurrency import run_together
 from tests.support.factories import NOW, SUBJECT, WHOLE, World, make_admin, make_advertiser
+from tests.support.cases import Cases
 
 
 @tag("security")
-class WalletConcurrencyTests(TransactionTestCase):
-    def test_simultaneous_signup_grants_make_exactly_one_grant(self):
+class WalletConcurrencyTests(Cases, TransactionTestCase):
+    def case_simultaneous_signup_grants_make_exactly_one_grant(self):
         adv = make_advertiser()
         with override_settings(SIGNUP_GRANT_POINTS=500):
             results, errors = run_together([lambda: billing.grant_signup(adv, now=NOW)] * 6)
@@ -28,7 +29,7 @@ class WalletConcurrencyTests(TransactionTestCase):
         self.assertEqual(billing.get_wallet(adv, now=NOW).balance, 500)
         self.assertEqual(billing.check_ledger(), [])
 
-    def test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent(self):
+    def case_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent(self):
         adv, admin, camp = make_advertiser(), make_admin(), uuid.uuid4()
         with override_settings(SIGNUP_GRANT_POINTS=10_000):
             billing.grant_signup(adv, now=NOW)
@@ -46,7 +47,7 @@ class WalletConcurrencyTests(TransactionTestCase):
         self.assertEqual(billing.get_wallet(adv, now=NOW).balance, 10_000 - 120 + 56)
         self.assertEqual(billing.check_ledger(), [])  # 지갑·원장·일 소진액이 모두 맞다
 
-    def test_charges_on_different_wallets_all_finish_without_errors(self):
+    def case_charges_on_different_wallets_all_finish_without_errors(self):
         advertisers = [make_advertiser() for _ in range(3)]
         campaigns_ = [uuid.uuid4() for _ in advertisers]
         for adv in advertisers:
@@ -60,6 +61,9 @@ class WalletConcurrencyTests(TransactionTestCase):
         _, errors = run_together(jobs)
         self.assertEqual(errors, [])
         self.assertEqual(billing.check_ledger(), [])  # 지갑마다 잔액 = 원장 합계
+
+    def test_wallet_concurrency(self):
+        self.run_cases()
 
 
 @tag("security")

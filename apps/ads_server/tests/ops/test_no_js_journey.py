@@ -15,6 +15,7 @@ from django.urls import reverse
 
 from campaigns.models import Campaign, Creative
 from tests.support.factories import PW, World, png_file
+from tests.support.cases import Cases
 
 
 class Forms(HTMLParser):
@@ -95,7 +96,7 @@ def no_action(attrs):
 
 
 @tag("security")
-class NoJsJourneyTests(TestCase):
+class NoJsJourneyTests(Cases, TestCase):
     def setUp(self):
         self.w = World(ends_in=None)  # 매체·노출 위치와 관리자
         self.adv, self.admin = Client(enforce_csrf_checks=True), Client(enforce_csrf_checks=True)
@@ -109,7 +110,7 @@ class NoJsJourneyTests(TestCase):
         done = submit(client, self.go(client, reverse("login")), no_action, username=username, password=PW)
         self.assertEqual(done.status_code, 302, done.content.decode()[:300])
 
-    def test_an_advertiser_and_an_admin_get_through_the_main_flows_without_js(self):
+    def case_an_advertiser_and_an_admin_get_through_the_main_flows_without_js(self):
         # 가입 → 로그인
         done = submit(self.adv, self.go(self.adv, reverse("signup")), no_action, username="nojs_user", password=PW, password_confirm=PW, nickname="자바없음", class_label="3반")
         self.assertRedirects(done, reverse("login"))
@@ -173,7 +174,7 @@ class NoJsJourneyTests(TestCase):
         # 포인트: 원장이 보인다
         self.assertContains(self.go(self.adv, reverse("points")), "가입")
 
-    def test_the_helper_refuses_fields_the_page_does_not_have(self):
+    def case_the_helper_refuses_fields_the_page_does_not_have(self):
         """도우미가 공회전하지 않는다: 화면에 없는 칸, 꺼진 칸, 선택지에 없는 값은 보낼 수 없다."""
         self.login(self.adv, self.w.adv.username)
         page = self.go(self.adv, reverse("ad_create"))
@@ -184,3 +185,6 @@ class NoJsJourneyTests(TestCase):
             submit(self.adv, page, ad_form, button="preview", slot_ids=[str(uuid.uuid4())])
         (form,) = Forms('<form><input name="off" value="1" disabled><input type="checkbox" name="box" value="a" disabled><input name="on" value="2"></form>').forms
         self.assertEqual((form["values"], form["choices"]), ([["on", "2"]], {}))  # 꺼진 칸은 브라우저처럼 보내지 않는다
+
+    def test_no_js_journey(self):
+        self.run_cases()

@@ -7,6 +7,7 @@ from django.urls import reverse
 from foundation.models import AuditLog
 from masters import api as masters
 from tests.support.factories import SHARES, make_admin, make_advertiser, make_slot
+from tests.support.cases import Cases
 
 
 def versions(slot_id):
@@ -14,7 +15,7 @@ def versions(slot_id):
 
 
 @tag("security")
-class PolicyPageTests(TestCase):
+class PolicyPageTests(Cases, TestCase):
     def setUp(self):
         self.admin = make_admin()
         self.client.force_login(self.admin)
@@ -25,7 +26,7 @@ class PolicyPageTests(TestCase):
         return self.client.post(self.url, {"floor": 150, "base": 250, "cap": 600, "impression_share": 1, "click_share": 98, "conversion_share": 1,
                                            "reason": "가격 조정", "expected_version": 1, **over})
 
-    def test_form_starts_from_the_current_policy_and_shows_history(self):
+    def case_form_starts_from_the_current_policy_and_shows_history(self):
         html = self.client.get(self.url).content.decode()
         for name, value in (("floor", 100), ("base", 200), ("cap", 500), *SHARES.items(), ("expected_version", 1)):
             self.assertRegex(html, rf'name="{name}" value="{value}"')
@@ -34,14 +35,14 @@ class PolicyPageTests(TestCase):
         self.assertIn("상한 500 포인트 · 노출 98% · 클릭 1% · 전환 1%</p>", html)  # 현재 정책의 비율
         self.assertIn(f"<td>{self.admin.username}</td>", html)  # 이력의 바꾼 사람(머리글의 환영 문구가 아니라)
 
-    def test_a_new_version_is_added_and_audited(self):
+    def case_a_new_version_is_added_and_audited(self):
         self.assertRedirects(self.post(), self.url)
         current = masters.get_slot(self.slot.slot_id).policy
         self.assertEqual((current.policy_version, current.floor, current.base, current.cap, current.reason), (2, 150, 250, 600, "가격 조정"))
         self.assertEqual((current.impression_share, current.click_share, current.conversion_share), (1, 98, 1))
         self.assertTrue(AuditLog.objects.filter(action="masters.policy_added", actor_id=self.admin.pk).exists())
 
-    def test_a_concurrent_change_is_explained_and_nothing_is_overwritten(self):
+    def case_a_concurrent_change_is_explained_and_nothing_is_overwritten(self):
         masters.add_policy_version(make_admin(), self.slot.slot_id, 110, 210, 510, "다른 관리자", expected_version=1, **SHARES)  # 폼을 연 뒤 누가 먼저 바꿈
         r = self.post()
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
@@ -49,7 +50,7 @@ class PolicyPageTests(TestCase):
         self.assertEqual(versions(self.slot.slot_id), [2, 1])  # 덮어쓰지 않았다
         self.assertRegex(r.content.decode(), r'name="expected_version" value="1"')  # 본 버전을 몰래 올려 다시 보내면 덮어쓰게 되므로 그대로 둔다
 
-    def test_value_rules_are_shown_next_to_the_fields(self):
+    def case_value_rules_are_shown_next_to_the_fields(self):
         self.assertContains(self.post(floor=300), "하한 ≤ 기준가 ≤ 상한이어야 합니다.", status_code=400)
         self.assertEqual(self.post(reason="").status_code, 400)
         r = self.post(click_share=99, conversion_share=0)
@@ -59,19 +60,22 @@ class PolicyPageTests(TestCase):
         self.assertNotContains(r, "새로 불러오기", status_code=400)  # 버전 충돌이 아니다
         self.assertEqual(versions(self.slot.slot_id), [1])
 
-    def test_unknown_slot_is_404_and_non_admins_see_nothing(self):
+    def case_unknown_slot_is_404_and_non_admins_see_nothing(self):
         self.assertEqual(self.client.get(reverse("operator:slot_policy", args=[uuid.uuid4()])).status_code, 404)
         self.client.force_login(make_advertiser())
         self.assertEqual(self.client.get(self.url).status_code, 404)
         self.assertEqual(self.post().status_code, 404)
         self.assertEqual(versions(self.slot.slot_id), [1])
 
-    def test_media_page_links_to_the_policy_page(self):
+    def case_media_page_links_to_the_policy_page(self):
         self.assertContains(self.client.get(reverse("operator:media_detail", args=[self.slot.media_id])), self.url)
+
+    def test_policy_page(self):
+        self.run_cases()
 
 
 @tag("security")
-class BulkPolicyPageTests(TestCase):
+class BulkPolicyPageTests(Cases, TestCase):
     def setUp(self):
         self.admin = make_admin()
         self.client.force_login(self.admin)
@@ -82,20 +86,20 @@ class BulkPolicyPageTests(TestCase):
         return self.client.post(self.url, {"slots": slots, "floor": 500, "base": 600, "cap": 700, "impression_share": 1, "click_share": 1, "conversion_share": 98,
                                            "reason": "일괄 인하", **over})
 
-    def test_lists_every_slot_with_its_version_escaped(self):
+    def case_lists_every_slot_with_its_version_escaped(self):
         html = self.client.get(self.url).content.decode()
         self.assertIn(f'value="{self.a.slot_id}:1"', html)
         self.assertIn("500 포인트 · 노출 98% · 클릭 1% · 전환 1%</td>", html)  # 고를 때 지금 비율을 본다
         self.assertIn("&lt;b&gt;둘째&lt;/b&gt;", html)
         self.assertNotIn("<b>둘째</b>", html)
 
-    def test_all_chosen_slots_get_the_same_new_version(self):
+    def case_all_chosen_slots_get_the_same_new_version(self):
         self.assertRedirects(self.post([f"{self.a.slot_id}:1", f"{self.b.slot_id}:1"]), self.url)
         for slot in (self.a, self.b):
             policy = masters.get_slot(slot.slot_id).policy
             self.assertEqual((policy.policy_version, policy.floor, policy.cap, policy.impression_share, policy.conversion_share), (2, 500, 700, 1, 98))
 
-    def test_one_stale_slot_cancels_all_and_names_it(self):
+    def case_one_stale_slot_cancels_all_and_names_it(self):
         masters.add_policy_version(self.admin, self.b.slot_id, 110, 210, 510, "먼저 바뀜", expected_version=1, **SHARES)
         r = self.post([f"{self.a.slot_id}:1", f"{self.b.slot_id}:1"])
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
@@ -103,7 +107,7 @@ class BulkPolicyPageTests(TestCase):
         self.assertContains(r, "새로 불러오기", status_code=409)
         self.assertEqual((versions(self.a.slot_id), versions(self.b.slot_id)), ([1], [2, 1]))  # 첫 배너도 바뀌지 않았다
 
-    def test_choosing_nothing_or_tampered_values(self):
+    def case_choosing_nothing_or_tampered_values(self):
         self.assertContains(self.post([]), "하나 이상 고르세요", status_code=400)
         self.assertEqual(self.post(["not-a-pair"]).status_code, 400)
         self.assertEqual(self.post([f"{uuid.uuid4()}:1"]).status_code, 404)
@@ -111,3 +115,6 @@ class BulkPolicyPageTests(TestCase):
         self.assertContains(r, "노출·클릭·전환 비율의 합은 100이어야 합니다(지금 101).", status_code=400)
         self.assertNotContains(r, "새로 불러오기", status_code=400)
         self.assertEqual(versions(self.a.slot_id), [1])
+
+    def test_bulk_policy_page(self):
+        self.run_cases()

@@ -8,6 +8,7 @@ from django.urls import reverse
 from foundation.logging import redact
 from foundation.models import User
 from tests.support.factories import PW
+from tests.support.cases import Cases
 
 
 class capture_console:
@@ -38,13 +39,13 @@ class capture_console:
 
 
 @tag("security")
-class RequestIdTests(TestCase):
-    def test_every_response_has_a_request_id(self):
+class RequestIdTests(Cases, TestCase):
+    def case_every_response_has_a_request_id(self):
         r = self.client.get(reverse("login"))
         uuid.UUID(r["X-Request-ID"])
         self.assertNotEqual(self.client.get(reverse("login"))["X-Request-ID"], r["X-Request-ID"])
 
-    def test_valid_incoming_id_is_accepted_and_invalid_is_ignored(self):
+    def case_valid_incoming_id_is_accepted_and_invalid_is_ignored(self):
         mine = str(uuid.uuid4())
         self.assertEqual(self.client.get(reverse("login"), HTTP_X_REQUEST_ID=mine)["X-Request-ID"], mine)
         for bad in ("not-a-uuid", "abc\r\nInjected: 1", "x" * 500, mine + "extra", "<script>"):
@@ -52,29 +53,32 @@ class RequestIdTests(TestCase):
             self.assertNotEqual(got, bad)
             uuid.UUID(got)
 
-    def test_error_responses_also_carry_the_request_id(self):
+    def case_error_responses_also_carry_the_request_id(self):
         r = self.client.get("/no/such/page/")
         self.assertEqual(r.status_code, 404)
         uuid.UUID(r["X-Request-ID"])
 
     @override_settings(ROOT_URLCONF="tests.support.urls_api")
-    def test_request_id_in_log_lines_and_problem_body(self):
+    def case_request_id_in_log_lines_and_problem_body(self):
         mine = str(uuid.uuid4())
         r = Client(raise_request_exception=False).get("/api/other/raise/invalid/", HTTP_X_REQUEST_ID=mine)
         self.assertEqual(r.json()["request_id"], mine)  # problem+json 본문에도 같은 요청 ID
         self.assertEqual(r["X-Request-ID"], mine)
 
     @override_settings(ROOT_URLCONF="tests.support.urls_api")
-    def test_log_lines_emitted_inside_a_request_carry_its_id(self):
+    def case_log_lines_emitted_inside_a_request_carry_its_id(self):
         mine = str(uuid.uuid4())
         with capture_console() as buf:
             Client().get("/logs/hello/", HTTP_X_REQUEST_ID=mine)
         self.assertIn(f"[{mine}] hello from the view", buf.getvalue())
 
+    def test_request_id(self):
+        self.run_cases()
+
 
 @tag("security")
-class RedactionTests(SimpleTestCase):
-    def test_redact_patterns(self):
+class RedactionTests(Cases, SimpleTestCase):
+    def case_redact_patterns(self):
         cases = {
             "login failed password=hunter2 for user": "hunter2",
             'payload {"password": "hunter2", "a": 1}': "hunter2",
@@ -89,17 +93,20 @@ class RedactionTests(SimpleTestCase):
             self.assertNotIn(secret, out, text)
             self.assertIn("[redacted]", out, text)
 
-    def test_ordinary_messages_are_untouched(self):
+    def case_ordinary_messages_are_untouched(self):
         for text in ("user logged in", "keyword=abc", "passwords are hashed", "GET /accounts/login/ 200"):
             self.assertEqual(redact(text), text)
 
-    def test_filter_applies_to_console_handler(self):
+    def case_filter_applies_to_console_handler(self):
         with capture_console() as buf:
             logging.getLogger("tests.redact").warning("oops password=%s", "hunter2-marker")
             logging.getLogger("tests.redact").warning({"password": "dict-marker"}.__repr__())
         self.assertNotIn("hunter2-marker", buf.getvalue())
         self.assertNotIn("dict-marker", buf.getvalue())
         self.assertIn("[redacted]", buf.getvalue())
+
+    def test_redaction(self):
+        self.run_cases()
 
 
 @tag("security")

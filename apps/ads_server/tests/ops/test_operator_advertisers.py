@@ -28,14 +28,15 @@ from foundation.models import AuditLog, User
 from records import api as records
 from tests.support.concurrency import BLOCKED, WAIT, Worker, arriving_before, overlap, pausing_before
 from tests.support.factories import NOW, PW, SUBJECT, World, make_admin, make_advertiser, png_file
+from tests.support.cases import Cases
 
 
 @tag("security")
-class AdvertiserServiceTests(TestCase):
+class AdvertiserServiceTests(Cases, TestCase):
     def setUp(self):
         self.w = World(ends_in=None)
 
-    def test_usage_counts_like_the_limits(self):
+    def case_usage_counts_like_the_limits(self):
         campaigns.replace_creative_image(self.w.adv, self.w.creative.creative_id, png_file((1, 2, 3)), now=NOW)  # 교체한 과거 파일도 보유량
         group = campaigns.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "둘째", [self.w.slot.slot_id], bid_amount=300, now=NOW)
         campaigns.create_creative(self.w.adv, group.ad_group_id, "같은 그림", "https://example.com/", png_file(), now=NOW)  # 첫 파일과 같은 파일
@@ -49,7 +50,7 @@ class AdvertiserServiceTests(TestCase):
         self.assertEqual(set(usage), {self.w.adv.pk, idle.pk})
         self.assertEqual([a.user_id for a in list_advertisers(self.w.admin)], [idle.pk, self.w.adv.pk])  # 관리자는 빠지고 최근 가입순
 
-    def test_admin_only(self):
+    def case_admin_only(self):
         adv = self.w.adv
         for call in (
             lambda: list_advertisers(adv), lambda: get_advertiser(adv, adv.pk), lambda: set_advertiser_active(adv, adv.pk, False, "사유"),
@@ -58,7 +59,7 @@ class AdvertiserServiceTests(TestCase):
             with self.assertRaises(errors.Forbidden):
                 call()
 
-    def test_deactivation_needs_a_reason_and_is_audited(self):
+    def case_deactivation_needs_a_reason_and_is_audited(self):
         with self.assertRaises(errors.InvalidRequest):
             set_advertiser_active(self.w.admin, self.w.adv.pk, False, "  ")
         self.assertTrue(User.objects.get(pk=self.w.adv.pk).is_active)
@@ -74,7 +75,7 @@ class AdvertiserServiceTests(TestCase):
             with self.assertRaises(errors.NotFound):
                 set_advertiser_active(self.w.admin, other, False, "사유")
 
-    def test_a_deactivated_advertisers_ads_stop_and_come_back(self):
+    def case_a_deactivated_advertisers_ads_stop_and_come_back(self):
         """설계 결정(2026-10-11): 비활성화는 송출도 멈춘다. 캠페인 상태는 그대로라 다시 활성화하면 다시 나간다."""
         name = self.w.creative.image_name
         self.assertIsNotNone(records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW).chosen)
@@ -88,7 +89,7 @@ class AdvertiserServiceTests(TestCase):
         self.assertIsNotNone(records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW).chosen)
         self.assertTrue(campaigns.is_asset_servable(name, now=NOW))
 
-    def test_deactivation_ends_sessions_and_blocks_login(self):
+    def case_deactivation_ends_sessions_and_blocks_login(self):
         """외부 검토(3-1d) P2: 세션이 정말 끝나야 한다 — 비활성 중에 다녀간 세션도, 다녀가지 않고 쿠키만 둔 세션도 다시 활성화한 뒤 거절된다."""
         visited, kept = Client(), Client()
         for client in (visited, kept):
@@ -103,6 +104,9 @@ class AdvertiserServiceTests(TestCase):
         fresh = Client()
         self.assertEqual(fresh.post(reverse("login"), {"username": self.w.adv.username, "password": PW}).status_code, 302)
         self.assertEqual(fresh.get(reverse("advertiser_home")).status_code, 200)  # 새로 로그인하면 된다
+
+    def test_advertiser_service(self):
+        self.run_cases()
 
 
 class OperatorAdvertiserBase(TestCase):
@@ -125,8 +129,8 @@ class OperatorAdvertiserBase(TestCase):
 
 
 @tag("security")
-class AdvertiserPagesTests(OperatorAdvertiserBase):
-    def test_list_shows_usage_balance_and_escapes(self):
+class AdvertiserPagesTests(Cases, OperatorAdvertiserBase):
+    def case_list_shows_usage_balance_and_escapes(self):
         User.objects.filter(pk=self.uid).update(nickname="<b>꼬마</b>")  # 가입 규칙을 우회한 값이라도 이스케이프
         html = self.client.get(self.list).content.decode()
         self.assertIn(self.detail, html)
@@ -135,13 +139,13 @@ class AdvertiserPagesTests(OperatorAdvertiserBase):
         self.assertIn("1 / 20", html)  # 캠페인 수 / 상한
         self.assertIn("50,000 포인트", html)
 
-    def test_detail_shows_the_wallet_ledger_and_password_reset(self):
+    def case_detail_shows_the_wallet_ledger_and_password_reset(self):
         html = self.client.get(self.detail).content.decode()
         self.assertIn("50,000 포인트", html)
         self.assertIn("가입 지급", html)
         self.assertIn(reverse("admin:auth_user_password_change", args=[self.uid]), html)  # 비밀번호 초기화는 기존 사용자 관리 화면
 
-    def test_non_admins_and_unknown_ids_see_nothing(self):
+    def case_non_admins_and_unknown_ids_see_nothing(self):
         for url in (reverse("operator:advertiser_detail", args=[uuid.uuid4()]), reverse("operator:advertiser_detail", args=[self.w.admin.pk])):
             self.assertEqual(self.client.get(url).status_code, 404)
         self.assertEqual(self.client.post(reverse("operator:advertiser_adjust", args=[uuid.uuid4()]), {"amount": 1, "note": "x"}).status_code, 404)
@@ -158,7 +162,7 @@ class AdvertiserPagesTests(OperatorAdvertiserBase):
         client.force_login(make_advertiser())
         return client
 
-    def test_deactivate_and_reactivate_from_the_page(self):
+    def case_deactivate_and_reactivate_from_the_page(self):
         url = reverse("operator:advertiser_active", args=[self.uid])
         self.assertRegex(self.client.get(self.detail).content.decode(), r'<form[^>]*/active"[^>]*data-confirm=')  # 되돌리기 어려운 동작의 확인 창
         self.assertRedirects(self.client.post(url, {"active": "0", "reason": ""}), self.detail, fetch_redirect_response=False)
@@ -169,7 +173,7 @@ class AdvertiserPagesTests(OperatorAdvertiserBase):
         self.assertRedirects(self.client.post(url, {"active": "1"}), self.detail)
         self.assertTrue(User.objects.get(pk=self.uid).is_active)
 
-    def test_monitor_and_review_queue_mark_a_deactivated_advertiser(self):
+    def case_monitor_and_review_queue_mark_a_deactivated_advertiser(self):
         """캠페인 상태는 ACTIVE 그대로라 표시가 없으면 나가는 광고로 오해한다. 광고주 이름은 상세(비활성화·조정)로 이어진다."""
         monitor, queue = reverse("operator:campaign_monitor"), reverse("operator:review_queue")
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "사유")
@@ -182,10 +186,13 @@ class AdvertiserPagesTests(OperatorAdvertiserBase):
         self.assertContains(self.client.get(monitor), "광고주 비활성 — 광고가 나가지 않습니다")
         self.assertContains(self.client.get(queue), "광고주 비활성 — 해제해도 광고가 나가지 않습니다")
 
+    def test_advertiser_pages(self):
+        self.run_cases()
+
 
 @tag("security")
-class PointAdjustPageTests(OperatorAdvertiserBase):
-    def test_adjustment_adds_a_ledger_entry_and_an_audit_and_keeps_balance_equal_to_the_ledger(self):
+class PointAdjustPageTests(Cases, OperatorAdvertiserBase):
+    def case_adjustment_adds_a_ledger_entry_and_an_audit_and_keeps_balance_equal_to_the_ledger(self):
         self.assertRedirects(self.client.post(self.adjust_url, self.adjust_fields()), self.detail)
         self.assertEqual(self.balance(), 49_000)
         entries, _ = billing.list_ledger(self.w.adv)
@@ -196,14 +203,14 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         self.assertEqual((audit.actor_id, audit.detail["amount"], audit.detail["note"]), (self.w.admin.pk, -1000, "잘못 받은 과금 환원 정정"))
         self.assertContains(self.client.get(self.detail), "관리자 조정")
 
-    def test_a_correction_is_a_new_entry_of_the_opposite_sign(self):
+    def case_a_correction_is_a_new_entry_of_the_opposite_sign(self):
         self.client.post(self.adjust_url, self.adjust_fields(amount=-1000))
         self.client.post(self.adjust_url, self.adjust_fields(amount=1000, note="앞선 조정 되돌림"))
         entries, _ = billing.list_ledger(self.w.adv)
         self.assertEqual([(e.entry_type, e.amount) for e in entries], [("ADMIN_ADJUST", 1000), ("ADMIN_ADJUST", -1000), ("SIGNUP_GRANT", 50_000)])
         self.assertEqual(self.balance(), 50_000)
 
-    def test_cannot_go_below_zero_or_skip_the_reason(self):
+    def case_cannot_go_below_zero_or_skip_the_reason(self):
         r = self.client.post(self.adjust_url, self.adjust_fields(amount=-50_001))
         self.assertContains(r, "잔액(50000)보다 많이 차감할 수 없습니다", status_code=400)
         self.assertRegex(r.content.decode(), r'name="amount"[^>]*value="-50001"')  # 입력을 지우지 않고 다시 보여 준다
@@ -214,7 +221,7 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         self.assertEqual(self.balance(), 50_000)
         self.assertFalse(AuditLog.objects.filter(action="billing.adjusted").exists())
 
-    def test_the_same_form_submitted_twice_adjusts_once(self):
+    def case_the_same_form_submitted_twice_adjusts_once(self):
         fields = self.adjust_fields()
         self.assertRedirects(self.client.post(self.adjust_url, fields), self.detail)
         self.assertRedirects(self.client.post(self.adjust_url, fields), self.detail)  # 새로 고침·뒤로 가기·두 번 누름: 처음 결과 그대로
@@ -227,7 +234,7 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         self.assertContains(self.client.get(self.detail), "새로 불러와 다시 조정하세요")
         self.assertEqual(self.balance(), 49_000)
 
-    def test_an_input_error_keeps_the_key_and_the_corrected_form_applies_once(self):
+    def case_an_input_error_keeps_the_key_and_the_corrected_form_applies_once(self):
         fields = self.adjust_fields(amount=-50_001)
         r = self.client.post(self.adjust_url, fields)
         self.assertEqual(r.status_code, 400)
@@ -235,7 +242,7 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
         self.assertRedirects(self.client.post(self.adjust_url, {**fields, "amount": -1000}), self.detail)
         self.assertEqual(self.balance(), 49_000)
 
-    def test_ledger_pages_by_cursor(self):
+    def case_ledger_pages_by_cursor(self):
         for i in range(50):
             billing.adjust(self.w.admin, self.uid, 1, f"조정 {i}", now=NOW)
         html = self.client.get(self.detail).content.decode()
@@ -246,9 +253,12 @@ class PointAdjustPageTests(OperatorAdvertiserBase):
             self.assertContains(self.client.get(self.detail, {"before": odd}), "관리자 조정", msg_prefix=odd)
         self.assertEqual(len(billing.list_ledger(self.w.adv, before="²")[0]), 50)
 
+    def test_point_adjust_page(self):
+        self.run_cases()
+
 
 @tag("security")
-class UserAdminActiveFlagTests(TestCase):
+class UserAdminActiveFlagTests(Cases, TestCase):
     """사용자 관리 화면은 프로필과 비밀번호 초기화만: 계정 추가·역할·활성 여부·슈퍼유저 여부를 바꾸지 않는다. 광고주의 활성 여부는 운영 화면 하나(사유 필수·감사, 송출도 함께 멈춤),
     관리자 계정은 서버 명령."""
 
@@ -261,7 +271,7 @@ class UserAdminActiveFlagTests(TestCase):
         data = {"username": user.username, "nickname": user.nickname, "class_label": user.class_label, "role": user.role, "_save": "저장", **over}
         return self.client.post(reverse("admin:foundation_user_change", args=[user.pk]), data)
 
-    def test_user_admin_cannot_change_an_advertisers_active_flag(self):
+    def case_user_admin_cannot_change_an_advertisers_active_flag(self):
         adv = make_advertiser()
         self.assertContains(self.client.get(reverse("admin:foundation_user_change", args=[adv.pk])), "광고주 · 포인트 조정")  # 바꾸는 곳 안내
         self.assertEqual(self.save(adv).status_code, 302)  # is_active 를 보내지 않음 = 끄기
@@ -269,7 +279,7 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertNotIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
         self.assertFalse(AuditLog.objects.filter(action="account.deactivated").exists())
 
-    def test_user_admin_cannot_change_an_admins_active_flag_either(self):
+    def case_user_admin_cannot_change_an_admins_active_flag_either(self):
         """관리자 계정도 화면에서 끄지 않는다(설계 §10) — 급히 끊을 때는 서버 명령 changepassword. 탈취한 관리자 세션이 다른 관리자를 끄지 못한다."""
         other = make_admin()
         signed_in = Client()
@@ -280,7 +290,7 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertNotIn("is_active", AuditLog.objects.get(action="account.admin_updated").detail["changed"])
         self.assertEqual(signed_in.get(reverse("admin:index")).status_code, 200)
 
-    def test_user_admin_cannot_add_accounts_or_change_roles(self):
+    def case_user_admin_cannot_add_accounts_or_change_roles(self):
         """관리자는 `createsuperuser` 로만, 광고주는 가입으로만 생긴다(추가 폼으로 만든 광고주는 지갑·가입 지급이 없었다 — 외부 검토 3-1d).
         역할과 슈퍼유저 여부는 어느 계정에서도 바뀌지 않는다(광고주 → 관리자, 관리자 → 광고주)."""
         add = reverse("admin:foundation_user_add")
@@ -298,7 +308,7 @@ class UserAdminActiveFlagTests(TestCase):
         for entry in AuditLog.objects.filter(action="account.admin_updated"):
             self.assertFalse({"role", "is_superuser"} & set(entry.detail["changed"]))
 
-    def test_the_reset_form_writes_only_the_password(self):
+    def case_the_reset_form_writes_only_the_password(self):
         """심층 방어: 초기화는 대상을 잠근 뒤 읽지만, 폼이 오래된 사용자 객체를 받더라도 비밀번호 열만 써서 그 사이의 비활성화를 되돌리지 않는다
         (외부 검토 3-1d d44b36a — 잠금이 대상을 놓쳤을 때 이 보호가 없어 비활성화가 되돌려졌다)."""
         adv = make_advertiser()
@@ -311,7 +321,7 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertEqual((row.is_active, row.session_epoch), (False, 1))
         self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
 
-    def test_user_admin_cannot_delete_accounts(self):
+    def case_user_admin_cannot_delete_accounts(self):
         """외부 검토(3-1d) P2: 추가는 막았지만 삭제는 Django 기본 그대로 열려 있었다(DRD 수명주기: 사용자 삭제 없음). 개별 삭제와 묶음 삭제 모두."""
         other, adv = make_admin(), make_advertiser()
         delete = reverse("admin:foundation_user_delete", args=[other.pk])
@@ -322,7 +332,7 @@ class UserAdminActiveFlagTests(TestCase):
         self.client.post(changelist, {"action": "delete_selected", "_selected_action": [str(other.pk), str(adv.pk)], "post": "yes"})
         self.assertEqual(User.objects.filter(pk__in=[other.pk, adv.pk]).count(), 2)
 
-    def test_the_role_detour_cannot_deactivate_an_advertiser(self):
+    def case_the_role_detour_cannot_deactivate_an_advertiser(self):
         """외부 검토(3-1d) P2 재현 그대로: 역할을 admin 으로 → (admin 이 된 줄 알고) 활성 끄기 → advertiser 로, 세 번 저장해도 광고주는 켜진 채다."""
         adv = make_advertiser()
         self.assertEqual(self.save(adv, role="admin", is_active="on").status_code, 302)
@@ -331,11 +341,14 @@ class UserAdminActiveFlagTests(TestCase):
         self.assertEqual(User.objects.filter(pk=adv.pk).values_list("role", "is_active").get(), ("advertiser", True))
         self.assertFalse(AuditLog.objects.filter(action="account.deactivated").exists())
 
-    def test_createsuperuser_still_makes_an_admin(self):
+    def case_createsuperuser_still_makes_an_admin(self):
         with mock.patch.dict(os.environ, {"DJANGO_SUPERUSER_PASSWORD": PW}):
             call_command("createsuperuser", interactive=False, username="made_by_cmd", nickname="관리", class_label="-", stdout=io.StringIO())
         made = User.objects.get(username="made_by_cmd")
         self.assertEqual((made.role, made.is_superuser, made.is_staff), ("admin", True, True))
+
+    def test_user_admin_active_flag(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -357,11 +370,11 @@ class WalletlessAdvertiserTests(OperatorAdvertiserBase):
 
 
 @tag("security")
-class AdjustKeyTests(TestCase):
+class AdjustKeyTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
 
-    def test_same_key_applies_once_and_a_different_content_is_refused(self):
+    def case_same_key_applies_once_and_a_different_content_is_refused(self):
         first = billing.adjust(self.w.admin, self.w.adv.pk, -1000, "정정", request_key="k1")
         self.assertEqual(billing.adjust(self.w.admin, self.w.adv.pk, -1000, "정정", request_key="k1"), first)
         for over in ({"amount": -2000}, {"note": "다른 사유"}, {"user_id": make_advertiser_with_wallet().pk}):
@@ -371,13 +384,16 @@ class AdjustKeyTests(TestCase):
         self.assertEqual(billing.get_wallet(self.w.adv).balance, 49_000)
         self.assertEqual(LedgerEntry.objects.filter(adjust_key="k1").count(), 1)
 
-    def test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments(self):
+    def case_db_keeps_one_entry_per_key_and_keys_only_on_adjustments(self):
         billing.adjust(self.w.admin, self.w.adv.pk, 5, "보너스", request_key="k2")
         entry = LedgerEntry.objects.get(adjust_key="k2")
         for changes in ({"adjust_key": "k2", "seq": entry.seq + 1}, {"adjust_key": "k3", "seq": entry.seq + 1, "entry_type": "TOPUP"}):
             row = {f.attname: getattr(entry, f.attname) for f in LedgerEntry._meta.concrete_fields if not f.generated and not f.primary_key}
             with self.assertRaises(IntegrityError), transaction.atomic():
                 LedgerEntry.objects.bulk_create([LedgerEntry(**{**row, **changes})])
+
+    def test_adjust_key(self):
+        self.run_cases()
 
 
 def make_advertiser_with_wallet():
@@ -387,7 +403,7 @@ def make_advertiser_with_wallet():
 
 
 @tag("security")
-class AdjustRaceTests(TransactionTestCase):
+class AdjustRaceTests(Cases, TransactionTestCase):
     """외부 검토(3-1d) P1: 같은 폼을 동시에 두 번 보내거나, 처리가 커밋된 뒤 응답이 실패해 다시 보내도 조정은 한 번이다."""
 
     def setUp(self):
@@ -409,14 +425,14 @@ class AdjustRaceTests(TransactionTestCase):
         other.cookies = self.client.cookies
         return other
 
-    def test_the_same_form_sent_twice_at_once_adjusts_once(self):
+    def case_the_same_form_sent_twice_at_once_adjusts_once(self):
         first, second = overlap(self, lambda: self.client.post(self.url, self.fields), "INSERT", "billing_ledger_entry", lambda: self.twin().post(self.url, self.fields),
                                 waits=False)  # 둘째는 지갑 잠금을 기다린다
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (302, 302))
         self.assert_applied_once()
 
-    def test_a_retry_after_the_response_failed_post_commit_adjusts_once(self):
+    def case_a_retry_after_the_response_failed_post_commit_adjusts_once(self):
         failing = Client(raise_request_exception=False)
         failing.cookies = self.client.cookies
         with mock.patch.object(SessionStore, "save", side_effect=RuntimeError("세션 저장 실패")):
@@ -425,9 +441,12 @@ class AdjustRaceTests(TransactionTestCase):
         self.assertEqual(self.client.post(self.url, self.fields).status_code, 302)  # 같은 폼으로 재시도
         self.assert_applied_once()
 
+    def test_adjust_race(self):
+        self.run_cases()
+
 
 @tag("security")
-class UserAdminSaveRaceTests(TransactionTestCase):
+class UserAdminSaveRaceTests(Cases, TransactionTestCase):
     """외부 검토(3-1d) P2: 사용자 관리 화면의 저장이 요청 처음에 읽은 객체를 통째로 써서(`obj.save()`), 그 사이 다른 관리자가 한 비활성화
     (`is_active`·`session_epoch`)를 되돌렸다 — 읽기 전용 칸도 저장에서는 다시 쓰였다. 편집한 칸만 쓴다."""
 
@@ -462,7 +481,7 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         self.assertEqual(worker.errors, [])
         self.assertEqual(worker.result.status_code, 302)
 
-    def test_a_profile_edit_does_not_undo_a_deactivation_made_in_between(self):
+    def case_a_profile_edit_does_not_undo_a_deactivation_made_in_between(self):
         adv = make_advertiser()
         signed_in = Client()
         signed_in.force_login(adv)
@@ -473,12 +492,12 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         self.assertEqual(signed_in.get(reverse("advertiser_home")).status_code, 302)  # 옛 세션은 계속 끝난 채
         self.assertEqual(AuditLog.objects.get(action="account.admin_updated").detail["changed"], ["nickname"])
 
-    def test_a_password_reset_does_not_undo_a_deactivation_made_in_between(self):
+    def case_a_password_reset_does_not_undo_a_deactivation_made_in_between(self):
         """같은 결함의 다른 길: 사용자 관리의 비밀번호 초기화가 대상을 통째로 저장했다. 지금은 초기화가 대상 행을 먼저 잠그므로, 겹친 비활성화는
         그 잠금을 기다렸다가 초기화 뒤에 적용된다 — 어느 쪽도 다른 쪽을 지우지 않는다."""
         self.reset_racing_a_deactivation(lambda pk: pk)
 
-    def test_the_same_holds_for_another_spelling_of_the_target_id(self):
+    def case_the_same_holds_for_another_spelling_of_the_target_id(self):
         """외부 검토(3-1d d44b36a) P2: Django 화면은 경로를 `unquote` 한 뒤 대상을 찾아 `urn:uuid:…` 표기도 같은 사용자다. 잠금이 원문을 따로 해석해
         대상을 빼먹으면 비활성화가 되돌려졌다. 잠금도 화면과 같은 해석을 쓴다."""
         self.reset_racing_a_deactivation(lambda pk: quote(f"urn:uuid:{pk}"))
@@ -502,11 +521,14 @@ class UserAdminSaveRaceTests(TransactionTestCase):
         self.assertEqual((row.is_active, row.session_epoch), (False, 1))
         self.assertTrue(row.check_password("Reset-Str0ng-pass-1"))
 
+    def test_user_admin_save_race(self):
+        self.run_cases()
+
 SERVER_PW = "Server-Chosen-9-pass"
 
 
 @tag("security")
-class EmergencyPasswordResetTests(TransactionTestCase):
+class EmergencyPasswordResetTests(Cases, TransactionTestCase):
     """외부 검토(3-1d) P2: 관리자 계정을 급히 끊는 서버 명령 `changepassword` 가 커밋된 뒤, 그 전에 인증을 마친 진행 중 요청이 비밀번호를 바꾸면
     서버가 정한 비밀번호를 덮고 그 요청의 로그인까지 이어졌다(본인 변경 화면·사용자 관리의 본인 초기화 둘 다). 요청을 인증한 근거를 잠근 최신 행과 대조해 거절한다."""
 
@@ -548,22 +570,22 @@ class EmergencyPasswordResetTests(TransactionTestCase):
             self.assertTrue(User.objects.get(pk=self.me.pk).check_password(SERVER_PW))  # 서버가 정한 비밀번호 그대로
             self.assertEqual(self.client.get(reverse("admin:index")).status_code, 404)  # 그 요청의 로그인도 끝났다
 
-    def test_a_shell_style_deactivation_in_between_is_respected_too(self):
+    def case_a_shell_style_deactivation_in_between_is_respected_too(self):
         """셸에서 is_active 만 끈 경우(폐기 버전은 그대로 — 운영 안내상 쓰지 않는 길)에도 진행 중인 비밀번호 변경이 저장하지 않는다."""
         self.race(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"},
                   in_between=lambda: User.objects.filter(pk=self.me.pk).update(is_active=False))
         self.assertTrue(User.objects.get(pk=self.me.pk).check_password(PW))
 
-    def test_an_in_flight_own_password_change_cannot_override_an_emergency_changepassword(self):
+    def case_an_in_flight_own_password_change_cannot_override_an_emergency_changepassword(self):
         self.race(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"})
         self.assertFalse(AuditLog.objects.filter(action="account.password_changed", actor_id=self.me.pk).exists())
 
-    def test_an_in_flight_own_reset_in_user_admin_cannot_override_an_emergency_changepassword(self):
+    def case_an_in_flight_own_reset_in_user_admin_cannot_override_an_emergency_changepassword(self):
         self.race(reverse("admin:auth_user_password_change", args=[self.me.pk]),
                   {"password1": "Mine-Again-7-pass", "password2": "Mine-Again-7-pass", "usable_password": "true"})
         self.assertFalse(AuditLog.objects.filter(action="account.password_reset_by_admin").exists())
 
-    def test_an_own_password_change_keeps_a_profile_edit_made_in_between(self):
+    def case_an_own_password_change_keeps_a_profile_edit_made_in_between(self):
         """본인 비밀번호 변경도 비밀번호 열만 쓴다 — Django 기본은 인증 때 읽은 사용자 객체를 통째로 저장해 그 사이의 프로필 편집을 되돌렸다."""
         paused, release = self.pause_after_auth()
         worker = Worker(lambda: self.client.post(reverse("admin:password_change"),
@@ -581,25 +603,28 @@ class EmergencyPasswordResetTests(TransactionTestCase):
         self.assertEqual(row.nickname, "바꾼닉")
         self.assertTrue(row.check_password("Mine-Again-7-pass"))
 
-    def test_a_current_login_still_changes_its_password(self):
+    def case_a_current_login_still_changes_its_password(self):
         r = self.client.post(reverse("admin:password_change"), {"old_password": PW, "new_password1": "Mine-Again-7-pass", "new_password2": "Mine-Again-7-pass"})
         self.assertEqual(r.status_code, 302)
         self.assertTrue(User.objects.get(pk=self.me.pk).check_password("Mine-Again-7-pass"))
         self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)  # 바꾼 그 세션은 이어진다
 
+    def test_emergency_password_reset(self):
+        self.run_cases()
+
 
 @tag("security")
-class MutualResetTests(TransactionTestCase):
+class MutualResetTests(Cases, TransactionTestCase):
     """외부 검토(3-1d 3eb5f77) P2: 두 관리자가 서로의 비밀번호를 동시에 초기화하면, 요청자 행을 먼저 잠그고 대상 행은 저장할 때 잠가 순서가 엇갈렸다 —
     교착(MySQL 1213)으로 한 요청이 500. 요청자와 대상을 ID 순서로 함께 잠그면 줄을 서고, 뒤의 요청은 앞의 초기화로 바뀐 자기 인증 근거 때문에 403 이다."""
 
-    def test_two_admins_resetting_each_other_queue_up_without_a_deadlock(self):
+    def case_two_admins_resetting_each_other_queue_up_without_a_deadlock(self):
         self.mutual_reset(lambda pk: pk)
 
-    def test_the_same_holds_for_another_spelling_of_the_target_id(self):
+    def case_the_same_holds_for_another_spelling_of_the_target_id(self):
         self.mutual_reset(lambda pk: quote(f"urn:uuid:{pk}"))  # 외부 검토(3-1d d44b36a): 다른 표기로 대상이 잠금에서 빠지면 교착이 다시 났다
 
-    def test_an_unreadable_target_is_404_before_anything_is_locked_or_run(self):
+    def case_an_unreadable_target_is_404_before_anything_is_locked_or_run(self):
         """이름이 주장하는 것까지 본다(외부 검토 00d3067 P3): 404 일 뿐 아니라 행 잠금 SQL 이 나가지 않고 Django 의 초기화 화면도 실행되지 않는다."""
         client = Client()
         client.force_login(make_admin())
@@ -640,9 +665,12 @@ class MutualResetTests(TransactionTestCase):
         self.assertEqual(client_b.get(reverse("admin:index")).status_code, 404)  # B 의 옛 세션은 끝났다
         self.assertEqual(client_a.get(reverse("admin:index")).status_code, 200)
 
+    def test_mutual_reset(self):
+        self.run_cases()
+
 
 @tag("security")
-class PasswordAuditAtomicityTests(TransactionTestCase):
+class PasswordAuditAtomicityTests(Cases, TransactionTestCase):
     """외부 검토(00d3067) P2: 비밀번호 변경·초기화의 성공 감사 기록을 변경이 커밋된 **뒤에** 써서, 기록이 실패하면 응답은 500 인데 비밀번호는 바뀌고
     기록은 0 건이었다. 기록은 변경과 같은 트랜잭션이라 실패하면 비밀번호도 되돌려진다."""
 
@@ -658,7 +686,7 @@ class PasswordAuditAtomicityTests(TransactionTestCase):
                                                 {"password1": "Mine-Again-7-pass", "password2": "Mine-Again-7-pass", "usable_password": "true"}, self.adv),
         }
 
-    def test_a_failing_success_audit_rolls_the_password_back(self):
+    def case_a_failing_success_audit_rolls_the_password_back(self):
         def fail_audit_insert(execute, sql, params, many, context):
             if sql.lstrip().upper().startswith("INSERT") and "`foundation_audit_log`" in sql:
                 raise DatabaseError("감사 기록 실패(시험)")
@@ -669,13 +697,16 @@ class PasswordAuditAtomicityTests(TransactionTestCase):
             self.assertTrue(User.objects.get(pk=user.pk).check_password(PW), action)  # 바뀌지 않았다
             self.assertFalse(AuditLog.objects.filter(action=action).exists())
 
-    def test_a_success_writes_exactly_one_audit_with_the_change(self):
+    def case_a_success_writes_exactly_one_audit_with_the_change(self):
         for action, (url, data, user) in self.cases.items():
             with self.subTest(action):
                 self.assertEqual(self.client.post(url, data).status_code, 302)
                 self.assertTrue(User.objects.get(pk=user.pk).check_password("Mine-Again-7-pass"))
                 entry = AuditLog.objects.get(action=action)
                 self.assertEqual((entry.actor_id, entry.target_id), (self.me.pk, str(user.pk)))
+
+    def test_password_audit_atomicity(self):
+        self.run_cases()
 
 
 @tag("security")

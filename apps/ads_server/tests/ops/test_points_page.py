@@ -12,12 +12,13 @@ from campaigns import api as campaigns
 from foundation.models import User
 from records import api as records
 from tests.support.factories import NOW, PW, SUBJECT, World, impression
+from tests.support.cases import Cases
 
 URL = reverse("points")
 
 
 @tag("security")
-class PointsPageTests(TestCase):
+class PointsPageTests(Cases, TestCase):
     def setUp(self):
         self.w = World(ends_in=None)
         self.client.force_login(self.w.adv)
@@ -29,7 +30,7 @@ class PointsPageTests(TestCase):
         body = html[html.index('aria-label="원장 내역"'):]
         return re.findall(r"<tr>\s*<td>[^<]+</td>\s*<td>([^<]+)</td>\s*<td class=\"num\">([^<]+)</td>", body)
 
-    def test_balance_today_and_entries_newest_first_with_campaign_names(self):
+    def case_balance_today_and_entries_newest_first_with_campaign_names(self):
         campaigns.update_campaign(self.w.adv, self.w.campaign.campaign_id, {"name": "<b>캠페인</b>"})
         impression(self.w, NOW)  # 과금 294(입찰 300 × 노출 98%)
         decision = records.decide(self.w.slot.media_id, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))  # 잔액이 있을 때 나간 광고
@@ -43,7 +44,7 @@ class PointsPageTests(TestCase):
         self.assertNotIn("<b>캠페인</b>", html)
         self.assertRegex(html, r"<td class=\"num\">284 포인트</td>")  # 못 받은 포인트
 
-    def test_cursor_paging_and_bad_cursors(self):
+    def case_cursor_paging_and_bad_cursors(self):
         for i in range(54):
             billing.adjust(self.w.admin, self.w.adv.pk, 1, f"조정 {i}", now=NOW)
         html = self.client.get(URL).content.decode()
@@ -58,7 +59,7 @@ class PointsPageTests(TestCase):
         for bad in ("abc", "²", "-1", "9" * 5000):
             self.assertEqual(len(self.rows(self.client.get(URL, {"before": bad}).content.decode())), 50, bad)
 
-    def test_other_advertisers_ledger_never_shows_up(self):
+    def case_other_advertisers_ledger_never_shows_up(self):
         other = World(ends_in=None)
         campaigns.update_campaign(other.adv, other.campaign.campaign_id, {"name": "남의 캠페인"})
         impression(other, NOW)
@@ -68,14 +69,17 @@ class PointsPageTests(TestCase):
         self.assertNotIn("남의 조정", html)
         self.assertEqual(self.rows(html), [("가입 지급", "50,000 포인트")])
 
-    def test_an_account_without_a_wallet(self):
+    def case_an_account_without_a_wallet(self):
         legacy = User.objects.create_user("legacy_points", PW, nickname="옛계정", class_label="1반")
         client = Client()
         client.force_login(legacy)
         self.assertContains(client.get(URL), "지갑이 없습니다")
 
-    def test_the_admin_ledger_shows_campaign_names_too(self):
+    def case_the_admin_ledger_shows_campaign_names_too(self):
         impression(self.w, NOW)
         admin = Client()
         admin.force_login(self.w.admin)
         self.assertContains(admin.get(reverse("operator:advertiser_detail", args=[self.w.adv.pk])), "<td>캠페인</td>")
+
+    def test_points_page(self):
+        self.run_cases()

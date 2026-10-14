@@ -12,9 +12,10 @@ from campaigns.models import Campaign
 from foundation.api import errors
 from foundation.models import AuditLog
 from tests.support.factories import DAY, NOW, World, make_advertiser, png_file
+from tests.support.cases import Cases
 
 
-class MonitoringServiceTests(TestCase):
+class MonitoringServiceTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
         self.later = campaigns.create_campaign(self.w.adv, "나중 캠페인", NOW, None, 1000, now=NOW + DAY)
@@ -23,7 +24,7 @@ class MonitoringServiceTests(TestCase):
         rows = campaigns.monitoring_list(self.w.admin, now=NOW + 3 * DAY)
         return list(rows[0:rows.count()])
 
-    def test_newest_change_first_including_creative_changes(self):
+    def case_newest_change_first_including_creative_changes(self):
         items = self.listed()
         self.assertEqual([(i.campaign.name, i.last_changed_at) for i in items], [("나중 캠페인", NOW + DAY), ("캠페인", NOW)])  # 소재가 없으면 캠페인의 시각
         campaigns.update_creative(self.w.adv, self.w.creative.creative_id, {"redirect_url": "https://changed.example/"}, now=NOW + 2 * DAY)
@@ -32,12 +33,12 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual(items[0].creatives[0].redirect_url, "https://changed.example/")
         self.assertEqual(items[1].creatives, ())
 
-    def test_the_latest_of_several_creatives_counts(self):
+    def case_the_latest_of_several_creatives_counts(self):
         campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "둘째 소재", "https://example.com/2", png_file((9, 9, 9)), now=NOW + 2 * DAY)
         first = self.listed()[0]
         self.assertEqual((first.campaign.name, first.last_changed_at, len(first.creatives)), ("캠페인", NOW + 2 * DAY, 2))
 
-    def test_creatives_are_listed_in_creation_order_in_both_lists(self):
+    def case_creatives_are_listed_in_creation_order_in_both_lists(self):
         earlier = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "먼저 만든 소재", "https://example.com/0", png_file((8, 8, 8)),
                                             now=NOW - DAY / 2)  # 행은 나중에 넣었지만 만든 시각은 앞이다(넣은 순서와 다르게)
         expected = [earlier.creative_id, self.w.creative.creative_id]
@@ -53,7 +54,7 @@ class MonitoringServiceTests(TestCase):
         (sql,) = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("SELECT `campaigns_ad_group_creative`.")]
         return {c for c in Campaign.objects.values_list("campaign_id", flat=True) if c.hex in sql}
 
-    def test_a_page_reads_only_its_own_campaigns(self):
+    def case_a_page_reads_only_its_own_campaigns(self):
         """P3-4 2단계(외부 검토 00d3067): 정렬·쪽 나누기는 DB 에서 하고 그 쪽의 소재·재검토 요청만 읽는다.
         쪽 하나는 질의 네 번(개수·그 쪽 캠페인·그 소재·그 요청) — 캠페인이 늘어도 같다."""
         for _ in range(4):
@@ -70,7 +71,7 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual(items[0].campaign.suspension.open_review_request_id, review.review_request_id)
         self.assertEqual(self.creatives_read_for(queries), {i.campaign.campaign_id for i in items})  # 이 쪽 캠페인의 소재만(다른 캠페인 넷의 소재는 읽지 않는다)
 
-    def test_pages_split_one_order_without_overlap(self):
+    def case_pages_split_one_order_without_overlap(self):
         """마지막 변경이 같으면 캠페인 ID 역순(나중에 만든 것 먼저)으로 끊는다 — 쪽마다 따로 읽어도 겹치거나 빠지는 줄이 없다."""
         for _ in range(5):
             World()  # 모두 같은 시각 NOW 에 만들었다
@@ -82,7 +83,7 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual(paged, everything)
         self.assertEqual(everything[1:], sorted(everything[1:], reverse=True))  # '나중 캠페인' 다음은 같은 시각 — ID 역순
 
-    def test_the_review_queue_reads_only_the_waiting_campaigns_creatives(self):
+    def case_the_review_queue_reads_only_the_waiting_campaigns_creatives(self):
         """외부 검토(00d3067) P3: 재검토 화면이 전체 모니터링 목록(모든 캠페인의 소재)을 만들었다. 대기 중인 캠페인의 소재만 읽는다."""
         for _ in range(5):
             World()  # 소재가 있는 다른 캠페인들
@@ -93,7 +94,7 @@ class MonitoringServiceTests(TestCase):
         self.assertEqual([c.creative_id for c in item.creatives], [self.w.creative.creative_id])
         self.assertEqual(self.creatives_read_for(queries), {self.w.campaign.campaign_id})
 
-    def test_review_queue_and_admin_only(self):
+    def case_review_queue_and_admin_only(self):
         campaigns.suspend_campaign(self.w.admin, self.w.campaign.campaign_id, "부적절한 소재", now=NOW)
         review = campaigns.create_review_request(self.w.adv, self.w.campaign.campaign_id, "고쳤습니다", now=NOW)
         (item,) = campaigns.open_review_queue(self.w.admin, now=NOW)
@@ -101,6 +102,9 @@ class MonitoringServiceTests(TestCase):
         for call in (lambda a: campaigns.monitoring_list(a), lambda a: campaigns.open_review_queue(a)):
             with self.assertRaises(errors.Forbidden):
                 call(self.w.adv)
+
+    def test_monitoring_service(self):
+        self.run_cases()
 
 
 class OperatorBase(TestCase):
@@ -121,8 +125,8 @@ class OperatorBase(TestCase):
 
 
 @tag("security")
-class CampaignMonitorPageTests(OperatorBase):
-    def test_list_shows_thumbnail_domain_and_advertiser(self):
+class CampaignMonitorPageTests(Cases, OperatorBase):
+    def case_list_shows_thumbnail_domain_and_advertiser(self):
         campaigns.update_creative(self.w.adv, self.w.creative.creative_id, {"title": "<script>x</script>"}, now=NOW)
         html = self.client.get(self.monitor).content.decode()
         asset = reverse("operator:asset", args=[self.w.creative.image_name])  # 관리자 전용 경로의 썸네일
@@ -133,7 +137,7 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertIn("&lt;script&gt;x&lt;/script&gt;", html)
         self.assertNotIn("<script>x</script>", html)
 
-    def test_every_linked_creative_is_listed_and_the_selected_one_is_marked(self):
+    def case_every_linked_creative_is_listed_and_the_selected_one_is_marked(self):
         """연결만 된 소재도 운영자가 이동 주소를 본다(언제든 선택될 수 있다). 광고가 고른 것은 "선택됨"으로 표시한다(6-9d, 6-16l — 꺼진 광고·하한 미만·예산 소진에도
         보이므로 "나가는 중"이라고 하지 않는다)."""
         spare = campaigns.create_creative(self.w.adv, self.w.group.ad_group_id, "예비 소재", "https://spare.example/", png_file((7, 7, 7)), now=NOW)
@@ -145,7 +149,7 @@ class CampaignMonitorPageTests(OperatorBase):
         campaigns.link_creative(self.w.adv, self.w.group.ad_group_id, spare.creative_id, now=NOW, select=True)
         self.assertIn("예비 소재 <strong>(선택됨)</strong>", self.client.get(self.monitor).content.decode())
 
-    def test_suspend_needs_a_reason_and_is_seen_by_the_advertiser_at_once(self):
+    def case_suspend_needs_a_reason_and_is_seen_by_the_advertiser_at_once(self):
         self.assertRedirects(self.suspend(reason="  "), self.monitor)
         self.assertEqual(campaigns.get_campaign(self.w.adv, self.cid).status, "ACTIVE")  # 사유 없이 중단 불가
         self.assertContains(self.client.get(self.monitor), "중단 사유")  # 무엇이 잘못됐는지 알린다
@@ -155,7 +159,7 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertTrue(AuditLog.objects.filter(action="campaign.suspended", actor_id=self.w.admin.pk).exists())
 
     @override_settings(ASSET_SERVABLE_CHECK="campaigns.api.is_asset_servable")  # 운영·개발 설정과 같게(시험 설정은 꺼 둔다)
-    def test_suspended_creatives_still_show_to_admins_only(self):
+    def case_suspended_creatives_still_show_to_admins_only(self):
         self.suspend()
         name = self.w.creative.image_name
         self.assertEqual(self.client.get(reverse("asset", args=[name])).status_code, 404)  # 공개 경로는 막힌다
@@ -166,7 +170,7 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertIn("no-store", r["Cache-Control"])  # 관리자 화면의 응답은 남기지 않는다
         self.assertIn(reverse("operator:asset", args=[name]), self.client.get(self.monitor).content.decode())
 
-    def test_admin_asset_path_rejects_odd_names_and_non_admins(self):
+    def case_admin_asset_path_rejects_odd_names_and_non_admins(self):
         base = reverse("operator:asset", args=["x"])[:-1]
         for odd in ("..%2Fsettings.py", "..%5C..%5Cmanage.py", "%2E%2E", "abc.png", self.w.creative.image_name.upper()):
             self.assertEqual(self.client.get(base + odd).status_code, 404, odd)
@@ -176,7 +180,7 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertEqual(self.client.get(self.monitor).status_code, 404)
         self.assertEqual(self.suspend().status_code, 404)
 
-    def test_release(self):
+    def case_release(self):
         self.suspend()
         seen = campaigns.get_campaign(self.w.adv, self.cid).suspension.suspended_at.isoformat()
         self.assertRedirects(self.release(), self.monitor)
@@ -187,31 +191,34 @@ class CampaignMonitorPageTests(OperatorBase):
         self.assertContains(self.client.get(self.monitor), "새로 불러와 다시 시도하세요")
         self.assertEqual(self.client.post(reverse("operator:campaign_release", args=[uuid.uuid4()]), {"suspended_at": seen}).status_code, 404)
 
-    def test_back_only_goes_to_known_pages(self):
+    def case_back_only_goes_to_known_pages(self):
         self.assertRedirects(self.suspend(back="https://evil.example/"), self.monitor)  # 모르는 값은 목록으로(열린 리다이렉트 없음)
+
+    def test_campaign_monitor_page(self):
+        self.run_cases()
 
 
 @tag("security")
-class ReviewQueuePageTests(OperatorBase):
+class ReviewQueuePageTests(Cases, OperatorBase):
     def setUp(self):
         super().setUp()
         self.suspend()
         self.review = campaigns.create_review_request(self.w.adv, self.cid, "<b>고쳤습니다</b>")
         self.queue = reverse("operator:review_queue")
 
-    def test_queue_lists_open_requests_with_the_reason(self):
+    def case_queue_lists_open_requests_with_the_reason(self):
         html = self.client.get(self.queue).content.decode()
         self.assertIn("&lt;b&gt;고쳤습니다&lt;/b&gt;", html)
         self.assertIn("부적절한 이동 주소", html)
         self.assertIn(reverse("operator:asset", args=[self.w.creative.image_name]), html)
 
-    def test_release_from_the_queue_closes_the_request(self):
+    def case_release_from_the_queue_closes_the_request(self):
         r = self.release(back="reviews", review_request_id=str(self.review.review_request_id))
         self.assertRedirects(r, self.queue)
         self.assertEqual(campaigns.list_review_requests(self.w.adv, self.cid)[0].status, "RELEASED")
         self.assertNotIn("고쳤습니다", self.client.get(self.queue).content.decode())
 
-    def test_reject_needs_a_note_and_keeps_the_suspension(self):
+    def case_reject_needs_a_note_and_keeps_the_suspension(self):
         url = reverse("operator:review_reject", args=[self.review.review_request_id])
         self.assertRedirects(self.client.post(url, {"note": ""}), self.queue)
         self.assertEqual(campaigns.list_review_requests(self.w.adv, self.cid)[0].status, "OPEN")
@@ -219,3 +226,6 @@ class ReviewQueuePageTests(OperatorBase):
         review = campaigns.list_review_requests(self.w.adv, self.cid)[0]
         self.assertEqual((review.status, review.response_note), ("REJECTED", "이동 주소가 여전히 같습니다"))
         self.assertEqual(campaigns.get_campaign(self.w.adv, self.cid).status, "SUSPENDED")
+
+    def test_review_queue_page(self):
+        self.run_cases()

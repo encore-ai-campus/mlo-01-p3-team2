@@ -14,6 +14,7 @@ from masters import api as masters
 from masters.models import MediaKey
 from tests.support.concurrency import overlap
 from tests.support.factories import make_admin, make_slot
+from tests.support.cases import Cases
 
 KEY_RE = re.compile(r"[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
 
@@ -25,18 +26,21 @@ def request_key(html, form_id):
 
 
 @tag("security")
-class OperatorAccessTests(TestCase):
-    def test_admin_index_links_to_the_operator_pages(self):
+class OperatorAccessTests(Cases, TestCase):
+    def case_admin_index_links_to_the_operator_pages(self):
         self.client.force_login(make_admin())
         r = self.client.get(reverse("admin:index"))
         for name in ("media_list", "policy_bulk", "campaign_monitor", "review_queue"):
             self.assertContains(r, reverse(f"operator:{name}"), msg_prefix=name)
 
-    def test_the_operator_header_names_the_signed_in_admin(self):
+    def case_the_operator_header_names_the_signed_in_admin(self):
         """운영 화면 머리글의 이름(관리 템플릿의 `user.get_username`)은 화면 데이터의 사용자에서 온다."""
         admin = make_admin()
         self.client.force_login(admin)
         self.assertContains(self.client.get(reverse("operator:media_list")), f"<strong>{admin.username}</strong>")
+
+    def test_operator_access(self):
+        self.run_cases()
 
 
 class OperatorBase(TestCase):
@@ -46,21 +50,21 @@ class OperatorBase(TestCase):
 
 
 @tag("security")
-class MediaPageTests(OperatorBase):
-    def test_create_media(self):
+class MediaPageTests(Cases, OperatorBase):
+    def case_create_media(self):
         r = self.client.post(reverse("operator:media_list"), {"name": "메타버스 캠퍼스"})
         self.assertRedirects(r, reverse("operator:media_list"))
         self.assertEqual([m.name for m in masters.list_media(self.admin)], ["메타버스 캠퍼스"])
         self.assertTrue(AuditLog.objects.filter(action="masters.media_created", actor_id=self.admin.pk).exists())
 
-    def test_service_errors_are_shown_on_the_form(self):
+    def case_service_errors_are_shown_on_the_form(self):
         masters.create_media(self.admin, "같은 이름")
         r = self.client.post(reverse("operator:media_list"), {"name": "같은 이름"})
         self.assertContains(r, "같은 이름의 매체가 이미 있습니다.", status_code=409)  # 상태 충돌은 409, 입력 오류는 400(console.errors.status_of)
         self.assertContains(self.client.post(reverse("operator:media_list"), {"name": "  "}), "매체 이름", status_code=400)
         self.assertEqual(self.client.post(reverse("operator:media_list"), {"name": ""}).status_code, 400)  # 서비스까지 가지 않는 폼 오류
 
-    def test_toggle_media_active(self):
+    def case_toggle_media_active(self):
         media = masters.create_media(self.admin, "매체")
         url = reverse("operator:media_active", args=[media.media_id])
         self.assertRedirects(self.client.post(url, {"active": "0"}), reverse("operator:media_list"))
@@ -70,21 +74,24 @@ class MediaPageTests(OperatorBase):
         self.assertEqual(self.client.post(reverse("operator:media_active", args=[uuid.uuid4()]), {"active": "1"}).status_code, 404)
         self.assertEqual(self.client.get(url).status_code, 405)  # 상태를 바꾸는 주소는 POST 만
 
-    def test_names_are_escaped(self):
+    def case_names_are_escaped(self):
         masters.create_media(self.admin, "<script>alert(1)</script>")
         html = self.client.get(reverse("operator:media_list")).content.decode()
         self.assertNotIn("<script>alert(1)</script>", html)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
 
-    def test_csrf_is_required(self):
+    def case_csrf_is_required(self):
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.admin)
         self.assertEqual(client.post(reverse("operator:media_list"), {"name": "토큰 없음"}).status_code, 403)
         self.assertEqual(masters.list_media(self.admin), [])
 
+    def test_media_page(self):
+        self.run_cases()
+
 
 @tag("security")
-class SlotPageTests(OperatorBase):
+class SlotPageTests(Cases, OperatorBase):
     def setUp(self):
         super().setUp()
         self.media = masters.create_media(self.admin, "매체")
@@ -95,7 +102,7 @@ class SlotPageTests(OperatorBase):
                 "impression_share": 10, "click_share": 85, "conversion_share": 5, "reason": "개설", **over}
         return self.client.post(reverse("operator:slot_create", args=[self.media.media_id]), data)
 
-    def test_create_slot_shows_audience_and_shares_and_says_the_audience_is_fixed(self):
+    def case_create_slot_shows_audience_and_shares_and_says_the_audience_is_fixed(self):
         self.assertRedirects(self.post_slot(), self.detail)
         (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
         self.assertEqual((slot.audience, slot.policy.floor, slot.policy.cap), ("shared", 100, 500))
@@ -106,7 +113,7 @@ class SlotPageTests(OperatorBase):
         self.assertIn("노출 10% · 클릭 85% · 전환 5%", html)
         self.assertIn("만든 뒤 바꿀 수 없습니다", html)
 
-    def test_policy_errors_go_next_to_the_fields(self):
+    def case_policy_errors_go_next_to_the_fields(self):
         r = self.post_slot(floor=300, base=200)
         self.assertContains(r, "하한 ≤ 기준가 ≤ 상한이어야 합니다.", status_code=400)
         self.assertEqual(self.post_slot(floor="").status_code, 400)  # 서비스까지 가지 않는 폼 오류
@@ -117,31 +124,34 @@ class SlotPageTests(OperatorBase):
         self.assertEqual(self.post_slot(click_share="").status_code, 400)  # 비율도 필수
         self.assertEqual(masters.list_slots(active_only=False, media_id=self.media.media_id), [])
 
-    def test_the_reason_may_be_left_blank_when_creating(self):
+    def case_the_reason_may_be_left_blank_when_creating(self):
         self.assertRedirects(self.post_slot(reason=""), self.detail)
         (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
         self.assertEqual(slot.policy.reason, "없음")  # 만들 때만 비워도 된다 — 정책 변경은 사유 필수(6-8c)
 
-    def test_a_name_already_in_the_media_is_a_conflict(self):
+    def case_a_name_already_in_the_media_is_a_conflict(self):
         self.assertRedirects(self.post_slot(), self.detail)
         self.assertContains(self.post_slot(), "이 매체에 같은 이름의 구성이 이미 있습니다.", status_code=409)
         self.assertEqual(len(masters.list_slots(active_only=False, media_id=self.media.media_id)), 1)
 
-    def test_toggle_slot_active(self):
+    def case_toggle_slot_active(self):
         slot = make_slot(self.admin)
         url = reverse("operator:slot_active", args=[slot.slot_id])
         self.assertRedirects(self.client.post(url, {"active": "0"}), reverse("operator:media_detail", args=[slot.media_id]))
         self.assertFalse(masters.get_slot(slot.slot_id).is_active)
 
-    def test_unknown_media_is_404(self):
+    def case_unknown_media_is_404(self):
         r = self.client.get(reverse("operator:media_detail", args=[uuid.uuid4()]))
         self.assertEqual(r.status_code, 404)
         self.assertIn("text/html", r["Content-Type"])  # 화면의 404(서비스 예외가 API 오류 형식으로 새지 않는다)
         self.assertEqual(self.client.get(reverse("operator:media_detail", args=["not-a-uuid"])).status_code, 404)
 
+    def test_slot_page(self):
+        self.run_cases()
+
 
 @tag("security")
-class MediaKeyPageTests(OperatorBase):
+class MediaKeyPageTests(Cases, OperatorBase):
     def setUp(self):
         super().setUp()
         self.media = masters.create_media(self.admin, "매체")
@@ -151,7 +161,7 @@ class MediaKeyPageTests(OperatorBase):
         token = token or request_key(self.client.get(self.detail).content.decode(), "key-issue")
         return self.client.post(reverse("operator:key_issue", args=[self.media.media_id]), {"label": "운영", "request_key": token})
 
-    def test_the_plain_key_is_shown_once_and_stored_nowhere(self):
+    def case_the_plain_key_is_shown_once_and_stored_nowhere(self):
         with self.assertLogs(level="DEBUG") as logs:  # 루트 로거: 모든 로거가 여기로 올라온다
             logging.getLogger("probe").debug("시작")  # 로그가 하나도 없어도 assertLogs 가 실패하지 않게
             r = self.issue()
@@ -167,7 +177,7 @@ class MediaKeyPageTests(OperatorBase):
         self.assertNotIn(key, self.client.get(self.detail).content.decode())  # 다시 보기 없음
         self.assertIsNotNone(masters.authenticate_media_key(key))
 
-    def test_resubmitting_the_same_form_does_not_issue_another_key(self):
+    def case_resubmitting_the_same_form_does_not_issue_another_key(self):
         token = request_key(self.client.get(self.detail).content.decode(), "key-issue")
         self.assertEqual(self.issue(token).status_code, 200)
         r = self.issue(token)  # 새로 고침·뒤로 가기로 같은 폼을 다시 보냄
@@ -177,7 +187,7 @@ class MediaKeyPageTests(OperatorBase):
         self.assertEqual(self.client.post(reverse("operator:key_issue", args=[self.media.media_id]), {"label": "키 없음"}).status_code, 302)
         self.assertEqual(MediaKey.objects.count(), 1)
 
-    def test_rotate_keeps_the_old_key_for_the_chosen_grace(self):
+    def case_rotate_keeps_the_old_key_for_the_chosen_grace(self):
         old = masters.issue_media_key(self.admin, self.media.media_id)
         html = self.client.get(self.detail).content.decode()
         self.assertRegex(html, r'<form[^>]*id="key-rotate"[^>]*data-confirm="[^"]*즉시 만료')  # 즉시 만료는 폐기처럼 매체 서버를 바로 끊는다
@@ -190,7 +200,7 @@ class MediaKeyPageTests(OperatorBase):
         self.assertTrue(before + timedelta(seconds=3590) < expires <= timezone.now() + timedelta(seconds=3600))
         self.assertEqual(MediaKey.objects.count(), 2)
 
-    def test_revoke(self):
+    def case_revoke(self):
         issued = masters.issue_media_key(self.admin, self.media.media_id)
         self.assertIn("data-confirm=", self.client.get(self.detail).content.decode())  # 되돌릴 수 없는 동작은 확인 창(JS 가 없으면 바로 제출)
         r = self.client.post(reverse("operator:key_revoke", args=[issued.key_id]), {"media_id": str(self.media.media_id)})
@@ -199,9 +209,12 @@ class MediaKeyPageTests(OperatorBase):
         html = self.client.get(self.detail).content.decode()
         self.assertIn("폐기됨", html)
 
+    def test_media_key_page(self):
+        self.run_cases()
+
 
 @tag("security")
-class KeyIssueOnceTests(TransactionTestCase):
+class KeyIssueOnceTests(Cases, TransactionTestCase):
     """외부 검토(3-1d) P1 과 같은 결함: 세션의 한 번 쓰는 토큰은 동시 제출·처리 뒤 응답 실패를 막지 못했다. 그 경우 평문을 아무도 못 본 유효한 키가 하나 더 생겼다.
     요청 키를 키 행에 같은 트랜잭션으로 저장해 같은 폼으로는 키가 하나만 생긴다."""
 
@@ -219,7 +232,7 @@ class KeyIssueOnceTests(TransactionTestCase):
         other.cookies = self.client.cookies
         return other
 
-    def test_the_same_form_sent_twice_at_once_issues_one_key(self):
+    def case_the_same_form_sent_twice_at_once_issues_one_key(self):
         # 첫 요청은 키를 INSERT 한 뒤(커밋 전) 감사 로그 직전에 멈춘다 — 둘 다 진행 중인 가장 나쁜 겹침.
         # 둘째는 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
         first, second = overlap(self, lambda: self.client.post(self.url, self.fields), "INSERT", "foundation_audit_log", lambda: self.twin().post(self.url, self.fields))
@@ -228,7 +241,7 @@ class KeyIssueOnceTests(TransactionTestCase):
         self.assertEqual(MediaKey.objects.count(), 1)
         self.assertEqual(AuditLog.objects.filter(action="masters.media_key_rotated").count(), 1)
 
-    def test_a_retry_after_the_response_failed_post_commit_issues_no_second_key(self):
+    def case_a_retry_after_the_response_failed_post_commit_issues_no_second_key(self):
         failing = self.twin(raise_request_exception=False)
         with mock.patch("console.operator.views._render", side_effect=RuntimeError("응답 실패")):
             self.assertEqual(failing.post(self.url, self.fields).status_code, 500)  # 키는 커밋됐고 평문을 담은 응답만 실패
@@ -237,3 +250,6 @@ class KeyIssueOnceTests(TransactionTestCase):
         self.assertEqual(r.status_code, 302)
         self.assertEqual(MediaKey.objects.count(), 1)
         self.assertContains(self.client.get(r["Location"]), f"키 {lost.key_id}")  # 받지 못한 키를 폐기할 수 있게 알려 준다
+
+    def test_key_issue_once(self):
+        self.run_cases()

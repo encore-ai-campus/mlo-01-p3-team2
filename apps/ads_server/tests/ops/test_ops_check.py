@@ -13,6 +13,7 @@ from console.management.commands.ops_check import CHECKS
 from events import store
 from tests.support.factories import make_advertiser
 from tests.support.mongo_support import MongoDatabaseMixin, unreachable_store
+from tests.support.cases import Cases
 
 PROD_LIKE = dict(SESSION_COOKIE_SECURE=True, CSRF_COOKIE_SECURE=True, SILENCED_SYSTEM_CHECKS=["security.W004", "security.W008"])  # prod.py 의 배포 점검 관련 값
 
@@ -40,7 +41,7 @@ def tampered_ledger():
 
 
 @tag("security")
-class OpsCheckTests(MongoDatabaseMixin, TransactionTestCase):
+class OpsCheckTests(Cases, MongoDatabaseMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         store.ensure()  # 이 시험의 무작위 데이터베이스에 컬렉션·색인
@@ -53,13 +54,13 @@ class OpsCheckTests(MongoDatabaseMixin, TransactionTestCase):
             return 1, out.getvalue().splitlines()
         return 0, out.getvalue().splitlines()
 
-    def test_a_healthy_backend_passes_every_check(self):
+    def case_a_healthy_backend_passes_every_check(self):
         with override_settings(**PROD_LIKE):
             code, lines = self.run_check()
         self.assertEqual(code, 0, lines)
         self.assertEqual([line.split(":")[0] for line in lines], [f"OK   {name}" for name, _ in CHECKS])
 
-    def test_each_broken_part_fails_only_its_own_line_and_the_command(self):
+    def case_each_broken_part_fails_only_its_own_line_and_the_command(self):
         cases = {  # 나머지 점검은 그대로 통과해야 한다 — 한 점검의 실패가 다른 점검을 가리거나 끌고 가지 않는다
             "배포 설정": (nullcontext(), False),  # 시험 설정은 배포 설정이 아니다(HSTS·HTTPS 이동 경고)
             "DB·마이그레이션": (unapplied_migration(), True),
@@ -76,3 +77,6 @@ class OpsCheckTests(MongoDatabaseMixin, TransactionTestCase):
                 failed = [line for line in lines if line.startswith("FAIL")]
                 self.assertEqual(len(failed), 1, lines)
                 self.assertTrue(failed[0].startswith(f"FAIL {name}: ") and len(failed[0]) > len(f"FAIL {name}: ") + 5, failed)
+
+    def test_ops_check(self):
+        self.run_cases()

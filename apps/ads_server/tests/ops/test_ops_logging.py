@@ -24,6 +24,7 @@ from foundation import errors
 from foundation.logging import RequestIdFilter, UtcFormatter
 from foundation.middleware import ApiErrorMiddleware
 from serving_api import clicks
+from tests.support.cases import Cases
 
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")  # 로그 시각과 명령 줄의 시각이 같은 모양이다
 LOCK_TIMEOUT = OperationalError(1205, "Lock wait timeout exceeded; try restarting transaction")
@@ -34,8 +35,8 @@ def stamped_lines(text):
 
 
 @tag("security")
-class RequestIdInDjangoSummaryTests(TestCase):
-    def test_the_summary_line_of_a_4xx_carries_the_request_id_of_the_response(self):
+class RequestIdInDjangoSummaryTests(Cases, TestCase):
+    def case_the_summary_line_of_a_4xx_carries_the_request_id_of_the_response(self):
         """Django 는 미들웨어가 끝난 뒤(요청 ID 를 되돌린 뒤) 요약 줄을 남긴다. 필터가 기록에 실린 요청에서 ID 를 꺼낸다."""
         with self.assertLogs("django.request", "WARNING") as logs:  # 시험 설정은 이 logger 를 CRITICAL 로 낮춰 두었다
             response = self.client.get(f"/api/media/v1/decisions/{uuid.uuid4()}")  # 키 없음 → 401
@@ -43,13 +44,16 @@ class RequestIdInDjangoSummaryTests(TestCase):
         RequestIdFilter().filter(record)
         self.assertEqual((response.status_code, record.request_id), (401, response["X-Request-ID"]))
 
-    def test_a_record_without_a_request_keeps_the_placeholder(self):
+    def case_a_record_without_a_request_keeps_the_placeholder(self):
         """요청이 끝나면 요청 ID 를 되돌린다 — 앞서 지난 요청의 ID 가 요청 밖의 줄에 붙지 않는다. 요청을 먼저 하나 보내서, 이 시험만 돌려도 되돌림을 본다
         (6-18h: 되돌림을 빼는 변형은 앞의 다른 시험이 요청을 남겼을 때만 잡혔다 — 시험 순서에 기댔다)."""
         self.assertEqual(self.client.get("/api/media/v1/health").status_code, 200)
         record = logging.LogRecord("x", logging.INFO, __file__, 1, "msg", (), None)
         RequestIdFilter().filter(record)
         self.assertEqual(record.request_id, "-")
+
+    def test_request_id_in_django_summary(self):
+        self.run_cases()
 
 
 @tag("security")
@@ -70,8 +74,8 @@ class UtcLogTimeTests(SimpleTestCase):
 
 
 @tag("security")
-class OneLine503Tests(SimpleTestCase):
-    def test_a_screen_503_from_a_lock_error_logs_its_cause_in_one_line(self):
+class OneLine503Tests(Cases, SimpleTestCase):
+    def case_a_screen_503_from_a_lock_error_logs_its_cause_in_one_line(self):
         with self.assertLogs("foundation.middleware", "WARNING") as logs:
             response = ApiErrorMiddleware(lambda request: None).process_exception(RequestFactory().get("/advertiser/campaigns/"), LOCK_TIMEOUT)
         (record,) = logs.records
@@ -80,7 +84,7 @@ class OneLine503Tests(SimpleTestCase):
         self.assertIn("/advertiser/campaigns/", record.getMessage())
         self.assertIsNone(record.exc_info)  # 트레이스백 없음(장애 중 요청마다 쌓이지 않게)
 
-    def test_a_click_503_logs_its_cause_in_one_line(self):
+    def case_a_click_503_logs_its_cause_in_one_line(self):
         decision_id = str(uuid.uuid4())
         token = signing.dumps({"d": decision_id}, salt=clicks.SALT, compress=False)
         with mock.patch("serving_api.clicks.records.observe_click", side_effect=OperationalError(2003, "Can't connect to MySQL server")), \
@@ -90,9 +94,12 @@ class OneLine503Tests(SimpleTestCase):
         self.assertIn(f"decision={decision_id} OperationalError 2003", record.getMessage())
         self.assertIsNone(record.exc_info)
 
+    def test_one_line503(self):
+        self.run_cases()
+
 
 @tag("security")
-class StampedCommandLinesTests(TestCase):
+class StampedCommandLinesTests(Cases, TestCase):
     def assertStamped(self, lines):
         now = app_clock.now()  # 명령이 찍는 시계와 같은 시계(시계를 앞당겨 도는 tests/tools/clock_shift_test.py 에서도 맞게)
         for line in lines:
@@ -101,7 +108,7 @@ class StampedCommandLinesTests(TestCase):
             when = datetime.strptime(match.group(), "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
             self.assertLess(abs(now - when), timedelta(minutes=1), line)  # 지역 시각이 아니라 UTC 다
 
-    def test_process_reactions_stamps_its_status_and_failure_lines(self):
+    def case_process_reactions_stamps_its_status_and_failure_lines(self):
         out = io.StringIO()
         call_command("process_reactions", "--once", "--retry-stuck", stdout=out)
         self.assertStamped(stamped_lines(out.getvalue()))  # retried-stuck · started · 요약
@@ -113,7 +120,7 @@ class StampedCommandLinesTests(TestCase):
         self.assertStamped(stamped_lines(err.getvalue()))
         self.assertIn("DB 연결 문제", err.getvalue())
 
-    def test_relay_events_stamps_its_status_and_failure_lines_but_not_the_status_query(self):
+    def case_relay_events_stamps_its_status_and_failure_lines_but_not_the_status_query(self):
         out = io.StringIO()
         with mock.patch("events.management.commands.relay_events.relay_batch", return_value=SimpleNamespace(sent=0, duplicate=0)), \
                 mock.patch("events.management.commands.relay_events.outbox_status", return_value={"pending": 0, "oldest_age_seconds": None}):
@@ -129,3 +136,6 @@ class StampedCommandLinesTests(TestCase):
             call_command("relay_events", "--interval", "0.5", stdout=io.StringIO(), stderr=err)
         self.assertStamped(stamped_lines(err.getvalue()))
         self.assertIn("이번 주기를 건너뛴다", err.getvalue())
+
+    def test_stamped_command_lines(self):
+        self.run_cases()

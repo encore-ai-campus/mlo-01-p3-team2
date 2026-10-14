@@ -13,6 +13,7 @@ from django.urls import reverse
 from campaigns import api as campaigns
 from masters import api as masters
 from tests.support.factories import World, make_slot, png_file
+from tests.support.cases import Cases
 
 
 @tag("security")
@@ -35,8 +36,8 @@ class AdGroupPageBase(TestCase):
         return self.group().updated_at.isoformat()
 
 
-class DetailTests(AdGroupPageBase):
-    def test_shows_bid_effects_history_slots_and_the_creative(self):
+class DetailTests(Cases, AdGroupPageBase):
+    def case_shows_bid_effects_history_slots_and_the_creative(self):
         html = self.html()
         self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
         self.assertIn("현재 입찰 <strong>300 포인트</strong>", html)
@@ -48,13 +49,13 @@ class DetailTests(AdGroupPageBase):
         campaigns.add_bid(self.w.adv, self.gid, 350, 1)
         self.assertRegex(self.html(), r'(?s)입찰 변경 이력</caption>.*?<td class="num">2</td><td class="num">350 포인트</td>.*?<td class="num">1</td><td class="num">300 포인트</td>')  # 최신부터
 
-    def test_the_page_reads_slot_policies_once(self):
+    def case_the_page_reads_slot_policies_once(self):
         """계획 3-4g B1: 위치 정보와 위치별 결과가 같은 읽기를 본다(전에는 슬롯 정책을 두 번 읽었다)."""
         with mock.patch.object(masters, "get_slots_with_policy", wraps=masters.get_slots_with_policy) as read:
             self.html()
         self.assertEqual(read.call_count, 1)
 
-    def test_user_text_is_escaped(self):
+    def case_user_text_is_escaped(self):
         campaigns.update_ad_group(self.w.adv, self.gid, {"name": "<b>그룹</b>"})
         campaigns.update_creative(self.w.adv, self.crid, {"title": "<script>x</script>"})
         html = self.html()
@@ -62,31 +63,37 @@ class DetailTests(AdGroupPageBase):
         self.assertNotIn("<script>x</script>", html)
         self.assertIn("&lt;script&gt;x&lt;/script&gt;", html)
 
+    def test_detail(self):
+        self.run_cases()
 
-class BidTests(AdGroupPageBase):
-    def test_a_new_bid_is_added_as_a_new_version(self):
+
+class BidTests(Cases, AdGroupPageBase):
+    def case_a_new_bid_is_added_as_a_new_version(self):
         self.assertRedirects(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1}), self.detail)
         self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [600, 300])  # 추가만
         html = self.html()
         self.assertRegex(html, r"상한으로 적용</td>\s*<td class=\"num\">500 포인트")
         self.assertRegex(html, r'name="expected_version" value="2"')
 
-    def test_a_concurrent_bid_is_explained_and_nothing_is_overwritten(self):
+    def case_a_concurrent_bid_is_explained_and_nothing_is_overwritten(self):
         campaigns.add_bid(self.w.adv, self.gid, 400, expected_version=1)  # 다른 탭에서 먼저
         r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1})
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다(현재 버전 2)", status_code=409)  # 다른 낙관적 잠금 충돌과 같은 안내
         self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [400, 300])
 
-    def test_bad_amount_and_ended_campaign_are_refused_by_the_service(self):
+    def case_bad_amount_and_ended_campaign_are_refused_by_the_service(self):
         self.assertEqual(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 0, "expected_version": 1}).status_code, 400)
         campaigns.end_campaign(self.w.adv, self.w.campaign.campaign_id)
         r = self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1})
         self.assertIn(r.status_code, (400, 409))
         self.assertEqual(len(campaigns.list_bids(self.w.adv, self.gid)), 1)
 
+    def test_bid(self):
+        self.run_cases()
 
-class GroupEditTests(AdGroupPageBase):
-    def test_name_slots_and_toggle_are_separate_and_do_not_touch_each_other(self):
+
+class GroupEditTests(Cases, AdGroupPageBase):
+    def case_name_slots_and_toggle_are_separate_and_do_not_touch_each_other(self):
         other_slot = make_slot(self.w.admin, name="둘째 위치")
         self.client.post(reverse("ad_group_slots", args=[self.gid]), {"slot_ids": [str(self.w.slot.slot_id), str(other_slot.slot_id)], "updated_at": self.seen()})
         self.assertEqual(set(self.group().slot_ids), {self.w.slot.slot_id, other_slot.slot_id})
@@ -95,7 +102,7 @@ class GroupEditTests(AdGroupPageBase):
         group = self.group()
         self.assertEqual((group.name, group.enabled, len(group.slot_ids)), ("새 이름", False, 2))  # 앞의 변경이 남아 있다
 
-    def test_slot_rules_are_shown(self):
+    def case_slot_rules_are_shown(self):
         click = make_slot(self.w.admin, unit="CLICK", name="클릭 위치")
         self.assertIn(str(click.slot_id), self.html())  # 과금 단위가 없어 비율이 다른 위치도 고를 수 있다(6-10d)
         masters.set_slot_active(self.w.admin, click.slot_id, False)
@@ -105,15 +112,18 @@ class GroupEditTests(AdGroupPageBase):
         self.assertContains(r, "구성을 하나 이상 고르세요", status_code=400)
         self.assertEqual(self.group().slot_ids, (self.w.slot.slot_id,))
 
-    def test_an_inactive_linked_slot_is_explained(self):
+    def case_an_inactive_linked_slot_is_explained(self):
         masters.set_slot_active(self.w.admin, self.w.slot.slot_id, False)
         html = self.html()
         self.assertIn("지금 꺼진 구성", html)
         self.assertIn("꺼진 구성 — 노출 안 됨", html)
 
+    def test_group_edit(self):
+        self.run_cases()
 
-class ImageSectionTests(AdGroupPageBase):
-    def test_the_image_section_only_selects_and_the_upload_section_only_uploads(self):
+
+class ImageSectionTests(Cases, AdGroupPageBase):
+    def case_the_image_section_only_selects_and_the_upload_section_only_uploads(self):
         """6-11(사용자 요청): 광고 상세의 "이미지"는 내 이미지(보관하지 않은 것 전부) 중 하나를 고르기만 하고, "이미지 업로드"는 올리기만 한다.
         제목·주소 수정과 이미지 교체는 소재 상세에만 있다."""
         mine = campaigns.create_creative(self.w.adv, None, "목록의 이미지", "https://example.com/2", png_file((9, 9, 9)))  # 아직 이 광고에 연결되지 않음
@@ -145,7 +155,7 @@ class ImageSectionTests(AdGroupPageBase):
         self.assertIn(f'value="{uploaded.creative_id}"', self.html().split('aria-label="이미지 업로드"', 1)[0])  # 위 목록에서 고를 수 있다
 
 
-    def test_a_refused_choice_says_why_and_keeps_the_image(self):
+    def case_a_refused_choice_says_why_and_keeps_the_image(self):
         """R13(6-13d): 고르기가 거절되면(끝난 캠페인) 이유를 알리고, 나가는 이미지는 그대로다."""
         mine = campaigns.create_creative(self.w.adv, None, "목록의 이미지", "https://example.com/2", png_file((9, 9, 9)))
         campaigns.end_campaign(self.w.adv, self.w.campaign.campaign_id)
@@ -153,6 +163,9 @@ class ImageSectionTests(AdGroupPageBase):
         self.assertRedirects(r, self.detail)
         self.assertContains(r, "종료된 캠페인은 수정할 수 없습니다")
         self.assertEqual(self.group().creative_id, self.crid)
+
+    def test_image_section(self):
+        self.run_cases()
 
 
 class IsolationTests(AdGroupPageBase):
@@ -177,11 +190,11 @@ class IsolationTests(AdGroupPageBase):
         self.assertEqual(self.group().creative_id, self.crid)
 
 
-class StaleSameFieldTests(AdGroupPageBase):
+class StaleSameFieldTests(Cases, AdGroupPageBase):
     """외부 검토(41d2288) P3: 작은 폼은 다른 칸을 덮지 않지만, 열어 둔 폼이 **같은 칸**의 최신 변경을 덮었다(S1 → S1+S2 뒤 옛 폼의 S1 이 S2 를 지움).
     이름·구성도 화면이 본 변경 시각과 잠금 안에서 대조한다(이미지 교체는 소재 상세 — `test_creative_pages`)."""
 
-    def test_a_stale_slots_form_does_not_remove_a_slot_added_elsewhere(self):
+    def case_a_stale_slots_form_does_not_remove_a_slot_added_elsewhere(self):
         seen = self.seen()  # 옛 탭이 본 시각
         second = make_slot(self.w.admin, name="둘째 위치")
         both = [str(self.w.slot.slot_id), str(second.slot_id)]
@@ -190,10 +203,13 @@ class StaleSameFieldTests(AdGroupPageBase):
         self.assertContains(r, "다른 곳에서 먼저 바뀌었습니다", status_code=409)
         self.assertEqual(set(self.group().slot_ids), {self.w.slot.slot_id, second.slot_id})
 
-    def test_a_stale_name_form_is_refused(self):
+    def case_a_stale_name_form_is_refused(self):
         seen = self.seen()
         campaigns.update_ad_group(self.w.adv, self.gid, {"name": "다른 탭"})
         self.assertContains(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "옛 탭", "updated_at": seen}),
                             "다른 곳에서 먼저 바뀌었습니다", status_code=409)
         self.assertEqual(self.client.post(reverse("ad_group_name", args=[self.gid]), {"name": "", "updated_at": self.seen()}).status_code, 400)  # 폼이 거른 입력
         self.assertEqual(self.group().name, "다른 탭")
+
+    def test_stale_same_field(self):
+        self.run_cases()

@@ -18,20 +18,21 @@ from records import api as records
 from records.models import Reaction
 from tests.support.concurrency import WAIT, Worker
 from tests.support.factories import NOW, SUBJECT, World
+from tests.support.cases import Cases
 
 DEADLOCK = OperationalError(1213, "Deadlock found when trying to get lock; try restarting transaction")
 LOCK_TIMEOUT = OperationalError(1205, "Lock wait timeout exceeded; try restarting transaction")
 
 
 @tag("security")
-class ClassificationTests(TestCase):
-    def test_only_deadlock_and_lock_wait_timeout_are_transient(self):
+class ClassificationTests(Cases, TestCase):
+    def case_only_deadlock_and_lock_wait_timeout_are_transient(self):
         self.assertTrue(is_transient_lock_error(DEADLOCK))
         self.assertTrue(is_transient_lock_error(LOCK_TIMEOUT))
         for other in (OperationalError(2013, "Lost connection"), OperationalError(1146, "no table"), OperationalError("disk I/O error"), RuntimeError("x"), ValueError(1213)):
             self.assertFalse(is_transient_lock_error(other), other)
 
-    def test_a_wrapped_driver_error_is_recognised_through_its_cause(self):
+    def case_a_wrapped_driver_error_is_recognised_through_its_cause(self):
         import MySQLdb
 
         try:
@@ -42,10 +43,13 @@ class ClassificationTests(TestCase):
         except OperationalError as wrapped:
             self.assertTrue(is_transient_lock_error(wrapped))
 
+    def test_db_errors_classification(self):
+        self.run_cases()
+
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
 @tag("security")
-class ProcessingRetriesTests(TestCase):
+class ProcessingRetriesTests(Cases, TestCase):
     def setUp(self):
         self.w = World()
         self.media = self.w.slot.media_id
@@ -56,19 +60,19 @@ class ProcessingRetriesTests(TestCase):
     def row(self):
         return Reaction.objects.get(pk=self.inbox_id)
 
-    def test_a_deadlock_does_not_count_as_a_failure_and_leaves_no_trace(self):
+    def case_a_deadlock_does_not_count_as_a_failure_and_leaves_no_trace(self):
         with mock.patch("records.processing.billing.charge_for_reaction", side_effect=DEADLOCK), self.assertRaises(OperationalError):
             records.process_reaction(self.inbox_id, now=NOW)
         row = self.row()
         self.assertEqual((row.status, row.attempts, row.basis), ("RECEIVED", 0, None))  # 되돌려졌고 횟수는 그대로다
         self.assertEqual(records.process_reaction(self.inbox_id, now=NOW), "ACCEPTED")  # 다시 하면 된다
 
-    def test_a_real_failure_still_counts(self):
+    def case_a_real_failure_still_counts(self):
         with mock.patch("records.processing.billing.charge_for_reaction", side_effect=OperationalError(2013, "Lost connection")), self.assertRaises(OperationalError):
             records.process_reaction(self.inbox_id, now=NOW)
         self.assertEqual(self.row().attempts, 1)
 
-    def test_a_reaction_that_keeps_hitting_deadlocks_is_never_dropped_from_automatic_retries(self):
+    def case_a_reaction_that_keeps_hitting_deadlocks_is_never_dropped_from_automatic_retries(self):
         """상한(`REACTION_MAX_ATTEMPTS`=5)보다 많이 교착을 만나도 계속 대상이다 — 실패로 세면 6번째부터 자동 처리에서 빠진다."""
         with mock.patch("records.processing.billing.charge_for_reaction", side_effect=DEADLOCK):
             for _ in range(7):
@@ -79,7 +83,7 @@ class ProcessingRetriesTests(TestCase):
         counts = records.process_pending(now=NOW)
         self.assertEqual((counts["accepted"], counts["transient"]), (1, 0))
 
-    def test_the_command_summary_reports_transient_separately(self):
+    def case_the_command_summary_reports_transient_separately(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -88,6 +92,9 @@ class ProcessingRetriesTests(TestCase):
         with mock.patch("records.processing.billing.charge_for_reaction", side_effect=LOCK_TIMEOUT):
             call_command("process_reactions", "--once", stdout=out)
         self.assertIn("'transient': 1", out.getvalue())
+
+    def test_processing_retries(self):
+        self.run_cases()
 
 
 @override_settings(REACTION_PROCESS_ON_RECEIPT=False)
@@ -141,7 +148,7 @@ class TransientErrorResponseTests(TestCase):
         self.assertEqual(middleware.process_exception(RequestFactory().post("/api/media/v1/decisions"), DEADLOCK)["Content-Type"], "application/problem+json")
 
 
-class UniqueViolationTests(TestCase):
+class UniqueViolationTests(Cases, TestCase):
     def raised(self, **kw):
         values = dict(username="dup_user", role="ADVERTISER", nickname="닉", class_label="1반")
         values.update(kw)
@@ -149,7 +156,7 @@ class UniqueViolationTests(TestCase):
             User.objects.create(**values)
         return caught.exception
 
-    def test_a_unique_violation_is_told_apart_from_other_integrity_errors(self):
+    def case_a_unique_violation_is_told_apart_from_other_integrity_errors(self):
         User.objects.create(username="dup_user", role="ADVERTISER", nickname="닉", class_label="1반")
         self.assertTrue(is_unique_violation(self.raised()))
         self.assertFalse(is_unique_violation(self.raised(username=None)))  # NOT NULL 위반
@@ -157,5 +164,8 @@ class UniqueViolationTests(TestCase):
             cur.execute("INSERT INTO billing_wallet (wallet_id, owner_id, balance, created_at) VALUES ('x', 'nobody', 9007199254740993, '2026-01-01')")
         self.assertFalse(is_unique_violation(caught.exception))  # CHECK 위반
 
-    def test_an_unknown_backend_error_is_never_called_a_duplicate(self):
+    def case_an_unknown_backend_error_is_never_called_a_duplicate(self):
         self.assertFalse(is_unique_violation(IntegrityError("duplicate-looking message")))
+
+    def test_unique_violation(self):
+        self.run_cases()

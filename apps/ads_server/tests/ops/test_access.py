@@ -13,6 +13,7 @@ from foundation.models import User
 from tests.support.factories import PW, make_admin, make_advertiser
 from tests.support.helpers import PROD_ENV, run_python
 from tests.support.support_app.models import OwnedThing
+from tests.support.cases import Cases
 
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
@@ -43,8 +44,8 @@ def iter_routes(patterns, prefix=""):
 
 
 @tag("security")
-class UrlSweepTests(SimpleTestCase):
-    def test_every_url_is_protected_or_marked_public(self):
+class UrlSweepTests(Cases, SimpleTestCase):
+    def case_every_url_is_protected_or_marked_public(self):
         routes = list(iter_routes(get_resolver().url_patterns))
         seen_public, seen_login_only = set(), set()
         for path, callback in routes:
@@ -60,13 +61,16 @@ class UrlSweepTests(SimpleTestCase):
         self.assertEqual(seen_public, EXPECTED_PUBLIC)  # 오래된 항목이 남지 않게
         self.assertEqual(seen_login_only, LOGIN_ONLY)
 
-    def test_admin_site_is_mounted_under_a_role_prefix(self):
+    def case_admin_site_is_mounted_under_a_role_prefix(self):
         paths = [p for p, cb in iter_routes(get_resolver().url_patterns) if cb is None]
         self.assertEqual(paths, ["/" + settings.ADMIN_URL_PATH + "operator/", "/" + settings.ADMIN_URL_PATH])  # 운영 화면(Step 3-1)도 관리자 경로 아래
 
+    def test_url_sweep(self):
+        self.run_cases()
+
 
 @tag("security")
-class AccessControlTests(TestCase):
+class AccessControlTests(Cases, TestCase):
     def setUp(self):
         self.adv = User.objects.create_user("adv_a", PW, nickname="광고주A", class_label="1반")
         self.admin = User.objects.create_superuser("root_a", PW, nickname="관리자", class_label="-")
@@ -76,69 +80,72 @@ class AccessControlTests(TestCase):
     def login_as(self, user):
         self.client.force_login(user, backend=MODEL_BACKEND)
 
-    def test_anonymous_redirected_to_login(self):
+    def case_anonymous_redirected_to_login(self):
         r = self.client.get("/advertiser/")
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r["Location"], "/accounts/login/?next=/advertiser/")
 
     @override_settings(ROOT_URLCONF="tests.support.urls_default_deny")
-    def test_unmarked_view_requires_login(self):
+    def case_unmarked_view_requires_login(self):
         r = self.client.get("/unmarked/")
         self.assertEqual(r.status_code, 302)
         self.assertIn("/accounts/login/", r["Location"])
         self.login_as(self.adv)
         self.assertEqual(self.client.get("/unmarked/").status_code, 200)
 
-    def test_anonymous_gets_404_on_admin_prefix(self):
+    def case_anonymous_gets_404_on_admin_prefix(self):
         for path in ("/test-admin/", "/test-admin/login/", "/test-admin/foundation/user/", "/test-admin/nope/"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
 
-    def test_admin_can_open_admin_area(self):
+    def case_admin_can_open_admin_area(self):
         self.login_as(self.admin)
         self.assertEqual(self.client.get(self.admin_index).status_code, 200)
 
-    def test_advertiser_can_open_advertiser_area(self):
+    def case_advertiser_can_open_advertiser_area(self):
         self.login_as(self.adv)
         self.assertEqual(self.client.get("/advertiser/").status_code, 200)
 
-    def test_lookalike_paths_are_not_treated_as_role_areas(self):
+    def case_lookalike_paths_are_not_treated_as_role_areas(self):
         self.login_as(self.adv)
         for path in ("/advertiser-evil/", "/test-adminx/"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
         # 테스트 클라이언트는 "//x/" 를 호스트 x 의 "/" 로 읽으므로 경로를 직접 지정한다
         self.assertEqual(self.client.get("/", PATH_INFO="//test-admin/").status_code, 404)
 
-    def test_login_redirects_by_role(self):
+    def case_login_redirects_by_role(self):
         r = self.client.post(reverse("login"), {"username": "root_a", "password": PW})
         self.assertEqual(r["Location"], "/test-admin/")
         self.client.post(reverse("logout"))
         r = self.client.post(reverse("login"), {"username": "adv_a", "password": PW})
         self.assertEqual(r["Location"], "/advertiser/")
 
-    def test_login_next_honors_safe_url_and_rejects_external(self):
+    def case_login_next_honors_safe_url_and_rejects_external(self):
         r = self.client.post(reverse("login") + "?next=/advertiser/", {"username": "adv_a", "password": PW})
         self.assertEqual(r["Location"], "/advertiser/")
         self.client.post(reverse("logout"))
         r = self.client.post(reverse("login") + "?next=https://evil.example/", {"username": "adv_a", "password": PW})
         self.assertEqual(r["Location"], "/advertiser/")
 
-    def test_inactive_user_is_treated_as_anonymous(self):
+    def case_inactive_user_is_treated_as_anonymous(self):
         self.adv.is_active = False
         self.adv.save()
         self.login_as(self.adv)
         self.assertEqual(self.client.get("/advertiser/").status_code, 302)
 
+    def test_access_control(self):
+        self.run_cases()
+
 
 @tag("security")
-class AdminPathSettingTests(SimpleTestCase):
-    def test_validate_admin_path_rules(self):
+class AdminPathSettingTests(Cases, SimpleTestCase):
+    def case_validate_admin_path_rules(self):
         self.assertEqual(validate_admin_path("ops-9f3a/"), "ops-9f3a/")
         for bad in ("", "/ops/", "ops", "a//b/", "admin/"):
             with self.assertRaises(ImproperlyConfigured, msg=bad):
                 validate_admin_path(bad)
         self.assertEqual(validate_admin_path("admin/", allow_default=True), "admin/")
 
-    def test_admin_url_default_rejected_in_prod(self):
+    def case_admin_url_default_rejected_in_prod(self):
         code = "from django.conf import settings; print(settings.ADMIN_URL_PATH)"
         ok = run_python(code, "config.settings.prod", PROD_ENV)
         self.assertEqual(ok.stdout.strip(), "ops-9f3a/", ok.stderr)
@@ -146,45 +153,54 @@ class AdminPathSettingTests(SimpleTestCase):
             r = run_python(code, "config.settings.prod", dict(PROD_ENV, ADMIN_URL_PATH=bad))
             self.assertNotEqual(r.returncode, 0, bad)
 
+    def test_admin_path_setting(self):
+        self.run_cases()
+
 
 @tag("security")
-class OwnershipTests(TestCase):
+class OwnershipTests(Cases, TestCase):
     def setUp(self):
         self.a = User.objects.create_user("owner_a", PW, nickname="A", class_label="1")
         self.b = User.objects.create_user("owner_b", PW, nickname="B", class_label="1")
         self.thing_a = OwnedThing.objects.create(owner=self.a, name="a-thing")
         self.thing_b = OwnedThing.objects.create(owner=self.b, name="b-thing")
 
-    def test_owner_gets_own_object(self):
+    def case_owner_gets_own_object(self):
         self.assertEqual(owned_or_404(OwnedThing.objects.all(), self.a, id=self.thing_a.id), self.thing_a)
 
-    def test_owned_or_404_hides_others_objects(self):
+    def case_owned_or_404_hides_others_objects(self):
         with self.assertRaises(Http404):
             owned_or_404(OwnedThing.objects.all(), self.a, id=self.thing_b.id)
 
-    def test_missing_and_malformed_ids_are_404(self):
+    def case_missing_and_malformed_ids_are_404(self):
         for bad in (uuid.uuid4(), "not-a-uuid", "", "1; DROP TABLE"):
             with self.assertRaises(Http404, msg=str(bad)):
                 owned_or_404(OwnedThing.objects.all(), self.a, id=bad)
 
+    def test_ownership(self):
+        self.run_cases()
 
-class RootRedirectTests(TestCase):
-    def test_anonymous_root_goes_to_login(self):
+
+class RootRedirectTests(Cases, TestCase):
+    def case_anonymous_root_goes_to_login(self):
         r = self.client.get("/")
         self.assertRedirects(r, "/accounts/login/", fetch_redirect_response=False)  # 임시 이동(302)
 
-    def test_query_is_not_forwarded(self):
+    def case_query_is_not_forwarded(self):
         self.assertEqual(self.client.get("/?next=/admin/").headers["Location"], "/accounts/login/")
 
-    def test_logged_in_advertiser_ends_up_on_the_advertiser_home(self):
+    def case_logged_in_advertiser_ends_up_on_the_advertiser_home(self):
         self.client.force_login(make_advertiser())
         r = self.client.get("/", follow=True)
         self.assertEqual(r.redirect_chain[-1][0], "/advertiser/")
         self.assertEqual(r.status_code, 200)
 
-    def test_post_also_redirects_and_changes_nothing(self):
+    def case_post_also_redirects_and_changes_nothing(self):
         self.assertEqual(self.client.post("/").status_code, 302)  # RedirectView 는 POST 도 같은 곳으로 보낸다(상태 변경 없음)
 
-    def test_logged_in_admin_goes_to_the_admin_site(self):
+    def case_logged_in_admin_goes_to_the_admin_site(self):
         self.client.force_login(make_admin())
         self.assertRedirects(self.client.get("/"), reverse("admin:index"))
+
+    def test_root_redirect(self):
+        self.run_cases()

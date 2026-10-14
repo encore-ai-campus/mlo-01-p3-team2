@@ -14,6 +14,7 @@ from campaigns import api as campaigns
 from campaigns.models import Campaign
 from foundation.models import AuditLog
 from tests.support.factories import DAY, NOW, World, impression
+from tests.support.cases import Cases
 
 
 @tag("security")
@@ -39,8 +40,8 @@ class CampaignPagesBase(TestCase):
         return self.client.get(self.detail).content.decode()
 
 
-class CampaignListTests(CampaignPagesBase):
-    def test_lists_own_campaigns_with_status_today_and_recent_numbers(self):
+class CampaignListTests(Cases, CampaignPagesBase):
+    def case_lists_own_campaigns_with_status_today_and_recent_numbers(self):
         Campaign.objects.filter(pk=self.cid).update(starts_at=NOW - 30 * DAY)
         impression(self.w, NOW)
         other = World(ends_in=None)
@@ -53,7 +54,7 @@ class CampaignListTests(CampaignPagesBase):
         self.assertIn("끄기", row)
         self.assertRegex(row, r'<td class="num">294 포인트</td>\s*<td class="num">1</td>')  # 오늘 소진 294(입찰 300 × 노출 98%) · 최근 7일 노출 1
 
-    def test_a_suspended_campaign_has_no_toggle_and_shows_the_reason_escaped(self):
+    def case_a_suspended_campaign_has_no_toggle_and_shows_the_reason_escaped(self):
         campaigns.update_campaign(self.w.adv, self.cid, {"name": "<b>캠페인</b>"})
         campaigns.suspend_campaign(self.w.admin, self.cid, "<script>x</script>")
         html = self.client.get(self.list).content.decode()
@@ -63,9 +64,12 @@ class CampaignListTests(CampaignPagesBase):
         self.assertNotIn("<b>캠페인</b>", html)
         self.assertNotIn(reverse("campaign_status", args=[self.cid]), html)
 
+    def test_campaign_list(self):
+        self.run_cases()
 
-class ToggleTests(CampaignPagesBase):
-    def test_off_and_on(self):
+
+class ToggleTests(Cases, CampaignPagesBase):
+    def case_off_and_on(self):
         url = reverse("campaign_status", args=[self.cid])
         self.assertRedirects(self.client.post(url, {"status": "PAUSED", "back": "list"}), self.list)
         self.assertEqual(self.view().status, "PAUSED")
@@ -73,7 +77,7 @@ class ToggleTests(CampaignPagesBase):
         self.assertEqual(self.view().status, "ACTIVE")
         self.assertRedirects(self.client.post(url, {"status": "ACTIVE", "back": "https://evil.example/"}), self.detail)  # 정한 곳으로만
 
-    def test_rules_come_from_the_service(self):
+    def case_rules_come_from_the_service(self):
         """중단된 캠페인을 켜려는 제출(화면에는 버튼이 없지만 직접 보낼 수 있다)은 서비스가 거절하고 화면은 그 오류를 보일 뿐이다."""
         campaigns.suspend_campaign(self.w.admin, self.cid, "사유")
         self.client.post(reverse("campaign_status", args=[self.cid]), {"status": "ACTIVE"})
@@ -82,9 +86,12 @@ class ToggleTests(CampaignPagesBase):
         self.client.post(reverse("campaign_status", args=[self.cid]), {"status": "ENDED"})  # 광고주가 고를 수 없는 상태
         self.assertEqual(self.view().status, "SUSPENDED")
 
+    def test_toggle(self):
+        self.run_cases()
 
-class EditTests(CampaignPagesBase):
-    def test_only_changed_fields_are_sent_and_kst_input_becomes_utc(self):
+
+class EditTests(Cases, CampaignPagesBase):
+    def case_only_changed_fields_are_sent_and_kst_input_becomes_utc(self):
         r = self.client.post(self.detail, self.edit_fields(daily_budget="7000", ends_at="2099-12-31T09:00"))
         self.assertRedirects(r, self.detail)
         view = self.view()
@@ -92,7 +99,7 @@ class EditTests(CampaignPagesBase):
         self.assertEqual(AuditLog.objects.filter(action="campaign.updated").latest("created_at").detail["changed"], ["daily_budget", "ends_at"])
         self.assertIn('value="2099-12-31T09:00"', self.client.get(self.detail).content.decode())  # 다시 KST 로 보인다
 
-    def test_a_stale_form_does_not_overwrite_a_change_made_elsewhere(self):
+    def case_a_stale_form_does_not_overwrite_a_change_made_elsewhere(self):
         fields = self.edit_fields(daily_budget="7000")  # 이 탭은 폼을 열어 둔 채
         campaigns.update_campaign(self.w.adv, self.cid, {"name": "다른 탭에서 바꾼 이름"})
         r = self.client.post(self.detail, fields)
@@ -100,25 +107,28 @@ class EditTests(CampaignPagesBase):
         view = self.view()
         self.assertEqual((view.name, view.daily_budget), ("다른 탭에서 바꾼 이름", 50_000))  # 옛 이름으로 되돌리지 않았다
 
-    def test_service_rules_are_shown_next_to_the_fields(self):
+    def case_service_rules_are_shown_next_to_the_fields(self):
         r = self.client.post(self.detail, self.edit_fields(ends_at="2020-01-01T09:00"))
         self.assertContains(r, "종료 시각은 시작보다 뒤이고 지금보다 뒤여야 합니다", status_code=400)
         self.assertContains(self.client.post(self.detail, self.edit_fields(daily_budget="abc")), "daily_budget", status_code=400)
         self.assertIsNone(self.view().ends_at)
 
-    def test_time_edges_are_field_errors_not_500(self):
+    def case_time_edges_are_field_errors_not_500(self):
         """외부 검토(41d2288) P2: KST 로 읽은 0001-01-01T00:00 은 UTC 로 표현할 수 없어 500 이었다. 위쪽 끝은 정상 값이다."""
         self.assertContains(self.client.post(self.detail, self.edit_fields(ends_at="0001-01-01T00:00")), 'id="id_ends_at_error"', status_code=400)
         self.assertIsNone(self.view().ends_at)
         self.assertRedirects(self.client.post(self.detail, self.edit_fields(ends_at="9999-12-31T23:59")), self.detail)
         self.assertEqual(self.view().ends_at, datetime(9999, 12, 31, 14, 59, tzinfo=timezone.utc))
 
-    def test_nothing_changed(self):
+    def case_nothing_changed(self):
         """화면은 분 단위라, 초가 있는 끝 시각을 그대로 내도 '바뀌지 않음'이다(끝 시각을 분으로 잘라 몰래 바꾸지 않는다)."""
         campaigns.update_campaign(self.w.adv, self.cid, {"ends_at": datetime(2099, 12, 31, 0, 0, 30, tzinfo=timezone.utc)})
         self.assertRedirects(self.client.post(self.detail, self.edit_fields()), self.detail, fetch_redirect_response=False)
         self.assertIn("바뀐 것이 없습니다", self.flash())
         self.assertEqual(self.view().ends_at, datetime(2099, 12, 31, 0, 0, 30, tzinfo=timezone.utc))
+
+    def test_edit(self):
+        self.run_cases()
 
 
 class EndTests(CampaignPagesBase):

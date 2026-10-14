@@ -21,7 +21,7 @@ class ThreatModelSyncTests(SimpleTestCase):
         for path in [*(BASE_DIR / "tests").rglob("*.py"), *(BASE_DIR.parent / "ads_frontend/tests").rglob("*.py")]:  # 프론트 시험도(6-15)
             defined |= set(re.findall(r"def ((?:test|case)_\w+)", path.read_text(encoding="utf-8")))
         doc = THREAT_MODEL.read_text(encoding="utf-8")
-        prefixes = re.findall(r"`((?:test|case)_\w+_)\*`", doc)  # `test_parse_json_*` 같은 접두사 표기
+        prefixes = re.findall(r"`((?:test|case)_\w+_)\*`", doc)  # `case_parse_json_*` 같은 접두사 표기
         cited = set(re.findall(r"`((?:test|case)_\w+)`", doc))
         missing = sorted(n for n in cited if n not in defined)
         self.assertEqual(missing, [], "위협 모델이 인용한 테스트가 없다")

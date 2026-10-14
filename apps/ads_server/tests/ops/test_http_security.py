@@ -14,6 +14,7 @@ from foundation.http import parse_json
 from foundation.models import User
 from tests.support.factories import PW
 from tests.support.helpers import BASE_DIR, PROD_ENV, run_python
+from tests.support.cases import Cases
 
 URLS = "tests.support.urls_api"
 
@@ -29,15 +30,15 @@ def json_request(body, content_type="application/json", declare_length=True):
 
 
 @tag("security")
-class SecurityHeaderTests(TestCase):
-    def test_security_headers_present(self):
+class SecurityHeaderTests(Cases, TestCase):
+    def case_security_headers_present(self):
         r = self.client.get(reverse("login"))
         self.assertEqual(r["X-Content-Type-Options"], "nosniff")
         self.assertEqual(r["X-Frame-Options"], "DENY")
         self.assertEqual(r["Referrer-Policy"], "same-origin")
         self.assertEqual(r["Cross-Origin-Opener-Policy"], "same-origin")
 
-    def test_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies(self):
+    def case_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies(self):
         """6-5d(설계 §10 "배포 구성"): TLS·80→443·HSTS 는 앞단 nginx 몫이라 prod 는 HTTPS 리다이렉트·HSTS·X-Forwarded-Proto 신뢰를 두지 않는다.
         예전 환경값(`SSL_REDIRECT`·`BEHIND_TLS_PROXY`·`HSTS_SECONDS`)이 남아 있어도 읽지 않는다. 브라우저 구간은 HTTPS 라 쿠키는 Secure 그대로다(옛 값이 없어도)."""
         code = ("from django.conf import settings as s; "
@@ -46,7 +47,7 @@ class SecurityHeaderTests(TestCase):
             r = run_python(code, "config.settings.prod", {**PROD_ENV, **old})
             self.assertEqual(r.stdout.strip(), "False 0 None True True False", (old, r.stderr))
 
-    def test_csp_header_policy(self):
+    def case_csp_header_policy(self):
         r = self.client.get(reverse("login"))
         policy = {d.split(" ", 1)[0]: d.split(" ", 1)[1] if " " in d else ""
                   for d in (x.strip() for x in r["Content-Security-Policy"].split(";")) if d}
@@ -61,7 +62,7 @@ class SecurityHeaderTests(TestCase):
         self.assertEqual(policy["form-action"], "'self'")
         self.assertEqual(policy["frame-ancestors"], "'none'")
 
-    def test_admin_inline_style_gets_csp_nonce(self):
+    def case_admin_inline_style_gets_csp_nonce(self):
         admin = User.objects.create_superuser("root_csp", PW, nickname="관리", class_label="-")
         self.client.force_login(admin, backend="django.contrib.auth.backends.ModelBackend")
         r = self.client.get("/test-admin/tests_support/ownedthing/")
@@ -69,15 +70,18 @@ class SecurityHeaderTests(TestCase):
         nonce = re.search(r"'nonce-([^']+)'", r["Content-Security-Policy"]).group(1)
         self.assertIn(f'nonce="{nonce}"', r.content.decode())  # 인라인 <style> 에 같은 nonce 가 붙는다
 
+    def test_security_header(self):
+        self.run_cases()
+
 
 
 @tag("security")
-class CsrfTests(TestCase):
+class CsrfTests(Cases, TestCase):
     def setUp(self):
         self.strict = Client(enforce_csrf_checks=True)
         User.objects.create_user("csrf_user", PW, nickname="c", class_label="1")
 
-    def test_csrf_enforced_on_post_views(self):
+    def case_csrf_enforced_on_post_views(self):
         self.assertEqual(self.strict.post(reverse("signup"), {"username": "x"}).status_code, 403)
         self.assertEqual(self.strict.post(reverse("login"), {"username": "csrf_user", "password": PW}).status_code, 403)
         self.client.force_login(User.objects.get(username="csrf_user"),
@@ -93,26 +97,26 @@ class CsrfTests(TestCase):
         token = client.cookies[settings.CSRF_COOKIE_NAME].value
         return client.post(reverse("login"), {"username": "csrf_user", "password": PW, "csrfmiddlewaretoken": token}, HTTP_ORIGIN="https://testserver")
 
-    def test_a_login_post_from_the_https_front_needs_the_trusted_origin(self):
+    def case_a_login_post_from_the_https_front_needs_the_trusted_origin(self):
         """6-5d(설계 §10 "배포 구성"): Django 는 요청을 HTTP 로 알아 브라우저의 https 출처와 맞지 않는다 — 그래서 prod 는 `CSRF_TRUSTED_ORIGINS` 가 필수다."""
         with override_settings(CSRF_TRUSTED_ORIGINS=[]):
             self.assertEqual(self.login_post_from_the_https_front().status_code, 403)
         with override_settings(CSRF_TRUSTED_ORIGINS=["https://testserver"]):
             self.assertEqual(self.login_post_from_the_https_front().status_code, 302)  # 로그인 성공
 
-    def test_csrf_failure_page_is_html_without_internals(self):
+    def case_csrf_failure_page_is_html_without_internals(self):
         r = self.strict.post(reverse("signup"), {"username": "x"})
         self.assertEqual(r.status_code, 403)
         self.assertNotIn("CSRF", r.content.decode())
 
-    def test_get_does_not_need_token(self):
+    def case_get_does_not_need_token(self):
         self.assertEqual(self.strict.get(reverse("login")).status_code, 200)
 
-    def test_csrf_exempt_list_is_single_and_exact(self):
+    def case_csrf_exempt_list_is_single_and_exact(self):
         self.assertEqual(base.CSRF_EXEMPT_PREFIXES, ["/api/media/"])
 
     @override_settings(ROOT_URLCONF=URLS)
-    def test_csrf_exempt_only_for_allowlisted_prefixes(self):
+    def case_csrf_exempt_only_for_allowlisted_prefixes(self):
         body = '{"a": 1}'
         ok = self.strict.post("/api/media/echo/", body, content_type="application/json")
         self.assertEqual(ok.status_code, 200)  # 허용 목록: CSRF 토큰 없이 통과
@@ -120,27 +124,30 @@ class CsrfTests(TestCase):
         self.assertEqual(blocked.status_code, 403)  # 목록 밖: 차단
         self.assertEqual(blocked["Content-Type"], "application/problem+json")
 
+    def test_csrf(self):
+        self.run_cases()
+
 
 @tag("security")
-class ParseJsonTests(SimpleTestCase):
+class ParseJsonTests(Cases, SimpleTestCase):
     def assertRejects(self, exc, body, **kw):
         with self.assertRaises(exc, msg=repr(body)[:60]):
             parse_json(json_request(body), **kw)
 
-    def test_valid_object(self):
+    def case_valid_object(self):
         self.assertEqual(parse_json(json_request('{"a": 1, "b": [1, 2]}')), {"a": 1, "b": [1, 2]})
 
-    def test_content_type_variants(self):
+    def case_content_type_variants(self):
         self.assertEqual(parse_json(json_request("{}", "application/json; charset=utf-8")), {})
         for bad in ("text/plain", "application/json-evil", "application/x-www-form-urlencoded", ""):
             with self.assertRaises(errors.UnsupportedMediaType, msg=bad):
                 parse_json(json_request("{}", bad))
 
-    def test_parse_json_rejects_nan_infinity(self):
+    def case_parse_json_rejects_nan_infinity(self):
         for body in ('{"a": NaN}', '{"a": Infinity}', '{"a": -Infinity}', '{"a": 1e999999}'):
             self.assertRejects(errors.InvalidRequest, body)
 
-    def test_parse_json_limits_numbers_to_the_javascript_safe_range_at_any_depth(self):
+    def case_parse_json_limits_numbers_to_the_javascript_safe_range_at_any_depth(self):
         """6-2c: 정수·실수 모두 ±(2^53−1), 중첩 객체·배열 안에서도. 범위 밖은 형식 오류와 다른 문구의 400 이다(더 큰 수는 문자열로 보내라고 알린다)."""
         huge = "1" + "0" * 400  # MySQL JSON 의 double 도 넘는 값(전에는 저장 오류 3140 → 503)
         for body in (
@@ -155,27 +162,27 @@ class ParseJsonTests(SimpleTestCase):
             "a": 2**53 - 1, "b": -(2**53 - 1), "c": [0, 0, 1.5, -0.25, 1e-300, float(2**53 - 1)], "d": {"e": "18446744073709551617"},
         })
 
-    def test_parse_json_rejects_unpaired_surrogates_but_keeps_valid_pairs(self):
+    def case_parse_json_rejects_unpaired_surrogates_but_keeps_valid_pairs(self):
         """`\\ud800` 같은 짝 없는 서로게이트는 JSON 문법상 유효하지만 UTF-8 로 쓸 수 없다 → 키·값·중첩 어디서든 400(500 이 되지 않는다)."""
         for body in ('{"a": "\\ud800"}', '{"a": "\\udfff"}', '{"\\ud800": 1}', '{"a": [{"b": ["x\\udc00"]}]}', '{"a": {"\\ud83d": 1}}'):
             with self.assertRaises(errors.InvalidRequest, msg=body):
                 parse_json(json_request(body))
         self.assertEqual(parse_json(json_request('{"a": "\\ud83d\\ude00", "😀": ["😀"]}')), {"a": "😀", "😀": ["😀"]})
 
-    def test_parse_json_depth_limit(self):
+    def case_parse_json_depth_limit(self):
         deep = '{"a": {"b": {"c": {"d": 1}}}}'  # 깊이 4
         self.assertRejects(errors.InvalidRequest, deep, max_depth=3)
         self.assertEqual(parse_json(json_request(deep), max_depth=4), {"a": {"b": {"c": {"d": 1}}}})
         self.assertRejects(errors.InvalidRequest, '{"a":' + "[" * 5000 + "]" * 5000 + "}")  # 재귀 한도를 넘는 중첩
 
-    def test_parse_json_size_limit(self):
+    def case_parse_json_size_limit(self):
         self.assertRejects(errors.PayloadTooLarge, '{"a": "' + "x" * 100 + '"}', max_bytes=64)
         request = json_request('{"a": "' + "x" * 100 + '"}', declare_length=False)  # Content-Length 가 없어도 막는다
         with self.assertRaises(errors.PayloadTooLarge):
             parse_json(request, max_bytes=64)
         self.assertEqual(parse_json(json_request('{"a": 1}'), max_bytes=64), {"a": 1})
 
-    def test_size_limit_does_not_read_whole_body(self):
+    def case_size_limit_does_not_read_whole_body(self):
         body = ('{"a": "' + "x" * 100_000 + '"}').encode()
         request = json_request("{}", declare_length=False)
         request._stream = io.BytesIO(body)  # 읽은 위치를 확인할 수 있는 스트림
@@ -183,25 +190,28 @@ class ParseJsonTests(SimpleTestCase):
             parse_json(request, max_bytes=64)
         self.assertEqual(request._stream.tell(), 65)  # 한도 + 1 바이트까지만 읽었다
 
-    def test_parse_json_non_object_rejected(self):
+    def case_parse_json_non_object_rejected(self):
         for body in ("[]", "1", '"str"', "null", "true"):
             self.assertRejects(errors.InvalidRequest, body)
 
-    def test_empty_and_invalid_encodings_and_duplicates(self):
+    def case_empty_and_invalid_encodings_and_duplicates(self):
         self.assertRejects(errors.InvalidRequest, "")
         self.assertRejects(errors.InvalidRequest, b"\xff\xfe{}")
         self.assertRejects(errors.InvalidRequest, '{"a": 1, "a": 2}')
         self.assertRejects(errors.InvalidRequest, "{")
         self.assertRejects(errors.InvalidRequest, "1" * 5000)  # 파이썬 정수 변환 한도
 
+    def test_parse_json(self):
+        self.run_cases()
+
 
 @tag("security")
 @override_settings(ROOT_URLCONF=URLS)
-class ErrorResponseTests(TestCase):
+class ErrorResponseTests(Cases, TestCase):
     def setUp(self):
         self.c = Client(raise_request_exception=False)
 
-    def test_malformed_inputs_never_500(self):
+    def case_malformed_inputs_never_500(self):
         bodies = [b"", b"{", b"null", b"[]", b"\xff\xfe", b'{"a": NaN}', b'{"a": 1e999999}', b"{" * 20000,
                   b'{"a":' + b"[" * 100000, b'{"a": "' + b"x" * 200000 + b'"}', b'{"a":1,"a":2}', b"1" * 6000,
                   b'{"\x00": 1}', "{\"a\": \"\ud800\"}".encode("utf-8", "surrogatepass")]
@@ -214,7 +224,7 @@ class ErrorResponseTests(TestCase):
             r = self.c.post("/api/media/echo/", b"{}", content_type=ctype)
             self.assertLess(r.status_code, 500, ctype)
 
-    def test_api_errors_are_problem_json(self):
+    def case_api_errors_are_problem_json(self):
         expected = {"invalid": 400, "unauthorized": 401, "forbidden": 403, "not_found": 404, "conflict": 409,
                     "too_large": 413, "unsupported": 415, "rate": 429, "unavailable": 503,
                     "http404": 404, "denied": 403, "boom": 500}
@@ -230,14 +240,14 @@ class ErrorResponseTests(TestCase):
             self.assertNotIn("secret-internal-detail", r.content.decode(), kind)
             self.assertNotIn("Traceback", r.content.decode(), kind)
 
-    def test_retry_after_and_errors_list(self):
+    def case_retry_after_and_errors_list(self):
         self.assertEqual(self.c.get("/api/other/raise/rate/")["Retry-After"], "7")
         self.assertEqual(self.c.get("/api/other/raise/unavailable/")["Retry-After"], "3")
         body = self.c.get("/api/other/raise/invalid/").json()
         self.assertEqual(body["errors"], [{"pointer": "/x", "message": "m"}])
         self.assertEqual(body["detail"], "bad")
 
-    def test_error_pages_do_not_leak_internals(self):
+    def case_error_pages_do_not_leak_internals(self):
         for kind, status in (("boom", 500), ("http404", 404), ("denied", 403)):
             r = self.c.get(f"/boom/{kind}/")
             self.assertEqual(r.status_code, status)
@@ -246,10 +256,13 @@ class ErrorResponseTests(TestCase):
             self.assertNotIn("Traceback", text)
             self.assertIn("text/html", r["Content-Type"])
 
+    def test_error_response(self):
+        self.run_cases()
+
 
 @tag("security")
-class NoStoreTests(TestCase):
-    def test_authenticated_pages_are_no_store(self):
+class NoStoreTests(Cases, TestCase):
+    def case_authenticated_pages_are_no_store(self):
         User.objects.create_user("store_user", PW, nickname="s", class_label="1")
         self.client.post(reverse("login"), {"username": "store_user", "password": PW})
         for path in ("/advertiser/", reverse("login")):
@@ -258,14 +271,17 @@ class NoStoreTests(TestCase):
             self.assertIn("private", r["Cache-Control"], path)
 
     @override_settings(ROOT_URLCONF=URLS)
-    def test_explicit_cache_control_is_preserved(self):
+    def case_explicit_cache_control_is_preserved(self):
         r = self.client.get("/cacheable/")
         self.assertEqual(r["Cache-Control"], "no-cache")  # 이미지 서빙(0-5) 같은 응답이 정한 값은 덮어쓰지 않는다
 
     @override_settings(ROOT_URLCONF=URLS)
-    def test_api_responses_are_no_store(self):
+    def case_api_responses_are_no_store(self):
         r = Client(raise_request_exception=False).get("/api/other/raise/conflict/")
         self.assertIn("no-store", r["Cache-Control"])
+
+    def test_no_store(self):
+        self.run_cases()
 
 
 @tag("security")

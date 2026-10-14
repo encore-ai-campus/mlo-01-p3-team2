@@ -8,10 +8,11 @@ import tempfile
 
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings, tag
+from tests.support.cases import Cases
 
 
 @tag("security")
-class StaticFilesServedByDjangoTests(TestCase):
+class StaticFilesServedByDjangoTests(Cases, TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -24,12 +25,15 @@ class StaticFilesServedByDjangoTests(TestCase):
         with override_settings(STATIC_ROOT=self.root):  # WhiteNoise 는 처음 요청 때(미들웨어를 만들 때) 이 폴더를 읽는다
             return Client().get(path)
 
-    def test_collected_admin_files_are_served_without_login(self):
+    def case_collected_admin_files_are_served_without_login(self):
         for path, kind in (("/static/admin/css/base.css", "text/css"), ("/static/admin/js/theme.js", "text/javascript")):
             r = self.get(path)
             self.assertEqual(r.status_code, 200, path)
             self.assertTrue(r["Content-Type"].startswith(kind), (path, r["Content-Type"]))
             self.assertEqual(r["X-Content-Type-Options"], "nosniff", path)  # 보안 헤더 미들웨어 안쪽에서 나간다
 
-    def test_a_file_that_was_not_collected_is_404(self):
+    def case_a_file_that_was_not_collected_is_404(self):
         self.assertEqual(self.get("/static/console/missing.css").status_code, 404)
+
+    def test_static_files_served_by_django(self):
+        self.run_cases()

@@ -11,19 +11,20 @@ from foundation.models import User
 from foundation.presentation import to_data
 from tests.support.factories import PW, World
 from tests.support.presentation import PresentationClient
+from tests.support.cases import Cases
 
 TOKEN = re.compile(r'name="csrfmiddlewaretoken" value="([^"]+)"')
 
 
-class PresentationDataTests(TestCase):
-    def test_only_plain_values_go_out(self):
+class PresentationDataTests(Cases, TestCase):
+    def case_only_plain_values_go_out(self):
         """ORM 객체 같은 것은 화면 데이터로 새지 않는다(§6.6 규칙 4) — 실수하면 바로 오류다."""
         with self.assertRaises(TypeError):
             to_data(User(username="x"))
         with self.assertRaises(TypeError):
             to_data(object())
 
-    def test_passwords_and_uploaded_files_are_never_sent_back(self):
+    def case_passwords_and_uploaded_files_are_never_sent_back(self):
         class Form(forms.Form):
             password = forms.CharField(widget=forms.PasswordInput)
             image = forms.FileField()
@@ -35,14 +36,14 @@ class PresentationDataTests(TestCase):
         fields = {f["name"]: f["value"] for f in to_data(form)["$form"]["fields"]}
         self.assertEqual(fields, {"password": None, "image": None})
 
-    def test_an_error_screen_sets_no_csrf_cookie(self):
+    def case_an_error_screen_sets_no_csrf_cookie(self):
         """오류 화면에는 폼이 없다 — 이미지 경로의 404 도 쿠키를 심지 않는다(계약 C3)."""
         request = RequestFactory().get("/assets/missing.png")
         response = present(request, "foundation/error.html", {"status": 404, "title": "t", "message": "m"}, status=404, session=False)
         self.assertNotIn("CSRF_COOKIE", request.META)
         self.assertEqual(response.status_code, 404)
 
-    def test_an_error_screen_leaves_the_session_and_its_messages_alone(self):
+    def case_an_error_screen_leaves_the_session_and_its_messages_alone(self):
         """6-16e(E4): 6-15c 뒤 오류 화면이 사용자·메시지를 읽어, 그 사이의 404 가 세션을 건드리고(`Vary: Cookie`·`Set-Cookie`) 다음 화면에 보일
         안내 메시지를 먹었다. 분리 전처럼 오류 화면은 제목·문구만 싣는다 — DB 장애의 500 이 세션을 읽다 다시 실패할 일도 없다."""
         w = World(ends_in=None)
@@ -57,6 +58,9 @@ class PresentationDataTests(TestCase):
         # 로그인 확인이 없는 경로는 세션을 읽지 않는다(/advertiser/ 아래는 역할 확인이 로그인 여부를 보느라 읽는다 — 응답이 쿠키에 따라 달라 Vary: Cookie 가 맞다)
         self.assertNotIn("Cookie", missing["/nowhere/"].get("Vary", ""))
         self.assertContains(self.client.get(made["Location"]), "캠페인을 만들었습니다")  # 메시지는 다음 화면에 그대로
+
+    def test_presentation_data(self):
+        self.run_cases()
 
 class CsrfThroughTheFrontendTests(TestCase):
     """CSRF 검사를 켠 채, 프론트처럼 그린 화면의 토큰으로 로그인·폼 제출이 통과한다(6-15e — 렌더러가 프론트 요청으로 토큰을 새로 만들어
