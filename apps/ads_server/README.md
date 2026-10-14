@@ -151,6 +151,14 @@ OFFLINE_OK=1 ./scripts/check.sh       # 네트워크가 없어 pip-audit 을 못
 DB_NAME=ads_impl python scripts/clock_shift_test.py --days 40   # 앱 코드의 시계(django.utils.timezone.now)만 앞당겨 전체 시험
 ```
 
+시험을 줄일 때(설계 §10 "시험 구성", 계획서 §8.4.19)는 줄이기 전의 기준선(`scripts/measure_baseline/` — 제품 코드 커버리지, 고정 변형 307개와 그때 잡던 것)과 비교한다. 덮이던 줄이 덮이지 않게 되거나 잡던 변형을 놓치면 `compare` 가 비정상 종료한다:
+
+```bash
+python scripts/measure.py coverage /tmp/cov                                   # 전체 시험을 커버리지로(시험마다 문맥, 약 3분)
+python scripts/measure.py run scripts/measure_baseline/mutants.json /tmp/cov /tmp/run.json   # 변형마다 그 줄을 덮은 시험만(일꾼 4, 수십 분)
+python scripts/measure.py compare scripts/measure_baseline scripts/measure_baseline/run.json /tmp/cov /tmp/run.json
+```
+
 부하·장애 시험(결과와 해석은 [`docs/ads-server/load-test.md`](../../docs/ads-server/load-test.md)):
 
 ```bash
