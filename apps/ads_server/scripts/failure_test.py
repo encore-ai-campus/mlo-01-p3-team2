@@ -28,7 +28,7 @@ check.sh 에는 넣지 않는다(Docker 가 필요하고 수 분 걸린다).
 확인하는 것(종료 코드 0 = 모두 충족):
   1. 끊김 동안 API 는 503(또는 연결 실패)으로 답하고 **500 은 없다**. 시험이 공회전이 아니다(끊김을 실제로 겪은 요청이 있다).
   2. 클라이언트의 재시도가 모두 끝내 수신 확인된다(복구 뒤 정상).
-  3. 수신 확인한 결정·반응은 전부 저장돼 있다(유실 0), 이중 과금 0, 잔액 = 원장 합계, 일 소진액 = 원장 합계(`load_test.verify_invariants`).
+  3. 수신 확인한 결정·반응은 전부 저장돼 있다(유실 0), 이중 과금 0, 잔액 = 원장 합계(`load_test.verify_invariants`).
   5. 이벤트(Step 4): 결정·접수·판정·과금마다 outbox 에 정확히 하나(원본 행과 일대일), 복구 뒤 **상시 중계 프로세스만으로** 미전송이 0 이 되고 MongoDB 의 이벤트가 outbox 와 같다.
   4. 상시 처리 프로세스는 DB 가 끊겼다 돌아와도 죽지 않고 이어서 처리한다. **접수 직후 처리를 끄고**, 복구 뒤 상시 처리 프로세스**만으로** 대기열이 비워지는지
      (별도 `process_reactions --once` 없이) 최종 불변식 전에 판정한다 — 다른 곳이 처리할 수 없으므로 상시 프로세스가 일하지 않으면 실패한다.
@@ -313,7 +313,7 @@ def run_scenario(name, db, mongo_container, log):
         harness.hop_check(name)  # 복구 뒤 구간별 정합 manifest(원본 기대 = outbox = MongoDB)가 일치해야 한다 — 복구 중의 어긋남은 중계 지연 후보로 분류되지만 여기서는 모두 끝난 뒤다
         result["checks"].extend(harness.checks[-1:])  # (harness.check 는 harness 쪽 목록에 쌓는다 — 이 시나리오의 결과에도 넣는다)
         problems = load_test.verify_invariants(harness.acked_decisions, harness.acked_reactions, expect_drained=True) + load_test.verify_events(relayed=True)
-        check("불변식: 유실 0·이중 과금 0·잔액=원장·소진액=원장·남은 대기열 없음·이벤트=원본 행(일대일)·MongoDB=outbox", not problems, "; ".join(problems[:3]))
+        check("불변식: 유실 0·이중 과금 0·잔액=원장·남은 대기열 없음·이벤트=원본 행(일대일)·MongoDB=outbox", not problems, "; ".join(problems[:3]))
         result.update(requests=len(outcomes), attempts=len(statuses), unavailable=unavailable, acked_decisions=len(harness.acked_decisions), acked_reactions=len(harness.acked_reactions))
     finally:
         if lag is not None:

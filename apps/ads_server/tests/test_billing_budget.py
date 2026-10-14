@@ -4,7 +4,7 @@ from datetime import date
 from django.test import TestCase, override_settings
 
 from billing import api
-from billing.models import CampaignSpend, LedgerEntry
+from billing.models import LedgerEntry
 from tests.factories import DAY, WHOLE, make_advertiser, utc
 
 
@@ -46,8 +46,14 @@ class SpendTests(TestCase):
             totals[key] = totals.get(key, 0) - amount
         return {k: v for k, v in totals.items() if v > 0}
 
-    def stored(self):
-        return {(s.campaign_id, s.budget_day): s.spent for s in CampaignSpend.objects.all()}
+    def by_day(self):
+        return api.spend_by_day([self.camp, self.other], date(2026, 10, 1), date(2026, 10, 10))
+
+    def expected_by_day(self):
+        totals = {}
+        for (_, day), spent in self.expected_from_ledger().items():
+            totals[day] = totals.get(day, 0) + spent
+        return totals
 
     def test_spent_today_resets_at_boundary(self):
         self.assertEqual(api.spend_today([self.camp, self.other], now=utc(2026, 10, 7, 12)), {self.camp: 10 + 30, self.other: 20 + 40})
@@ -57,25 +63,22 @@ class SpendTests(TestCase):
         self.assertEqual((wallet.spent_today, wallet.budget_day, wallet.resets_at), (10 + 20 + 30 + 40, date(2026, 10, 7), utc(2026, 10, 8)))
         self.assertEqual(api.get_wallet(self.adv, now=utc(2026, 10, 8, 1)).spent_today, 50)
 
-    def test_recompute_matches_ledger_for_the_current_boundary(self):
-        self.assertEqual(self.stored(), self.expected_from_ledger())
-        CampaignSpend.objects.create(campaign_id=uuid.uuid4(), budget_day=date(2026, 1, 1), spent=999)  # 어긋난 파생값
-        api.recompute_spend()
-        self.assertEqual(self.stored(), self.expected_from_ledger())  # 오래된·틀린 행은 사라진다
-        before = self.stored()
-        api.recompute_spend()
-        self.assertEqual(self.stored(), before)  # 멱등
+    def test_spend_is_the_ledger_sum_of_each_budget_day(self):
+        """6-16f: 캠페인 일 소진액은 따로 쌓지 않고 원장의 과금 줄을 예산 일로 묶어 센다 — 어긋날 파생값이 없다."""
+        self.assertEqual(self.by_day(), self.expected_by_day())
+        per_campaign = {}
+        for (campaign_id, _), spent in self.expected_from_ledger().items():
+            per_campaign[campaign_id] = per_campaign.get(campaign_id, 0) + spent
+        self.assertEqual(api.spend_by_campaign([self.camp, self.other], date(2026, 10, 1), date(2026, 10, 10)), per_campaign)
 
-    def test_budget_day_offset_change_then_recompute_matches_ledger(self):
-        """경계를 UTC 자정 → KST 자정으로 바꾼 뒤 재계산하면 소진액이 원장의 새 경계 집계와 일치한다."""
-        utc_view = self.stored()
+    def test_changing_the_budget_day_offset_needs_no_recompute(self):
+        """경계를 UTC 자정 → KST 자정으로 바꾸면 소진액이 바로 새 경계로 묶인다(전에는 재계산 명령을 돌려야 했다)."""
+        utc_view = self.by_day()
         with override_settings(BUDGET_DAY_OFFSET_HOURS=9):
-            api.recompute_spend()
-            kst_view = self.stored()
-            self.assertEqual(kst_view, self.expected_from_ledger())
+            kst_view = self.by_day()
+            self.assertEqual(kst_view, self.expected_by_day())
             self.assertNotEqual(kst_view, utc_view)  # 경계가 바뀌었으니 날짜별 합이 달라진다
             self.assertEqual(sum(kst_view.values()), sum(utc_view.values()))  # 총합은 같다
             # KST 10/8 05:00 = 10/7 20:00Z: 새 경계에서는 15:00Z 이후 줄이 '오늘'이다
             self.assertEqual(api.spend_today([self.camp, self.other], now=utc(2026, 10, 7, 20)), {self.camp: 30 + 50, self.other: 40})
-        api.recompute_spend()  # 설정을 되돌리고 재계산하면 원래대로
-        self.assertEqual(self.stored(), utc_view)
+        self.assertEqual(self.by_day(), utc_view)  # 되돌리면 그대로

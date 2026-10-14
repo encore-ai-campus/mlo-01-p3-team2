@@ -3,7 +3,7 @@ from django.contrib import admin
 
 from foundation.api import ReadOnlyAdmin
 
-from .models import CampaignSpend, LedgerEntry, Wallet
+from .models import LedgerEntry, Wallet
 
 
 @admin.register(Wallet)
@@ -16,8 +16,3 @@ class LedgerEntryAdmin(ReadOnlyAdmin):
     list_display = ("created_at", "wallet", "entry_type", "amount", "balance_after", "campaign_id", "charge_policy", "shortfall")
     list_filter = ("entry_type",)
     ordering = ("-created_at", "-seq")
-
-
-@admin.register(CampaignSpend)
-class CampaignSpendAdmin(ReadOnlyAdmin):
-    list_display = ("campaign_id", "budget_day", "spent")

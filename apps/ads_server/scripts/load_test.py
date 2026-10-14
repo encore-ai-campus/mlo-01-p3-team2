@@ -12,7 +12,7 @@
 확인하는 것(종료 코드 0 = 모두 충족):
   1. 수신 확인(2xx)한 결정·반응은 전부 저장돼 있다(유실 0). 저장 실패(503)를 받은 요청은 저장되지 않았다.
   2. 같은 반응은 한 번만 과금된다(이중 과금 0). 같은 결정·유형은 하나만 인정된다.
-  3. 인정된 반응의 과금 건수·금액이 원장과 맞고, 잔액 = 원장 합계, 일 소진액 = 원장의 그날 과금 합이다.
+  3. 인정된 반응의 과금 건수·금액이 원장과 맞고, 잔액 = 원장 합계다(일 소진액은 원장에서 세는 값이라 따로 대조하지 않는다, 6-16f).
   4. 처리가 끝나면 `RECEIVED` 가 남지 않는다. SIGTERM 은 현재 반응만 끝내고 멈추며 재기동 뒤 이어서 처리된다.
 
 한계(결과 해석 때 함께 읽는다): 서버와 클라이언트가 한 프로세스(GIL 공유)라 지연 시간은 실제 배포보다 나쁘게 나오고, 단일 서버 프로세스라
@@ -59,8 +59,7 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     from django.utils import timezone
 
     from billing import api as billing
-    from billing.budget_day import budget_day_of
-    from billing.models import CampaignSpend, LedgerEntry
+    from billing.models import LedgerEntry
     from records.models import Decision, Reaction
 
     problems = []
@@ -164,12 +163,6 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append(f"인정되지 않은 반응에 대한 과금 {len(orphans)}건")
 
     problems += billing.check_ledger(quiescent=quiescent)  # 잔액 = 원장 합계, balance_after·seq 연속
-    per_day = Counter()
-    for c in charges:
-        per_day[(c.campaign_id, budget_day_of(c.created_at))] -= c.amount
-    spend = {(s.campaign_id, s.budget_day): s.spent for s in CampaignSpend.objects.all()}
-    if {k: v for k, v in per_day.items() if v} != {k: v for k, v in spend.items() if v}:
-        problems.append("일 소진액이 원장의 그날 과금 합과 다르다")
 
     if expect_drained:
         # 앞 단계(노출·클릭)를 기다리는 보류는 기한(REACTION_HOLD_SECONDS) 안에서는 정상이다. 그 밖의 RECEIVED 는 처리되지 않은 것이다

@@ -11,8 +11,8 @@ from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, Role, clean_request_key, clean_text, create_advertiser, errors, is_int, parse_uuid, record_audit, require_admin
 
-from .budget_day import budget_day_of, day_start, next_reset
-from .models import CampaignSpend, EntryType, LedgerEntry, Wallet
+from .budget_day import budget_day_expression, budget_day_of, day_start, next_reset
+from .models import EntryType, LedgerEntry, Wallet
 from .policies import get_charge_policy
 from .types import ChargeEntryView, ChargeResult, LedgerEntryView, WalletView
 
@@ -139,23 +139,7 @@ def _charge(owner_id, campaign_id, amount, reaction_ref, policy_name, now):
         wallet, EntryType.CHARGE, -charged, now, campaign_id=campaign_id, reaction_ref=reaction_ref,
         charge_policy=policy_name, shortfall=amount - charged,
     )
-    if charged:
-        _add_spend(campaign_id, budget_day_of(now), charged)
     return ChargeResult(_entry_view(entry), charged=charged, shortfall=amount - charged, duplicate=False)
-
-
-def _add_spend(campaign_id, day, charged):
-    """그날 소진액에 `charged` 를 더한다. **행의 키로 갱신하고 없을 때만 만든다** — 재계산이 행을 지우거나 새로 만드는 중이어도 이 증가분이 사라지지 않는다.
-
-    (행의 PK 로 갱신하면, 그 사이에 재계산이 행을 지웠을 때 갱신이 0 행에 닿아 증가분이 조용히 없어진다.)
-    """
-    if CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged):
-        return
-    try:
-        with transaction.atomic():
-            CampaignSpend.objects.create(campaign_id=campaign_id, budget_day=day, spent=charged)
-    except IntegrityError:  # 동시에 다른 과금이 먼저 만들었다 → 그 행에 더한다
-        CampaignSpend.objects.filter(campaign_id=campaign_id, budget_day=day).update(spent=F("spent") + charged)
 
 
 def expected_charges(shares, applied_amount):
@@ -256,28 +240,30 @@ def balances(owner_ids):
     return dict(Wallet.objects.filter(owner_id__in=list(owner_ids)).values_list("owner_id", "balance"))
 
 
+def _charges(campaign_ids, start, end):
+    """캠페인들의 [start, end) 과금 줄 중 실제로 받은 것. 캠페인 일 소진액은 따로 쌓지 않고 이것을 센다(6-16f — 원장 (캠페인, 시각) 색인)."""
+    return LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__in=list(campaign_ids), created_at__gte=start, created_at__lt=end, amount__lt=0)
+
+
+def _spent(rows):
+    return {key: -total for key, total in rows}
+
+
 def spend_today(campaign_ids, now=None):
     """여러 캠페인의 오늘 소진액을 **질의 한 번**으로. 소진이 없으면 결과에 없다(0 으로 읽는다)."""
-    day = budget_day_of(_now(now))
-    return dict(CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day=day).values_list("campaign_id", "spent"))
-
-
-def _spend_totals(campaign_ids, start_day, end_day, key):
-    rows = (
-        CampaignSpend.objects.filter(campaign_id__in=list(campaign_ids), budget_day__gte=start_day, budget_day__lt=end_day)
-        .values(key).annotate(total=Sum("spent")).values_list(key, "total")
-    )
-    return dict(rows)
+    start = day_start(budget_day_of(_now(now)))
+    return _spent(_charges(campaign_ids, start, start + timedelta(days=1)).values("campaign_id").annotate(s=Sum("amount")).values_list("campaign_id", "s"))
 
 
 def spend_by_day(campaign_ids, start_day, end_day):
     """캠페인들의 예산 일별 소진액 합 `{날짜: 포인트}` 를 **질의 한 번**으로. `start_day` 포함, `end_day` 미포함. 소진이 없는 날은 결과에 없다(0 으로 읽는다)."""
-    return _spend_totals(campaign_ids, start_day, end_day, "budget_day")
+    rows = _charges(campaign_ids, day_start(start_day), day_start(end_day)).annotate(day=budget_day_expression("created_at"))
+    return _spent(rows.values("day").annotate(s=Sum("amount")).values_list("day", "s"))
 
 
 def spend_by_campaign(campaign_ids, start_day, end_day):
     """캠페인별 소진액 합 `{campaign_id: 포인트}`(`start_day` 포함, `end_day` 미포함) — **질의 한 번**. 소진이 없는 캠페인은 결과에 없다."""
-    return _spend_totals(campaign_ids, start_day, end_day, "campaign_id")
+    return _spent(_charges(campaign_ids, day_start(start_day), day_start(end_day)).values("campaign_id").annotate(s=Sum("amount")).values_list("campaign_id", "s"))
 
 
 def charged_amounts(reaction_refs):
@@ -326,36 +312,6 @@ def _charge_entries(lookup, keys):
     return found
 
 
-def recompute_spend():
-    """원장의 CHARGE 줄로 `CampaignSpend` 를 처음부터 다시 만든다(예산 일 경계 설정을 바꾼 뒤 실행). 만든 행 수(받은 포인트가 있는 행)를 돌려준다.
-
-    **과금과 함께 돌려도 안전하다**(MySQL 에서는 `atomic()` 만으로 다른 연결의 과금을 막지 못해, 한 트랜잭션에서 읽고 덮어쓰는 방식은 그 사이에 커밋된 과금을 잃는다).
-    (캠페인, 예산 일)마다 따로 한 트랜잭션으로, **소진액 행을 잠근 뒤에** 원장 합계를 읽어 그 값으로 맞춘다:
-    - 과금은 원장 줄을 넣은 뒤 같은 트랜잭션에서 소진액 행에 더한다. 이 행 잠금이 둘을 줄 세운다 — 과금이 먼저 커밋됐으면 재계산의 합계에 들어 있고,
-      재계산이 먼저 잠갔으면 과금은 기다렸다가 재계산이 맞춘 값 위에 더한다(그 원장 줄은 아직 안 보이므로 이중으로 세지 않는다).
-    - 키는 먼저 모은다(원장의 과금이 있는 (캠페인, 날) + 지금 있는 소진액 행 = 경계 설정이 바뀌기 전의 날도 포함). 재계산 도중 새로 생기는 (캠페인, 날)은
-      그 과금이 스스로 쌓으므로 건드리지 않는다. 받은 포인트가 없는 행은 지운다(과금은 키로 갱신하고 없을 때만 만들므로 지워도 증가분을 잃지 않는다).
-    """
-    keys = {(campaign_id, budget_day_of(created_at)) for campaign_id, created_at in LedgerEntry.objects.filter(
-        entry_type=EntryType.CHARGE, campaign_id__isnull=False, amount__lt=0,
-    ).values_list("campaign_id", "created_at")}
-    keys |= set(CampaignSpend.objects.values_list("campaign_id", "budget_day"))
-    rows = 0
-    for campaign_id, day in sorted(keys, key=lambda key: (str(key[0]), key[1])):
-        with transaction.atomic():
-            # 행을 얻는 것과 잠그는 것은 **한 문장**이다. 따로 하면 그 사이에 다른 재계산이 합계 0 인 행을 지워 `DoesNotExist` 로 중단된다
-            # (예산 일 경계를 바꾸는 정상 절차에서도 이전 날짜 행을 두 재계산이 함께 만난다). 없으면 만들고, 그 행은 우리가 쥔다.
-            spend, _ = CampaignSpend.objects.select_for_update().get_or_create(campaign_id=campaign_id, budget_day=day)
-            # 잠근 **뒤에** 읽는다
-            total = _charged_on(day, campaign_id=campaign_id)
-            if total > 0:
-                CampaignSpend.objects.filter(pk=spend.pk).update(spent=total)
-                rows += 1
-            else:
-                spend.delete()
-    return rows
-
-
 class ConsistentReadUnavailable(RuntimeError):
     """정합성 점검을 일관된 읽기 스냅샷으로 할 수 없는 곳에서 불렀다(아래 `consistent_read`)."""
 
@@ -388,7 +344,7 @@ def consistent_read(quiescent=False):
 def check_ledger(quiescent=False):
     """정합성 점검(한 읽기 스냅샷 안에서, 보장 조건은 `consistent_read`): 지갑마다 `잔액 == 원장 합계`, `seq` 가 1부터 빈틈없이 이어지고 `balance_after` 가 줄마다 이어지는지. 어긋난 곳의 설명 목록(깨끗하면 빈 목록)."""
     with consistent_read(quiescent):
-        return _check_wallets() + _check_spend()
+        return _check_wallets()
 
 
 def _check_wallets():
@@ -403,18 +359,4 @@ def _check_wallets():
                 problems.append(f"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 balance_after={entry.balance_after}, 누적={running}")
         if wallet.balance != running:
             problems.append(f"지갑 {wallet.pk}: 잔액 {wallet.balance} != 원장 합계 {running}")
-    return problems
-
-
-def _check_spend():
-    """일 소진액(`CampaignSpend`)이 원장의 CHARGE 합계와 같은지. 재계산·과금이 서로의 증가분을 잃으면 여기서 드러난다(지갑·원장은 맞아도 소진액만 어긋날 수 있다)."""
-    expected = {}
-    for campaign_id, created_at, amount in LedgerEntry.objects.filter(entry_type=EntryType.CHARGE, campaign_id__isnull=False, amount__lt=0).values_list("campaign_id", "created_at", "amount"):
-        key = (campaign_id, budget_day_of(created_at))
-        expected[key] = expected.get(key, 0) - amount
-    stored = {(campaign_id, day): spent for campaign_id, day, spent in CampaignSpend.objects.values_list("campaign_id", "budget_day", "spent")}
-    problems = []
-    for key in sorted(expected.keys() | stored.keys(), key=lambda k: (str(k[0]), k[1])):
-        if expected.get(key, 0) != stored.get(key, 0):
-            problems.append(f"캠페인 {key[0]} {key[1]} 의 소진액 {stored.get(key, 0)} != 원장 합계 {expected.get(key, 0)}")
     return problems

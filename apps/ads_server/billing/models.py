@@ -51,6 +51,8 @@ class LedgerEntry(AppendOnlyModel):
 
     class Meta:
         db_table = "billing_ledger_entry"
+        # 캠페인 일 소진액을 이것만 읽어 센다(6-16f) — 거르는 열과 더하는 금액까지 색인에 있어 원장 행을 다시 읽지 않는다
+        indexes = [models.Index(fields=["campaign_id", "entry_type", "created_at", "amount"], name="billing_entry_campaign_idx")]
         constraints = [
             models.UniqueConstraint(fields=["wallet", "seq"], name="billing_entry_seq_per_wallet"),
             models.CheckConstraint(condition=Q(seq__gte=1), name="billing_entry_seq_from_one"),
@@ -73,16 +75,3 @@ class LedgerEntry(AppendOnlyModel):
             ),
             models.CheckConstraint(condition=Q(balance_after__lte=MAX_AMOUNT), name="billing_entry_balance_after_max"),
         ]
-
-
-class CampaignSpend(models.Model):
-    """캠페인의 그날 소진액. **원장에서 다시 계산할 수 있는 파생값**이다(recompute_spend)."""
-
-    spend_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
-    campaign_id = models.UUIDField()
-    budget_day = models.DateField()
-    spent = models.PositiveBigIntegerField(default=0)
-
-    class Meta:
-        db_table = "billing_campaign_spend"
-        constraints = [models.UniqueConstraint(fields=["campaign_id", "budget_day"], name="billing_spend_per_campaign_day")]

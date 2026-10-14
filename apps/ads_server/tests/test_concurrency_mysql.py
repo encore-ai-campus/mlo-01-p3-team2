@@ -46,7 +46,7 @@ class WalletConcurrencyTests(TransactionTestCase):
         self.assertEqual(billing.get_wallet(adv, now=NOW).balance, 10_000 - 120 + 56)
         self.assertEqual(billing.check_ledger(), [])  # 지갑·원장·일 소진액이 모두 맞다
 
-    def test_charges_on_different_wallets_and_a_recompute_all_finish_without_errors(self):
+    def test_charges_on_different_wallets_all_finish_without_errors(self):
         advertisers = [make_advertiser() for _ in range(3)]
         campaigns_ = [uuid.uuid4() for _ in advertisers]
         for adv in advertisers:
@@ -56,10 +56,10 @@ class WalletConcurrencyTests(TransactionTestCase):
         def charges(adv, camp, n):
             return lambda: [billing.charge_for_reaction(adv.pk, camp, "IMPRESSION", WHOLE, 5, f"a{n}-{i}", now=NOW) for i in range(6)]
 
-        jobs = [charges(adv, camp, n) for n, (adv, camp) in enumerate(zip(advertisers, campaigns_))] + [billing.recompute_spend, billing.recompute_spend]
+        jobs = [charges(adv, camp, n) for n, (adv, camp) in enumerate(zip(advertisers, campaigns_))]
         _, errors = run_together(jobs)
         self.assertEqual(errors, [])
-        self.assertEqual(billing.check_ledger(), [])  # 재계산이 과금과 겹쳐도 소진액이 원장 합계와 같다
+        self.assertEqual(billing.check_ledger(), [])  # 지갑마다 잔액 = 원장 합계
 
 
 @tag("security")

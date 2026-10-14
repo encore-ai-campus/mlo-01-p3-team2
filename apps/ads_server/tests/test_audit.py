@@ -154,7 +154,7 @@ class AdminAuditTests(TestCase):
             self.assertEqual(permissions, (False, False, False), model.__name__)
             self.assertEqual(model_admin.get_actions(request), {}, model.__name__)  # 묶음 동작(삭제·axes 정리)도 없다
             checked.append(model.__name__)
-        self.assertEqual(len(checked), 18, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 5(매체 비활성화 기록 6-1a), 캠페인 5, 지갑·원장 3, 결정 1, 로그인 잠금 기록 3(axes, 위협 모델 T44)
+        self.assertEqual(len(checked), 17, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 5(매체 비활성화 기록 6-1a), 캠페인 5, 지갑·원장 2(소진액 표는 6-16f 에 없어짐), 결정 1, 로그인 잠금 기록 3(axes, 위협 모델 T44)
 
     def test_login_lockout_records_are_read_only(self):
         """잠금 기록을 화면에서 지우거나 고쳐 잠금을 풀 수 없다(설계 §10 "로그인 잠금 기록 관리", 위협 모델 T44). 급할 때는 서버 명령(axes_reset_username)."""

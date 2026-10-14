@@ -11,7 +11,7 @@ from django.db import connection
 from django.test import TestCase, TransactionTestCase, tag
 
 from billing import api as billing
-from billing.models import CampaignSpend, LedgerEntry
+from billing.models import LedgerEntry
 from records import api as records
 from records.models import Reaction
 from tests.factories import NOW, SUBJECT, World
@@ -89,10 +89,9 @@ class InvariantCheckerTests(InvariantBase):
         self.assertTrue(any("인정되지 않은 반응에 대한 과금" in p for p in self.problems(expect_drained=False)))
 
     def test_a_charge_whose_amount_differs_from_the_decision_is_found_even_if_the_ledger_is_consistent(self):
-        """원장 내부 수치(잔액·balance_after·소진액)를 맞춰 놓아도 결정의 적용 금액 × 비율(294)과 다르면 잡는다."""
+        """원장 내부 수치(잔액·balance_after)를 맞춰 놓아도 결정의 적용 금액 × 비율(294)과 다르면 잡는다."""
         sql("UPDATE billing_ledger_entry SET amount = -295, balance_after = balance_after - 1 WHERE entry_type = 'CHARGE'")
         sql("UPDATE billing_wallet SET balance = balance - 1")
-        sql("UPDATE billing_campaign_spend SET spent = 295")
         self.assertEqual(billing.check_ledger(quiescent=True), [])  # 원장만 보면 멀쩡하다
         self.assertTrue(any("적용 금액" in p for p in self.problems()), self.problems())
 
@@ -109,7 +108,6 @@ class InvariantCheckerTests(InvariantBase):
     def test_a_fake_shortfall_with_money_left_is_found(self):
         sql("UPDATE billing_ledger_entry SET amount = -289, shortfall = 5, balance_after = 49711 WHERE entry_type = 'CHARGE'")
         sql("UPDATE billing_wallet SET balance = 49711")
-        sql("UPDATE billing_campaign_spend SET spent = 289")
         self.assertEqual(billing.check_ledger(quiescent=True), [])
         self.assertTrue(any("부족분" in p for p in self.problems()), self.problems())
 
@@ -144,10 +142,6 @@ class InvariantCheckerTests(InvariantBase):
     def test_a_balance_that_differs_from_the_ledger_is_found(self):
         sql("UPDATE billing_wallet SET balance = balance + 5")
         self.assertTrue(any("잔액" in p for p in self.problems()))
-
-    def test_a_spend_that_differs_from_the_ledger_is_found(self):
-        CampaignSpend.objects.update(spent=999)
-        self.assertTrue(any("일 소진액" in p for p in self.problems()))
 
     def test_an_unprocessed_reaction_is_reported_only_when_the_queue_should_be_empty(self):
         extra, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "CLICK", NOW, {}, now=NOW)

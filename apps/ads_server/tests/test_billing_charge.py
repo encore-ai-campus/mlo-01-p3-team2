@@ -3,7 +3,7 @@ import uuid
 from django.test import TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api
-from billing.models import CampaignSpend, LedgerEntry
+from billing.models import LedgerEntry
 from foundation.errors import InvalidRequest, NotFound
 from tests.concurrency import run_together
 from tests.factories import NOW, WHOLE, make_advertiser
@@ -77,7 +77,6 @@ class ChargeTests(TestCase):
         charge(adv, 5, "c", other)  # 잔액 0: 소진 없음
         self.assertEqual(api.spend_today([camp, other], now=NOW), {camp: 100})  # 실제 차감액만 센다
         self.assertEqual(LedgerEntry.objects.get(reaction_ref="b").shortfall, 40)
-        self.assertEqual(CampaignSpend.objects.count(), 1)
 
     def test_charge_validation_and_unknown_wallet(self):
         adv, camp = funded(), uuid.uuid4()
@@ -119,7 +118,7 @@ class ConcurrentChargeTests(TransactionTestCase):
 class ChargeInputValidationTests(TestCase):
     def snapshot(self, adv):
         return (
-            LedgerEntry.objects.count(), api.get_wallet(adv, now=NOW).balance, list(CampaignSpend.objects.values_list("campaign_id", "spent")),
+            LedgerEntry.objects.count(), api.get_wallet(adv, now=NOW).balance,
         )
 
     def test_charge_rejects_non_integer_or_out_of_range_amounts_and_changes_nothing(self):

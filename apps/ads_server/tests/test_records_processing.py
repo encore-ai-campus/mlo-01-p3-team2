@@ -14,7 +14,7 @@ from django.db import OperationalError
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api as billing
-from billing.models import CampaignSpend, LedgerEntry
+from billing.models import LedgerEntry
 from masters import api as masters
 from records import api as records
 from records.models import Reaction
@@ -88,7 +88,7 @@ class RuleChainTests(ProcessingBase):
         self.assertEqual(self.process(self.receive("CONVERSION")), "ACCEPTED")
         charged = sorted(-amount for amount in LedgerEntry.objects.filter(entry_type="CHARGE").values_list("amount", flat=True))
         self.assertEqual(charged, [3, 3, 294])  # 300 × 1% · 300 × 1% · 300 × 98%
-        self.assertEqual((self.balance(), CampaignSpend.objects.count()), (50_000 - 300, 1))
+        self.assertEqual((self.balance(), billing.spend_today([self.w.campaign.campaign_id], now=NOW)), (50_000 - 300, {self.w.campaign.campaign_id: 300}))
 
     def test_unknown_decision_is_rejected_and_kept(self):
         view = self.receive(decision_id=uuid.uuid4())
@@ -164,7 +164,7 @@ class AtomicityAndIdempotencyTests(ProcessingBase):
             self.process(view)
         row = self.row(view)
         self.assertEqual((row.status, row.attempts, self.charges(), self.balance()), ("RECEIVED", 1, 0, 50_000))  # 과금도 되돌려졌다
-        self.assertEqual(CampaignSpend.objects.count(), 0)
+        self.assertEqual(billing.spend_today([self.w.campaign.campaign_id], now=NOW), {})
         self.assertEqual(self.process(view), "ACCEPTED")
         self.assertEqual((self.charges(), self.balance(), billing.check_ledger(quiescent=True)), (1, 50_000 - 294, []))
 

@@ -5,17 +5,15 @@
 - 범위는 광고주의 것으로 좁힌다: 결정에 기록된 `owner_id`·`campaign_id`·`ad_group_id`(과금과 같은 근거). 남의 캠페인·광고그룹은 없는 것과 같다(404).
 - 날짜는 **수신 시각(`received_at`)** 의 예산 일(기본 UTC 자정) 기준이고, 구간은 `from` 포함 `to` 미포함, 일 경계에 맞아야 하며 최대 92일이다.
 - 노출·클릭·전환은 `ACCEPTED` 만 센다(일괄 슬롯은 사람마다 한 건씩 센다). `spent` 는 **실제로 받은 포인트**다(잔액이 모자라 덜 받았으면 그만큼).
-  캠페인·광고주 범위는 일별 소진액(`CampaignSpend`)에서, 소진액이 따로 쌓이지 않는 광고그룹 범위는 원장의 과금에서 읽는다.
+  소진은 원장의 과금이다 — 캠페인·광고주 범위는 캠페인의 과금 줄을 예산 일로 묶고, 원장에 광고그룹이 없는 광고그룹 범위는 그 광고그룹 결정의 반응으로 과금을 찾는다.
 - 전환율은 **클릭 코호트 기준**이다: 그 구간에 받은 클릭 중 인정된 전환이 이어진 클릭 수(`converted_clicks`) / 클릭 수. 전환 수는 수신일 기준이라 이전 구간 클릭의 전환이 섞인다.
 - 질의 수는 데이터 양과 무관하다(광고그룹 범위의 원장 조회는 반응 500건당 한 번).
 """
 from collections import defaultdict
-from datetime import timedelta, timezone as dt_timezone
+from datetime import timedelta
 
-from django.conf import settings
 from django.http import Http404
-from django.db.models import Count, DateTimeField, Exists, ExpressionWrapper, F, OuterRef, Q, Subquery
-from django.db.models.functions import TruncDate
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
 
 from billing import api as billing
 from campaigns import api as campaigns
@@ -41,13 +39,6 @@ def _check_window(start, end):
         raise errors.InvalidRequest(errors=[{"pointer": "/to", "message": "to 는 from 보다 뒤여야 합니다."}])
     if (billing.budget_day_of(end) - billing.budget_day_of(start)).days > MAX_DAYS:
         raise errors.InvalidRequest(errors=[{"pointer": "/to", "message": f"구간은 최대 {MAX_DAYS}일입니다."}])
-
-
-def _day_expression():
-    """수신 시각이 속한 예산 일. 예산 일 경계가 UTC 자정이 아니면(`BUDGET_DAY_OFFSET_HOURS`) 그만큼 밀어서 날짜를 자른다."""
-    offset = timedelta(hours=settings.BUDGET_DAY_OFFSET_HOURS)
-    instant = ExpressionWrapper(F("received_at") + offset, output_field=DateTimeField()) if offset else F("received_at")
-    return TruncDate(instant, tzinfo=dt_timezone.utc)
 
 
 def _scope(user, campaign_id, ad_group_id):
@@ -76,7 +67,7 @@ def _counts(decision_filters, since, until, key=None):
     by_type = lambda rtype: Count("inbox_id", filter=Q(type=rtype))  # noqa: E731
     rows = (
         Reaction.objects.filter(status=ReactionStatus.ACCEPTED, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
-        .annotate(key=key if key is not None else _day_expression()).values("key").annotate(
+        .annotate(key=key if key is not None else billing.budget_day_expression("received_at")).values("key").annotate(
             impressions=by_type(ReactionType.IMPRESSION), clicks=by_type(ReactionType.CLICK), conversions=by_type(ReactionType.CONVERSION),
             converted_clicks=Count("inbox_id", filter=Q(type=ReactionType.CLICK) & Q(Exists(converted))),
         ).values_list("key", "impressions", "clicks", "conversions", "converted_clicks")
@@ -89,11 +80,11 @@ def _spent_by_day(user, group, decision_filters, since, until, first_day, last_d
     if group is None:
         ids = [decision_filters["campaign_id"]] if "campaign_id" in decision_filters else campaigns.campaign_ids_of(user)
         return billing.spend_by_day(ids, first_day, last_day)
-    # 광고그룹: 소진액이 캠페인 단위로만 쌓이므로, 이 광고그룹 결정의 인정된 반응(모든 유형 — 6-10c)에 대한 원장 과금을 읽는다
+    # 광고그룹: 원장의 과금 줄에는 캠페인만 있으므로, 이 광고그룹 결정의 인정된 반응(모든 유형 — 6-10c)에 대한 원장 과금을 읽는다
     decisions = Decision.objects.filter(**decision_filters).values("decision_id")
     reactions = (
         Reaction.objects.filter(status=ReactionStatus.ACCEPTED, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
-        .annotate(day=_day_expression()).values_list("media_id", "reaction_id", "day")
+        .annotate(day=billing.budget_day_expression("received_at")).values_list("media_id", "reaction_id", "day")
     )
     days = {reaction_ref(media_id, reaction_id): day for media_id, reaction_id, day in reactions}
     spent = defaultdict(int)

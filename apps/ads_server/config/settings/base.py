@@ -151,7 +151,7 @@ ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. dev·p
 
 # --- 포인트·예산 (설계 §4.7) ---
 SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod 는 환경변수로 바꿀 수 있다
-BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
+BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 소진액은 원장에서 세므로 바꾸기만 하면 된다(6-16f)
 BILLING_CHARGE_POLICY = "share/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
