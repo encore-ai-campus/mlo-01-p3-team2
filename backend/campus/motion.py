@@ -8,6 +8,9 @@ import time
 from .doors import DOORS, footprint as door_footprint
 
 KEYS = frozenset({'w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'})
+LOOK_DIRECTIONS = {(0, -1): 'up', (0, 1): 'down', (-1, 0): 'left', (1, 0): 'right',
+                   (-1, -1): 'up-left', (1, -1): 'up-right',
+                   (-1, 1): 'down-left', (1, 1): 'down-right'}
 SPEED = 125 * 1.25
 
 class ControlError(ValueError):
@@ -160,6 +163,8 @@ def world(name):
 class MotionController:
     def __init__(self, position, doors=None):
         self.pose={**position,'moving':False}
+        self.poke_direction=position['dir']
+        self.poke_diagonal_at=-math.inf
         self.keys=set();self.last_input=-math.inf;self.last_portal=time.monotonic()
         self.ignored_portal=None;self.pending_transfer=None;self.interior=None;self.route=[]
         self.world=world(position['floor'])
@@ -179,6 +184,22 @@ class MotionController:
         if not isinstance(keys,list) or len(keys)>8 or any(not isinstance(key,str) or key not in KEYS for key in keys):
             raise ControlError('이동 입력을 확인해 주세요.')
         self.keys=set(keys);self.last_input=time.monotonic() if now is None else now
+        dx=int('d' in self.keys or 'arrowright' in self.keys)-int('a' in self.keys or 'arrowleft' in self.keys)
+        dy=int('s' in self.keys or 'arrowdown' in self.keys)-int('w' in self.keys or 'arrowup' in self.keys)
+        if dx or dy:
+            direction=LOOK_DIRECTIONS[(dx,dy)]
+            previous=self.interior.get('poke_direction',self.interior['actor']['dir']) if self.interior else self.poke_direction
+            diagonal_at=self.interior.get('poke_diagonal_at',-math.inf) if self.interior else self.poke_diagonal_at
+            # Releasing a diagonal's two keys often spans two frames. Keep its facing for that short gap.
+            if dx and dy:
+                if self.interior:self.interior['poke_diagonal_at']=self.last_input
+                else:self.poke_diagonal_at=self.last_input
+            elif '-' in previous and self.last_input-diagonal_at<.08:
+                direction=previous
+            if self.interior:
+                self.interior['poke_direction']=direction
+            else:
+                self.poke_direction=direction
         if self.keys:
             self.route=[]
 
@@ -278,6 +299,7 @@ class MotionController:
         if target is None:
             raise ControlError('교실 출입구를 확인해 주세요.')
         self.pose.update(target,moving=False);self.interior=None;self.keys=set()
+        self.poke_direction=self.pose['dir']
 
     def command(self, action, data, doors=None):
         if action=='prepare_transfer':
@@ -295,6 +317,7 @@ class MotionController:
             if target is None:
                 raise ControlError('도착 위치를 확인해 주세요.')
             self.world=destination;self.pose.update(target,floor=destination.data['id'],moving=False)
+            self.poke_direction=self.pose['dir']
             self.pending_transfer=None;self.keys=set();self.route=[];self.last_portal=time.monotonic();self.ignore_current_portal()
         elif action=='cancel_exit':
             if self.interior or not self.hints(doors)['exitRequired']:

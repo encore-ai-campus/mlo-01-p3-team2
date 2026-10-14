@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from channels.db import database_sync_to_async
+from channels.exceptions import ChannelFull
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from django.contrib.auth import get_user
@@ -21,8 +22,8 @@ from accounts.session_policy import check_session
 from eventing.events import ensure_platform_session, record_chat, record_floor_transfer, touch_platform_session
 from raffle import live as raffle_live, service as raffle_service
 from raffle import survey as raffle_survey
-from . import session_registry
-from .motion import MotionController, ControlError, geometry
+from . import session_registry, poke
+from .motion import MotionController, ControlError, geometry, world
 from .doors import DOORS, distance as door_distance, footprint as door_footprint
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
 
@@ -32,6 +33,8 @@ class CampusRoom:
 
     def __init__(self):
         self.players = {}
+        self.channels = {}
+        self.interiors = set()
         self.doors = {door_id: False for door_id in DOORS}
         self.lock = asyncio.Lock()
 
@@ -84,6 +87,15 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_seen = time.monotonic()
         self.last_move = 0
         self.last_chat = -math.inf
+        self.last_poke = -math.inf
+        self.poke_requested = False
+        self.poke_input_scope = None
+        self.poke_scope = None
+        self.poke_started = None
+        self.poke_stream_id = None
+        self.poke_direction = None
+        self.poke_watchers = set()
+        self.pending_poke_states = {}
         self.last_door = -math.inf
         self.last_survey = -math.inf
         self.last_checkpoint = self.last_seen
@@ -113,6 +125,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 return
             session_registry.register(self.player_id, self.session_key, self.user.pk)
             room.players[self.player_id] = self.state.copy()
+            room.channels[self.player_id] = self.channel_name
             await self.accept()
             raffle = await database_sync_to_async(raffle_service.snapshot)(self.user)
             await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "raffle": raffle, "serverControl": self.server_control})
@@ -143,8 +156,18 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 return
         if data.get("type") == "input" and self.server_control:
             try:
-                self.controller.input(data.get("keys"))
-                self.last_seen = time.monotonic()
+                requested = data.get("poking", False)
+                if type(requested) is not bool:
+                    raise ControlError("찌르기 입력을 확인해 주세요.")
+                async with self.control_lock:
+                    self.controller.input(data.get("keys"))
+                    self.last_seen = time.monotonic()
+                    if requested and "pokeContext" in data:
+                        self.poke_input_scope = data["pokeContext"]
+                    elif not requested:
+                        self.poke_input_scope = None
+                    self.poke_requested = requested and self.poke_input_scope == self.current_poke_scope()
+                    await self.tick_poke()
             except ControlError as error:
                 await self.send_packet({"type": "control_error", "message": str(error)})
             return
@@ -208,6 +231,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
         async with room.lock:
             if self.player_id in room.players:
                 room.players[self.player_id] = self.state.copy()
+                if getattr(self, "controller", None) and self.controller.interior:
+                    room.interiors.add(self.player_id)
+                else:
+                    room.interiors.discard(self.player_id)
                 if publish:
                     await self.broadcast({"type": "move", "player": self.state.copy()})
         await self.checkpoint(force=final or floor_changed)
@@ -236,6 +263,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     await self.receive_movement({**self.controller.pose, "color": self.state["color"]}, authoritative=True)
                     if self.controller.interior and self.controller.interior["actor"]["moving"]:
                         await self.touch_activity()
+                    await self.tick_poke()
                     await self.send_control_state()
                     for event in events:
                         await self.send_packet({"type": "control_event", "event": event})
@@ -259,6 +287,11 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_seen = time.monotonic()
         async with self.control_lock:
             try:
+                if action == "poke":
+                    result = await self.receive_poke(arguments)
+                    await self.send_packet({"type": "control_result", "requestId": request_id, "result": result})
+                    await self.touch_activity()
+                    return
                 if action == "navigate":
                     result = await asyncio.to_thread(self.controller.command, action, arguments, room.doors.copy())
                 else:
@@ -269,6 +302,135 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 await self.touch_activity()
             except ControlError as error:
                 await self.send_packet({"type": "control_result", "requestId": request_id, "error": str(error)})
+
+    async def receive_poke(self, arguments):
+        interior = self.controller.interior
+        expected = {"context": "classroom", "subject": interior["subject"]} if interior else {"context": "world", "floor": self.controller.pose["floor"]}
+        if arguments != expected:
+            raise ControlError("화면이 바뀌었어요. 현재 화면에서 다시 눌러 주세요.")
+        now = time.monotonic()
+        if now - self.last_poke < poke.COOLDOWN:
+            raise ControlError("잠시 후 다시 찔러 주세요.")
+        async with room.lock:
+            if self.player_id not in room.players:
+                raise ControlError("연결된 뒤 이용해 주세요.")
+            self.last_poke = now
+            if interior:
+                pose = interior["actor"]
+                direction = interior.get("poke_direction", pose["dir"])
+                active_world = world(interior["subject"])
+                targets = poke.classroom_targets(interior["subject"])
+            else:
+                pose = self.controller.pose
+                direction = self.controller.poke_direction
+                active_world = self.controller.world
+                targets = [player for player_id, player in room.players.items()
+                           if player_id != self.player_id and player_id not in room.interiors
+                           and player["floor"] == pose["floor"]]
+            target_id = poke.find_target(pose, targets, active_world, room.doors, direction)
+            packet = {"type": "poke", "id": uuid4().hex, "actorId": self.player_id,
+                      "targetId": target_id, "dir": direction, "floor": self.controller.pose["floor"],
+                      **expected}
+            await self.send_poke_to(self.poke_audience(expected), packet)
+        return {"type": "poke", "hit": target_id is not None}
+
+    def current_poke_scope(self):
+        interior = self.controller.interior
+        return {"context": "classroom", "subject": interior["subject"]} if interior else {"context": "world", "floor": self.controller.pose["floor"]}
+
+    def poke_audience(self, scope):
+        if scope["context"] == "classroom":
+            return {self.player_id}
+        pose = self.controller.pose
+        return {player_id for player_id, player in room.players.items()
+                if player_id == self.player_id or (player_id not in room.interiors
+                    and player["floor"] == scope["floor"]
+                    and math.hypot(player["x"] - pose["x"], player["y"] - pose["y"]) <= poke.SYNC_RANGE)}
+
+    async def send_poke_to(self, recipients, payload):
+        # Cosmetic effects go directly to nearby sockets, never to the global presence group.
+        for player_id in recipients:
+            channel = room.channels.get(player_id)
+            if channel:
+                try:
+                    await self.channel_layer.send(channel, {
+                        "type": "presence.packet", "sender": self.player_id, "payload": payload,
+                    })
+                except ChannelFull:
+                    if payload['type'] == 'poke_state':
+                        self.pending_poke_states[player_id] = payload
+                else:
+                    if payload['type'] == 'poke_state':
+                        self.pending_poke_states.pop(player_id, None)
+
+    async def flush_poke_states(self):
+        for player_id, packet in list(self.pending_poke_states.items()):
+            if player_id not in room.channels:
+                self.pending_poke_states.pop(player_id, None)
+            else:
+                await self.send_poke_to({player_id}, packet)
+
+    def poke_state(self, active, now):
+        return {"type": "poke_state", "id": self.poke_stream_id, "actorId": self.player_id,
+                "active": active, "dir": self.poke_direction, "floor": self.state["floor"],
+                "phaseMs": int(max(0, now - self.poke_started) * 1000) % 250, **self.poke_scope}
+
+    async def stop_poke(self):
+        if getattr(self, "poke_started", None) is None:
+            return
+        await self.send_poke_to(self.poke_watchers, self.poke_state(False, time.monotonic()))
+        self.poke_started = None
+        self.poke_watchers = set()
+        self.poke_scope = None
+
+    async def tick_poke(self):
+        await self.flush_poke_states()
+        now = time.monotonic()
+        if (not self.poke_requested or now - self.controller.last_input > poke.INPUT_LEASE
+                or time.time() * 1000 >= self.policy_status.get("expiresAt", 0)):
+            await self.stop_poke()
+            return
+        scope = self.current_poke_scope()
+        if self.poke_scope is not None and scope != self.poke_scope:
+            # Old key holds must not carry through a floor transfer or classroom doorway.
+            self.poke_requested = False
+            await self.stop_poke()
+            return
+        if now - self.last_poke < poke.COOLDOWN:
+            return
+        starting = self.poke_started is None
+        if starting:
+            self.poke_started = now
+            self.poke_stream_id = uuid4().hex
+            self.poke_scope = scope
+        interior = self.controller.interior
+        pose = interior["actor"] if interior else self.controller.pose
+        direction = interior.get("poke_direction", pose["dir"]) if interior else self.controller.poke_direction
+        changed_direction = self.poke_direction != direction
+        self.poke_direction = direction
+        self.last_poke = now
+        async with room.lock:
+            if self.player_id not in room.players:
+                await self.stop_poke()
+                return
+            audience = self.poke_audience(scope)
+            departed = self.poke_watchers - audience
+            if departed:
+                await self.send_poke_to(departed, self.poke_state(False, now))
+            updated = audience if starting or changed_direction else audience - self.poke_watchers
+            if updated:
+                await self.send_poke_to(updated, self.poke_state(True, now))
+            self.poke_watchers = audience
+            active_world = world(interior["subject"]) if interior else self.controller.world
+            targets = poke.classroom_targets(interior["subject"]) if interior else [
+                player for player_id, player in room.players.items()
+                if player_id != self.player_id and player_id not in room.interiors and player["floor"] == pose["floor"]]
+            target_id = poke.find_target(pose, targets, active_world, room.doors, direction)
+            if target_id is not None:
+                await self.send_poke_to(audience, {
+                    "type": "poke_hit", "id": uuid4().hex, "actorId": self.player_id,
+                    "targetId": target_id, "dir": direction, "floor": self.state["floor"], **scope,
+                })
 
     async def receive_door(self, data):
         door_id, opened = data.get("doorId"), data.get("open")
@@ -401,8 +563,16 @@ class CampusConsumer(AsyncWebsocketConsumer):
         })
 
     async def presence_packet(self, event):
-        if self.player_id in room.players and (event["sender"] != self.player_id or event["payload"]["type"] in {"chat", "door_state"}):
-            await self.send_packet(event["payload"])
+        payload = event["payload"]
+        if payload["type"] in {"poke", "poke_state", "poke_hit"}:
+            interior = getattr(self, "controller", None) and self.controller.interior
+            if payload.get("context") == "classroom":
+                if self.player_id != payload["actorId"] or not interior or interior["subject"] != payload.get("subject"):
+                    return
+            elif interior or payload["floor"] != self.state["floor"]:
+                return
+        if self.player_id in room.players and (event["sender"] != self.player_id or payload["type"] in {"chat", "door_state", "poke", "poke_state", "poke_hit"}):
+            await self.send_packet(payload)
 
     @database_sync_to_async
     def current_identity(self):
@@ -458,6 +628,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
     async def presence_check(self, event):
         if self.player_id not in room.players:
             return
+        # Reuse the normal session guard rather than querying the database for each stroke.
+        if (getattr(self, "poke_requested", False) and self.poke_started is not None
+                and time.monotonic() - self.controller.last_input <= poke.INPUT_LEASE):
+            await self.touch_activity()
         identity = await self.current_identity()
         if identity is None:
             await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})
@@ -475,11 +649,15 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.send_packet({"type": "identity", "player": self.state.copy()})
 
     async def leave(self):
+        self.poke_requested = False
+        await self.stop_poke()
         await self.checkpoint(force=True)
         session_registry.unregister(self.player_id)
         if self.session_group:
             await self.channel_layer.group_discard(self.session_group, self.channel_name)
         async with room.lock:
+            room.interiors.discard(self.player_id)
+            room.channels.pop(self.player_id, None)
             if self.player_id and room.players.pop(self.player_id, None) is not None:
                 await self.channel_layer.group_discard(room.group, self.channel_name)
                 await self.broadcast({"type": "leave", "id": self.player_id})

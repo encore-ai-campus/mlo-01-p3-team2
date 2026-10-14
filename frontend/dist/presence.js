@@ -2,15 +2,15 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onPoke = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
       const peers = new Map();
-      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, requestDoor(){return false;}, joinRaffle(){return false;}, setInput() {}, command(){return Promise.reject(new Error('연결이 필요해요.'));}, tick() {}, close() {}};
+      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, setPoking(){}, requestDoor(){return false;}, joinRaffle(){return false;}, setInput() {}, command(){return Promise.reject(new Error('연결이 필요해요.'));}, tick() {}, close() {}};
       const config = JSON.parse(configElement.textContent);
       let socket = null, selfId = null, ready = false, closed = false;
-      let inputKeys = [], sequence = 0;
+      let inputKeys = [], sequence = 0, poking = false, pokeContext = null;
       const pending = new Map();
       const allowedKeys = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
       let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastInput = '';
@@ -61,13 +61,20 @@
       }
       function publish(t, force = false) {
         if (!ready || socket?.readyState !== WebSocket.OPEN || (!force && t - lastSent < 100)) return;
-        socket.send(JSON.stringify({type:'input',keys:inputKeys}));
+        socket.send(JSON.stringify({type:'input',keys:inputKeys,...(poking?{poking:true,...(force?{pokeContext}: {})}: {})}));
         lastSent=t;
       }
       function setInput(keys) {
         const next=[...new Set(keys)].filter(key=>allowedKeys.has(key)).sort(), encoded=JSON.stringify(next);
         inputKeys=next;
         if(encoded!==lastInput){lastInput=encoded;publish(performance.now(),true);}
+      }
+      function setPoking(active,scope=null,keys=inputKeys) {
+        const next=[...new Set(keys)].filter(key=>allowedKeys.has(key)).sort(), encoded=JSON.stringify(next);
+        const value=active===true;
+        if(value===poking&&encoded===lastInput&&(!value||JSON.stringify(scope)===JSON.stringify(pokeContext)))return;
+        inputKeys=next;lastInput=encoded;poking=value;pokeContext=value?scope:null;
+        publish(performance.now(),true);
       }
       function command(action,data={}) {
         if(!ready||socket?.readyState!==WebSocket.OPEN)return Promise.reject(new Error('연결된 뒤 이용해 주세요.'));
@@ -80,7 +87,7 @@
       }
       function rejectPending() {
         for(const {reject,timer} of pending.values()){clearTimeout(timer);reject(new Error('연결이 끊겼어요. 다시 연결해 주세요.'));}
-        pending.clear();inputKeys=[];lastInput='';player.moving=false;
+        pending.clear();inputKeys=[];lastInput='';poking=false;pokeContext=null;player.moving=false;
       }
       function acceptSelf(p) {
         if(!validPeer(p)||p.id!==selfId)return;
@@ -121,6 +128,8 @@
             onState(message.state);acceptSelf(message.state.main);
           } else if (ready && message.type === 'control_event' && message.event) {
             onControlEvent(message.event);
+          } else if (ready && ['poke','poke_state','poke_hit'].includes(message.type)) {
+            onPoke(message);
           } else if (ready && message.type === 'control_result') {
             const task=pending.get(message.requestId);
             if(task){pending.delete(message.requestId);clearTimeout(task.timer);if(message.error)task.reject(new Error(message.error));else task.resolve(message.result);}
@@ -201,7 +210,7 @@
       });
       connect();
       return {
-        peers, close, setInput, command,
+        peers, close, setInput, setPoking, command,
         get connected() {return ready;},
         get selfId() {return selfId;},
         joinRaffle(eventId, {resume=false}={}) {

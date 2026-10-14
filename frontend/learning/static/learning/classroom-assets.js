@@ -81,6 +81,21 @@
   }
   g.restore();
  }
+ // Draw the guide on the floor so desks and characters remain in front of it.
+ function paintAreaGuide(g,P,{activeType,intro,time,reducedMotion}){
+  if(!activeType&&intro<=0)return;
+  const pulse=reducedMotion?1:.7+Math.sin(time*4)*.3;
+  g.save();g.transform(P.c,P.tilt*P.s,-P.s,P.tilt*P.c,P.offsetX,P.offsetY);
+  for(const zone of [{x:70,type:'multiple_choice',edge:'#2984c7'},{x:390,type:'fill_blank',edge:'#21936b'}]){
+   const active=activeType===zone.type;
+   if(!active&&intro<=0)continue;
+   g.globalAlpha=active?1:pulse*Math.min(1,intro*3);
+   g.fillStyle=active?'#55d69c20':'#fff9b315';g.fillRect(zone.x,145,200,268);
+   g.strokeStyle=active?'#76e1ad66':zone.edge+'44';g.lineWidth=7;g.strokeRect(zone.x,145,200,268);
+   g.strokeStyle=active?'#119564':zone.edge;g.lineWidth=3;g.strokeRect(zone.x,145,200,268);
+  }
+  g.restore();
+ }
  // Instructor variant retains the campus sprite's proportions, outlines and shading.
  let instructorSprite=null;
  function drawActor(ctx,actor){
@@ -122,5 +137,5 @@
    ctx.fillStyle='#917656';ctx.fillRect(top.x,top.y,Math.max(2,(bottom.x-top.x)*.35),bottom.y-top.y);
   }
  }
- window.CampusClassroomAssets={paint,paintFloor,drawActor,paintWallCorners};
+ window.CampusClassroomAssets={paint,paintFloor,paintAreaGuide,drawActor,paintWallCorners};
 })();

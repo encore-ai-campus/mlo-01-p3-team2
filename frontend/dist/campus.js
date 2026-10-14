@@ -22,7 +22,7 @@
   const communityUI=window.CampusCommunity.create({onBack:()=>showBoardChoices()});
   const lunchWheel=window.CampusLunchWheel?.create();
   let menuRequest=null,menuVersion=0;
-  const isDialogOpen=()=>classroom.blocking||window.CampusLearning?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
+  const isDialogOpen=(includeClassroom=true)=>(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -49,11 +49,12 @@
   let pendingTransfer=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
   const raffleUI=window.CampusRaffle.create({onStart:(id,resume)=>presence.joinRaffle(id,{resume}),onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});},onState:state=>{for(const view of renderers.values())view.setRaffleState(state);},isNear:()=>serverHints.nearbyId==='roof-event-buzzer',notify:toast});
-  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,
+  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,onPoke:()=>poke.setHeld(true),
     onOpen(){keys.clear();player.moving=false;},
     onExit(){keys.clear();focusPlayer();canvas.focus({preventScroll:true});}
   })||{blocking:false,applyState(){},tick(){}};
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
+  const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
   restorePosition(initialPosition,false);
   function applyControlState(state){
     if(state.main.floor!==D.id)restorePosition(state.main);
@@ -104,7 +105,7 @@
   function update(t){
     const dt=Math.min((t-lastTime)/1000,.04)||.016;lastTime=t;
     if(!classroom.blocking)presence.setInput(!isDialogOpen()?[...keys]:[]);
-    classroom.tick(t,dt);checkExit();
+    classroom.tick(t,dt);poke.tick(t);checkExit();
     presence.tick(t,dt);
     for(const actor of visibleActors()){
       actor.walkTime=actor.moving?(actor.walkTime||0)+dt:0;
@@ -163,7 +164,7 @@
     canvas.setAttribute('aria-label',D.name+'. 방향키 또는 WASD로 이동하고 계단으로 층을 오갈 수 있습니다.');
   }
   async function loadPlazaDisplays(data,view){
-    const boards=data.objects.filter(o=>o.type==='plaza-display');if(!boards.length)return;
+    const boards=data.objects.filter(o=>o.type==='plaza-display'||o.type==='wall-poster');if(!boards.length)return;
     const last=displayRefresh.get(data.id)||0;if(Date.now()-last<30000)return;displayRefresh.set(data.id,Date.now());
     await Promise.all(boards.map(async board=>{
       try{
@@ -275,7 +276,7 @@
     const k=e.key.toLowerCase();
     if(floorTransition.blocking){
       if(movementKeys.has(k))suppressedKeys.add(k);
-      if(movementKeys.has(k)||['e','escape','enter','+','=','-'].includes(k))e.preventDefault();
+      if(movementKeys.has(k)||['e','z','escape','enter','+','=','-'].includes(k))e.preventDefault();
       return;
     }
     if(suppressedKeys.has(k)){e.preventDefault();return;}
@@ -284,6 +285,7 @@
     else if(k==='enter'&&!e.repeat){if(social.focusChat())e.preventDefault();}
     else if(movementKeys.has(k)){e.preventDefault();keys.add(k);}
     else if(k==='e'&&nearby&&!e.repeat){e.preventDefault();showDetail(nearby,{keyboard:true});}
+    else if(k==='z'&&!e.repeat&&!e.ctrlKey&&!e.altKey&&!e.metaKey){e.preventDefault();poke.setHeld(true);}
     else if(k==='+'||k==='='){e.preventDefault();zoomBy(1.2);}
     else if(k==='-'){e.preventDefault();zoomBy(1/1.2);}
   });
@@ -328,7 +330,7 @@
   function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar);$('avatarPreview').src=`assets/characters/${id}-preview.png`;$('avatarName').textContent=window.CampusAvatars.definitions[id].name;}
   updateAvatarPreview();
   window.addEventListener('campus:avatar',updateAvatarPreview);
-  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:true,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
+  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:true,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
   requestAnimationFrame(update);
   setInterval(()=>{if(D.id==='rooftop'&&!document.hidden)loadPlazaDisplays(D,renderer);},60000);
 })();

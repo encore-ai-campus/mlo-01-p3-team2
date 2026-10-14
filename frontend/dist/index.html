@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="avatars.css">
   <link rel="stylesheet" href="social.css">
+  <link rel="stylesheet" href="point-wallet.css">
+  <link rel="stylesheet" href="poke.css">
   <link rel="stylesheet" href="board-shortcut.css">
   <link rel="stylesheet" href="community.css">
   <link rel="stylesheet" href="session-policy.css">
@@ -37,7 +39,23 @@
         <div class="map-caption"><span class="caption-icon">P</span><div><strong>PLAYDATA CAMPUS</strong><span>함께 배우는 공간</span></div></div>
         <div class="map-status-tools">
           <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
-          <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
+          <div class="map-view-tools">
+            <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
+            <div class="map-wallet-anchor">
+              <button id="mapWallet" type="button" class="map-wallet" data-state="loading" aria-expanded="false" aria-controls="mapWalletHistory" aria-label="보유 포인트를 불러오는 중, 적립 내역">
+                <img class="map-wallet-coin" src="assets/point-coin.svg" width="40" height="40" alt="" aria-hidden="true" draggable="false">
+                <span class="map-wallet-copy" role="status" aria-live="polite" aria-atomic="true"><span class="map-wallet-label">보유 포인트</span><span class="map-wallet-value"><strong id="mapWalletBalance">—</strong><span class="map-wallet-unit">P</span></span></span>
+                <svg class="map-wallet-toggle" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span id="mapWalletGain" class="map-wallet-gain" hidden aria-hidden="true"></span>
+              </button>
+              <section id="mapWalletHistory" class="map-wallet-history" aria-labelledby="mapWalletHistoryTitle" hidden>
+                <div class="map-wallet-history-heading"><strong id="mapWalletHistoryTitle">포인트 적립 내역</strong><button id="mapWalletHistoryClose" type="button" aria-label="포인트 내역 닫기">×</button></div>
+                <p id="mapWalletHistoryStatus" class="map-wallet-history-status" role="status" aria-live="polite">내역을 불러오는 중…</p>
+                <ol id="mapWalletHistoryList" class="map-wallet-history-list" aria-label="최근 포인트 적립 내역" tabindex="0" hidden></ol>
+                <div class="map-wallet-history-actions"><button id="mapWalletHistoryMore" type="button" hidden>더 보기</button><button id="mapWalletHistoryRetry" type="button" hidden>다시 불러오기</button></div>
+              </section>
+            </div>
+          </div>
         </div>
         <ul id="presencePeers" class="sr-only" aria-label="다른 접속자"></ul>
         <div id="speechBubbles" class="speech-bubbles" aria-hidden="true"></div>
@@ -75,7 +93,7 @@
           <section id="floorTransitionAdSlot" aria-label="층 전환 광고" hidden></section>
         </div>
       </dialog>
-      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span><button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span></div></footer>
+      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span><button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span><i></i><kbd>Z</kbd><span>찌르기</span></div></footer>
     </section>
   </main>
   <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-top"><div><span id="detailEyebrow" class="eyebrow">SPACE GUIDE</span><h2 id="detailTitle"></h2></div><button id="closeDialog" class="close-button" aria-label="안내 닫기">×</button></div><img id="detailImage" alt="" hidden><div class="dialog-content"><p id="detailText"></p><div id="detailTags" class="detail-tags"></div><div class="dialog-actions"><button id="detailClose" class="btn quiet">닫기</button></div></div></dialog>
@@ -252,12 +270,14 @@
   <script src="avatars.js"></script>
   <script src="session-policy.js"></script>
   <script src="presence.js"></script>
+  <script src="poke.js"></script>
   <script src="social.js"></script>
   <script src="community.js"></script>
   <script src="rooftop-city.js"></script>
   <script src="isometric.js"></script>
   <script src="floor-transition.js"></script>
   <script src="lunch-wheel.js"></script>
+  <script src="point-wallet.js"></script>
   <!-- learning-assets -->
   <script src="campus.js"></script>
 </body>
