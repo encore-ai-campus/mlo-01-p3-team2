@@ -159,7 +159,7 @@ flowchart LR
 | R-7 | **문자열 입력**: 앞뒤 공백 제거·NFC 정규화, 제어·서식 문자(제로폭 공백 등) 금지, 길이 1~상한 | `foundation.clean_text`. 상한: 이름 100, 제목 200, 사유·메모 500 |
 | R-8 | **코드 값은 대문자**(예 `ACTIVE`, `IMPRESSION`) | DB `choices` + 서비스 검증. 계약의 enum과 같은 값 |
 | R-9 | **소유권**: 광고주 데이터는 소유자 기준으로만 조회한다. 남의 것·없는 것·형식이 틀린 ID는 모두 404 | `owned_or_404`. 위협 모델 T4 |
-| R-10 | **판정 규칙은 한 곳**: 적용 금액·하한·종료 판정은 `engine` 순수 함수(`effect_of`, `is_expired`)에만 있다. 다른 곳(프론트 포함)은 값을 공급·표시만 한다 | 소스 검사 테스트가 강제(`test_pricing_and_expiry_rules_are_defined_only_in_engine`) |
+| R-10 | **판정 규칙은 한 곳**: 적용 금액·하한·종료 판정은 `engine` 순수 함수(`effect_of`, `is_expired`)에만 있다. 다른 곳(프론트 포함)은 값을 공급·표시만 한다 | 소스 검사 테스트가 강제(`case_pricing_and_expiry_rules_are_defined_only_in_engine`) |
 | R-11 | **감사는 변경과 같은 트랜잭션**에 남긴다. 비밀 키 이름(`password`, `token`, `key` 등)은 기록 전에 제거 | `record_audit`. "감사 없는 변경"이 남지 않게 |
 | R-12 | **외부 JSON 입력 제한**: 본문 16 KiB(C1), 매체 `context` 직렬화 4 KiB·깊이 4, 직접 식별자 키 금지, 모든 숫자 ±(2^53−1)(정수·실수, 중첩 포함 — 밖이면 400) | 계약 C1, `foundation.parse_json` |
 
@@ -726,7 +726,7 @@ erDiagram
 | 광고그룹의 슬롯은 활성 | — | 400 | `test_ad_group_slot_validation`, `test_an_ad_may_combine_any_slots` |
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `test_balance_never_below_zero`, `check_ledger` |
 | 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `test_seq_runs_from_one_without_gaps_and_per_wallet`, `test_db_rejects_a_duplicate_or_non_positive_seq`, `test_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
-| 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `test_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
+| 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `case_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `test_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
 | 광고주 상한은 동시 쓰기에도 넘지 않는다 | — | 사용자 행(A1)을 가장 먼저 잠그고 그 안에서 센다 | `test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`, `test_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit`, `test_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota`, `test_an_account_change_during_a_creation_waits_on_the_advertiser_row_and_both_finish` |
