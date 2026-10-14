@@ -394,7 +394,6 @@ class AdjustRaceTests(TransactionTestCase):
         self.w = World()
         self.uid = self.w.adv.pk
         self.url = reverse("operator:advertiser_adjust", args=[self.uid])
-        self.client = Client()
         self.client.force_login(self.w.admin)
         html = self.client.get(reverse("operator:advertiser_detail", args=[self.uid])).content.decode()
         self.fields = {"request_key": re.search(r'name="request_key" value="([^"]+)"', html).group(1), "amount": -1000, "note": "정정"}
@@ -434,7 +433,6 @@ class UserAdminSaveRaceTests(TransactionTestCase):
 
     def setUp(self):
         self.root = make_admin()
-        self.client = Client()
         self.client.force_login(self.root)
 
     def change_url(self, user):
@@ -514,7 +512,6 @@ class EmergencyPasswordResetTests(TransactionTestCase):
 
     def setUp(self):
         self.me = make_admin()
-        self.client = Client()
         self.client.force_login(self.me)
 
     def pause_after_auth(self):

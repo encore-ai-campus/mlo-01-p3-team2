@@ -177,7 +177,6 @@ class WriteAndVerifyTests(TempDirMixin, SimpleTestCase):
         directory = self.tmpdir()
         pointer = ndjson.manifest_path(directory, "check")
         g0 = self.publish(directory, [{"gen": 0}], chain=True)
-        g0_digest = ndjson.manifest_sha256(pointer)
         real, paused, release = ndjson._publish, threading.Event(), threading.Event()
 
         def gate(path, writer):

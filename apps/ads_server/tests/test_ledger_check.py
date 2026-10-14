@@ -6,7 +6,7 @@ MySQL 의 기본 격리 수준(`READ COMMITTED`)은 SELECT 마다 새 스냅샷�
 """
 import uuid
 
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import F
 from django.test import TransactionTestCase, override_settings, tag
 
@@ -55,8 +55,6 @@ class ConsistentLedgerCheckTests(TransactionTestCase):
 
     def test_inside_an_existing_read_committed_transaction_the_check_refuses_instead_of_guessing(self):
         """검토 7aac929→6fc9664: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
-        from django.db import transaction
-
         self.charge(10, "m:r1")
         with transaction.atomic(), self.assertRaises(api.ConsistentReadUnavailable) as caught:
             api.check_ledger()
@@ -66,8 +64,6 @@ class ConsistentLedgerCheckTests(TransactionTestCase):
     def test_a_session_default_of_repeatable_read_does_not_vouch_for_the_current_transaction(self):
         """검토 f2e930b: 세션 기본값이 `REPEATABLE READ` 여도 `SET TRANSACTION` 으로 **다음 트랜잭션 하나만** `READ COMMITTED` 로 시작할 수 있고,
         `@@transaction_isolation`(세션 값)은 그것을 알려 주지 않는다. 현재 트랜잭션의 읽기 보장을 확인할 수 없으므로 기존 트랜잭션 안의 호출은 거절한다."""
-        from django.db import transaction
-
         self.charge(10, "m:r1")
         with connection.cursor() as cursor:
             cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -82,8 +78,6 @@ class ConsistentLedgerCheckTests(TransactionTestCase):
 
     def test_no_session_isolation_level_lets_an_existing_transaction_through(self):
         """세션 격리 수준과 무관하게, 이미 시작한 트랜잭션 안에서는 `quiescent=True` 가 아니면 거절한다."""
-        from django.db import transaction
-
         self.charge(10, "m:r1")
         for level in ("READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"):
             with connection.cursor() as cursor:
@@ -96,8 +90,6 @@ class ConsistentLedgerCheckTests(TransactionTestCase):
                     cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
 
     def test_quiescent_is_the_explicit_way_to_check_inside_a_transaction_without_concurrent_writers(self):
-        from django.db import transaction
-
         self.charge(10, "m:r1")
         with transaction.atomic():
             self.assertEqual(api.check_ledger(quiescent=True), [])

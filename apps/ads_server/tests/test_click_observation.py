@@ -31,7 +31,6 @@ class ClickBase(ProviderContractMixin, TestCase):
 
     def setUp(self):
         self.w, self.key = media_api(self)
-        self.client = Client()
 
     def decide(self, slot=None, **body):
         slot = slot or self.w.slot

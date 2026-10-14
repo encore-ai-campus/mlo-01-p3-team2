@@ -7,7 +7,7 @@
 - 헤더: CSP(`script-src 'self'`)·클릭재킹 차단·`nosniff`·리퍼러 정책·캐시 금지. GET 으로 그리는 화면과, POST 응답으로만 그려지는 화면(키 발급·로그인 잠금).
 - CSP 위반이 될 마크업: 인라인 스크립트(데이터 블록 제외)·`style` 속성·`on…` 이벤트 속성. 브라우저가 막아 화면이 깨지거나 기능이 죽는다.
 - 접근성 기본: `<html lang>`, 이미지 대체 글, 입력 칸의 이름표(label·aria-label), 버튼의 이름, 주요 영역(`main`), 비밀번호 칸의 `autocomplete`(현재·새 비밀번호), 겹치지 않는 id.
-- 색 대비: 디자인 토큰(`console/static/console/app.css`)의 글자·배경 쌍이 라이트·다크 모두 WCAG AA(4.5:1) 이상.
+- 색 대비: 디자인 토큰(프론트 `ui/static/console/app.css`)의 글자·배경 쌍이 라이트·다크 모두 WCAG AA(4.5:1) 이상.
 """
 import re
 import uuid

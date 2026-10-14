@@ -297,10 +297,6 @@ class CampaignCreatePageTests(TestCase):
 class AdCreateOnceTests(AdCreateBase, TransactionTestCase):
     """같은 폼을 동시에 두 번 보내거나, 만든 뒤 응답이 실패해 다시 보내도 광고는 하나다(요청 키가 광고그룹 행에 같은 트랜잭션으로 저장된다)."""
 
-    def setUp(self):
-        self.client = Client()
-        super().setUp()
-
     def twin(self, **kwargs):
         other = Client(**kwargs)
         other.cookies = self.client.cookies

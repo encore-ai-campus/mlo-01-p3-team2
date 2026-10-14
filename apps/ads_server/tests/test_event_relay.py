@@ -50,7 +50,7 @@ class RelayBase(MongoDatabaseMixin, TestCase):
 @tag("security")
 class RelayTests(RelayBase):
     def test_moves_events_faithfully_and_marks_them_sent(self):
-        ids = enqueue_decisions(3)
+        enqueue_decisions(3)
         result = relay_batch(now=T0)
         self.assertEqual((result.sent, result.duplicate), (3, 0))
         docs = stored()

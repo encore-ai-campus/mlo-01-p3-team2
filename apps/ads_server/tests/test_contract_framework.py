@@ -119,7 +119,7 @@ class ContractCheckerTests(SimpleTestCase):
     def test_problem_status_must_match_the_http_status(self):
         """RFC 9457 §3.1.2: 본문 status 가 HTTP 상태와 다르면 클라이언트와 로그가 서로 다른 오류로 읽는다."""
         def problem(status, body_status):
-            body = {"type": f"/problems/x", "title": "t", "status": body_status, "code": "unavailable", "request_id": REQUEST_ID}
+            body = {"type": "/problems/x", "title": "t", "status": body_status, "code": "unavailable", "request_id": REQUEST_ID}
             headers = {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID, "Retry-After": "1"}
             return Fake(status, body, headers)
 

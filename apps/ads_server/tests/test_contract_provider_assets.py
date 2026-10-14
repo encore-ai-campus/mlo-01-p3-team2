@@ -56,6 +56,7 @@ class AssetProviderContractTests(ProviderContractMixin, TestCase):
             self.assertEqual([r.status_code for r in responses], [200, 304, 404])
             for response in responses:
                 self.assertNoCookies(response)
+                self.assertNotIn("Cookie", response.get("Vary", ""))  # 쿠키에 따라 달라지지 않는다 — 공유 캐시가 그대로 쓴다
 
     def test_the_cookie_check_catches_a_response_that_sets_a_cookie(self):
         """검사가 공회전하지 않음: 쿠키를 일부러 설정한 응답은 실패해야 한다(headers 만 보면 놓친다)."""

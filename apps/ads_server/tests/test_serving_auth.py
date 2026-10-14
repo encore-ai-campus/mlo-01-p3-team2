@@ -42,7 +42,6 @@ class MediaApiBase(ProviderContractMixin, TestCase):
         buckets.reset()
         buckets.clock = self.clock
         self.addCleanup(self.restore_clock)
-        self.client = Client()
 
     @staticmethod
     def restore_clock():

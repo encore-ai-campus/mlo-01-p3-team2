@@ -11,7 +11,7 @@ from unittest import mock
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import OperationalError
-from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
+from django.test import TestCase, TransactionTestCase, override_settings, tag
 
 from billing import api as billing
 from billing.models import LedgerEntry
@@ -422,7 +422,6 @@ class InlineProcessingTests(TransactionTestCase):
     def setUp(self):
         self.w, self.key = media_api(self)
         self.media = self.w.slot.media_id
-        self.client = Client()
 
     def decide(self):
         response = self.client.post(

@@ -20,7 +20,6 @@ class DecisionApiMixin(ProviderContractMixin):
 
     def setUp(self):
         self.w, self.key = media_api(self)
-        self.client = Client()
 
     def post(self, body=None, key="USE", raw=None, content_type="application/json", **extra):
         if body is None and raw is None:

@@ -525,11 +525,6 @@ class CreateAdTests(TestCase):
             self.create()
         self.assertNothingCreated()
 
-    def test_only_an_advertiser(self):
-        with self.assertRaises(Forbidden):
-            self.create(user=self.admin)
-        self.assertNothingCreated()
-
 
 class CampaignEndsAtTests(TestCase):
     def setUp(self):

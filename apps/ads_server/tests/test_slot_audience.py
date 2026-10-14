@@ -121,8 +121,7 @@ class DecisionByAudienceTests(TestCase):
 
     def test_shared_slot_decides_like_any_other_slot(self):
         """일괄 슬롯도 같은 선택·과금 근거 스냅샷을 만든다 — 성격은 사람 유무만 바꾼다."""
-        w = World()
-        slot, group = w.shared_ad()
+        slot, group = self.w.shared_ad()
         decision = self.decide(slot)
         self.assertEqual((decision.chosen.ad_group_id, decision.chosen.applied_amount), (group.ad_group_id, 400))
 

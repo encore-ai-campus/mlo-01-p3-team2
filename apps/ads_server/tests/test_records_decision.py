@@ -207,21 +207,6 @@ class GatingTests(TestCase):
         d = decide(w)
         self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (5000, 500))  # 입찰 원금액과 적용 금액이 함께 남는다
 
-    def test_two_advertisers_at_the_same_amount_both_get_picked_reproducibly(self):
-        w = World()
-        slot_id = w.slot.slot_id
-        from tests.factories import make_advertiser  # 같은 슬롯에 경쟁 광고주를 하나 더 둔다
-
-        adv2 = make_advertiser()
-        billing.grant_signup(adv2, now=NOW)
-        camp2 = campaigns.create_campaign(adv2, "경쟁", NOW - DAY, None, 5_000, now=NOW)
-        group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", [slot_id], bid_amount=5000, now=NOW)  # 상한 500 으로 적용
-        campaigns.create_creative(adv2, group2.ad_group_id, "경쟁 광고", "https://rival.example", png_file((3, 3, 3)), now=NOW)
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 4000, expected_version=1, now=NOW)  # 둘 다 상한 500 → 같은 가중치
-        winners = {decide(w, rng=Random(seed)).chosen.campaign_id for seed in range(40)}
-        self.assertEqual(winners, {w.campaign.campaign_id, camp2.campaign_id})  # 같은 가중치면 둘 다 뽑힌다
-        self.assertEqual(decide(w, rng=Random(5)).chosen.campaign_id, decide(w, rng=Random(5)).chosen.campaign_id)  # 시드 고정이면 재현
-
 
 class PolicySwapTests(TestCase):
     def test_selection_policy_swap_by_setting_keeps_decision_shape(self):

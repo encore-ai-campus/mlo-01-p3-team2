@@ -27,7 +27,6 @@ class ReactionApiMixin(ProviderContractMixin):
         self.w, self.key = media_api(self)
         self.media_id = self.w.slot.media_id
         self.decision_id = uuid.uuid4()  # 이 단계는 결정의 존재를 묻지 않는다(처리 단계가 판정한다)
-        self.client = Client()
 
     def url(self, reaction_id, decision_id=None):
         return f"{BASE}/decisions/{decision_id or self.decision_id}/reactions/{reaction_id}"

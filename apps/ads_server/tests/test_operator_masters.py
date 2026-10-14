@@ -208,7 +208,6 @@ class KeyIssueOnceTests(TransactionTestCase):
     def setUp(self):
         self.admin = make_admin()
         self.media = masters.create_media(self.admin, "매체")
-        self.client = Client()
         self.client.force_login(self.admin)
         detail = self.client.get(reverse("operator:media_detail", args=[self.media.media_id])).content.decode()
         self.url = reverse("operator:key_rotate", args=[self.media.media_id])

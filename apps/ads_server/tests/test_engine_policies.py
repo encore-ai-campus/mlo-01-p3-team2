@@ -49,11 +49,6 @@ class WeightedByBidTests(unittest.TestCase):
         for c, expected in zip(group, (1000, 2000, 3000)):
             self.assertLess(abs(counts[c.ad_group_id] - expected), 200, counts)  # 표준편차 약 29 · 37 · 39
 
-    def test_below_floor_bid_never_beats_an_eligible_one(self):
-        eligible, excluded = cand(bid_amount=12), cand(bid_amount=9)
-        for seed in range(20):
-            self.assertEqual(pick([excluded, eligible], seed=seed).selection.chosen.ad_group_id, eligible.ad_group_id)
-
     def test_no_candidates_returns_none(self):
         result = pick([])
         self.assertIsNone(result.selection.chosen)

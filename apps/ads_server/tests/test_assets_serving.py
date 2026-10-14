@@ -4,9 +4,7 @@ from django.test import Client, TestCase, override_settings, tag
 from django.urls import reverse
 
 from assets.api import store, validate_image
-from foundation.models import User
 from tests import image_factory as f
-from tests.factories import PW
 
 
 def make_asset(raw):
@@ -46,15 +44,6 @@ class ServingTests(TestCase):
         self.assertEqual(self.client.get(self.url(self.png_name))["Cache-Control"], "no-cache")
         r304 = self.client.get(self.url(self.png_name), HTTP_IF_NONE_MATCH=etag)
         self.assertEqual(r304["Cache-Control"], "no-cache")
-
-    def test_no_set_cookie_header(self):
-        r = self.client.get(self.url(self.png_name))
-        self.assertNotIn("Set-Cookie", r.headers)
-        self.assertNotIn("Cookie", r.get("Vary", ""))
-        User.objects.create_user("img_user", PW, nickname="i", class_label="1")
-        self.client.post(reverse("login"), {"username": "img_user", "password": PW})  # 세션이 있는 클라이언트도
-        r = self.client.get(self.url(self.png_name))
-        self.assertNotIn("Set-Cookie", r.headers)
 
     def test_cross_origin_resource_policy_header(self):
         self.assertEqual(self.client.get(self.url(self.png_name))["Cross-Origin-Resource-Policy"], "cross-origin")

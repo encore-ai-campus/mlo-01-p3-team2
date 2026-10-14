@@ -11,7 +11,7 @@ from events.models import EventOutbox
 from masters import api as masters
 from records import api as records
 from records.models import Decision
-from tests.factories import NOW, SHARES, SUBJECT, World, png_file
+from tests.factories import NOW, SHARES, SUBJECT, World
 from tests.test_serving_decisions import DecisionApiBase
 
 
@@ -22,7 +22,9 @@ def decide(w, **kw):
 @tag("security")
 class DecisionEventTests(TestCase):
     def test_one_event_per_decision_matching_the_stored_snapshot(self):
+        """입찰을 상한(500) 위로 둔다 — 이벤트는 입찰 금액과 적용 금액(과금의 근거)을 따로 싣는다."""
         w = World()
+        w.api.add_bid(w.adv, w.group.ad_group_id, 800, expected_version=1, now=NOW)
         view = decide(w)
         row = EventOutbox.objects.get()
         d = Decision.objects.get(pk=view.decision_id)
@@ -35,18 +37,9 @@ class DecisionEventTests(TestCase):
             "bid_id": str(d.bid_id), "bid_version": d.bid_version, "bid_policy_id": str(d.bid_policy_id), "policy_version": d.policy_version,
             "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
         })
+        self.assertEqual((d.bid_amount, d.applied_amount), (800, 500))
         self.assertEqual((p["selection_policy"], p["candidate_count"], p["rejected_counts"]), (d.selection_policy, d.candidate_count, d.rejected_counts))
         self.assertNotIn(str(d.owner_id), str(p))  # 광고주 계정은 싣지 않는다
-
-    def test_bid_and_applied_amounts_are_reported_separately(self):
-        """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액).
-        후보는 이 광고 하나다(World 의 광고는 소재가 없어 후보가 아니다) — 가중 추첨(6-14)이라 후보가 둘이면 어느 쪽이든 뽑힌다."""
-        w = World(with_creative=False)
-        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", [w.slot.slot_id], bid_amount=800, now=NOW)
-        w.api.create_creative(w.adv, group.ad_group_id, "고가 광고", "https://example.com/high", png_file(), now=NOW)
-        decide(w)
-        selected = EventOutbox.objects.get().payload["selected"]
-        self.assertEqual((selected["bid_amount"], selected["applied_amount"]), (800, 500))
 
     def test_a_decision_without_an_ad_is_still_an_event(self):
         w = World(with_creative=False)

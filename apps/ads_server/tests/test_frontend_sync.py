@@ -23,7 +23,7 @@ from foundation.templatetags.kst import kst as backend_kst
 from masters.api import Audience
 from tests.factories import PW, World
 from tests.helpers import BASE_DIR, run_python
-from tests.presentation import PresentationClient, rendering  # noqa: F401 — rendering: 프론트 경로를 sys.path 에 둔다
+from tests.presentation import PresentationClient  # 프론트 경로를 sys.path 에 둔다(아래 ui import 보다 먼저)
 from ui import labels, routes
 from ui.templatetags.kst import kst as frontend_kst
 

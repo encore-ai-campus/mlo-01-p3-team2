@@ -94,7 +94,6 @@ class PasswordChangeRaceTests(TransactionTestCase):
 
     def setUp(self):
         self.user = User.objects.create_user("race_user", PW, nickname="광고주", class_label="1반")
-        self.client = Client()
         self.client.force_login(self.user)
 
     def change_with(self, in_between):

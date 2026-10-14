@@ -2,6 +2,7 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
@@ -97,9 +98,9 @@ class TransportTests(BackendCase):
         self.assertEqual(FakeBackend.seen, [])
 
     def test_a_body_over_the_limit_is_not_sent_to_the_backend(self):
-        with override_settings(MAX_BODY_BYTES=10):
-            r = self.client.generic("POST", "/advertiser/creatives/", b"x" * 11, content_type="application/octet-stream")
-        self.assertEqual(r.status_code, 413)
+        """백엔드로 흘려보내지 않고 백엔드와 같은 문구의 413 화면을 그린다(시험 설정의 상한 = 업로드 2MB + multipart 여유)."""
+        r = self.client.generic("POST", "/advertiser/creatives/", b"x" * (settings.MAX_BODY_BYTES + 1), content_type="application/octet-stream")
+        self.assertContains(r, "이미지는 2MB까지 올릴 수 있습니다.", status_code=413)
         self.assertEqual(FakeBackend.seen, [])
 
     def test_an_unreachable_backend_is_502(self):
@@ -164,9 +165,3 @@ class RenderingTests(BackendCase):
         nonce = re.search(r"'nonce-([^']+)'", r["Content-Security-Policy"]).group(1)
         self.assertContains(r, f'nonce="{nonce}"')  # 관리 템플릿의 <link>·<script> 는 이 응답의 CSP nonce
         self.assertContains(r, 'href="/dev-admin/"')  # {% url 'admin:index' %}
-
-    def test_a_too_large_body_gets_the_same_error_screen(self):
-        with override_settings(MAX_BODY_BYTES=64 * 1024 + 2 * 1024 * 1024):
-            r = self.client.generic("POST", "/advertiser/creatives/", b"x" * (64 * 1024 + 2 * 1024 * 1024 + 1), content_type="application/octet-stream")
-        self.assertContains(r, "이미지는 2MB까지 올릴 수 있습니다.", status_code=413)
-        self.assertEqual(FakeBackend.seen, [])

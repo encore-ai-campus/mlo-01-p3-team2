@@ -226,9 +226,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         manifest = ndjson.read_manifest(ndjson.manifest_path(self.dir / out, hop))
         return [json.loads(l) for l in (self.dir / out / manifest["file"]).read_text().splitlines()], manifest
 
-    def keyed(self, hop, **kw):
-        return {(l["window_start"], l["event_name"]): l for l in self.lines(hop, **kw)[0]}
-
     def test_several_windows_agree_and_only_the_range_is_read(self):
         """창 여러 개(--since 앞의 창 포함): 세 구간이 창마다 같고, 읽은 이벤트 수는 범위 안의 것뿐이다. 실행 결과에 한 번에 든 최대 이벤트 수와 최대 메모리를 적는다."""
         w = World()
@@ -390,7 +387,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         def write_then_get_replaced(directory, name, rows, kind, version, **kw):
             manifest = real(directory, name, rows, kind, version, **kw)
             published[name] = manifest
-            other = real(directory, name, rows, kind, version, **{**kw, "checkpoint": {**kw["checkpoint"], "intruder": True}})  # 다른 실행의 게시(이 실행 직후)
+            real(directory, name, rows, kind, version, **{**kw, "checkpoint": {**kw["checkpoint"], "intruder": True}})  # 다른 실행의 게시(이 실행 직후)
             return manifest
 
         with mock.patch("records.management.commands.export_hop_manifests.events.write_ndjson", write_then_get_replaced):
