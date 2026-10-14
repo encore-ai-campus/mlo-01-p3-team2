@@ -89,10 +89,10 @@ def _spent_by_day(user, group, decision_filters, since, until, first_day, last_d
     if group is None:
         ids = [decision_filters["campaign_id"]] if "campaign_id" in decision_filters else campaigns.campaign_ids_of(user)
         return billing.spend_by_day(ids, first_day, last_day)
-    # 광고그룹: 소진액이 캠페인 단위로만 쌓이므로, 이 광고그룹의 과금 단위 반응에 대한 원장 과금을 읽는다
+    # 광고그룹: 소진액이 캠페인 단위로만 쌓이므로, 이 광고그룹 결정의 인정된 반응(모든 유형 — 6-10c)에 대한 원장 과금을 읽는다
     decisions = Decision.objects.filter(**decision_filters).values("decision_id")
     reactions = (
-        Reaction.objects.filter(status=ReactionStatus.ACCEPTED, type=group.pricing_unit, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
+        Reaction.objects.filter(status=ReactionStatus.ACCEPTED, received_at__gte=since, received_at__lt=until, decision_id__in=decisions)
         .annotate(day=_day_expression()).values_list("media_id", "reaction_id", "day")
     )
     days = {reaction_ref(media_id, reaction_id): day for media_id, reaction_id, day in reactions}

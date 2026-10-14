@@ -1,5 +1,6 @@
 import random
 import uuid
+from datetime import date
 from unittest import mock
 
 from django.core.management import call_command
@@ -12,7 +13,7 @@ from billing import api
 from billing.models import LedgerEntry, Wallet
 from foundation.errors import Forbidden, InvalidRequest, NotFound
 from foundation.models import AppendOnlyError, AuditLog, User
-from tests.factories import NOW, PW, make_admin, make_advertiser
+from tests.factories import NOW, PW, WHOLE, make_admin, make_advertiser, utc
 
 
 def funded(points=None):
@@ -25,8 +26,8 @@ def funded(points=None):
     return adv
 
 
-def charge(adv, amount, ref, campaign=None, now=NOW, rtype="IMPRESSION", unit="IMPRESSION"):
-    return api.charge_for_reaction(adv.pk, campaign or uuid.uuid4(), rtype, unit, amount, ref, now=now)
+def charge(adv, amount, ref, campaign=None, now=NOW, rtype="IMPRESSION", shares=WHOLE):
+    return api.charge_for_reaction(adv.pk, campaign or uuid.uuid4(), rtype, shares, amount, ref, now=now)
 
 
 class SignupGrantTests(TestCase):
@@ -257,3 +258,33 @@ class LedgerListingTests(TestCase):
         self.assertEqual([e.balance_after for e in seen], [940, 950, 960, 970, 980, 990, 1000])
         self.assertEqual(len({e.entry_id for e in seen}), 7)
         self.assertEqual(api.list_ledger(make_advertiser())[0], [])  # 지갑 없는 사용자는 빈 목록
+
+
+class LedgerAndSpendTests(TestCase):
+    def setUp(self):
+        self.adv, self.other = make_advertiser(), make_advertiser()
+        with override_settings(SIGNUP_GRANT_POINTS=1_000_000):
+            api.grant_signup(self.adv, now=utc(2026, 10, 1))
+            api.grant_signup(self.other, now=utc(2026, 10, 1))
+        self.camp = uuid.uuid4()
+        self.first = api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 10, "r1", now=utc(2026, 10, 7, 12))
+        api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 20, "r2", now=utc(2026, 10, 8))  # 예산 일 시작 시각 그대로
+        api.charge_for_reaction(self.other.pk, uuid.uuid4(), "IMPRESSION", WHOLE, 40, "r3", now=utc(2026, 10, 8, 1))  # 다른 광고주
+
+    def test_spent_today_counts_the_start_of_the_day_and_only_this_wallet(self):
+        self.assertEqual(api.get_wallet(self.adv, now=utc(2026, 10, 8, 2)).spent_today, 20)
+
+    def test_spend_totals_exclude_the_end_day(self):
+        self.assertEqual(api.spend_by_day([self.camp], date(2026, 10, 7), date(2026, 10, 8)), {date(2026, 10, 7): 10})
+        self.assertEqual(api.spend_by_campaign([self.camp], date(2026, 10, 7), date(2026, 10, 8)), {self.camp: 10})
+
+    def test_a_boolean_cursor_reads_the_first_page(self):
+        self.assertEqual(api.list_ledger(self.adv, before=True), api.list_ledger(self.adv))
+
+    def test_the_same_key_safety_net_answers_like_a_repeated_charge(self):
+        repeated = api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 10, "r1", now=utc(2026, 10, 9))
+        with mock.patch("billing.services._charge", side_effect=IntegrityError("동시에 같은 키")):  # 먼저 넣은 쪽이 유일 제약을 차지한 경우
+            raced = api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, 10, "r1", now=utc(2026, 10, 9))
+        expected = (self.first.entry, 10, 0, True)
+        self.assertEqual((repeated.entry, repeated.charged, repeated.shortfall, repeated.duplicate), expected)
+        self.assertEqual((raced.entry, raced.charged, raced.shortfall, raced.duplicate), expected)

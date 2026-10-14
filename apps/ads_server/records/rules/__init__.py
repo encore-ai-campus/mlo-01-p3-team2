@@ -56,18 +56,20 @@ class RuleInput:
     evidence: dict = field(default_factory=dict)
     # 같은 판정 단위·같은 유형으로 **이 반응보다 먼저 접수**됐는데 아직 처리 전(`RECEIVED`)인 반응이 있나. 있으면 '인정된 대표'가 정해지지 않았으므로 기다린다
     earlier_unprocessed: bool = False
+    # 결정 뒤·이 반응의 접수 시각까지(포함) 결정을 만든 매체를 끈 가장 이른 시각(`masters.first_deactivation`). 있으면 `media-period` 가 거부한다
+    media_deactivated_at: datetime | None = None
 
 
-from . import ad_shown, campaign_open, click_source, funnel_order, funnel_window, known_decision, occurred_at, once_per_type, same_media, subject  # noqa: E402
+from . import ad_shown, campaign_open, click_source, funnel_order, funnel_window, known_decision, media_period, occurred_at, once_per_type, same_media, subject  # noqa: E402
 
 _RULES = {
-    "known-decision": known_decision.check, "same-media": same_media.check, "ad-shown": ad_shown.check, "click-source": click_source.check,
+    "known-decision": known_decision.check, "same-media": same_media.check, "media-period": media_period.check, "ad-shown": ad_shown.check, "click-source": click_source.check,
     "subject": subject.check, "occurred-at": occurred_at.check, "campaign-open": campaign_open.check, "once-per-type": once_per_type.check,
     "funnel-window": funnel_window.check, "funnel-order": funnel_order.check,
 }
-# 설정과 무관하게 **언제나** 거치는 조건: 과금의 권한·근거(누구의 결정이고 광고가 있었나, 클릭은 서버 관측만, 사람이 하나로 정해짐, 종료 뒤 수신 아님).
+# 설정과 무관하게 **언제나** 거치는 조건: 과금의 권한·근거(누구의 결정이고 그 매체가 결정 뒤에 꺼진 적이 없나, 광고가 있었나, 클릭은 서버 관측만, 사람이 하나로 정해짐, 종료 뒤 수신 아님).
 # 정책(`REACTION_RULES`)을 바꿔도 이것들은 빠지지 않는다.
-MANDATORY_RULES = ("known-decision", "same-media", "ad-shown", "click-source", "subject", "campaign-open")
+MANDATORY_RULES = ("known-decision", "same-media", "media-period", "ad-shown", "click-source", "subject", "campaign-open")
 
 
 class UnknownRule(ValueError):

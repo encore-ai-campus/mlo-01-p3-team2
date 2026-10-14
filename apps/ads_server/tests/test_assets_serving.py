@@ -6,8 +6,7 @@ from django.urls import reverse
 from assets.api import store, validate_image
 from foundation.models import User
 from tests import image_factory as f
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 def make_asset(raw):

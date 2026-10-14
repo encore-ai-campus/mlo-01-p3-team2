@@ -102,35 +102,70 @@ class ReviewRequestForm(forms.Form):
     message = forms.CharField(label="고친 내용(선택)", max_length=500, required=False, strip=False, widget=forms.Textarea(attrs={"rows": 3}))
 
 
-class AdCreateForm(forms.Form):
-    """광고 만들기(단계 제목이 있는 한 페이지 폼, 설계 D3-3). 입력 변환만 한다 — 단위와 위치가 맞는지·금액 범위·이미지 규격은 서비스(`create_ad`)가 판단한다.
+class CampaignCreateForm(forms.Form):
+    """캠페인 만들기(6-9d — 광고는 따로 만든다). 입력 변환만 한다 — 이름·기간·금액 규칙은 서비스(`create_campaign`)가 판단한다.
     `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 캠페인 행에 함께 저장해 같은 폼의 다시 보냄으로는 하나만 만든다."""
 
-    pricing_unit = forms.ChoiceField(label="과금 단위", widget=forms.RadioSelect)
-    campaign_name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
+    name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
     starts_at = KstDateTimeField(label="시작 시각(KST)")
     ends_at = KstDateTimeField(label="끝나는 시각(KST, 비우면 끝 없음)", required=False)
     daily_budget = forms.IntegerField(label="일예산(포인트)")
-    group_name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
-    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
+
+
+NEW, EXISTING = "new", "existing"
+
+
+class AdCreateForm(forms.Form):
+    """광고 만들기(6-9d, 설계 §10 "광고 만들기 흐름"): 캠페인 고르기 + 광고(광고그룹) + 소재(새로 올리기 또는 등록된 소재). 입력 변환만 한다 — 위치가
+    쓸 수 있는지·금액 범위·이미지 규격·남의 소재는 서비스(`create_ad`)가 판단한다. `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 광고그룹 행에 함께
+    저장해 같은 폼의 다시 보냄으로는 하나만 만든다."""
+
+    campaign_id = forms.ChoiceField(label="캠페인")
+    group_name = forms.CharField(label="광고 이름", max_length=100, strip=False)
+    slot_ids = forms.MultipleChoiceField(label="구성", widget=forms.CheckboxSelectMultiple, required=False)
     bid_amount = forms.IntegerField(label="입찰(포인트)")
-    title = forms.CharField(label="제목", max_length=200, strip=False)
-    redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False)
-    image = forms.FileField(label="이미지", widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg", "data-preview": "image-preview"}))
+    creative_source = forms.ChoiceField(label="소재", choices=[(NEW, "새로 올리기"), (EXISTING, "등록된 소재 쓰기")], widget=forms.RadioSelect, initial=NEW)
+    creative_id = forms.ChoiceField(label="등록된 소재", required=False)
+    title = forms.CharField(label="제목", max_length=200, strip=False, required=False)
+    redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False, required=False)
+    image = forms.FileField(label="이미지", required=False, widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg", "data-preview": "image-preview"}))
     request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
 
     # 서비스 오류의 위치(`create_ad` 가 부분 이름을 붙인다) → 이 폼의 칸
     POINTERS = {
-        "/campaign/name": "campaign_name", "/campaign/starts_at": "starts_at", "/campaign/ends_at": "ends_at", "/campaign/daily_budget": "daily_budget",
-        "/ad_group/name": "group_name", "/ad_group/pricing_unit": "pricing_unit", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
-        "/creative/title": "title", "/creative/redirect_url": "redirect_url",
+        "/ad_group/name": "group_name", "/ad_group/slot_ids": "slot_ids", "/ad_group/bid_amount": "bid_amount",
+        "/creative": "creative_source", "/creative/title": "title", "/creative/redirect_url": "redirect_url",
     }
 
-    def __init__(self, *args, units=(), slots=(), **kwargs):
+    def __init__(self, *args, campaigns=(), slots=(), creatives=(), **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["pricing_unit"].choices = list(units)
+        self.fields["campaign_id"].choices = [(str(c.campaign_id), c.name) for c in campaigns]
         self.fields["slot_ids"].choices = [(str(s.slot_id), s.name) for s in slots]
+        creatives = [(str(c.creative_id), c.title) for c in creatives]
+        self.has_creatives = bool(creatives)  # 없으면 화면이 고르는 칸을 그리지 않는다
+        self.fields["creative_id"].choices = [("", "고르세요")] + creatives
         self.fields["image"].widget.attrs["data-max-bytes"] = settings.ASSET_MAX_BYTES
+
+    def clean(self):
+        """어느 쪽 소재인지에 따라 그쪽 입력이 있는지만 본다(입력 모양 — 제목·주소·이미지 규칙은 서비스가 본다)."""
+        cleaned = super().clean()
+        if cleaned.get("creative_source") == EXISTING and not self.has_creatives:
+            self.add_error("creative_source", "등록된 소재가 없습니다. ‘새로 올리기’를 고르세요.")
+        elif cleaned.get("creative_source") == EXISTING and not cleaned.get("creative_id"):
+            self.add_error("creative_id", "쓸 소재를 고르세요.")
+        if cleaned.get("creative_source") == NEW and not cleaned.get("image"):
+            self.add_error("image", "이미지를 고르세요.")
+        return cleaned
+
+
+class CreativeUploadForm(forms.Form):
+    """소재 올리기(소재 목록·광고 상세의 "이미지 업로드" — 목록에만 올린다). 규칙(제목·https·이미지 규격)은 서비스가 판단한다."""
+
+    title = forms.CharField(label="제목", max_length=200, strip=False)
+    redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False)
+    image = forms.FileField(label="이미지", widget=forms.FileInput(attrs={"accept": "image/png,image/jpeg"}))
+
 
 
 # ---------------------------------------------------------------- 광고그룹 상세(3-2d) — 동작마다 작은 폼이라, 한 칸을 바꾸는 제출이 다른 칸을 옛 값으로 덮지 않는다
@@ -145,12 +180,12 @@ class BidForm(forms.Form):
 class GroupNameForm(forms.Form):
     """`updated_at` 은 화면이 본 광고그룹의 마지막 변경 시각 — 그 사이 바뀌었으면 서비스가 거절한다(같은 칸의 옛 제출이 최신 변경을 덮지 않게)."""
 
-    name = forms.CharField(label="광고그룹 이름", max_length=100, strip=False)
+    name = forms.CharField(label="광고 이름", max_length=100, strip=False)
     updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
 
 class GroupSlotsForm(forms.Form):
-    slot_ids = forms.MultipleChoiceField(label="게재 위치", widget=forms.CheckboxSelectMultiple, required=False)
+    slot_ids = forms.MultipleChoiceField(label="구성", widget=forms.CheckboxSelectMultiple, required=False)
     updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
     def __init__(self, *args, slots=(), **kwargs):

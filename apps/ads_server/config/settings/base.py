@@ -1,4 +1,4 @@
-"""공통 설정. **환경변수를 읽지 않는다**(dev·prod 가 읽고, test 는 읽지 않는다)."""
+"""공통 설정. **환경변수를 읽지 않는다**(dev·prod 가 읽고, test 는 접속 값(DB_*·MONGO_*)만 읽는다)."""
 from datetime import timedelta
 from pathlib import Path
 
@@ -31,6 +31,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",  # 가장 먼저: 모든 응답·로그에 요청 ID
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # 정적 파일(/static/)은 Django 가 서빙한다 — 앞단 nginx 는 통로만(설계 §10 "정적 파일 서빙", 6-5e). 보안 헤더(nosniff) 안쪽, 로그인·역할 검사 앞(공개 CSS·JS)
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "foundation.middleware.RequestBodyLimitMiddleware",  # 본문을 읽는 모든 미들웨어(CSRF 등)보다 앞
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -92,15 +93,12 @@ AXES_COOLOFF_TIME = timedelta(minutes=5)
 AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]  # 아이디만 기준이면 남이 계정을 잠가버릴 수 있다
 AXES_RESET_ON_SUCCESS = True
 AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False  # 잠금 중 시도가 잠금을 연장하지 않는다("5분 뒤 재시도")
-AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 가입 제한과 같은 IP 판정을 쓴다
+AXES_CLIENT_IP_CALLABLE = "foundation.net.client_ip"  # 감사 로그와 같은 IP 판정을 쓴다
 AXES_LOCKOUT_TEMPLATE = "console/lockout.html"  # 응답 코드는 429
 AXES_ENABLE_ADMIN = False  # axes 자체 등록(삭제·정리 동작이 열린 화면)을 끄고 foundation/admin.py 가 읽기 전용으로 다시 등록한다(위협 모델 T44)
 
-# 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다).
+# 신뢰할 리버스 프록시 수. 0 이면 REMOTE_ADDR 만 신뢰한다(X-Forwarded-For 위조로 잠금을 피할 수 없다). prod 는 필수·1 이상(앞단 nginx, 6-5c)
 TRUSTED_PROXY_COUNT = 0
-
-# --- 가입 (설계 §5.1, 열린 결정 §7-6: 수치는 설정값) ---
-SIGNUP_MAX_PER_IP_PER_HOUR = 5
 
 # --- 세션·쿠키: 게임 서버와 같은 호스트에서 돌 때 충돌하지 않도록 전용 이름 ---
 SESSION_COOKIE_NAME = "ads_sessionid"
@@ -148,17 +146,17 @@ DATA_UPLOAD_MAX_NUMBER_FILES = 5
 ASSET_MAX_BYTES = 2 * 1024 * 1024  # 업로드 용량 상한. 1~2MB 범위에서 팀이 정한다(설계 §7-5). env 로 바꿀 수 있다.
 ASSET_MAX_PIXELS = 16_000_000  # 압축 폭탄 방어용 픽셀 수 상한(크기 규격 제한이 아니다)
 ASSET_STORAGE = "assets.storage.LocalFileStorage"
-ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. Step 1 에서 campaigns 가 제공하고 config 가 연결한다.
+ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. dev·prod 가 `campaigns.api.is_asset_servable` 로 연결한다(assets 는 campaigns 를 모른다).
 # 업로드 전체 크기 가드는 foundation.middleware.RequestBodyLimitMiddleware 가 맡는다(본문을 읽기 전에 413).
 
 # --- 포인트·예산 (설계 §4.7) ---
 SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod 는 환경변수로 바꿀 수 있다
 BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
-BILLING_CHARGE_POLICY = "by-unit/v1"  # 과금 정책 이름(billing/policies)
+BILLING_CHARGE_POLICY = "share/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
 REACTION_RULES = (  # 순서가 곧 판정 순서. 되돌릴 수 없는 거부(기간·형식)를 보류(전제 대기)보다 먼저 둔다
-    "known-decision", "same-media", "ad-shown", "click-source", "subject", "occurred-at", "campaign-open", "once-per-type",
+    "known-decision", "same-media", "media-period", "ad-shown", "click-source", "subject", "occurred-at", "campaign-open", "once-per-type",
     "funnel-window", "funnel-order",
 )
 REACTION_CLICK_WINDOW_SECONDS = 300  # 클릭은 결정 후 이 안에 있어야 한다(설계 §10 "반응 퍼널 규칙")
@@ -176,7 +174,7 @@ EVENTS_OUTBOX_RETENTION_DAYS = 7  # MongoDB 로 보낸 outbox 행을 이만큼 �
 EVENTS_HOP_GRACE_SECONDS = 120  # 구간별 정합 manifest(4-3b)의 창 닫힘 여유: 창이 끝나고 이만큼 지나야 그 창의 첫 세대를 낸다(설계 §10 H11 A안). 늦은 이벤트가 보이면 B안으로 다시 정한다
 
 # --- 광고 선택 (설계 §4.3). 구현 선택은 config 한 곳(R4): 알고리즘·필터를 바꿔도 Decision 구조는 그대로다 ---
-ADS_SELECTION_POLICY = "highest-bid/v1"
+ADS_SELECTION_POLICY = "weighted-by-bid/v1"  # 상한 근접 가중 추첨(6-14)
 ADS_ENGINE_FILTERS = ("status", "period", "floor", "budget", "balance")  # 순서가 곧 판정 순서
 
 # --- 매체 API 요청 제한(설계 §10, 계약 C1). (초당 토큰, 버스트). 150명 가정의 개발용 초기값이며 측정 결과가 아니다(2-6 에서 조정) ---
@@ -189,8 +187,7 @@ MEDIA_RATE_LIMITS = {
 # --- 광고주 한도 (설계 §7-5는 열림: 아래는 제안 기본값, 모두 설정값) ---
 MAX_CAMPAIGNS_PER_ADVERTISER = 20
 MAX_AD_GROUPS_PER_ADVERTISER = 100
-MAX_CREATIVES_PER_ADVERTISER = 100
-MAX_CREATIVES_PER_AD_GROUP = 1  # V1. 모델은 1:N 이라 늘릴 수 있다(설계 §10)
+MAX_CREATIVES_PER_ADVERTISER = 100  # 보관하지 않은 소재만 센다. 광고그룹당 연결 수 상한은 없다(6-9c, 설계 §10 "소재 목록")
 MAX_UPLOAD_BYTES_PER_ADVERTISER = 100 * 1024 * 1024
 
 # --- 접근 통제 (0-3). 접두사 → 역할 표는 config/access_map.py 한 곳에서 만든다 ---
@@ -207,7 +204,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영 웹서버가 서빙한다(prod 는 환경변수로 바꿀 수 있다).
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` 의 결과 폴더. 운영에서는 WhiteNoise 가 시작할 때 읽어 Django 가 서빙한다 — 모은 뒤 재시작(dev·prod 는 환경변수 STATIC_ROOT 로 바꿀 수 있다).
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 def mysql_config(name, user, password, host, port, isolation_level="read committed"):
@@ -261,7 +258,7 @@ LOGGING = {
         "redact": {"()": "foundation.logging.RedactingFilter"},
     },
     "formatters": {
-        "plain": {"format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},
+        "plain": {"class": "foundation.logging.UtcFormatter", "format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},  # 시각은 UTC ISO 8601 Z
     },
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "plain", "filters": ["request_id", "redact"]},

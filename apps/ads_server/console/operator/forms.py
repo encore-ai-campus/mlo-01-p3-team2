@@ -1,7 +1,7 @@
 """관리자 화면의 폼. **입력 변환만** 한다 — 규칙(이름 형식, 하한 ≤ 기준가 ≤ 상한, 유예 범위)은 서비스가 판단한다."""
 from django import forms
 
-from masters.api import Audience, PricingUnit
+from masters.api import Audience
 
 GRACE_CHOICES = [(0, "즉시 만료"), (3600, "1시간"), (86400, "24시간"), (7 * 86400, "7일"), (30 * 86400, "30일")]
 
@@ -10,22 +10,22 @@ class MediaForm(forms.Form):
     name = forms.CharField(label="매체 이름", max_length=100, strip=False)
 
 
-class SlotForm(forms.Form):
-    name = forms.CharField(label="게재 위치 이름", max_length=100, strip=False)
-    pricing_unit = forms.ChoiceField(label="과금 단위", choices=PricingUnit.choices, help_text="만든 뒤 바꿀 수 없습니다.")
-    audience = forms.ChoiceField(label="보는 사람", choices=Audience.choices,
-                                 help_text="개인: 결정 하나를 한 사람이 봅니다. 일괄: 여러 사람이 같은 광고를 봅니다. 만든 뒤 바꿀 수 없습니다.")
-    floor = forms.IntegerField(label="하한")
-    base = forms.IntegerField(label="기준가")
-    cap = forms.IntegerField(label="상한")
-    reason = forms.CharField(label="사유", max_length=200, strip=False)
-
-
 class PolicyValuesForm(forms.Form):
     floor = forms.IntegerField(label="하한")
     base = forms.IntegerField(label="기준가")
     cap = forms.IntegerField(label="상한")
+    impression_share = forms.IntegerField(label="노출 비율(%)")
+    click_share = forms.IntegerField(label="클릭 비율(%)")
+    conversion_share = forms.IntegerField(label="전환 비율(%)", help_text="세 비율은 각각 1~98, 합 100. 반응 하나의 과금 = 적용 금액 × 그 반응의 비율(내림).")
     reason = forms.CharField(label="사유", max_length=200, strip=False)
+
+
+class SlotForm(PolicyValuesForm):
+    name = forms.CharField(label="구성 이름", max_length=100, strip=False)
+    audience = forms.ChoiceField(label="보는 사람", choices=Audience.choices,
+                                 help_text="개인: 결정 하나를 한 사람이 봅니다. 일괄: 여러 사람이 같은 광고를 봅니다. 만든 뒤 바꿀 수 없습니다.")
+    reason = forms.CharField(label="사유", max_length=200, strip=False, required=False, help_text="비우면 ‘없음’으로 남습니다.")  # 비면 서비스가 채운다(6-8c)
+    field_order = ["name", "audience"]  # 첫 정책 값(하한·기준가·상한·비율·사유)은 그 뒤
 
 
 class PolicyForm(PolicyValuesForm):
@@ -42,7 +42,7 @@ class SlotVersionsField(forms.Field):
         for item in value or []:
             slot_id, sep, version = str(item).partition(":")
             if not sep or not version.isdigit():
-                raise forms.ValidationError("고른 게재 위치 값이 올바르지 않습니다. 새로 불러와 다시 고르세요.")
+                raise forms.ValidationError("고른 구성 값이 올바르지 않습니다. 새로 불러와 다시 고르세요.")
             chosen[slot_id] = int(version)
         return chosen
 

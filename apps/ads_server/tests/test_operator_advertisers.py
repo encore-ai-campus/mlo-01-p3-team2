@@ -26,7 +26,7 @@ from foundation.admin_site import AuditedAdminSite
 from foundation.api import errors, get_advertiser, list_advertisers, set_advertiser_active
 from foundation.models import AuditLog, User
 from records import api as records
-from tests.concurrency import BLOCKED, WAIT, Worker, arriving_before, pausing_before
+from tests.concurrency import BLOCKED, WAIT, Worker, arriving_before, overlap, pausing_before
 from tests.factories import NOW, PW, SUBJECT, World, make_admin, make_advertiser, png_file
 
 
@@ -37,11 +37,11 @@ class AdvertiserServiceTests(TestCase):
 
     def test_usage_counts_like_the_limits(self):
         campaigns.replace_creative_image(self.w.adv, self.w.creative.creative_id, png_file((1, 2, 3)), now=NOW)  # 교체한 과거 파일도 보유량
-        group = campaigns.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "둘째", "IMPRESSION", [self.w.slot.slot_id], bid_amount=30, now=NOW)
+        group = campaigns.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "둘째", [self.w.slot.slot_id], bid_amount=300, now=NOW)
         campaigns.create_creative(self.w.adv, group.ad_group_id, "같은 그림", "https://example.com/", png_file(), now=NOW)  # 첫 파일과 같은 파일
         idle = make_advertiser()
         usage = campaigns.advertiser_usage(self.w.admin, [self.w.adv.pk, idle.pk, "not-a-uuid"])
-        files = dict(CreativeImage.objects.filter(creative__ad_group__campaign__owner=self.w.adv).values_list("image_name", "image_bytes"))
+        files = dict(CreativeImage.objects.filter(creative__owner=self.w.adv).values_list("image_name", "image_bytes"))
         self.assertEqual(len(files), 2)
         mine = usage[self.w.adv.pk]
         self.assertEqual((mine.campaigns, mine.creatives, mine.image_bytes), (1, 2, sum(files.values())))  # 같은 파일은 한 번(상한 검사와 같다)
@@ -411,16 +411,8 @@ class AdjustRaceTests(TransactionTestCase):
         return other
 
     def test_the_same_form_sent_twice_at_once_adjusts_once(self):
-        paused, release = threading.Event(), threading.Event()
-        first = Worker(pausing_before("INSERT", "billing_ledger_entry", lambda: self.client.post(self.url, self.fields), paused, release))
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "첫 요청이 원장 INSERT 에 이르지 않았다")
-        second = Worker(lambda: self.twin().post(self.url, self.fields))
-        second.start()
-        second.join(BLOCKED)  # 지갑 잠금을 기다린다
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)
+        first, second = overlap(self, lambda: self.client.post(self.url, self.fields), "INSERT", "billing_ledger_entry", lambda: self.twin().post(self.url, self.fields),
+                                waits=False)  # 둘째는 지갑 잠금을 기다린다
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (302, 302))
         self.assert_applied_once()

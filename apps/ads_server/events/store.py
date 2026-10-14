@@ -23,7 +23,7 @@ INDEXES = {
     "decision_produced_at": [("payload.decision_id", pymongo.ASCENDING), ("produced_at", pymongo.ASCENDING)],  # 결정 하나의 이벤트 모아 보기(메시지 키)
 }
 
-# 공통 봉투(DRD §5.6)가 빠진 문서가 들어오지 못하게 한다. 내용(payload)의 필드는 Step 4 에서 확정한다.
+# 공통 봉투(DRD §5.6)가 빠진 문서가 들어오지 못하게 한다. 내용(payload)은 객체인지만 본다 — 이벤트별 필드는 쓰는 쪽(`schemas.py`)이 정한다.
 VALIDATOR = {"$jsonSchema": {
     "bsonType": "object",
     "required": ["_id", "event_name", "schema_version", "produced_at", "payload"],

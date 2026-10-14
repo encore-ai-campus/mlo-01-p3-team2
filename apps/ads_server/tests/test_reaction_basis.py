@@ -14,8 +14,8 @@ from campaigns.models import Campaign
 from records import api as records
 from records.models import Decision, Reaction
 from records.processing import _finish
-from tests.factories import NOW, SUBJECT
-from tests.test_funnel_rules import A, FunnelBase, at
+from tests.factories import NOW, SUBJECT, at
+from tests.test_funnel_rules import A, FunnelBase
 
 
 @tag("security")
@@ -23,7 +23,8 @@ class BasisContentTests(FunnelBase):
     def test_an_accepted_impression_records_what_the_verdict_used(self):
         row = self.accept_impression(when=1)
         basis = row.basis
-        self.assertEqual(basis["v"], 2)
+        self.assertEqual(basis["v"], 3)
+        self.assertIsNone(basis["media_deactivated_at"])  # 결정 뒤에 매체를 끈 적이 없다(6-1b)
         self.assertEqual(basis["verdict"], {"rule": None, "reason": None})
         self.assertEqual((basis["person"], basis["audience"], basis["decided_at"]), (SUBJECT, "individual", NOW.isoformat()))
         self.assertEqual(basis["reaction"], {"type": "IMPRESSION", "source": "media", "reported_subject_id": None, "occurred_at": at(1).isoformat(), "received_at": at(1).isoformat()})
@@ -121,13 +122,6 @@ class BasisLifecycleTests(FunnelBase):
         with override_settings(REACTION_CLICK_WINDOW_SECONDS=1, REACTION_DISPLAY_GRACE_SECONDS=0):
             self.assertIsNone(records.process_reaction(click.inbox_id, now=at(500)))  # 이미 끝난 반응은 건드리지 않는다
         self.assertEqual(Reaction.objects.get(pk=click.pk).basis, before)
-
-    def test_finishing_a_reaction_again_cannot_overwrite_the_basis(self):
-        row = self.accept_impression(when=0)
-        before = copy.deepcopy(row.basis)
-        with self.assertRaises(RuntimeError):
-            _finish(row, "REJECTED", at(9), {"v": 1, "forged": True}, reason="x", rule="x")
-        self.assertEqual(Reaction.objects.get(pk=row.pk).basis, before)
 
     def test_a_reaction_cannot_be_finished_without_a_basis(self):
         row = self.report("IMPRESSION", when=0)

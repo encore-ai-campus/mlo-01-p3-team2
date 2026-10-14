@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,9 +64,7 @@ class Command(BaseCommand):
                         rows += hopcheck.compare(hops["hop_mongo"], pipeline, unsent_from=hops.get("hop_outbox"))
                     except hopcheck.HopInputError as error:
                         errors.append(f"pipeline: {error}")
-        counts = {}
-        for row in rows:
-            counts[row["status"]] = counts.get(row["status"], 0) + 1
+        counts = dict(Counter(row["status"] for row in rows))
         for line in errors:
             self.stdout.write(f"FAIL {line}")
         for row in rows:

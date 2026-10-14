@@ -1,0 +1,13 @@
+{% load console_format %}
+{# 구성별 결과 표 — 입찰 하나를 구성마다 지금 정책에 대어 본 결과와 반응 유형별 예상 과금(`effect_row`). 광고 만들기의 미리보기와 광고 상세가 함께 쓴다. `bounds` 면 하한 ~ 상한 칸을 더한다. #}
+<div class="table-wrap">
+  <table>
+    <caption class="muted">{{ caption }}</caption>
+    <thead><tr><th scope="col">구성</th>{% if bounds %}<th scope="col">하한 ~ 상한</th>{% endif %}<th scope="col">결과</th><th scope="col" class="num">적용 금액</th><th scope="col">예상 과금(반응마다)</th></tr></thead>
+    <tbody>
+    {% for slot, e, charges in effects %}
+      <tr><td>{% if slot %}{{ slot.media_name }} · {{ slot.name }}{% else %}{{ e.slot_id }}{% endif %}</td>{% if bounds %}<td>{% if slot %}{{ slot.policy.floor|points }} ~ {{ slot.policy.cap|points }}{% endif %}</td>{% endif %}<td>{{ e.reason|effect_label }}</td><td class="num">{% if e.applied_amount is not None %}{{ e.applied_amount|points }}{% else %}—{% endif %}</td><td>{% if charges %}{{ charges|charges }}{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

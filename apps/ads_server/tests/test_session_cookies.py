@@ -5,9 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from foundation.models import User
-from tests.helpers import PROD_ENV, run_python
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 @tag("security")
@@ -27,11 +25,6 @@ class SessionCookieTests(TestCase):
         self.assertTrue(morsel["httponly"])
         self.assertEqual(morsel["samesite"], "Lax")
         self.assertNotIn("sessionid", r.cookies)  # 기본 이름을 쓰지 않는다
-
-    def test_secure_flags_in_prod_settings(self):
-        code = "from django.conf import settings as s; print(s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE)"
-        r = run_python(code, "config.settings.prod", PROD_ENV)
-        self.assertEqual(r.stdout.strip(), "True True", r.stderr)
 
     def test_logout_requires_post_and_flushes_session(self):
         self.login()

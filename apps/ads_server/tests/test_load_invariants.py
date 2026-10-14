@@ -38,7 +38,7 @@ class InvariantMixin:
         self.media = self.w.slot.media_id
         self.decision = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))
         self.view, _ = records.receive_reaction(self.media, self.decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
-        records.process_reaction(self.view.inbox_id, now=NOW)  # 인정·과금 30
+        records.process_reaction(self.view.inbox_id, now=NOW)  # 인정·과금 294(입찰 300 × 노출 98%)
 
     def problems(self, **kw):
         acked = {(str(self.media), str(self.view.reaction_id)): (str(self.decision.decision_id), "IMPRESSION")}
@@ -89,27 +89,27 @@ class InvariantCheckerTests(InvariantBase):
         self.assertTrue(any("인정되지 않은 반응에 대한 과금" in p for p in self.problems(expect_drained=False)))
 
     def test_a_charge_whose_amount_differs_from_the_decision_is_found_even_if_the_ledger_is_consistent(self):
-        """원장 내부 수치(잔액·balance_after·소진액)를 맞춰 놓아도 결정의 적용 금액(30)과 다르면 잡는다."""
-        sql("UPDATE billing_ledger_entry SET amount = -31, balance_after = balance_after - 1 WHERE entry_type = 'CHARGE'")
+        """원장 내부 수치(잔액·balance_after·소진액)를 맞춰 놓아도 결정의 적용 금액 × 비율(294)과 다르면 잡는다."""
+        sql("UPDATE billing_ledger_entry SET amount = -295, balance_after = balance_after - 1 WHERE entry_type = 'CHARGE'")
         sql("UPDATE billing_wallet SET balance = balance - 1")
-        sql("UPDATE billing_campaign_spend SET spent = 31")
+        sql("UPDATE billing_campaign_spend SET spent = 295")
         self.assertEqual(billing.check_ledger(quiescent=True), [])  # 원장만 보면 멀쩡하다
         self.assertTrue(any("적용 금액" in p for p in self.problems()), self.problems())
 
     def test_a_legitimate_shortfall_is_not_flagged(self):
-        """잔액이 모자라 덜 받은 과금(부족분)은 정상이다: 받은 금액 + 부족분 = 적용 금액이고 잔액은 0 이 된다."""
+        """잔액이 모자라 덜 받은 과금(부족분)은 정상이다: 받은 금액 + 부족분 = 적용 금액 × 비율이고 잔액은 0 이 된다."""
         second = records.decide(self.media, self.w.slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(3))  # 잔액이 충분할 때 만든 결정
-        billing.adjust(self.w.admin, self.w.adv.pk, -49_955, "잔액을 15 로", now=NOW)
+        billing.adjust(self.w.admin, self.w.adv.pk, -(50_000 - 294 - 15), "잔액을 15 로", now=NOW)
         view, _ = records.receive_reaction(self.media, second.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
         records.process_reaction(view.inbox_id, now=NOW)
         charge = LedgerEntry.objects.get(reaction_ref=f"{self.media}:{view.reaction_id}")
-        self.assertEqual((charge.amount, charge.shortfall, charge.balance_after), (-15, 15, 0))
+        self.assertEqual((charge.amount, charge.shortfall, charge.balance_after), (-15, 294 - 15, 0))
         self.assertEqual(self.problems(), [])
 
     def test_a_fake_shortfall_with_money_left_is_found(self):
-        sql("UPDATE billing_ledger_entry SET amount = -25, shortfall = 5, balance_after = 49975 WHERE entry_type = 'CHARGE'")
-        sql("UPDATE billing_wallet SET balance = 49975")
-        sql("UPDATE billing_campaign_spend SET spent = 25")
+        sql("UPDATE billing_ledger_entry SET amount = -289, shortfall = 5, balance_after = 49711 WHERE entry_type = 'CHARGE'")
+        sql("UPDATE billing_wallet SET balance = 49711")
+        sql("UPDATE billing_campaign_spend SET spent = 289")
         self.assertEqual(billing.check_ledger(quiescent=True), [])
         self.assertTrue(any("부족분" in p for p in self.problems()), self.problems())
 
@@ -117,8 +117,8 @@ class InvariantCheckerTests(InvariantBase):
         other = World()
         other_wallet = billing_wallet_id(other.adv)
         mine = billing_wallet_id(self.w.adv)
-        sql("UPDATE billing_ledger_entry SET wallet_id = %s, seq = 2, balance_after = 49970 WHERE entry_type = 'CHARGE'", other_wallet)
-        sql("UPDATE billing_wallet SET balance = 49970 WHERE wallet_id = %s", other_wallet)
+        sql("UPDATE billing_ledger_entry SET wallet_id = %s, seq = 2, balance_after = 49706 WHERE entry_type = 'CHARGE'", other_wallet)
+        sql("UPDATE billing_wallet SET balance = 49706 WHERE wallet_id = %s", other_wallet)
         sql("UPDATE billing_wallet SET balance = 50000 WHERE wallet_id = %s", mine)
         self.assertEqual(billing.check_ledger(quiescent=True), [])
         self.assertTrue(any("광고주" in p for p in self.problems()), self.problems())
@@ -176,7 +176,12 @@ class FunnelInvariantTests(InvariantBase):
         values.setdefault("basis", None if values["status"] == "RECEIVED" else {"v": 1})  # 판정한 행에는 근거가 있어야 한다(DB 제약)
         if values["status"] == "ACCEPTED" and "accepted_key" not in values:
             values["accepted_key"] = f"{values['decision_id']}:{values['person_id']}:{rtype}"
-        return Reaction.objects.create(**values)
+        row = Reaction.objects.create(**values)
+        if row.status == "ACCEPTED":  # 처리처럼 인정된 반응은 결정에 남긴 비율로 과금된다(모든 유형, 6-10c)
+            chosen = self.decision.chosen
+            billing.charge_for_reaction(chosen.owner_id, chosen.campaign_id, rtype, chosen.charge_shares, chosen.applied_amount,
+                                        f"{row.media_id}:{row.reaction_id}", now=row.received_at)
+        return row
 
     def test_a_correct_funnel_passes(self):
         self.put("CLICK")  # 노출은 setUp 에서 인정됨

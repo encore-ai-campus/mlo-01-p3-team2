@@ -220,7 +220,8 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         records.process_reaction(view.inbox_id, now=NOW + timedelta(seconds=7))
 
     def export(self):
-        call_command("export_hop_manifests", "--out", str(self.dir / "hops"), stdout=io.StringIO())
+        # 시험 데이터의 날짜는 고정(2026-10-07)이다 — 실제 지금으로 내보내면 보존 기준(지금 − 7일)이 그 창을 넘는 날부터 대조 제외가 된다(6-14d)
+        call_command("export_hop_manifests", "--out", str(self.dir / "hops"), "--as-of", (NOW + timedelta(days=3)).isoformat(), stdout=io.StringIO())
 
     def verify(self, *flags):
         out = io.StringIO()
@@ -240,6 +241,7 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.verify("--out", str(self.dir / "report"))
         self.assertTrue(ok, text)
         self.assertIn("'match': 12", text)  # 세 쌍 × 4줄
+        self.assertEqual([l["unsent"] for l in self.lines("hop_outbox")], [0, 0, 0, 0])  # 중계 뒤에는 미전송이 없다(일치 판정은 unsent 를 보지 않는다)
         manifest = ndjson.read_manifest(ndjson.manifest_path(self.dir / "report", "hop_report"))
         self.assertEqual((ndjson.verify(ndjson.manifest_path(self.dir / "report", "hop_report")), manifest["checkpoint"]["counts"], manifest["checkpoint"]["errors"]), ([], {"match": 12}, []))
 
@@ -262,6 +264,10 @@ class VerifyHopsCommandTests(MongoDatabaseMixin, TransactionTestCase):
         payload["charged_amount"] = 999
         EventOutbox.objects.filter(pk=row.pk).update(payload=payload)
         self.export()
+        source, outbox, mongo = ({l["event_name"]: l for l in self.lines(h)}["ad.charge"] for h in ("hop_source", "hop_outbox", "hop_mongo"))
+        self.assertEqual(source["ids_sha256"], outbox["ids_sha256"])  # manifest 만으로도 보인다: 존재는 같고
+        self.assertNotEqual(source["content_sha256"], outbox["content_sha256"])  # 내용만 다르다
+        self.assertEqual(source["content_sha256"], mongo["content_sha256"])
         ok, text = self.verify()
         self.assertFalse(ok)
         self.assertIn("content_sha256", text)

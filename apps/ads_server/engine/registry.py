@@ -3,13 +3,13 @@
 어떤 이름을 쓸지는 호출하는 쪽(`records`)이 설정에서 읽어 넘긴다(설계 R4). 이 파일은 설정을 읽지 않는다.
 """
 from .filters import balance, budget, floor, period, status
-from .policies.highest_bid import HighestBid
+from .policies.weighted_by_bid import WeightedByBid
 
-DEFAULT_POLICY = "highest-bid/v1"
+DEFAULT_POLICY = "weighted-by-bid/v1"
 # 순서가 곧 판정 순서다. `floor` 는 적용 금액이 없는 후보(하한 미만)를 거르므로 `budget`·`balance` 보다 앞이어야 한다.
 DEFAULT_FILTERS = ("status", "period", "floor", "budget", "balance")
 
-_POLICIES = {HighestBid.name: HighestBid()}
+_POLICIES = {WeightedByBid.name: WeightedByBid()}
 _FILTERS = {"status": status.check, "period": period.check, "floor": floor.check, "budget": budget.check, "balance": balance.check}
 
 

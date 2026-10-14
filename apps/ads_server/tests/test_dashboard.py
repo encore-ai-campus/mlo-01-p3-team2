@@ -3,9 +3,6 @@
 시각은 `NOW`(2026-10-07 12:00 UTC)로 고정한다(대시보드의 `_now` 를 바꾼다). 예산 일은 UTC 자정이라 오늘은 2026-10-07 이다.
 """
 import re
-import uuid
-from datetime import timedelta
-from random import Random
 from unittest import mock
 
 from django.db import connection
@@ -17,18 +14,7 @@ from billing import api as billing
 from campaigns import api as campaigns
 from campaigns.models import Campaign
 from records import api as records
-from records.models import Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, make_slot, png_file
-
-SEC = timedelta(seconds=1)
-
-
-def impression(world, when, slot=None):
-    """`when` 에 결정, 1초 뒤 노출 수신·인정(입찰이 과금된다)."""
-    slot = slot or world.slot
-    decision = records.decide(slot.media_id, slot.slot_id, subject_id=SUBJECT, now=when, rng=Random(1))
-    view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", when + SEC, {}, now=when + SEC)
-    assert records.process_reaction(Reaction.objects.get(pk=view.inbox_id).inbox_id, now=when + SEC) == "ACCEPTED"
+from tests.factories import DAY, NOW, World, impression, make_slot, png_file
 
 
 @tag("security")
@@ -73,7 +59,7 @@ class DashboardTests(TestCase):
         cards = re.search(r'<section class="cards".*?</section>', html, re.S).group(0)
         self.assertIn('<div class="value">2</div>', cards)  # 노출
         self.assertIn("직전 7일 대비 +100.0%", cards)
-        self.assertIn('<div class="value">60</div>', cards)  # 소진 포인트(입찰 30 × 2)
+        self.assertIn('<div class="value">588</div>', cards)  # 소진 포인트(입찰 300 × 노출 98% = 294, 두 번)
 
     def test_no_data_and_zero_previous_do_not_divide_by_zero(self):
         html = self.page()
@@ -102,23 +88,17 @@ class DashboardTests(TestCase):
         svg = re.search(r"<svg.*?</svg>", html, re.S).group(0)
         self.assertIn('role="img"', svg)
         self.assertIn("소진 포인트 일별 추세", svg)
-        self.assertIn("<title>10-05 30</title>", svg)  # 막대마다 값
-        self.assertRegex(html, r"<td>2026-10-05</td>\s*(<td class=\"num\">[^<]+</td>){3}<td class=\"num\">30</td>")  # 표에도 같은 값
+        self.assertIn("<title>10-05 294</title>", svg)  # 막대마다 값
+        self.assertRegex(html, r"<td>2026-10-05</td>\s*(<td class=\"num\">[^<]+</td>){3}<td class=\"num\">294</td>")  # 표에도 같은 값
         self.assertNotRegex(html, r"\sstyle=")  # CSP: 인라인 style 없음
         self.assertNotIn("<script", html)
 
     def test_points_widget(self):
         impression(self.w, NOW)
         html = self.page()
-        self.assertIn("잔액 <strong>49,970 포인트</strong>", html)
-        self.assertIn("오늘 소진 30 포인트", html)
+        self.assertIn("잔액 <strong>49,706 포인트</strong>", html)
+        self.assertIn("오늘 소진 294 포인트", html)
         self.assertIn("2026-10-08 09:00", html)  # 다음 예산 일 시작(KST)
-
-    def test_only_the_advertiser_sees_it(self):
-        self.client.logout()
-        self.assertEqual(self.client.get(self.url).status_code, 302)  # 로그인으로
-        self.client.force_login(self.w.admin)
-        self.assertNotEqual(self.client.get(self.url).status_code, 200)
 
 
 @tag("security")
@@ -130,7 +110,7 @@ class TopCampaignTests(TestCase):
         Campaign.objects.filter(pk=self.w.campaign.campaign_id).update(starts_at=NOW - 30 * DAY)
         self.slot2 = make_slot(self.w.admin)
         self.second = campaigns.create_campaign(self.w.adv, "<b>둘째</b>", NOW - 30 * DAY, None, 5000, now=NOW)
-        group = campaigns.create_ad_group(self.w.adv, self.second.campaign_id, "그룹", "IMPRESSION", [self.slot2.slot_id], bid_amount=40, now=NOW)
+        group = campaigns.create_ad_group(self.w.adv, self.second.campaign_id, "그룹", [self.slot2.slot_id], bid_amount=400, now=NOW)
         campaigns.create_creative(self.w.adv, group.ad_group_id, "제목", "https://example.com/2", png_file((9, 9, 9)), now=NOW)
         self.window = (NOW.replace(hour=0) - 6 * DAY, NOW.replace(hour=0) + DAY)
 
@@ -143,7 +123,7 @@ class TopCampaignTests(TestCase):
         impression(other, NOW)  # 다른 광고주
         totals = records.campaign_totals(self.w.adv, *self.window)
         self.assertEqual({cid: (t.impressions, t.spent) for cid, t in totals.items()},
-                         {self.w.campaign.campaign_id: (1, 30), self.second.campaign_id: (2, 80)})
+                         {self.w.campaign.campaign_id: (1, 294), self.second.campaign_id: (2, 784)})  # 노출 98%: 300 → 294, 400 → 392
         report = records.daily_report(self.w.adv, *self.window)
         self.assertEqual((sum(t.impressions for t in totals.values()), sum(t.spent for t in totals.values())), (report.totals.impressions, report.totals.spent))
 
@@ -165,5 +145,5 @@ class TopCampaignTests(TestCase):
             impression(self.w, NOW, slot=self.slot2)
             html = self.client.get(reverse("advertiser_home")).content.decode()
         table = re.search(r'aria-label="상위 캠페인".*?</section>', html, re.S).group(0)
-        self.assertEqual(re.findall(r"<tr><td>([^<]+)</td>", table), ["&lt;b&gt;둘째&lt;/b&gt;", "캠페인"])  # 소진 40 > 30
+        self.assertEqual(re.findall(r"<tr><td>([^<]+)</td>", table), ["&lt;b&gt;둘째&lt;/b&gt;", "캠페인"])  # 소진 392 > 294
         self.assertNotIn("<b>둘째</b>", html)

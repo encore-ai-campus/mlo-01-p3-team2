@@ -8,9 +8,8 @@ from django.test import Client, TestCase, TransactionTestCase, override_settings
 
 from masters import api as masters
 from records.models import Decision
-from serving_api.throttle import buckets
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, World
+from tests.factories import NOW, World, media_api
 
 BASE = "/api/media/v1"
 SUBJECT = str(uuid.uuid4())
@@ -20,14 +19,8 @@ class DecisionApiMixin(ProviderContractMixin):
     contract = Contract("serving")
 
     def setUp(self):
-        buckets.reset()
-        self.addCleanup(buckets.reset)
-        self.w = World()
-        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+        self.w, self.key = media_api(self)
         self.client = Client()
-        patcher = mock.patch("records.services._now", lambda now=None: now or NOW)  # 후보 광고의 기간(NOW 기준)이 맞도록 시각을 고정한다
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def post(self, body=None, key="USE", raw=None, content_type="application/json", **extra):
         if body is None and raw is None:
@@ -120,7 +113,7 @@ class CreateDecisionTests(DecisionApiBase):
         self.assertEqual(self.post().status_code, 201)  # 복구되면 다음 요청은 정상
 
     def test_a_failure_after_the_insert_still_means_nothing_was_saved(self):
-        """응답을 만드는 중(슬롯 이름 조회)에 저장소가 실패하면 503 이고 결정도 남지 않는다 — 503 은 '저장하지 않았다'는 뜻이다."""
+        """응답을 만드는 중(슬롯 이름 조회)에 저장소가 실패하면 503 이고 결정도 남지 않는다 — 커밋 전의 실패는 되돌린다(커밋 응답이 끊긴 503 만 결과를 모른다)."""
         with mock.patch("serving_api.views.masters.slot_names", side_effect=OperationalError("database is locked")):
             response = self.post()
         self.assertEqual(response.status_code, 503)
@@ -218,6 +211,19 @@ class DecisionContextTests(DecisionApiBase):
         response = self.post(raw=body)
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Decision.objects.get().context, {"e": "😀 😀", "😀": 1})
+
+    def test_numbers_outside_the_safe_range_are_400_and_nothing_is_stored(self):
+        """6-2c(외부 검토 7c4714b P2): 10^400 은 MySQL 저장 오류(3140)가 503 이 되어 같은 요청이 끝없이 재시도됐고, 2^64 를 넘는 정수는 조용히 실수로 바뀌어 저장됐다.
+        이제 저장 전에 400 이고, 범위 안의 값은 되읽어도 같다."""
+        for raw in ("1" + "0" * 400, "-1" + "0" * 400, "18446744073709551617", "9007199254740992", "[1e300]"):
+            body = '{"slot_id": "%s", "subject_id": "%s", "context": {"n": %s}}' % (self.w.slot.slot_id, SUBJECT, raw)
+            response = self.post(raw=body)
+            self.assertEqual((response.status_code, response.json()["code"]), (400, "invalid_request"), raw[:30])
+            self.assertContract(self.contract, "/decisions", "post", response)
+        self.assertEqual(Decision.objects.count(), 0)
+        context = {"max": 2**53 - 1, "min": -(2**53 - 1), "nested": [{"x": 1.5}, -0.25], "big_as_text": "18446744073709551617"}
+        stored = Decision.objects.get(pk=self.request(context).json()["decision_id"])
+        self.assertEqual(stored.context, context)
 
     def test_context_must_be_an_object(self):
         for bad in ([], "x", 1, None, True):

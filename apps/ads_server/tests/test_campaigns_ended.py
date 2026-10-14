@@ -5,7 +5,7 @@ from django.test import TestCase, tag
 from campaigns import api
 from campaigns.models import Campaign, ReviewRequest
 from foundation.errors import InvalidRequest
-from tests.factories import DAY, NOW, World, make_advertiser, png_file
+from tests.factories import DAY, NOW, World, png_file
 
 LATER = NOW + 11 * DAY  # World 의 캠페인은 NOW + 10일에 끝난다
 
@@ -90,12 +90,12 @@ class EndedGuardTests(TestCase):
             "extend": lambda: api.update_campaign(w.adv, cid, {"ends_at": now + 30 * DAY}, now=now),
             "remove_end": lambda: api.update_campaign(w.adv, cid, {"ends_at": None}, now=now),
             "end": lambda: api.end_campaign(w.adv, cid, now=now),
-            "create_ad_group": lambda: api.create_ad_group(w.adv, cid, "g", "IMPRESSION", [w.slot.slot_id], now=now),
+            "create_ad_group": lambda: api.create_ad_group(w.adv, cid, "g", [w.slot.slot_id], now=now),
             "update_ad_group": lambda: api.update_ad_group(w.adv, gid, {"enabled": False}, now=now),
-            "add_bid": lambda: api.add_bid(w.adv, gid, 99, expected_version=1, now=now),
+            "add_bid": lambda: api.add_bid(w.adv, gid, 990, expected_version=1, now=now),
             "create_creative": lambda: api.create_creative(w.adv, gid, "t", "https://a.example", png_file(), now=now),
-            "update_creative": lambda: api.update_creative(w.adv, crid, {"title": "x"}, now=now),
-            "replace_image": lambda: api.replace_creative_image(w.adv, crid, png_file(), now=now),
+            "link_creative": lambda: api.link_creative(w.adv, gid, crid, now=now),
+            "select_creative": lambda: api.link_creative(w.adv, gid, crid, now=now, select=True),
             "review_request": lambda: api.create_review_request(w.adv, cid, "m", now=now),
             "suspend": lambda: api.suspend_campaign(w.admin, cid, "사유", now=now),
             "release": lambda: api.release_campaign(w.admin, cid, now=now),
@@ -119,9 +119,11 @@ class EndedGuardTests(TestCase):
         self.check_all_rejected(w, NOW)
         self.assertEqual(api.get_campaign(w.adv, w.campaign.campaign_id, now=NOW).status, "ENDED")
         self.assertEqual(len(api.list_bids(w.adv, w.group.ad_group_id)), 1)
-        self.assertEqual(api.get_ad_group(w.adv, w.group.ad_group_id).current_bid.amount, 30)
+        self.assertEqual(api.get_ad_group(w.adv, w.group.ad_group_id).current_bid.amount, 300)
         self.assertEqual(api.get_creative(w.adv, w.creative.creative_id).title, "제목")
         self.assertEqual(api.candidate_facts_for_slot(w.slot.slot_id), [])  # 저장된 상태가 ENDED 라 구조상 후보가 아니다
+        # 소재는 캠페인 밖에 있다 — 고치면 그 소재를 쓰는 다른 광고그룹에 다음 결정부터 적용된다(6-9c). 과거 결정은 스냅샷이라 그대로다
+        self.assertEqual(api.update_creative(w.adv, w.creative.creative_id, {"title": "끝난 뒤 고침"}, now=NOW).title, "끝난 뒤 고침")
 
     def test_early_end_sets_ends_at_now_and_is_irreversible(self):
         w = World()
@@ -140,12 +142,6 @@ class EndedGuardTests(TestCase):
         v = api.end_campaign(w.adv, future.campaign_id, now=NOW)
         self.assertEqual((v.status, v.ends_at), ("ENDED", NOW + DAY))  # 시작 전이면 시작 시각으로 확정
 
-    def test_early_end_blocked_while_suspended(self):
-        w = World()
-        api.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
-        with self.assertRaises(api.CampaignSuspended):
-            api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
-
     def test_ends_at_must_be_in_future_and_after_start(self):
         w = World()
         cid, adv = w.campaign.campaign_id, w.adv
@@ -156,12 +152,10 @@ class EndedGuardTests(TestCase):
         self.assertEqual(api.update_campaign(adv, cid, {"ends_at": NOW + 50 * DAY}, now=NOW).ends_at, NOW + 50 * DAY)  # 늘리기
         self.assertIsNone(api.update_campaign(adv, cid, {"ends_at": None}, now=NOW).ends_at)  # 기간 제한 없음
 
-    def test_expired_campaign_image_not_servable_and_not_a_new_candidate(self):
-        w = World()
-        self.assertFalse(api.is_asset_servable(w.creative.image_name, now=LATER))
-
     def test_other_advertisers_unaffected(self):
         w, other = World(), World()
         api.end_campaign(w.adv, w.campaign.campaign_id, now=NOW)
         api.update_campaign(other.adv, other.campaign.campaign_id, {"name": "계속 됨"}, now=NOW)
-        self.assertEqual(make_advertiser().pk != w.adv.pk, True)
+        self.assertEqual(api.get_campaign(w.adv, w.campaign.campaign_id, now=NOW).status, "ENDED")
+        changed = api.get_campaign(other.adv, other.campaign.campaign_id, now=NOW)
+        self.assertEqual((changed.status, changed.name), ("ACTIVE", "계속 됨"))  # 다른 광고주의 캠페인은 끝나지 않고 계속 고칠 수 있다

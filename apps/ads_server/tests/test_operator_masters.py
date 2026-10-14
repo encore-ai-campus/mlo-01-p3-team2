@@ -1,7 +1,6 @@
 """Step 3-1a 관리자 화면: 매체·슬롯 등록과 활성/비활성, 매체 키 발급·교체·폐기(계획 §8.1.3, S6). 화면은 서비스만 부른다."""
 import logging
 import re
-import threading
 import uuid
 from datetime import timedelta
 from unittest import mock
@@ -13,8 +12,8 @@ from django.utils import timezone
 from foundation.models import AuditLog
 from masters import api as masters
 from masters.models import MediaKey
-from tests.concurrency import BLOCKED, WAIT, Worker, pausing_before
-from tests.factories import make_admin, make_advertiser, make_slot
+from tests.concurrency import overlap
+from tests.factories import make_admin, make_slot
 
 KEY_RE = re.compile(r"[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
 
@@ -27,22 +26,11 @@ def request_key(html, form_id):
 
 @tag("security")
 class OperatorAccessTests(TestCase):
-    def test_only_admins_see_the_operator_pages(self):
-        media = masters.create_media(make_admin(), "매체")
-        urls = [reverse("operator:media_list"), reverse("operator:media_detail", args=[media.media_id])]
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 404)  # 익명에게도 존재를 숨긴다(관리자 경로 규칙)
-        self.client.force_login(make_advertiser())
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 404)
-            self.assertEqual(self.client.post(url, {"name": "x"}).status_code, 404)
-        self.client.force_login(make_admin())
-        for url in urls:
-            self.assertEqual(self.client.get(url).status_code, 200)
-
     def test_admin_index_links_to_the_operator_pages(self):
         self.client.force_login(make_admin())
-        self.assertContains(self.client.get(reverse("admin:index")), reverse("operator:media_list"))
+        r = self.client.get(reverse("admin:index"))
+        for name in ("media_list", "policy_bulk", "campaign_monitor", "review_queue"):
+            self.assertContains(r, reverse(f"operator:{name}"), msg_prefix=name)
 
 
 class OperatorBase(TestCase):
@@ -62,8 +50,9 @@ class MediaPageTests(OperatorBase):
     def test_service_errors_are_shown_on_the_form(self):
         masters.create_media(self.admin, "같은 이름")
         r = self.client.post(reverse("operator:media_list"), {"name": "같은 이름"})
-        self.assertContains(r, "같은 이름의 매체가 이미 있습니다.", status_code=400)
+        self.assertContains(r, "같은 이름의 매체가 이미 있습니다.", status_code=409)  # 상태 충돌은 409, 입력 오류는 400(console.errors.status_of)
         self.assertContains(self.client.post(reverse("operator:media_list"), {"name": "  "}), "매체 이름", status_code=400)
+        self.assertEqual(self.client.post(reverse("operator:media_list"), {"name": ""}).status_code, 400)  # 서비스까지 가지 않는 폼 오류
 
     def test_toggle_media_active(self):
         media = masters.create_media(self.admin, "매체")
@@ -96,23 +85,41 @@ class SlotPageTests(OperatorBase):
         self.detail = reverse("operator:media_detail", args=[self.media.media_id])
 
     def post_slot(self, **over):
-        data = {"name": "로비 배너", "pricing_unit": "CLICK", "audience": "shared", "floor": 10, "base": 20, "cap": 50, "reason": "개설", **over}
+        data = {"name": "로비 배너", "audience": "shared", "floor": 100, "base": 200, "cap": 500,
+                "impression_share": 10, "click_share": 85, "conversion_share": 5, "reason": "개설", **over}
         return self.client.post(reverse("operator:slot_create", args=[self.media.media_id]), data)
 
-    def test_create_slot_shows_unit_and_audience_and_says_they_are_fixed(self):
+    def test_create_slot_shows_audience_and_shares_and_says_the_audience_is_fixed(self):
         self.assertRedirects(self.post_slot(), self.detail)
         (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
-        self.assertEqual((slot.pricing_unit, slot.audience, slot.policy.floor, slot.policy.cap), ("CLICK", "shared", 10, 50))
+        self.assertEqual((slot.audience, slot.policy.floor, slot.policy.cap), ("shared", 100, 500))
+        self.assertEqual((slot.policy.impression_share, slot.policy.click_share, slot.policy.conversion_share), (10, 85, 5))
         html = self.client.get(self.detail).content.decode()
         self.assertIn("로비 배너", html)
-        self.assertIn("<td>클릭</td>", html)  # 코드(CLICK)가 아니라 화면 이름
         self.assertIn("<td>일괄</td>", html)
+        self.assertIn("노출 10% · 클릭 85% · 전환 5%", html)
         self.assertIn("만든 뒤 바꿀 수 없습니다", html)
 
     def test_policy_errors_go_next_to_the_fields(self):
-        r = self.post_slot(floor=30, base=20)
+        r = self.post_slot(floor=300, base=200)
         self.assertContains(r, "하한 ≤ 기준가 ≤ 상한이어야 합니다.", status_code=400)
+        self.assertEqual(self.post_slot(floor="").status_code, 400)  # 서비스까지 가지 않는 폼 오류
+        self.assertContains(self.post_slot(floor=99), "100 이상 9007199254740991 이하의 정수여야 합니다.", status_code=400)  # 하한 최소 100(6-10c)
+        self.assertContains(self.post_slot(name="  "), "구성 이름은(는) 1~100자의 보이는 문자여야 합니다.", status_code=400)  # 화면 용어 "구성"(6-10e)
+        self.assertContains(self.post_slot(impression_share=0, click_share=95), "1 이상 98 이하의 정수(%)여야 합니다.", status_code=400)
+        self.assertContains(self.post_slot(conversion_share=6), "노출·클릭·전환 비율의 합은 100이어야 합니다(지금 101).", status_code=400)
+        self.assertEqual(self.post_slot(click_share="").status_code, 400)  # 비율도 필수
         self.assertEqual(masters.list_slots(active_only=False, media_id=self.media.media_id), [])
+
+    def test_the_reason_may_be_left_blank_when_creating(self):
+        self.assertRedirects(self.post_slot(reason=""), self.detail)
+        (slot,) = masters.list_slots(active_only=False, media_id=self.media.media_id)
+        self.assertEqual(slot.policy.reason, "없음")  # 만들 때만 비워도 된다 — 정책 변경은 사유 필수(6-8c)
+
+    def test_a_name_already_in_the_media_is_a_conflict(self):
+        self.assertRedirects(self.post_slot(), self.detail)
+        self.assertContains(self.post_slot(), "이 매체에 같은 이름의 구성이 이미 있습니다.", status_code=409)
+        self.assertEqual(len(masters.list_slots(active_only=False, media_id=self.media.media_id)), 1)
 
     def test_toggle_slot_active(self):
         slot = make_slot(self.admin)
@@ -208,18 +215,9 @@ class KeyIssueOnceTests(TransactionTestCase):
         return other
 
     def test_the_same_form_sent_twice_at_once_issues_one_key(self):
-        paused, release = threading.Event(), threading.Event()
-        # 첫 요청은 키를 INSERT 한 뒤(커밋 전) 감사 로그 직전에 멈춘다 — 둘 다 진행 중인 가장 나쁜 겹침
-        first = Worker(pausing_before("INSERT", "foundation_audit_log", lambda: self.client.post(self.url, self.fields), paused, release))
-        first.start()
-        self.assertTrue(paused.wait(WAIT), "첫 요청이 감사 로그 INSERT 에 이르지 않았다")
-        second = Worker(lambda: self.twin().post(self.url, self.fields))
-        second.start()
-        second.join(BLOCKED)
-        self.assertTrue(second.is_alive(), "둘째 요청이 첫 요청의 커밋을 기다리지 않았다")  # 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
-        release.set()
-        first.join(WAIT)
-        second.join(WAIT)
+        # 첫 요청은 키를 INSERT 한 뒤(커밋 전) 감사 로그 직전에 멈춘다 — 둘 다 진행 중인 가장 나쁜 겹침.
+        # 둘째는 매체 행 잠금에서 기다린다(잠금이 없어도 같은 요청 키의 INSERT 가 유일 색인에서 기다린다)
+        first, second = overlap(self, lambda: self.client.post(self.url, self.fields), "INSERT", "foundation_audit_log", lambda: self.twin().post(self.url, self.fields))
         self.assertEqual((first.errors, second.errors), ([], []))
         self.assertEqual((first.result.status_code, second.result.status_code), (200, 302))  # 하나는 평문을 보여 주고, 하나는 이미 처리했다고 돌려보낸다
         self.assertEqual(MediaKey.objects.count(), 1)

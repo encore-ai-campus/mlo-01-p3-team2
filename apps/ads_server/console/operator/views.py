@@ -1,4 +1,4 @@
-"""관리자 운영 화면(Step 3-1: 매체·슬롯·키, 입찰 정책, 광고 모니터링·중단·재검토, 광고주·포인트). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 masters 서비스, 예외의 화면 변환은 console/errors.
+"""관리자 운영 화면(Step 3-1: 매체·슬롯·키, 입찰 정책, 광고 모니터링·중단·재검토, 광고주·포인트). 뷰는 서비스를 부르고 그리기만 한다 — 규칙은 각 서비스(masters·campaigns·billing·foundation), 예외의 화면 변환은 console/errors.
 
 화면은 Django admin 의 모양(`admin/base_site.html`)을 쓴다. 상태를 바꾸는 주소는 POST 만 받고 처리 뒤 목록으로 돌아간다(PRG).
 예외: 키 발급·교체는 **평문 키를 그 응답에 한 번만** 보여 줘야 해서 리다이렉트하지 않는다 — 대신 폼마다 새 요청 키를 실어 서비스가 한 번만 발급한다.
@@ -18,7 +18,7 @@ from campaigns import api as campaigns
 from foundation.api import get_advertiser, list_advertisers, profiles, set_advertiser_active
 from masters import api as masters
 
-from ..errors import HANDLED, fetch, form_errors, message_of, run_action, status_of
+from ..errors import HANDLED, fetch, message_of, run_action, submit
 from ..paging import page_of
 from .forms import AdjustForm, BulkPolicyForm, KeyIssueForm, KeyRotateForm, MediaForm, PolicyForm, ReleaseForm, SlotForm
 
@@ -29,19 +29,17 @@ def _render(request, template, title, status=200, **context):
 
 def media_list(request):
     form = MediaForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        try:
-            media = masters.create_media(request.user, form.cleaned_data["name"])
-        except HANDLED as e:
-            form_errors(form, e)
-        else:
+    status = 200
+    if form.is_bound:
+        media, status = submit(form, lambda d: masters.create_media(request.user, d["name"]))
+        if status is None:
             messages.success(request, f"매체 ‘{media.name}’을(를) 등록했습니다.")
             return redirect("operator:media_list")
-    return _render(request, "operator/media_list.html", "매체", status=400 if form.errors else 200,
-                   media=masters.list_media(request.user), form=form)
+    return _render(request, "operator/media_list.html", "매체", status=status, media=masters.list_media(request.user), form=form)
 
 
-def _detail(request, media_id, status=200, slot_form=None):
+def media_detail(request, media_id, status=200, slot_form=None):
+    """매체 상세. `slot_form` 은 오류와 함께 다시 그릴 구성 만들기 폼(제출 뷰가 넘긴다)."""
     media = fetch(masters.get_media, request.user, media_id)
     return _render(
         request, "operator/media_detail.html", f"매체: {media.name}", status=status, media=media,
@@ -49,10 +47,6 @@ def _detail(request, media_id, status=200, slot_form=None):
         slot_form=slot_form or SlotForm(), issue_form=KeyIssueForm(initial={"request_key": secrets.token_urlsafe(16)}),
         rotate_form=KeyRotateForm(initial={"request_key": secrets.token_urlsafe(16)}, auto_id="rotate_%s"),  # 한 화면의 두 폼 — 칸 id 가 겹치지 않게
     )
-
-
-def media_detail(request, media_id):
-    return _detail(request, media_id)
 
 
 @require_POST
@@ -64,15 +58,11 @@ def media_active(request, media_id):
 @require_POST
 def slot_create(request, media_id):
     form = SlotForm(request.POST)
-    if form.is_valid():
-        try:
-            masters.create_slot(request.user, media_id, **form.cleaned_data)
-        except HANDLED as e:
-            form_errors(form, e)
-        else:
-            messages.success(request, f"게재 위치 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
-            return redirect("operator:media_detail", media_id=media_id)
-    return _detail(request, media_id, status=400, slot_form=form)
+    _, status = submit(form, lambda d: masters.create_slot(request.user, media_id, **d))
+    if status is not None:
+        return media_detail(request, media_id, status=status, slot_form=form)
+    messages.success(request, f"구성 ‘{form.cleaned_data['name'].strip()}’을(를) 만들었습니다.")
+    return redirect("operator:media_detail", media_id=media_id)
 
 
 @require_POST
@@ -87,39 +77,31 @@ def slot_policy(request, slot_id):
     slot = fetch(masters.get_slot, slot_id)
     current = slot.policy
     form = PolicyForm(request.POST or None, initial={
-        "floor": current.floor, "base": current.base, "cap": current.cap, "expected_version": current.policy_version,
+        "floor": current.floor, "base": current.base, "cap": current.cap, "impression_share": current.impression_share, "click_share": current.click_share,
+        "conversion_share": current.conversion_share, "expected_version": current.policy_version,
     })
     status = 200
-    if request.method == "POST" and form.is_valid():
-        try:
-            masters.add_policy_version(request.user, slot.slot_id, **form.cleaned_data)
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
+    if form.is_bound:
+        _, status = submit(form, lambda d: masters.add_policy_version(request.user, slot.slot_id, **d))
+        if status is None:
             messages.success(request, f"‘{slot.name}’의 입찰 정책을 새 버전으로 바꿨습니다.")
             return redirect("operator:slot_policy", slot_id=slot.slot_id)
     history = masters.list_policy_versions(request.user, slot.slot_id)
-    return _render(request, "operator/slot_policy.html", f"입찰 정책: {slot.name}", status=400 if status == 200 and form.errors else status,
-                   slot=slot, form=form, history=history, people=profiles([p.changed_by for p in history]))
+    return _render(request, "operator/slot_policy.html", f"입찰 정책: {slot.name}", status=status,
+                   slot=slot, form=form, history=history, people=profiles([p.changed_by for p in history]), stale=status == 409)
 
 
 def policy_bulk(request):
     """여러 슬롯에 같은 값으로 새 버전(Step 3-1b). 하나라도 어긋나면 전부 취소된다(서비스가 한 트랜잭션)."""
     form = BulkPolicyForm(request.POST or None)
     status = 200
-    if request.method == "POST" and form.is_valid():
-        data = form.cleaned_data
-        try:
-            changed = masters.add_policy_version_bulk(request.user, data["slots"], data["floor"], data["base"], data["cap"], data["reason"])
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
-            messages.success(request, f"게재 위치 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
+    if form.is_bound:
+        changed, status = submit(form, lambda d: masters.add_policy_version_bulk(request.user, d.pop("slots"), **d))
+        if status is None:
+            messages.success(request, f"구성 {len(changed)}개의 입찰 정책을 새 버전으로 바꿨습니다.")
             return redirect("operator:policy_bulk")
-    return _render(request, "operator/policy_bulk.html", "입찰 정책 일괄 변경", status=400 if status == 200 and form.errors else status,
-                   slots=masters.list_slots(active_only=False), form=form)
+    return _render(request, "operator/policy_bulk.html", "입찰 정책 일괄 변경", status=status,
+                   slots=masters.list_slots(active_only=False), form=form, stale=status == 409)
 
 
 def _issue_key(request, media_id, form_class, issue):
@@ -220,17 +202,14 @@ def advertiser_list(request):
                    usage=campaigns.advertiser_usage(request.user, ids), balances=billing.balances(ids))
 
 
-def _advertiser_page(request, user_id, status=200, adjust_form=None):
+def advertiser_detail(request, user_id, status=200, adjust_form=None):
+    """광고주 상세. `adjust_form` 은 오류와 함께 다시 그릴 포인트 조정 폼(제출 뷰가 넘긴다)."""
     account = fetch(get_advertiser, request.user, user_id)
     entries, next_cursor = billing.ledger_of(request.user, account.user_id, before=request.GET.get("before"))
     return _render(request, "operator/advertiser_detail.html", f"광고주: {account.username}", status=status, account=account,
                    wallet=billing.wallet_of(request.user, account.user_id), entries=entries, next_cursor=next_cursor,
                    names=campaigns.campaign_names({e.campaign_id for e in entries if e.campaign_id}),
                    adjust_form=adjust_form or AdjustForm(initial={"request_key": secrets.token_urlsafe(16)}))
-
-
-def advertiser_detail(request, user_id):
-    return _advertiser_page(request, user_id)
 
 
 @require_POST
@@ -251,18 +230,11 @@ def advertiser_adjust(request, user_id):
         messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 조정하세요.")
         return redirect("operator:advertiser_detail", user_id=account.user_id)
     form = AdjustForm(request.POST)
-    status = 400
-    if form.is_valid():
-        data = form.cleaned_data
-        try:
-            entry = billing.adjust(request.user, account.user_id, data["amount"], data["note"], request_key=data["request_key"])
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
-            messages.success(request, f"{entry.amount:+,} 포인트 조정이 원장에 반영됐습니다(같은 화면을 다시 보내도 한 번만 반영됩니다).")
-            return redirect("operator:advertiser_detail", user_id=account.user_id)
-    return _advertiser_page(request, account.user_id, status=status, adjust_form=form)
+    entry, status = submit(form, lambda d: billing.adjust(request.user, account.user_id, d["amount"], d["note"], request_key=d["request_key"]))
+    if status is not None:
+        return advertiser_detail(request, account.user_id, status=status, adjust_form=form)
+    messages.success(request, f"{entry.amount:+,} 포인트 조정이 원장에 반영됐습니다(같은 화면을 다시 보내도 한 번만 반영됩니다).")
+    return redirect("operator:advertiser_detail", user_id=account.user_id)
 
 
 @require_safe

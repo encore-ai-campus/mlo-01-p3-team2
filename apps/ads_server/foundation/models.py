@@ -69,18 +69,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.username
 
 
-class SignupAttempt(models.Model):
-    """가입 시도 기록(IP 제한용). 개인 정보는 담지 않는다."""
-
-    attempt_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
-    ip = models.CharField(max_length=45)  # IPv6 최대 45자
-    created_at = models.DateTimeField(default=timezone.now, db_index=True)
-
-    class Meta:
-        db_table = "foundation_signup_attempt"
-        indexes = [models.Index(fields=["ip", "created_at"])]
-
-
 class AppendOnlyError(Exception):
     """추가 전용 기록은 INSERT 만 허용한다. 수정·삭제·덮어쓰기 시도는 예외다."""
 

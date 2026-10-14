@@ -1,6 +1,4 @@
 """이벤트 outbox(설계 §6.3, DRD P3). 결정·접수·판정·과금이 저장되는 **같은 트랜잭션**에서 한 줄씩 쓰고, 중계(`relay_events`)가 MongoDB 로 옮긴 뒤 `sent_at` 을 채운다."""
-import uuid
-
 from django.db import models
 from django.utils import timezone
 
@@ -8,7 +6,8 @@ from django.utils import timezone
 class EventOutbox(models.Model):
     # PK = 이벤트 ID. **원천 ID 와 이벤트 종류에서 결정적으로** 만든다(events.schemas.event_id_of) → 재처리·재전송에도 같은 값이고,
     # 같은 이벤트를 두 번 쓰려 해도 PK 가 막아 한 줄만 남는다. 시각순이 아니라서(UUIDv5) 쓰기 위치는 흩어지지만 이 표는 보낸 뒤 비워지는 대기열이다.
-    event_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    # PK 규칙(UUIDv7)의 예외라 기본값이 없다 — 빠뜨리면 무작위 ID 로 중복 차단을 비켜 가지 않고 저장이 실패한다(6-7c, 규약 시험이 확인).
+    event_id = models.UUIDField(primary_key=True, editable=False)
     event_name = models.CharField(max_length=64)  # 예: ad.decision. Debezium outbox 라우터의 type 에 대응
     schema_version = models.PositiveSmallIntegerField()
     aggregate_id = models.UUIDField()  # 메시지 키 = decision_id (DRD §5.6). Debezium 의 aggregateid 에 대응

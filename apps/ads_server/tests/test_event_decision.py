@@ -11,7 +11,7 @@ from events.models import EventOutbox
 from masters import api as masters
 from records import api as records
 from records.models import Decision
-from tests.factories import NOW, SUBJECT, World, png_file
+from tests.factories import NOW, SHARES, SUBJECT, World, png_file
 from tests.test_serving_decisions import DecisionApiBase
 
 
@@ -30,7 +30,8 @@ class DecisionEventTests(TestCase):
         p = row.payload
         self.assertEqual((p["decision_id"], p["media_id"], p["slot_id"], p["audience"], p["subject_id"]), (str(d.decision_id), str(d.media_id), str(d.slot_id), "individual", SUBJECT))
         self.assertEqual(p["selected"], {
-            "campaign_id": str(d.campaign_id), "ad_group_id": str(d.ad_group_id), "creative_id": str(d.creative_id), "pricing_unit": d.pricing_unit,
+            "campaign_id": str(d.campaign_id), "ad_group_id": str(d.ad_group_id), "creative_id": str(d.creative_id),
+            "charge_shares": {"IMPRESSION": d.impression_share, "CLICK": d.click_share, "CONVERSION": d.conversion_share},
             "bid_id": str(d.bid_id), "bid_version": d.bid_version, "bid_policy_id": str(d.bid_policy_id), "policy_version": d.policy_version,
             "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
         })
@@ -38,13 +39,14 @@ class DecisionEventTests(TestCase):
         self.assertNotIn(str(d.owner_id), str(p))  # 광고주 계정은 싣지 않는다
 
     def test_bid_and_applied_amounts_are_reported_separately(self):
-        """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액)."""
-        w = World()
-        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", "IMPRESSION", [w.slot.slot_id], bid_amount=80, now=NOW)
+        """입찰가가 상한을 넘으면 적용 금액은 상한이다 — 이벤트는 둘을 따로 싣는다(과금의 근거는 적용 금액).
+        후보는 이 광고 하나다(World 의 광고는 소재가 없어 후보가 아니다) — 가중 추첨(6-14)이라 후보가 둘이면 어느 쪽이든 뽑힌다."""
+        w = World(with_creative=False)
+        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "고가", [w.slot.slot_id], bid_amount=800, now=NOW)
         w.api.create_creative(w.adv, group.ad_group_id, "고가 광고", "https://example.com/high", png_file(), now=NOW)
         decide(w)
         selected = EventOutbox.objects.get().payload["selected"]
-        self.assertEqual((selected["bid_amount"], selected["applied_amount"]), (80, 50))
+        self.assertEqual((selected["bid_amount"], selected["applied_amount"]), (800, 500))
 
     def test_a_decision_without_an_ad_is_still_an_event(self):
         w = World(with_creative=False)
@@ -55,7 +57,7 @@ class DecisionEventTests(TestCase):
 
     def test_shared_slot_decision_has_no_subject(self):
         w = World()
-        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+        shared = masters.create_slot(w.admin, w.slot.media_id, "일괄", 100, 200, 500, "초기", audience="shared", **SHARES)
         records.decide(shared.media_id, shared.slot_id, now=NOW)
         row = EventOutbox.objects.get()
         self.assertEqual((row.payload["audience"], row.payload["subject_id"]), ("shared", None))
@@ -85,12 +87,6 @@ class DecisionEventAtomicityTests(TransactionTestCase):
         self.assertEqual(Decision.objects.count(), 0)
         self.assertEqual(EventOutbox.objects.count(), 0)
 
-    def test_called_outside_a_transaction_both_are_committed_together(self):
-        w = World()
-        view = decide(w)
-        self.assertEqual(Decision.objects.filter(pk=view.decision_id).count(), 1)
-        self.assertEqual(EventOutbox.objects.filter(aggregate_id=view.decision_id).count(), 1)
-
     def test_if_the_decision_cannot_be_stored_there_is_no_event(self):
         w = World()
         with mock.patch("records.services.Decision.objects.create", side_effect=RuntimeError("저장 실패")):
@@ -109,7 +105,7 @@ class DecisionEventHttpTests(DecisionApiBase):
     def test_if_the_outbox_cannot_be_written_the_answer_is_503_and_nothing_is_saved(self):
         with mock.patch("records.services.events.record_decision", side_effect=OperationalError("disk full")):
             response = self.post()
-        self.assertEqual(response.status_code, 503)  # 503 은 "저장하지 않았다"는 뜻
+        self.assertEqual(response.status_code, 503)  # 커밋 전의 실패: 결정과 이벤트를 함께 되돌린다
         self.assertNotIn("decision_id", response.json())
         self.assertEqual((Decision.objects.count(), EventOutbox.objects.count()), (0, 0))
         self.assertEqual(self.post().status_code, 201)

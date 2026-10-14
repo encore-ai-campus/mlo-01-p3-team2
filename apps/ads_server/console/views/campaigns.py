@@ -1,5 +1,7 @@
-"""광고주 캠페인 화면(Step 3-2b): 목록(상태·켜기/끄기·오늘 소진·최근 성과), 상세(수정·끝내기·중단 사유와 재검토 요청·광고그룹).
+"""광고주 캠페인 화면(Step 3-2b): 목록(상태·켜기/끄기·오늘 소진·최근 성과), 만들기(6-9d — 광고는 따로), 상세(수정·끝내기·중단 사유와 재검토 요청·광고그룹).
 뷰는 서비스를 부르고 그리기만 한다 — 상태 규칙(끝난·중단된 캠페인)은 서비스가 판단하고, 화면은 그 오류를 보일 뿐이다(계획 3-2b 완료 조건)."""
+import secrets
+
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -7,8 +9,8 @@ from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
 
-from ..errors import HANDLED, fetch, form_errors, run_action, status_of
-from ..forms import CampaignEditForm, ReviewRequestForm
+from ..errors import HANDLED, fetch, message_of, run_action, submit
+from ..forms import CampaignCreateForm, CampaignEditForm, ReviewRequestForm
 from ..queries.campaigns import campaign_page, campaign_rows, placement_summary
 
 
@@ -18,6 +20,30 @@ def _now():
 
 def campaign_list(request):
     return render(request, "console/campaign_list.html", {"rows": campaign_rows(request.user, _now())})
+
+
+def campaign_create(request):
+    """캠페인만 만든다(이름·기간·일예산). 폼마다 새 요청 키를 실어 두 번 누름·동시 제출·응답 실패 뒤 재시도도 하나만 만든다(키가 캠페인 행에 저장된다)."""
+    if request.method != "POST":
+        initial = {"starts_at": _now().replace(second=0, microsecond=0), "request_key": secrets.token_urlsafe(16)}
+        return render(request, "console/campaign_create.html", {"form": CampaignCreateForm(initial=initial)})
+    if not request.POST.get("request_key"):
+        messages.warning(request, "화면이 오래됐거나 올바르지 않은 요청입니다. 새로 불러와 다시 만드세요.")
+        return redirect("campaign_create")
+    try:  # 이미 성공한 제출의 다시 보냄은 폼 검증보다 먼저 처음 결과로(광고 만들기와 같다)
+        done = campaigns.campaign_created_by_key(request.user, request.POST["request_key"])
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+        return redirect("campaign_create")
+    if done is not None:
+        messages.success(request, "이미 만든 캠페인입니다(같은 화면을 다시 보내도 하나만 만듭니다).")
+        return redirect("campaign_detail", campaign_id=done.campaign_id)
+    form = CampaignCreateForm(request.POST)
+    c, status = submit(form, lambda d: campaigns.create_campaign(request.user, d["name"], d["starts_at"], d["ends_at"], d["daily_budget"], request_key=d["request_key"]))
+    if status is not None:
+        return render(request, "console/campaign_create.html", {"form": form}, status=status)
+    messages.success(request, "캠페인을 만들었습니다. 이제 이 캠페인에 광고를 만드세요.")
+    return redirect("campaign_detail", campaign_id=c.campaign_id)
 
 
 def _edit_initial(campaign):
@@ -35,12 +61,8 @@ def campaign_detail(request, campaign_id):
         if not changes:
             messages.info(request, "바뀐 것이 없습니다.")
             return redirect("campaign_detail", campaign_id=campaign.campaign_id)
-        try:
-            campaigns.update_campaign(request.user, campaign.campaign_id, changes, expected_updated_at=form.cleaned_data["updated_at"])
-        except HANDLED as e:
-            form_errors(form, e)
-            status = status_of(e)
-        else:
+        _, status = submit(form, lambda d: campaigns.update_campaign(request.user, campaign.campaign_id, changes, expected_updated_at=d["updated_at"]))
+        if status is None:
             messages.success(request, "캠페인을 수정했습니다.")
             return redirect("campaign_detail", campaign_id=campaign.campaign_id)
     elif request.method == "POST":
@@ -51,21 +73,15 @@ def campaign_detail(request, campaign_id):
     }, status=status)
 
 
-_BACK = {"list": "campaign_list"}  # 처리 뒤 돌아갈 곳(정한 값만 — 열린 리다이렉트 없음). 없으면 상세
-
-
-def _back(request, campaign_id):
-    target = _BACK.get(request.POST.get("back"))
-    return redirect(target) if target else redirect("campaign_detail", campaign_id=campaign_id)
-
-
 @require_POST
 def campaign_status(request, campaign_id):
     """켜기·끄기(ACTIVE↔PAUSED). 바꿀 값이 분명한 동작이라 화면이 본 버전과 대조하지 않는다. 중단·끝난 캠페인은 서비스가 거절한다."""
     target = request.POST.get("status", "")
     run_action(request, campaigns.update_campaign, request.user, campaign_id, {"status": target},
                success="캠페인을 켰습니다." if target == "ACTIVE" else "캠페인을 껐습니다.")
-    return _back(request, campaign_id)
+    if request.POST.get("back") == "list":  # 처리 뒤 돌아갈 곳은 정한 값만(열린 리다이렉트 없음). 없으면 상세
+        return redirect("campaign_list")
+    return redirect("campaign_detail", campaign_id=campaign_id)
 
 
 @require_POST

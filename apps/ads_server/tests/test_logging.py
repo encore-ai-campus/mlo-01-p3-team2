@@ -7,8 +7,7 @@ from django.urls import reverse
 
 from foundation.logging import redact
 from foundation.models import User
-
-PW = "Tr0ub4dor-horse-staple"
+from tests.factories import PW
 
 
 class capture_console:

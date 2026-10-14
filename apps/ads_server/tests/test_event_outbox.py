@@ -18,9 +18,9 @@ DECISION = uuid.UUID("0199ee00-0000-7000-8000-000000000001")
 def decision_fields(**override):
     fields = dict(
         decision_id=DECISION, media_id=uuid.uuid4(), slot_id=uuid.uuid4(), decided_at=NOW, audience="individual", subject_id="s1",
-        selected={"campaign_id": uuid.uuid4(), "ad_group_id": uuid.uuid4(), "creative_id": uuid.uuid4(), "pricing_unit": "IMPRESSION",
-                  "bid_id": uuid.uuid4(), "bid_version": 1, "bid_policy_id": uuid.uuid4(), "policy_version": 2, "bid_amount": 30, "applied_amount": 30},
-        selection_policy="highest-bid/v1", candidate_count=3, rejected_counts={"budget": 1},
+        selected={"campaign_id": uuid.uuid4(), "ad_group_id": uuid.uuid4(), "creative_id": uuid.uuid4(), "charge_shares": {"IMPRESSION": 98, "CLICK": 1, "CONVERSION": 1},
+                  "bid_id": uuid.uuid4(), "bid_version": 1, "bid_policy_id": uuid.uuid4(), "policy_version": 2, "bid_amount": 300, "applied_amount": 300},
+        selection_policy="weighted-by-bid/v1", candidate_count=3, rejected_counts={"budget": 1},
     )
     return {**fields, **override}
 
@@ -44,7 +44,8 @@ class EnqueueTests(TestCase):
     def test_writes_one_row_with_the_envelope(self):
         event_id = events.record_decision(now=NOW, **decision_fields())
         row = EventOutbox.objects.get()
-        self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 1, DECISION, None))
+        self.assertEqual((row.event_id, row.event_name, row.schema_version, row.aggregate_id, row.sent_at), (event_id, "ad.decision", 2, DECISION, None))
+        self.assertEqual(schemas.SCHEMA_VERSIONS, {"ad.decision": 2, "ad.reaction_received": 1, "ad.reaction": 1, "ad.charge": 1})  # 종류별(6-10c): 결정만 2(단위 → `charge_shares`)
         self.assertEqual(row.created_at, NOW)  # produced_at = outbox 에 쓴 시각
         self.assertEqual(row.payload["decision_id"], str(DECISION))
         json.dumps(row.payload)  # JSON 으로 직렬화된다
@@ -79,7 +80,7 @@ class EnqueueTests(TestCase):
         )
         self.assertEqual((r["person_id"], r["audience"]), (None, None))  # null 규칙
         c = schemas.charge_payload(
-            entry_id=uuid.uuid4(), campaign_id=uuid.uuid4(), charge_policy="by-unit/v1", created_at=NOW, reaction_ref="m:r", decision_id=DECISION,
+            entry_id=uuid.uuid4(), campaign_id=uuid.uuid4(), charge_policy="share/v1", created_at=NOW, reaction_ref="m:r", decision_id=DECISION,
             requested_amount=30, charged_amount=20, shortfall=10, budget_day=datetime.date(2026, 10, 10),
         )
         self.assertEqual((c["budget_day"], c["requested_amount"], c["shortfall"]), ("2026-10-10", 30, 10))

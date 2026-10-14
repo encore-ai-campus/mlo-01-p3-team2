@@ -1,0 +1,17 @@
+{% extends "console/base.html" %}
+{% block title %}캠페인 만들기{% endblock %}
+{% block content %}
+<p><a href="{% url 'campaign_list' %}">← 캠페인</a></p>
+<section class="card">
+  <h1>캠페인 만들기</h1>
+  <p class="muted">캠페인은 광고들을 묶는 기간·일예산입니다. 만든 뒤 이 캠페인에 광고를 만듭니다.</p>
+  <form method="post" novalidate>{% csrf_token %}{{ form.request_key }}
+    {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    {{ form.name.as_field_group }}
+    {{ form.starts_at.as_field_group }}
+    {{ form.ends_at.as_field_group }}
+    {{ form.daily_budget.as_field_group }}
+    <button type="submit">캠페인 만들기</button>
+  </form>
+</section>
+{% endblock %}

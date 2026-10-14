@@ -32,15 +32,10 @@ class RoleGateMiddleware:
         return self.get_response(request)
 
 
-def owned_queryset(queryset, user, owner_field="owner"):
-    """소유자가 user 인 객체만. **모든 광고주 객체 조회는 이 함수나 owned_or_404 를 지난다.**"""
-    return queryset.filter(**{owner_field: user})
-
-
 def owned_or_404(queryset, user, owner_field="owner", **lookup):
-    """남의 객체·없는 객체·형식이 틀린 ID 모두 404 (403 이 아니다: 존재 여부를 알리지 않는다)."""
+    """소유자가 user 인 객체 하나. 남의 객체·없는 객체·형식이 틀린 ID 모두 404 (403 이 아니다: 존재 여부를 알리지 않는다)."""
     try:
-        return owned_queryset(queryset, user, owner_field).get(**lookup)
+        return queryset.filter(**{owner_field: user}).get(**lookup)
     except (queryset.model.DoesNotExist, ValidationError, ValueError, TypeError):
         raise Http404
 

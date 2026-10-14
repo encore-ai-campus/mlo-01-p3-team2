@@ -14,30 +14,20 @@ from masters import api as masters
 from masters.models import Media, Slot
 from records import api as records
 from records.models import Decision
-from tests.factories import NOW, SUBJECT, World, make_admin, png_file
+from tests.factories import NOW, SHARES, SUBJECT, World, make_admin
 from tests.test_serving_decisions import DecisionApiMixin
 
 
 def shared_slot(admin):
     media = masters.create_media(admin, f"일괄 매체-{uuid.uuid4().hex[:6]}")
-    return masters.create_slot(admin, media.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+    return masters.create_slot(admin, media.media_id, "전광판", 100, 200, 500, "초기", audience="shared", **SHARES)
 
 
 @tag("security")
 class SlotModelTests(TestCase):
     def raw(self, **kw):
         media = Media.objects.create(name=f"m-{uuid.uuid4().hex[:6]}")
-        return Slot.objects.create(media=media, name="s", pricing_unit="IMPRESSION", **kw)
-
-    def test_audience_cannot_be_changed_after_creation(self):
-        slot = self.raw(audience="individual")
-        slot.audience = "shared"
-        with self.assertRaises(ValueError):
-            slot.save()
-        self.assertEqual(Slot.objects.get(pk=slot.pk).audience, "individual")
-        slot = Slot.objects.get(pk=slot.pk)
-        slot.is_active = False  # 다른 필드는 바꿀 수 있다
-        slot.save()
+        return Slot.objects.create(media=media, name="s", **kw)
 
     def test_db_accepts_only_known_audiences_and_has_no_default(self):
         self.raw(audience="individual")
@@ -54,10 +44,13 @@ class SlotServiceTests(TestCase):
         self.media = masters.create_media(self.admin, "매체")
 
     def create(self, name="슬롯", **kw):
-        return masters.create_slot(self.admin, self.media.media_id, name, "IMPRESSION", 10, 20, 50, "초기", **kw)
+        return masters.create_slot(self.admin, self.media.media_id, name, 100, 200, 500, "초기", **kw, **SHARES)
 
-    def test_default_is_individual(self):
-        slot = self.create()
+    def test_the_creator_always_chooses_the_audience(self):
+        """R18(6-13f): 성격에는 기본값이 없다(모델·서비스 모두) — 만드는 쪽(운영 폼·시험)이 늘 정한다."""
+        with self.assertRaises(TypeError):
+            masters.create_slot(self.admin, self.media.media_id, "슬롯", 100, 200, 500, "초기", **SHARES)
+        slot = self.create(audience="individual")
         self.assertEqual(slot.audience, "individual")
         self.assertEqual(Slot.objects.get(pk=slot.slot_id).audience, "individual")
 
@@ -129,11 +122,9 @@ class DecisionByAudienceTests(TestCase):
     def test_shared_slot_decides_like_any_other_slot(self):
         """일괄 슬롯도 같은 선택·과금 근거 스냅샷을 만든다 — 성격은 사람 유무만 바꾼다."""
         w = World()
-        slot = masters.create_slot(w.admin, w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
-        group = w.api.create_ad_group(w.adv, w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
-        w.api.create_creative(w.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((5, 5, 5)), now=NOW)
+        slot, group = w.shared_ad()
         decision = self.decide(slot)
-        self.assertEqual((decision.chosen.ad_group_id, decision.chosen.applied_amount), (group.ad_group_id, 40))
+        self.assertEqual((decision.chosen.ad_group_id, decision.chosen.applied_amount), (group.ad_group_id, 400))
 
 
 @tag("security")

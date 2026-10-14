@@ -11,7 +11,7 @@
       <tr>
         <td>{{ c.name }}</td>
         <td><a href="{% url 'operator:advertiser_detail' c.owner_id %}">{{ person.nickname }}({{ person.class_label }})</a></td>
-        <td>{% include "operator/_creatives.html" with creatives=item.creatives %}</td>
+        <td>{% include "operator/_creatives.html" with creatives=item.creatives selected=item.selected_creative_ids %}</td>
         <td>{{ c.status|status_label }}{% if person and not person.is_active %}<br><strong>광고주 비활성 — 광고가 나가지 않습니다</strong>{% endif %}{% if c.suspension %}<br><span class="help">사유: {{ c.suspension.reason }}</span>{% if c.suspension.open_review_request_id %}<br><a href="{% url 'operator:review_queue' %}">재검토 요청 있음</a>{% endif %}{% endif %}</td>
         <td>{{ item.last_changed_at|kst }}</td>
         <td>

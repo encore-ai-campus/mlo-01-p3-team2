@@ -32,7 +32,6 @@ class BidView:
     ad_group_id: uuid.UUID
     bid_version: int
     amount: int
-    created_by: uuid.UUID
     created_at: datetime
 
 
@@ -41,8 +40,8 @@ class AdGroupView:
     ad_group_id: uuid.UUID
     campaign_id: uuid.UUID
     name: str
-    pricing_unit: str
     enabled: bool
+    creative_id: uuid.UUID | None  # 선택된 소재(결정에 나가는 것). 연결된 소재 중 하나, 없으면 후보가 아니다(6-9c)
     slot_ids: tuple
     current_bid: BidView | None
     created_at: datetime
@@ -51,20 +50,43 @@ class AdGroupView:
 
 @dataclass(frozen=True)
 class CreativeView:
+    """광고주 소유의 소재(6-9c — 광고그룹에 속하지 않는다. 연결은 `CreativeUse`)."""
+
     creative_id: uuid.UUID
-    ad_group_id: uuid.UUID
     title: str
     redirect_url: str
     image_name: str
     image_bytes: int
-    enabled: bool
+    archived: bool  # 보관(화면의 "삭제")
     created_at: datetime
     updated_at: datetime
 
 
 @dataclass(frozen=True)
+class CreativeUse:
+    """소재가 연결된 광고그룹 하나(소재 목록 화면)."""
+
+    ad_group_id: uuid.UUID
+    ad_group_name: str
+    campaign_id: uuid.UUID
+    campaign_name: str
+    campaign_open: bool  # 캠페인이 끝나지 않았다(일시 중지·중단 포함) — 하나라도 그러면 소재를 삭제(보관)할 수 없다
+    selected: bool  # 그 광고그룹이 지금 이 소재를 선택했다
+
+
+@dataclass(frozen=True)
+class OwnedCreative:
+    creative: CreativeView
+    uses: tuple  # CreativeUse 들(연결한 순서)
+
+    @property
+    def deletable(self):
+        return not any(u.campaign_open for u in self.uses)
+
+
+@dataclass(frozen=True)
 class CreatedAd:
-    """광고 만들기(`create_ad`)가 한 번에 만든 세 가지."""
+    """광고 만들기(`create_ad`)의 결과: 캠페인(이미 있던 것)과 만든 광고그룹, 연결·선택한 소재."""
 
     campaign: CampaignView
     ad_group: AdGroupView
@@ -77,8 +99,9 @@ class MonitoredCampaign:
     """관리자 광고 모니터링의 한 줄(S5): 캠페인과 그 소재, 캠페인·소재 중 늦은 마지막 변경 시각."""
 
     campaign: CampaignView
-    creatives: tuple  # CreativeView 들
+    creatives: tuple  # CreativeView 들(그 캠페인의 광고그룹에 연결된 것)
     last_changed_at: datetime
+    selected_creative_ids: frozenset = frozenset()  # 그중 광고그룹이 지금 선택한 것(결정에 나가는 것, 6-9d)
 
 
 @dataclass(frozen=True)
@@ -101,11 +124,9 @@ class CandidateFacts:
     ad_group_id: uuid.UUID
     creative_id: uuid.UUID
     slot_id: uuid.UUID
-    pricing_unit: str
     bid_id: uuid.UUID
     bid_amount: int
     bid_version: int
-    bid_created_at: datetime
     campaign_status: str  # 저장된 상태
     ad_group_enabled: bool
     period_start: datetime
@@ -123,6 +144,7 @@ class ReviewQueueItem:
     review: ReviewRequestView
     campaign: CampaignView
     creatives: tuple = ()  # CreativeView 들
+    selected_creative_ids: frozenset = frozenset()
 
 
 @dataclass(frozen=True)
@@ -155,7 +177,6 @@ class AdGroupEffects:
     ad_group_id: uuid.UUID
     campaign_id: uuid.UUID
     name: str
-    pricing_unit: str
     enabled: bool
     bid_amount: int | None
     bid_created_at: datetime | None

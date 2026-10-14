@@ -13,7 +13,7 @@ from django.test import TransactionTestCase, override_settings, tag
 from billing import api
 from billing.models import CampaignSpend, LedgerEntry
 from tests.concurrency import BLOCKED, WAIT, Worker
-from tests.factories import NOW, make_advertiser
+from tests.factories import NOW, WHOLE, make_advertiser
 
 DAY = date(2026, 10, 7)
 
@@ -27,7 +27,7 @@ class RecomputeVersusChargeTests(TransactionTestCase):
         self.camp = uuid.uuid4()
 
     def charge(self, amount, ref, campaign=None):
-        return api.charge_for_reaction(self.adv.pk, campaign or self.camp, "IMPRESSION", "IMPRESSION", amount, ref, now=NOW)
+        return api.charge_for_reaction(self.adv.pk, campaign or self.camp, "IMPRESSION", WHOLE, amount, ref, now=NOW)
 
     def spent(self, campaign=None):
         row = CampaignSpend.objects.filter(campaign_id=campaign or self.camp, budget_day=DAY).first()
@@ -217,7 +217,7 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         self.camp = uuid.uuid4()
 
     def charge(self, amount, ref, now=NOW):
-        return api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", "IMPRESSION", amount, ref, now=now)
+        return api.charge_for_reaction(self.adv.pk, self.camp, "IMPRESSION", WHOLE, amount, ref, now=now)
 
     def test_a_charge_committed_in_the_middle_of_the_check_is_not_reported_as_a_mismatch(self):
         self.charge(10, "m:r1")
@@ -261,7 +261,7 @@ class TwoRecomputesAndTheConsistentCheckTests(TransactionTestCase):
         return result
 
     def test_inside_an_existing_read_committed_transaction_the_check_refuses_instead_of_guessing(self):
-        """검토 7aac929→54363b2: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
+        """검토 7aac929→6fc9664: `atomic()` 이라고 다른 연결의 커밋이 막히지 않는다. 스냅샷을 보장할 수 없으면 조용히 건너뛰지 않고 거절한다."""
         from django.db import transaction
 
         self.charge(10, "m:r1")
@@ -363,7 +363,7 @@ class CheckLedgerSeesSpendDriftTests(TransactionTestCase):
         with override_settings(SIGNUP_GRANT_POINTS=1_000):
             api.grant_signup(adv, now=NOW)
         camp = uuid.uuid4()
-        api.charge_for_reaction(adv.pk, camp, "IMPRESSION", "IMPRESSION", 30, "m:r1", now=NOW)
+        api.charge_for_reaction(adv.pk, camp, "IMPRESSION", WHOLE, 30, "m:r1", now=NOW)
         self.assertEqual(api.check_ledger(), [])
         CampaignSpend.objects.filter(campaign_id=camp).update(spent=10)  # 재계산 경쟁이 남기던 상태
         problems = api.check_ledger()

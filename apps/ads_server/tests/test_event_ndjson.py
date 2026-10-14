@@ -15,12 +15,12 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, tag
 
 from billing.models import LedgerEntry
 from events import api as events
-from events import mongo, ndjson, store
+from events import ndjson, store
 from events.models import EventOutbox
 from events.relay import relay_batch
 from records import api as records
 from tests.factories import NOW, SUBJECT, World
-from tests.mongo_support import MongoDatabaseMixin
+from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 
 T = datetime(2026, 10, 10, 3, 0, tzinfo=timezone.utc)
 
@@ -246,7 +246,6 @@ class WriteAndVerifyTests(TempDirMixin, SimpleTestCase):
 
     def test_a_failure_at_any_step_keeps_a_verifiable_pointer_and_leaves_no_temporary_file(self):
         """계획 4-4i: 데이터 파일과 manifest 각각의 쓰기·파일 동기화·교체·폴더 동기화 중 어디서 실패해도 예외가 올라가고, 포인터는 온전한 게시본(교체 전이면 이전 것)을 가리키며, 임시 파일이 남지 않는다."""
-
         class FailingWrites:
             def __init__(self, handle):
                 self.handle = handle
@@ -344,16 +343,10 @@ class EventGapTests(MongoDatabaseMixin, TestCase):
         self.assertEqual(events.sent_but_not_in_mongo(limit=0), [])
 
     def test_when_mongodb_is_unreachable_the_answer_is_an_error_not_a_false_all_clear(self):
-        from django.test import override_settings
-
-        from events import mongo
-
         EventOutbox.objects.all().delete()
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             with self.assertRaises(Exception):
                 self.gaps()
-            mongo.close()
 
 
 @tag("security")
@@ -459,14 +452,10 @@ class ExportCommandTests(TempDirMixin, MongoDatabaseMixin, TransactionTestCase):
         self.assertTrue(row["message"])
 
     def test_mongodb_unreachable_fails_without_publishing_anything(self):
-        from django.test import override_settings
-
         out = self.tmpdir()
         EventOutbox.objects.all().delete()
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             ok, text = self.export(out)
-            mongo.close()
         self.assertFalse(ok)
         self.assertIn("점검하지 못했습니다", text)
         self.assertEqual(list(out.glob("*")) if out.exists() else [], [])  # 불완전한 결과를 게시하지 않는다

@@ -1,6 +1,6 @@
 """HTTP 계층 도우미 (설계 §3, 위협 T9~T14).
 
-- parse_json: 본문 크기·깊이 제한, NaN/Infinity·중복 키 거부, 최상위는 객체. 실패는 모두 ApiError → 4xx.
+- parse_json: 본문 크기·깊이 제한, NaN/Infinity·중복 키·범위 밖 숫자 거부, 최상위는 객체. 실패는 모두 ApiError → 4xx.
 - 오류 응답: `/api/` 는 application/problem+json, 그 외는 HTML. **입력 오류는 500 이 되지 않고 내부 정보를 싣지 않는다.**
 """
 import json
@@ -13,15 +13,15 @@ from django.template.loader import render_to_string
 from .errors import (
     ApiError, Forbidden, InvalidRequest, NotFound, PayloadTooLarge, Unavailable, UnsupportedMediaType,
 )
+from .validators import MAX_AMOUNT
 
 API_PREFIX = "/api/"
 DEFAULT_MAX_BYTES = 16 * 1024  # 계약: 요청 본문 최대 16 KiB
 DEFAULT_MAX_DEPTH = 8
 _JSON_CT = re.compile(r"^application/json\s*(;.*)?$", re.IGNORECASE)
-
-
-def is_api_path(path):
-    return path.startswith(API_PREFIX)
+# 요청 JSON 숫자의 크기 상한(정수·실수, 중첩 포함 — 설계 §10 "결정 API 세부", 6-2c). JavaScript 가 정수를 정확히 다루는 한계라 금액 상한과 같은 값이다.
+# 이것이 없으면 MySQL JSON 이 2^64 를 넘는 정수를 조용히 실수로 바꾸고, 실수 범위도 넘으면 저장 오류(3140)가 503 이 되어 매체가 같은 요청을 끝없이 재시도했다.
+MAX_JSON_NUMBER = MAX_AMOUNT
 
 
 # ---------- JSON 파싱 ----------
@@ -30,10 +30,25 @@ def _reject_constant(name):
     raise ValueError(f"허용하지 않는 값: {name}")  # NaN, Infinity, -Infinity
 
 
+class _NumberOutOfRange(ValueError):
+    pass
+
+
+def _parse_int(text):
+    if len(text.lstrip("-")) > len(str(MAX_JSON_NUMBER)):  # JSON 정수에는 앞자리 0 이 없다: 자릿수가 더 많으면 바꿔 보지 않고 범위 밖이다(긴 숫자열 변환 비용도 없다)
+        raise _NumberOutOfRange(text)
+    value = int(text)
+    if abs(value) > MAX_JSON_NUMBER:
+        raise _NumberOutOfRange(text)
+    return value
+
+
 def _parse_float(text):
     value = float(text)
     if not math.isfinite(value):  # 1e999999 같은 값
         raise ValueError("유한하지 않은 수")
+    if abs(value) > MAX_JSON_NUMBER:
+        raise _NumberOutOfRange(text)
     return value
 
 
@@ -98,8 +113,10 @@ def parse_json(request, max_bytes=DEFAULT_MAX_BYTES, max_depth=DEFAULT_MAX_DEPTH
         raise InvalidRequest("본문은 UTF-8 이어야 합니다.")
     try:
         value = json.loads(
-            text, parse_constant=_reject_constant, parse_float=_parse_float, object_pairs_hook=_no_duplicate_keys
+            text, parse_constant=_reject_constant, parse_int=_parse_int, parse_float=_parse_float, object_pairs_hook=_no_duplicate_keys
         )
+    except _NumberOutOfRange:
+        raise InvalidRequest(f"숫자는 -{MAX_JSON_NUMBER}~{MAX_JSON_NUMBER} 범위여야 합니다. 더 큰 수나 정확한 소수는 문자열로 보내세요.")
     except (ValueError, RecursionError):
         raise InvalidRequest("JSON 형식이 올바르지 않습니다.")
     if not isinstance(value, dict):
@@ -137,16 +154,12 @@ def problem_response(request, error):
     return response
 
 
-def _html_error(status, title, message):
-    html = render_to_string("foundation/error.html", {"status": status, "title": title, "message": message})
-    return HttpResponse(html, status=status)
-
-
 def error_response(request, error, message):
     """API 경로는 problem+json, 화면 경로는 HTML 오류 화면."""
-    if is_api_path(request.path):
+    if request.path.startswith(API_PREFIX):
         return problem_response(request, error)
-    return _html_error(error.status, error.title, message)
+    html = render_to_string("foundation/error.html", {"status": error.status, "title": error.title, "message": message})
+    return HttpResponse(html, status=error.status)
 
 
 def bad_request(request, exception=None):

@@ -17,10 +17,10 @@ python manage.py runserver 127.0.0.1:8001
 
 - **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `scripts/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.
-- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 기본 prod.
-- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`가 없으면 기동하지 않는다.
+- 설정은 `config/settings/{dev,prod,test}.py`. `manage.py`는 기본 dev, `manage.py test`는 항상 test, `wsgi/asgi`는 `.env`의 설정 모듈을 따르지 않고 실제 환경변수가 없으면 prod다(아래 "운영 배포").
+- prod는 `SECRET_KEY`(50자 이상)·`ALLOWED_HOSTS`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`·`DB_HOST`·`ADMIN_URL_PATH`(기본값 `admin/` 금지)·`MEDIA_ROOT`·`ASSET_PUBLIC_BASE_URL`·`TRUSTED_PROXY_COUNT`(1 이상)·`CSRF_TRUSTED_ORIGINS`가 없으면 기동하지 않는다.
 - 관리자 계정은 가입 화면이 없다: `python manage.py createsuperuser`.
-- dev 에서는 `DEBUG`가 기본 꺼져 있어 `runserver`가 정적 파일(CSS)을 서빙하지 않는다. 화면을 볼 때는 `DJANGO_DEBUG=1`로 실행한다.
+- 정적 파일(CSS·JS)은 Django가 WhiteNoise로 서빙한다(설계 §10 "정적 파일 서빙"). dev에서 `DJANGO_DEBUG=1`이면 `runserver`가 앱 폴더에서 바로 서빙하고, `DEBUG`가 꺼져 있으면(기본) `python manage.py collectstatic --noinput`을 한 번 돌린 뒤 다시 시작해야 화면에 CSS가 붙는다.
 
 ## MySQL 시험 환경
 
@@ -81,20 +81,45 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
   `eval "$(python scripts/mongo_temp_rs.py start)"` → 같은 셸에서 위 명령·`python manage.py test tests.test_event_store` → `python scripts/mongo_temp_rs.py stop $MONGO_TEMP_CONTAINER`
 - 앱(웹 프로세스)은 MongoDB를 호출하지 않는다. 요청은 MySQL의 outbox에 이벤트를 쓰기만 하고, MongoDB로 옮기는 일은 상시 중계(`relay_events`, 아래)가 한다. MongoDB가 끊기면 이벤트는 outbox에 쌓였다가 복구 뒤 옮겨진다(짧은 재시작 시험에서 요청 503 0, 장기 장애는 확인하지 않음 — 설계 §10 "MongoDB 장애와 요청").
 
-## 상시 프로세스와 이벤트 운영
+## 운영 배포
 
-웹 프로세스 말고 두 프로세스를 **상시로** 띄운다. 둘 다 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다.
+- **설정 모듈**: 운영 호스트에서 `manage.py`로 실행하는 모든 명령(`migrate`·`process_reactions`·`relay_events` 등)은 `DJANGO_SETTINGS_MODULE=config.settings.prod`를 **실제 환경변수로** 지정한다. `manage.py`의 기본은 dev다. 웹 진입점(`wsgi`·`asgi`)은 **`.env`의 설정 모듈을 따르지 않는다** — 실제 환경변수에 있으면 그 값, 없으면 prod다(`.env`의 다른 값은 그대로 읽는다, Step 6-3a). 그래서 `.env`에 dev가 남아 있어도 웹은 dev로 뜨지 않는다.
+- **배포 구성**(설계 §10 "배포 구성"): 광고 서버 앞 nginx(certbot)가 TLS·80→443 리다이렉트·HSTS·접속 허용 목록(강의실 라우터 IP·메타버스 서버 IP)을 맡고, 요청을 같은 호스트의 Django로 HTTP로 넘기기만 한다. Django는 HTTPS 리다이렉트·HSTS를 하지 않고 `X-Forwarded-Proto`도 읽지 않는다. 세션·CSRF 쿠키는 Secure라 nginx가 HTTP로 열면 로그인이 되지 않는다. `CSRF_TRUSTED_ORIGINS`에는 브라우저가 여는 https 주소를 적는다(Django가 요청을 HTTP로 알아 브라우저의 출처와 맞지 않으므로 필수 — 없으면 기동하지 않는다). nginx 쪽 요구사항(허용 목록과 certbot 검증 경로, 넘길 헤더, 업로드 크기, 바인딩)은 계획 §7.3.4 #9.
+- **배포 순서**: `migrate` → `collectstatic --noinput` → `ensure_event_store` → 웹과 상시 프로세스(아래). 웹은 `collectstatic` 뒤에 (다시) 시작한다 — WhiteNoise가 시작할 때 `STATIC_ROOT`를 읽는다. 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
+- **배포 점검 — 신뢰할 프록시 수 `TRUSTED_PROXY_COUNT`는 prod 필수이고 1 이상이다**(앞단 nginx 1단 = `1`, 설계 §10 "배포 구성"). 없거나 0 이하면 기동하지 않는다. 앱은 `X-Forwarded-For`의 오른쪽에서 이 수만큼째 값을 클라이언트 IP로 쓴다. 실제 프록시 수보다 적으면 모든 요청이 프록시 IP 하나로 보여 로그인 잠금(아이디 + IP 기준)이 아이디만 보는 것과 같아지고(남이 계정을 잠글 수 있다) 감사 로그의 IP가 모두 프록시 IP가 된다. 많으면 `X-Forwarded-For` 앞쪽의 위조 값을 믿게 된다. **Django 포트는 nginx 밖에 열지 않는다**(127.0.0.1 바인딩) — 열려 있으면 nginx를 거치지 않고 `X-Forwarded-For`를 위조해 IP를 고를 수 있다.
+- **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
+
+## 상시·주기 작업
+
+이 목록이 상시·주기 작업의 원본이다(설계 §10 "운영 작업 목록"). 주기와 스케줄러는 인프라와 정한다(설계 §7-9).
+
+| 작업 | 언제 | 하지 않으면 |
+|---|---|---|
+| `process_reactions` | 상시 | 반응이 `RECEIVED`로 남는다(판정·과금이 멈춘다). 한가할 때도 시작 직후·stuck 건수가 바뀔 때·60초마다 `idle {현황}` 줄을 찍으므로 **출력이 끊기면 멈춘 것**이다 |
+| `relay_events` | 상시 | 이벤트가 outbox에 쌓인다 |
+| `process_reactions --status` | 감시 | 처리하지 않고 현황만 본다: 대기(`received`, 아래 둘 포함)·보류(`held`)·`stuck`·가장 오래된 대기(`oldest_age_seconds`, 초, stuck 제외). `stuck`이 0보다 크면 과금되지 않은 반응이 있다(같은 결정의 뒤 반응도 그것을 기다리며 묶일 수 있다 → 원인을 고친 뒤 `--retry-stuck`). 대기 시간이 계속 늘면 처리기가 멈춘 것이다. 같은 값을 관리자 첫 화면 카드에서도 본다(화면을 연 때의 값) |
+| `relay_events --status` | 감시 | 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB가 끊긴 것 |
+| `purge_sent_events` | 매일 | 보낸 outbox 행이 쌓인다(보낸 지 7일 지난 것만 지운다, `EVENTS_OUTBOX_RETENTION_DAYS`) |
+| `clearsessions` | 매일 | 만료된 로그인 세션 행이 DB에 쌓인다(세션은 DB에 저장되고 지우는 곳이 따로 없다) |
+| `axes_reset_logs --age 30` | 매주 | 로그인 접속 기록(django-axes)이 계속 쌓인다(30일 넘은 것만 지운다) |
+| `end_expired_campaigns` | 주기 | 기간이 지난 캠페인의 저장 상태가 `ENDED`로 바뀌지 않는다(노출은 기간 판정이 막는다) |
+| `check_ledger` | 주기 | 잔액·원장·일 소진액의 불일치를 모른다(불일치면 비정상 종료) |
+| `export_hop_manifests` → `verify_hops` | 주기(창이 닫힌 뒤) | 구간(원본·outbox·MongoDB) 대조를 하지 않는다 |
+| `export_integrity` | 수시 | 원장·이벤트 정합성 점검 |
+| `process_reactions --retry-stuck` | 필요할 때 | 실패가 반복돼 자동 처리에서 빠진(stuck) 반응을 원인을 고친 뒤 다시 처리 대상으로 돌린다 |
+| `recompute_spend` | 예산 일 경계(`BUDGET_DAY_OFFSET_HOURS`)를 바꾼 뒤 | 일 소진액이 옛 경계 기준으로 남는다 |
+| `backfill_events` | 필요할 때(아래 "백필") | 이벤트가 빠진 원본 행이 그대로 남는다 |
+
+두 상시 프로세스는 여러 개를 동시에 돌려도 안전하고, DB나 MongoDB가 잠시 끊겨도 죽지 않고 다시 시도하며, SIGTERM에 정상 종료한다. 예외: 중계는 **MongoDB 설정(`MONGO_HOSTS`)이 없으면 다시 시도하지 않고 바로 멈춘다**(종료 코드 1, "이벤트 저장소 설정이 없어 중계를 멈춥니다"). 보낼 이벤트가 있을 때 드러나므로, 재시작해도 밀린 이벤트 때문에 바로 다시 멈춘다(재시작 반복으로 보인다). 웹은 MongoDB를 쓰지 않아 웹 노드에는 설정이 없어도 된다.
 
 ```bash
-python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함). 멈추면 반응이 RECEIVED 로 남는다
-python manage.py relay_events                # outbox → MongoDB ad_events. 멈추면 이벤트가 outbox 에 쌓인다
-python manage.py relay_events --status       # 미전송 건수와 가장 오래된 것의 나이(초). 계속 늘면 중계가 멈췄거나 MongoDB 가 끊긴 것
-python manage.py purge_sent_events           # 보낸 지 7일(EVENTS_OUTBOX_RETENTION_DAYS) 지난 outbox 행 삭제. 미전송은 지우지 않는다. 하루 한 번처럼 주기적으로
+python manage.py process_reactions           # 반응 판정·과금(보류 해소 포함)
+python manage.py relay_events                # outbox → MongoDB ad_events
 python manage.py export_integrity --out DIR  # 원장·이벤트 정합성 점검(한 읽기 스냅샷). 결과는 NDJSON + manifest, 문제가 있으면 비정상 종료
 python manage.py verify_ndjson DIR/event_gaps.manifest.json   # 게시된 결과가 manifest 와 맞는지 확인
 python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT          # 백필 미리보기(dry-run, 쓰지 않음)
 python manage.py backfill_events --input DIR/event_gaps.manifest.json --out OUT --apply  # 원본 행에서 이벤트를 다시 만들어 outbox 에 씀(중계가 보냄)
-python manage.py export_hop_manifests --out HOPS   # 원본 기대·outbox·MongoDB 세 구간의 창별 manifest(창이 닫힌 뒤, 주기적으로)
+python manage.py export_hop_manifests --out HOPS   # 원본 기대·outbox·MongoDB 세 구간의 창별 manifest
 python manage.py verify_hops --dir HOPS            # 구간 대조. 확정 불일치·사슬 오류·고정점 불일치면 비정상 종료, 중계 지연 후보만 있으면 보고
 ```
 
@@ -128,14 +153,15 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 ## `check --deploy`
 
 0-4 이후 prod 설정의 경고는 **0**이다(`python -m django check --deploy --fail-level WARNING`, 테스트로 강제).
-`security.W021`(HSTS 프리로드)만 **의도적으로 끈다**: 내부 서비스이고 프리로드 등록은 되돌리기 어렵다(`config/settings/prod.py`에 사유).
+`security.W004`(HSTS 없음)·`security.W008`(HTTPS 리다이렉트 없음)을 **의도적으로 끈다**: HTTPS는 앞단 nginx가 맡고 Django는 HTTP로 받는다(6-5d, `config/settings/prod.py`에 사유). 6-5d 전에는 `security.W021`(HSTS 프리로드)만 껐는데, Django가 HSTS를 붙이지 않게 되어 그 경고는 더 나지 않는다.
+직접 만든 경고는 없다. 6-3h의 프록시 설정 누락 경고(`foundation.W001`)는 6-5c에서 지웠다 — 신뢰할 프록시 수가 prod 필수값(1 이상)이 되어 빠뜨리면 기동하지 않는다.
 
 ## 알려진 사항
 
-- 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다.
+- 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다. 첫 화면에는 반응 처리 현황 카드(대기·보류·stuck·가장 오래된 대기, stuck이 있으면 강조)가 있다.
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
 - 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
-- 정적 파일(CSS)은 DEBUG 에서만 `runserver` 가 서빙한다. 운영에서는 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 웹서버(인프라)가 서빙한다. 웹서버 설정은 배포 단계의 일이다.
+- 정적 파일(CSS·JS)은 운영에서도 Django가 서빙한다: `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 WhiteNoise가 내준다(시작할 때 읽으므로 모은 뒤 재시작). 앞단 nginx는 통로만 맡는다(6-5e, 설계 §10 "정적 파일 서빙" — 전에는 웹서버가 서빙하기로 했다). 파일 이름에 해시를 붙이지 않아 캐시는 WhiteNoise 기본값(짧은 유효 시간)이다.
 
 ## 매체 키 (C1 인증)
 
@@ -148,3 +174,5 @@ python manage.py media_key revoke <키 ID>   --admin <관리자 아이디>      
 ```
 
 요청 제한(`MEDIA_RATE_LIMITS`)은 프로세스 메모리 기반이라 워커가 여러 개면 한도가 그만큼 느슨해진다(설계 §10).
+
+키 발급·교체(`issue`·`rotate`)와 매체 켜기·끄기는 매체 행을 잠근다. 그동안 그 매체의 결정 요청과 반응 판정이 잠시 기다린다(매체 생명주기 잠금, 설계 §10 "매체 비활성화와 판정·결정의 순서"). 키 폐기(`revoke`)는 매체 행을 잠그지 않는다.

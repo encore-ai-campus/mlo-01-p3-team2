@@ -6,16 +6,14 @@ Django 의 `bulk_create` 는 모델의 `save()` 를 호출하지 않으므로 `s
 from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 
-from billing import api as billing
 from billing.models import LedgerEntry
-from campaigns.models import Bid
-from foundation.api import record_audit
+from campaigns.models import AdGroupCreative, Bid
 from foundation.models import AppendOnlyError, AuditLog
 from masters.models import BidPolicy
 from records.models import Decision
-from tests.factories import SUBJECT, World
+from tests.factories import DAY, NOW, SUBJECT, World
 
-OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy"}
+OVERWRITE = {"AuditLog": "action", "BidPolicy": "reason", "Bid": "amount", "LedgerEntry": "note", "Decision": "selection_policy", "AdGroupCreative": "linked_at"}
 
 
 def clone_with_same_pk(row, field, value):
@@ -36,6 +34,7 @@ class AllAppendOnlyModelsTests(TestCase):
             "Bid": (Bid.objects.first(), 999),
             "LedgerEntry": (LedgerEntry.objects.first(), "overwritten"),
             "Decision": (Decision.objects.get(decision_id=decision.decision_id), "overwritten"),
+            "AdGroupCreative": (AdGroupCreative.objects.first(), NOW + DAY),  # 소재 연결(6-9c) — 끊거나 바꾸지 않는다
         }
 
     def test_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite(self):
@@ -56,6 +55,10 @@ class AllAppendOnlyModelsTests(TestCase):
                 clone_with_same_pk(row, field, value).save()
             with self.assertRaises(AppendOnlyError, msg=(name, "force_update")):
                 clone_with_same_pk(row, field, value).save(force_update=True)
+            with self.assertRaises(AppendOnlyError, msg=(name, "update_fields")):
+                clone_with_same_pk(row, field, value).save(update_fields=[field])
+            with self.assertRaises((IntegrityError, AppendOnlyError), msg=(name, "update_or_create")), transaction.atomic():
+                model.objects.update_or_create(pk=row.pk, defaults={field: value})
             self.assertEqual(getattr(model.objects.get(pk=row.pk), field), original, name)  # 원본 행은 그대로
 
     def test_ignore_conflicts_skips_but_never_overwrites(self):
@@ -69,7 +72,5 @@ class AllAppendOnlyModelsTests(TestCase):
     def test_models_really_are_all_append_only_models(self):
         from foundation.models import AppendOnlyModel
 
-        for model in (AuditLog, BidPolicy, Bid, LedgerEntry, Decision):
+        for model in (AuditLog, BidPolicy, Bid, LedgerEntry, Decision, AdGroupCreative):
             self.assertTrue(issubclass(model, AppendOnlyModel), model.__name__)
-        self.assertIsNotNone(record_audit)
-        self.assertIsNotNone(billing)

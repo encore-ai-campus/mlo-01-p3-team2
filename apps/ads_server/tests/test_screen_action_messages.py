@@ -89,16 +89,12 @@ class AdvertiserActionMessageTests(ActionBase):
         self.client.force_login(self.w.adv)
         self.group_page, self.campaign_page = reverse("ad_group_detail", args=[self.gid]), reverse("campaign_detail", args=[self.cid])
 
-    def test_ad_group_and_creative_switches(self):
-        for name, target, what in (("ad_group_enabled", self.gid, "광고그룹을"), ("creative_enabled", self.crid, "소재를")):
-            with self.subTest(name):
-                self.assertEqual(self.post(name, [target], {"enabled": "0"}, self.group_page), [("success", f"{what} 껐습니다.")])
-                self.assertEqual(self.post(name, [target], {"enabled": "1"}, self.group_page), [("success", f"{what} 켰습니다.")])
+    def test_ad_group_switch(self):
+        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "0"}, self.group_page), [("success", "광고를 껐습니다.")])
+        self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("success", "광고를 켰습니다.")])
         campaigns.end_campaign(self.w.adv, self.cid)
         ended_group = shown(lambda: campaigns.update_ad_group(self.w.adv, self.gid, {"enabled": True}))
-        ended_creative = shown(lambda: campaigns.update_creative(self.w.adv, self.crid, {"enabled": True}))
         self.assertEqual(self.post("ad_group_enabled", [self.gid], {"enabled": "1"}, self.group_page), [("error", ended_group)])
-        self.assertEqual(self.post("creative_enabled", [self.crid], {"enabled": "1"}, self.group_page), [("error", ended_creative)])
 
     def test_campaign_status_review_and_end(self):
         self.assertEqual(self.post("campaign_status", [self.cid], {"status": "PAUSED", "back": "list"}, reverse("campaign_list")), [("success", "캠페인을 껐습니다.")])

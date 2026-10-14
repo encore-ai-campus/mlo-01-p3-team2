@@ -1,0 +1,47 @@
+{% extends "console/base.html" %}
+{% load static console_format %}
+{% block title %}{{ creative.title }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'creative_list' %}">← 소재</a></p>
+<section class="card">
+  <h1>{{ creative.title }}</h1>
+  <img class="preview" src="{% url 'creative_image_file' creative.creative_id %}" alt="{{ creative.title }} 소재 이미지">
+  <p>→ <strong>{{ creative.redirect_url|domain }}</strong> <span class="muted">{{ creative.redirect_url }}</span></p>
+  {% if creative.archived %}
+  <p class="notice">삭제한 소재입니다. 이미 나간 광고의 기록에만 남아 있습니다.</p>
+  {% else %}
+  <h2>쓰는 광고</h2>
+  <ul>
+    {% for u in owned.uses %}<li><a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 나가는 중{% endif %})</span></li>
+    {% empty %}<li class="muted">아직 쓰는 광고가 없습니다.</li>{% endfor %}
+  </ul>
+  {% if owned.deletable %}
+  <form method="post" action="{% url 'creative_archive' creative.creative_id %}" data-confirm="‘{{ creative.title }}’ 소재를 삭제합니다.">{% csrf_token %}
+    <button type="submit" class="secondary">삭제</button>
+  </form>
+  {% else %}<p class="muted">끝나지 않은 캠페인의 광고에 쓰여 삭제할 수 없습니다.</p>{% endif %}
+  {% endif %}
+</section>
+
+{% if not creative.archived %}
+<section class="card" aria-label="소재 수정">
+  <h1>수정</h1>
+  <p class="muted">고치면 이 소재를 쓰는 모든 광고에 다음 결정부터 적용됩니다. 이미 나간 광고는 그대로입니다.</p>
+  <form method="post" action="{% url 'creative_edit' creative.creative_id %}">{% csrf_token %}
+    {% if edit.non_field_errors %}<div class="notice error" role="alert">{{ edit.non_field_errors }}</div>{% endif %}
+    {{ edit.updated_at }}
+    {{ edit.title.as_field_group }}
+    {{ edit.redirect_url.as_field_group }}
+    <button type="submit" class="secondary">제목·주소 저장</button>
+  </form>
+  <form method="post" action="{% url 'creative_image' creative.creative_id %}" enctype="multipart/form-data">{% csrf_token %}
+    {% if image.non_field_errors %}<div class="notice error" role="alert">{{ image.non_field_errors }}</div>{% endif %}
+    {{ image.updated_at }}
+    {{ image.image.as_field_group }}
+    <p class="muted">PNG·JPEG. 이전 이미지는 이미 나간 광고를 위해 보관하며, 보관분도 업로드 총량에 들어갑니다.</p>
+    <button type="submit" class="secondary">이미지 바꾸기</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script>{% endblock %}

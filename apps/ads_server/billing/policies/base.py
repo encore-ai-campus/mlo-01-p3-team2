@@ -6,4 +6,4 @@ class ChargePolicy(Protocol):
 
     name: str
 
-    def amount_for(self, reaction_type: str, pricing_unit: str, applied_amount: int) -> int: ...
+    def amount_for(self, reaction_type: str, shares: dict[str, int], applied_amount: int) -> int: ...  # shares: 반응 유형 → 비율(%)

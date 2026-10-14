@@ -4,21 +4,20 @@
 광고 없던 결정은 404, 같은 사람의 중복 클릭은 1건, 일괄 슬롯은 `?s=`가 없거나 틀리면 이동만 한다.
 """
 import json
-import threading
 import uuid
 from unittest import mock
 
 from django.core import signing
-from django.db import OperationalError, connection
+from django.db import OperationalError
 from django.test import Client, TestCase, TransactionTestCase, override_settings, tag
 
 from masters import api as masters
 from records.models import Decision, Reaction
 from records.services import click_reaction_id
 from serving_api.clicks import SALT
-from serving_api.throttle import buckets
+from tests.concurrency import run_together
 from tests.contract_support import Contract, ProviderContractMixin
-from tests.factories import NOW, SUBJECT, World, png_file
+from tests.factories import NOW, SUBJECT, World, media_api
 
 BASE = "http://testserver"
 PATH = "/c/{token}"
@@ -31,14 +30,8 @@ class ClickBase(ProviderContractMixin, TestCase):
     contract = Contract("serving")
 
     def setUp(self):
-        buckets.reset()
-        self.addCleanup(buckets.reset)
-        self.w = World()
-        self.key = masters.issue_media_key(self.w.admin, self.w.slot.media_id).key
+        self.w, self.key = media_api(self)
         self.client = Client()
-        patcher = mock.patch("records.services._now", lambda now=None: now or NOW)  # 후보 광고의 기간(NOW 기준)이 맞도록 시각을 고정한다
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def decide(self, slot=None, **body):
         slot = slot or self.w.slot
@@ -48,10 +41,7 @@ class ClickBase(ProviderContractMixin, TestCase):
         return response.json()
 
     def shared_slot(self):
-        slot = masters.create_slot(self.w.admin, self.w.slot.media_id, "전광판", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
-        group = self.w.api.create_ad_group(self.w.adv, self.w.campaign.campaign_id, "일괄 그룹", "IMPRESSION", [slot.slot_id], bid_amount=40, now=NOW)
-        self.w.api.create_creative(self.w.adv, group.ad_group_id, "전광판 광고", "https://example.com/board", png_file((7, 7, 7)), now=NOW)
-        return slot
+        return self.w.shared_ad()[0]
 
     def follow(self, url, **extra):
         return Client().get(url.removeprefix(BASE), **extra)
@@ -304,19 +294,8 @@ class ConcurrentClickTests(ProviderContractMixin, TransactionTestCase):
             body = Client().post("/api/media/v1/decisions", data=json.dumps({"slot_id": str(w.slot.slot_id), "subject_id": SUBJECT}),
                                  content_type="application/json", HTTP_X_MEDIA_KEY=key).json()
         path = body["ad"]["click_url"].removeprefix(BASE)
-        barrier, statuses = threading.Barrier(10), []
-
-        def worker():
-            try:
-                barrier.wait(timeout=10)
-                statuses.append(Client().get(path).status_code)  # 재시도하지 않는다: 정상 경쟁에서 503 이 나면 안 된다
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=worker) for _ in range(10)]
-        [t.start() for t in threads]
-        [t.join(timeout=60) for t in threads]
-        self.assertEqual(statuses, [302] * 10)
+        statuses, errors = run_together([lambda: Client().get(path).status_code] * 10, timeout=60)  # 재시도하지 않는다: 정상 경쟁에서 503 이 나면 안 된다
+        self.assertEqual((statuses, errors), ([302] * 10, []))
         self.assertLessEqual(Reaction.objects.filter(source="server").count(), 1)
         Client().get(path)  # 동시 경합에서 기록이 밀렸어도 다음 클릭이 채운다
         self.assertEqual(Reaction.objects.filter(source="server").count(), 1)

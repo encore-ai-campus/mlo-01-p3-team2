@@ -5,7 +5,6 @@ from django.shortcuts import redirect, render
 from django.views import View
 
 from billing.api import register_advertiser
-from foundation.api import SignupRateLimited, client_ip, register_attempt
 
 from ..errors import form_errors
 from ..forms import SignupForm
@@ -21,13 +20,6 @@ class SignupView(View):
         return render(request, self.template_name, {"form": SignupForm()})
 
     def post(self, request):
-        try:
-            register_attempt(client_ip(request))
-        except SignupRateLimited as e:
-            response = render(request, "console/signup_limited.html", status=429)
-            response["Retry-After"] = str(e.retry_after)
-            return response
-
         form = SignupForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data

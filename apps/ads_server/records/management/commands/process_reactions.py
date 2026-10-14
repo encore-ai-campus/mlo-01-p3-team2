@@ -4,18 +4,28 @@ import time
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import InterfaceError, OperationalError, close_old_connections, connection
+from django.utils import timezone
 
-from records.api import process_pending, reset_stuck, stuck_count
+from records.api import inbox_status, process_pending, reset_stuck, stuck_count
+
+HEARTBEAT_SECONDS = 60  # 한가할 때도 이 간격으로 처리 현황을 찍는다 — 아무 출력이 없으면 멈춘 것이다(설계 §10 "반응 처리 현황 노출", 6-3c)
+
+
+def stamped(text):
+    """상시 실행의 상태·장애 줄 앞에 UTC 시각(로그와 같은 ISO 8601 Z 형식 — `foundation.logging.UtcFormatter`, 6-3b). 일회성 조회(`--status`)에는 붙이지 않는다."""
+    now = timezone.now()
+    return f"{now:%Y-%m-%dT%H:%M:%S}.{now.microsecond // 1000:03d}Z {text}"
 
 
 class Command(BaseCommand):
     help = (
         "수신함의 RECEIVED 반응을 처리한다(규칙 체인 → 과금 → ACCEPTED/REJECTED). 기본은 단일 관리 프로세스로 1초 주기·배치 100 으로 계속 돈다. "
-        "--once 는 밀린 것을 비우고 끝난다. 여러 개를 동시에 돌려도 안전하다(이중 과금 없음)."
+        "--once 는 밀린 것을 비우고 끝난다. 여러 개를 동시에 돌려도 안전하다(이중 과금 없음). --status 는 처리 현황만 본다."
     )
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true", help="한 번 비우고 종료")
+        parser.add_argument("--status", action="store_true", help="처리 현황(대기·보류·stuck·가장 오래된 대기)만 출력")
         parser.add_argument("--interval", type=float, default=1.0, help="주기(초). 기본 1")
         parser.add_argument("--batch", type=int, default=100, help="한 번에 처리할 최대 건수. 기본 100")
         parser.add_argument("--retry-stuck", action="store_true", help="실패가 반복돼 빠진 반응의 실패 횟수를 0 으로 되돌려 다시 처리 대상으로")
@@ -36,26 +46,37 @@ class Command(BaseCommand):
             raise CommandError("--batch 는 1 이상의 정수여야 합니다.")
         if not (math.isfinite(interval) and interval > 0):
             raise CommandError("--interval 은 유한한 양수(초)여야 합니다.")
+        if options["status"]:  # 일회성 조회: 처리하지 않고 시각도 붙이지 않는다(감시가 읽기 쉽게)
+            self.stdout.write(str(inbox_status()))
+            return
         # 옵션 검증이 모두 끝난 뒤에야 상태를 바꾼다
         if options["retry_stuck"]:
-            self.stdout.write(f"retried-stuck: {reset_stuck()}")
+            self.stdout.write(stamped(f"retried-stuck: {reset_stuck()}"))
         stop = []
         previous = signal.signal(signal.SIGTERM, lambda *_: stop.append(1))  # 배포·재시작 때 처리 중인 한 건은 끝내고 멈춘다
         mode = "once" if options["once"] else f"interval={interval}"
-        self.stdout.write(f"started {mode} batch={batch}")  # 신호 처리기가 설치된 뒤의 시작 표시(운영 로그·부하 시험의 준비 확인)
+        self.stdout.write(stamped(f"started {mode} batch={batch}"))  # 신호 처리기가 설치된 뒤의 시작 표시(운영 로그·부하 시험의 준비 확인)
         self.stdout.flush()
+        reported_at, reported_stuck = time.monotonic(), None
         try:
             while True:
                 try:
                     total = self.drain(batch, lambda: bool(stop))
                     if any(total.values()) or options["once"]:
-                        self.stdout.write(f"{total} stuck={stuck_count()}")
+                        reported_stuck = stuck_count()
+                        self.stdout.write(stamped(f"{total} stuck={reported_stuck}"))
+                        reported_at = time.monotonic()
+                    else:  # 한가하다: 시작 직후·stuck 이 바뀌었을 때·HEARTBEAT_SECONDS 마다 현황을 찍는다(질의 한 번)
+                        status = inbox_status()
+                        if status["stuck"] != reported_stuck or time.monotonic() - reported_at >= HEARTBEAT_SECONDS:
+                            self.stdout.write(stamped(f"idle {status}"))
+                            reported_at, reported_stuck = time.monotonic(), status["stuck"]
                 except (OperationalError, InterfaceError) as error:
                     if options["once"]:
                         raise  # 한 번 실행은 실패를 그대로 알린다
                     # 상시 처리는 DB 가 잠시 끊겨도(재시작·전환·장애) 죽지 않는다: 연결을 버리고 주기마다 다시 시도한다. 죽으면 복구된 뒤에도 아무도 처리하지 않는다.
                     # 처리하던 반응은 트랜잭션이 되돌려져 RECEIVED 로 남아 있다(유실·이중 과금 없음).
-                    self.stderr.write(f"DB 연결 문제로 이번 주기를 건너뛴다(다음 주기에 다시): {error}")
+                    self.stderr.write(stamped(f"DB 연결 문제로 이번 주기를 건너뛴다(다음 주기에 다시): {error}"))
                     if not connection.in_atomic_block:  # 상시 처리는 트랜잭션 밖에서 돈다(단위 시험의 열린 트랜잭션을 닫지 않는다)
                         close_old_connections()  # 끊긴 연결을 버린다 — 다음 질의가 새로 연다
                 if options["once"] or stop:

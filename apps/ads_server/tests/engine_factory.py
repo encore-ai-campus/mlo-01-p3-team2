@@ -11,8 +11,8 @@ def cand(**kw):
 
     values = dict(
         campaign_id=uuid.uuid4(), ad_group_id=uuid.uuid4(), creative_id=uuid.uuid4(), slot_id=SLOT,
-        pricing_unit="IMPRESSION", bid_amount=30, bid_version=1, bid_created_at=NOW - timedelta(days=1),
-        floor=10, base=20, cap=50, policy_version=1,
+        bid_amount=30, bid_version=1,
+        floor=10, cap=50, policy_version=1,
         campaign_status="ACTIVE", ad_group_enabled=True,
         period_start=NOW - timedelta(days=1), period_end=NOW + timedelta(days=1),
         wallet_balance=10_000, remaining_daily_budget=10_000,

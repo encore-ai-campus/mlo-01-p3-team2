@@ -5,6 +5,7 @@
 **`subject_id` 를 토큰에 싣지 않는다**: `signing` 은 암호화가 아니라 base64 라서 가명 ID 가 URL(브라우저 기록·접근 로그)에 드러난다. 개인 슬롯의 사람은
 결정(추가만 되는 기록, 사람 한 명)에서 정해진다.
 """
+import logging
 import uuid
 
 from django.conf import settings
@@ -20,6 +21,7 @@ from records import api as records
 
 from .requests import UUID_PATTERN
 
+logger = logging.getLogger(__name__)
 SALT = "ads_server.click.v1"
 MAX_TOKEN_LENGTH = 512  # 계약 `token` 의 maxLength
 SHARED_TEMPLATE = "{subject_id}"  # 일괄 슬롯의 `click_url` 에서 매체가 사람의 `subject_id` 로 바꿔 넣는 자리
@@ -58,7 +60,9 @@ def follow_click(request, token):
     decision_id = parse_token(token)
     try:
         url = records.observe_click(decision_id, _viewer(request))
-    except OperationalError:  # 이동할 곳을 읽지 못했다. 복구되면 같은 주소를 다시 열면 된다
+    except OperationalError as error:  # 이동할 곳을 읽지 못했다. 복구되면 같은 주소를 다시 열면 된다
+        # 원인을 한 줄로 남긴다(트레이스백 없음 — 장애 중에 클릭마다 트레이스백이 쌓이지 않게, 6-3b)
+        logger.warning("클릭 처리 중 DB 오류로 503 decision=%s %s %s", decision_id, type(error).__name__, error.args[0] if error.args else "-")
         raise errors.Unavailable("일시적으로 처리할 수 없습니다. 잠시 뒤에 다시 시도하세요.")
     response = HttpResponseRedirect(url)  # 302
     response["Cache-Control"] = "no-store"

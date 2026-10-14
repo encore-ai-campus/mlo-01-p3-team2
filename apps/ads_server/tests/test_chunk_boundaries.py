@@ -1,6 +1,7 @@
 """청크로 나눠 읽는 조회가 청크 크기를 넘는 입력에서도 빠짐없이·중복 없이 답한다(경계를 넘는 마지막 덜 찬 청크 포함)."""
 import datetime
 import uuid
+from unittest import mock
 
 from django.test import TestCase
 
@@ -11,7 +12,7 @@ from events import relay, store
 from events.models import EventOutbox
 from records import api as records
 from records.models import Decision
-from tests.factories import SUBJECT, make_advertiser
+from tests.factories import NOW, SUBJECT, make_advertiser
 from tests.mongo_support import MongoDatabaseMixin
 from tests.test_event_relay import enqueue_decisions
 
@@ -58,7 +59,7 @@ class LedgerLookupChunkTests(TestCase):
         wallet = Wallet.objects.create(owner=make_advertiser(), balance=0)
         campaign_id = uuid.uuid4()
         entries = [LedgerEntry(wallet=wallet, seq=n, entry_type=EntryType.CHARGE, amount=-n, balance_after=0, campaign_id=campaign_id,
-                               reaction_ref=f"ref-{n}", charge_policy="by-unit/v1", created_at=T0) for n in range(1, 503)]
+                               reaction_ref=f"ref-{n}", charge_policy="share/v1", created_at=T0) for n in range(1, 503)]
         LedgerEntry.objects.bulk_create(entries)
         refs = [f"ref-{n}" for n in range(1, 503)] + ["ref-unknown"]
         self.assertEqual(billing.charged_amounts(refs), {f"ref-{n}": n for n in range(1, 503)})
@@ -69,7 +70,7 @@ class LedgerLookupChunkTests(TestCase):
 
 class EventGapsChunkTests(MongoDatabaseMixin, TestCase):
     def test_event_gaps_reports_every_row_across_the_2000_row_chunks(self):
-        decisions = [Decision(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="highest-bid/v1",
+        decisions = [Decision(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="weighted-by-bid/v1",
                               trace={}, candidate_count=0, rejected_counts={}, decided_at=T0) for _ in range(2003)]
         Decision.objects.bulk_create(decisions)
         stats = {}
@@ -94,3 +95,13 @@ class ChunkSizeContractTests(TestCase):
         for chunk in (0, -1):
             with self.assertRaisesRegex(ValueError, "chunk"):
                 records.backfill_events("/nonexistent/event_gaps.manifest.json", chunk=chunk)
+
+
+class MissingEventIdsTests(TestCase):
+    def test_ids_all_found_in_the_outbox_do_not_touch_mongodb(self):
+        rows = EventOutbox.objects.bulk_create([
+            EventOutbox(event_id=uuid.uuid4(), event_name="ad.decision", schema_version=1, aggregate_id=uuid.uuid4(), payload={}, created_at=NOW)
+            for _ in range(3)
+        ])
+        with mock.patch("events.store.collection", side_effect=AssertionError("MongoDB 에 묻지 않아야 한다")):
+            self.assertEqual(events.missing_event_ids([r.event_id for r in rows], chunk=2), [])

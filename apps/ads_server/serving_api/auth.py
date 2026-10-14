@@ -31,17 +31,13 @@ GROUPS = ("decisions", "reactions", "reads")
 _KEY_ID = re.compile(r"[0-9a-f]{32}")
 
 
-def _unauthorized():
-    return errors.Unauthorized("유효한 X-Media-Key 가 필요합니다.", headers={"WWW-Authenticate": CHALLENGE})
-
-
 def authenticate(request):
     raw = request.headers.get("X-Media-Key", "").strip()
     identity = masters.authenticate_media_key(raw) if raw else None
     if identity is None:
         prefix = raw.split(".", 1)[0]  # 공개 식별자만 기록한다(비밀 부분은 절대 기록하지 않는다)
         logger.warning("매체 키 거절 key_id=%s", prefix if _KEY_ID.fullmatch(prefix) else "-")
-        raise _unauthorized()
+        raise errors.Unauthorized("유효한 X-Media-Key 가 필요합니다.", headers={"WWW-Authenticate": CHALLENGE})
     if not identity.media_is_active:
         raise errors.Forbidden("이 매체는 비활성입니다.")
     return identity
@@ -63,7 +59,7 @@ def media_endpoint(group):
                     raise errors.RateLimited("요청이 너무 많습니다.", retry_after=wait)
                 request.media = identity
                 return view(request, *args, **kwargs)
-            except OperationalError:  # 잠금·디스크·연결 장애: 복구되면 다시 보내면 된다. 뷰의 트랜잭션은 이미 되돌려졌다
+            except OperationalError:  # 잠금·디스크·연결 장애: 복구되면 다시 보내면 된다. 뷰의 트랜잭션은 되돌려졌거나, 커밋 응답이 끊겼다면 이미 커밋됐을 수 있다(그래서 503 = 성공 미확인)
                 logger.exception("저장소 일시 장애 group=%s", group)
                 raise errors.Unavailable("일시적으로 처리할 수 없습니다. 잠시 뒤에 다시 시도하세요.")
 

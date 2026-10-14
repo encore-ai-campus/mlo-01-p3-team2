@@ -5,7 +5,7 @@ from django.views.decorators.http import require_POST
 
 from foundation.api import change_password, update_profile
 
-from ..errors import HANDLED, form_errors
+from ..errors import submit
 from ..forms import PasswordChangeForm, ProfileForm
 
 
@@ -18,28 +18,20 @@ def my_account(request):
     if request.method != "POST":
         return _page(request)
     form = ProfileForm(request.POST)
-    if form.is_valid():
-        try:
-            update_profile(request.user, **form.cleaned_data)
-        except HANDLED as e:
-            form_errors(form, e)
-        else:
-            messages.success(request, "내 정보를 바꿨습니다.")
-            return redirect("my_account")
-    return _page(request, profile_form=form, status=400)
+    _, status = submit(form, lambda d: update_profile(request.user, **d))
+    if status is None:
+        messages.success(request, "내 정보를 바꿨습니다.")
+        return redirect("my_account")
+    return _page(request, profile_form=form, status=status)
 
 
 @require_POST
 def my_password(request):
-    """현재 비밀번호가 틀리면 400. 로그인과 합쳐 5번 틀리면 axes 미들웨어가 응답을 잠금(429)으로 바꾼다(서비스가 같은 계수를 쓴다)."""
+    """현재 비밀번호가 틀리면 400, 확인한 뒤 계정 상태가 바뀌었으면(비활성화·관리자 초기화) 409.
+    로그인과 합쳐 5번 틀리면 axes 미들웨어가 응답을 잠금(429)으로 바꾼다(서비스가 같은 계수를 쓴다)."""
     form = PasswordChangeForm(request.POST)
-    if form.is_valid():
-        data = form.cleaned_data
-        try:
-            change_password(request.user, data["current_password"], data["new_password"], request=request)
-        except HANDLED as e:
-            form_errors(form, e)
-        else:
-            messages.success(request, "비밀번호를 바꿨습니다. 다른 기기의 로그인은 끝났습니다.")
-            return redirect("my_account")
-    return _page(request, password_form=form, status=400)
+    _, status = submit(form, lambda d: change_password(request.user, d["current_password"], d["new_password"], request=request))
+    if status is None:
+        messages.success(request, "비밀번호를 바꿨습니다. 다른 기기의 로그인은 끝났습니다.")
+        return redirect("my_account")
+    return _page(request, password_form=form, status=status)

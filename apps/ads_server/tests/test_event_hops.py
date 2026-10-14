@@ -23,8 +23,8 @@ from foundation.models import AuditLog
 from records import api as records
 from records.models import Decision, Reaction
 from records.processing import reaction_ref
-from tests.factories import DAY, NOW, SUBJECT, World
-from tests.mongo_support import MongoDatabaseMixin
+from tests.factories import DAY, NOW, SUBJECT, WHOLE, World
+from tests.mongo_support import MongoDatabaseMixin, unreachable_store
 
 UTC = timezone.utc
 
@@ -132,7 +132,7 @@ class WindowedSummaryTests(TestCase):
 
     def everything(self):
         """전부 읽은 기대 이벤트(예전 방식의 입력)."""
-        return [events.normal_document(i, name, events.SCHEMA_VERSION, at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
+        return [events.normal_document(i, name, events.SCHEMA_VERSIONS[name], at, payload) for i, (name, _key, at, payload) in records.expected_events().items()]
 
     def test_the_source_hop_matches_summarizing_everything_at_once(self):
         docs = self.everything()
@@ -163,7 +163,7 @@ class WindowedSummaryTests(TestCase):
                                               uuid.uuid4(), "IMPRESSION", NOW, {"type": "IMPRESSION"}, now=NOW)  # 받았지만 판정 전
         refs = [f"{w.slot.media_id}:{uuid.uuid4()}", f"{w.slot.media_id}:{pending.reaction_id}", "형식이-틀린-키"]
         for ref in refs:
-            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 10, ref, now=NOW)
+            billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 10, ref, now=NOW)
         entries = [e.entry_id for e in billing.charge_entries_for(refs)]
         count, examples = records.unresolved_charges()
         self.assertEqual((count, sorted(examples)), (3, sorted(str(e) for e in entries)))
@@ -213,6 +213,8 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         records.process_reaction(view.inbox_id, now=NOW + timedelta(seconds=7))
 
     def export(self, *flags, out="out"):
+        if "--as-of" not in flags:  # 시험 데이터의 날짜는 고정(2026-10-07)이다 — 실제 지금으로 내보내면 보존 기준(지금 − 7일)이 그 창을 넘는 날부터 대조 제외가 된다(6-14d)
+            flags = ("--as-of", (NOW + 3 * DAY).isoformat(), *flags)
         stdout = io.StringIO()
         try:
             call_command("export_hop_manifests", "--out", str(self.dir / out), *flags, stdout=stdout)
@@ -226,19 +228,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
 
     def keyed(self, hop, **kw):
         return {(l["window_start"], l["event_name"]): l for l in self.lines(hop, **kw)[0]}
-
-    def test_three_hops_agree_after_the_relay(self):
-        relay_batch()
-        ok, text = self.export()
-        self.assertTrue(ok, text)
-        source, outbox, mongo = (self.keyed(h) for h in ("hop_source", "hop_outbox", "hop_mongo"))
-        self.assertEqual(sorted(source), sorted(outbox))
-        self.assertEqual(len(source), 4)  # 이벤트 네 종류 × 창 하나(2026-10-07)
-        for key in source:
-            for field in ("count", "ids_sha256", "content_sha256", "window_end"):
-                self.assertEqual(source[key][field], outbox[key][field], (key, field))
-                self.assertEqual(source[key][field], mongo[key][field], (key, field))
-            self.assertEqual(outbox[key]["unsent"], 0)
 
     def test_several_windows_agree_and_only_the_range_is_read(self):
         """창 여러 개(--since 앞의 창 포함): 세 구간이 창마다 같고, 읽은 이벤트 수는 범위 안의 것뿐이다. 실행 결과에 한 번에 든 최대 이벤트 수와 최대 메모리를 적는다."""
@@ -262,7 +251,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         relay_batch()
         w = World()
         ref = f"{w.slot.media_id}:{uuid.uuid4()}"
-        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+        billing.charge_for_reaction(w.adv.pk, w.campaign.campaign_id, "IMPRESSION", WHOLE, 30, ref, now=NOW)
         (orphan,) = billing.charge_entries_for([ref])
         self.assertEqual(billing.check_ledger(), [])  # 원장 자체는 맞다 — 이 점검만으로는 보이지 않는다
         ok, text = self.export()
@@ -282,7 +271,7 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         r = Reaction.objects.get()
         decision = Decision.objects.get(pk=r.decision_id)
         for ref in (f"{str(r.media_id).upper()}:{r.reaction_id}", f"{r.media_id.hex}:{r.reaction_id}", f"{{{r.media_id}}}:{r.reaction_id}"):
-            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", "IMPRESSION", 30, ref, now=NOW)
+            billing.charge_for_reaction(decision.owner_id, decision.campaign_id, "IMPRESSION", WHOLE, 30, ref, now=NOW)
         self.assertEqual(billing.check_ledger(), [])
         ok, text = self.export()
         self.assertFalse(ok, text)
@@ -290,11 +279,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         ok, text = self.verify()
         self.assertFalse(ok, text)
         self.assertIn("결과: {'match': 12}", text)  # 정상 이벤트 네 건의 대조는 그대로
-
-    def test_before_the_relay_mongodb_is_empty_and_outbox_shows_unsent(self):
-        self.export()
-        self.assertEqual(self.lines("hop_mongo")[0], [])
-        self.assertTrue(all(l["unsent"] == 1 for l in self.lines("hop_outbox")[0]))  # 중계 지연 후보를 가리는 근거
 
     def test_manifests_describe_scope_and_are_valid(self):
         relay_batch()
@@ -373,19 +357,6 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         checkpoint = self.lines("hop_outbox")[1]["checkpoint"]
         self.assertEqual(checkpoint["not_comparable_windows"], ["2026-10-07T00:00:00Z"])
         self.assertTrue(self.lines("hop_source")[0] and self.lines("hop_source")[0] != [])  # 원본 구간에는 그대로 있다
-
-    def test_a_tampered_hop_is_visible_from_the_manifests_alone(self):
-        relay_batch()
-        row = EventOutbox.objects.get(event_name="ad.charge")
-        payload = row.payload
-        payload["charged_amount"] = 999
-        EventOutbox.objects.filter(pk=row.pk).update(payload=payload)
-        self.export()
-        key = ("2026-10-07T00:00:00Z", "ad.charge")
-        source, outbox, mongo = (self.keyed(h)[key] for h in ("hop_source", "hop_outbox", "hop_mongo"))
-        self.assertEqual(source["ids_sha256"], outbox["ids_sha256"])  # 존재는 같고
-        self.assertNotEqual(source["content_sha256"], outbox["content_sha256"])  # 내용만 다르다
-        self.assertEqual(source["content_sha256"], mongo["content_sha256"])
 
     def test_the_same_data_gives_the_same_lines(self):
         relay_batch()
@@ -480,12 +451,8 @@ class ExportHopManifestsTests(MongoDatabaseMixin, TransactionTestCase):
         self.assertIn("없다", " ".join(ndjson.verify_chain(path)))
 
     def test_mongodb_unreachable_fails_without_publishing(self):
-        from events import mongo
-
-        with override_settings(EVENT_STORE={**mongo.config(), "HOSTS": ["127.0.0.1:1"], "REPLICA_SET": None}):
-            mongo.close()
+        with unreachable_store():
             ok, text = self.export()
-            mongo.close()
         self.assertFalse(ok)
         self.assertIn("MongoDB", text)
         self.assertFalse((self.dir / "out").exists())

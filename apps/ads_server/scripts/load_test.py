@@ -34,12 +34,14 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RETRYABLE = (0, 429, 503)
+LOAD_SHARES = {"impression_share": 98, "click_share": 1, "conversion_share": 1}  # 부하 슬롯의 반응 유형별 과금 비율(6-10b)
 
 
 # ---------------------------------------------------------------- 불변식 검사 (Django 가 설정된 프로세스에서 호출)
@@ -52,7 +54,6 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     acked_reactions: {(매체 ID, reaction_id): (결정 ID, 유형)} — 수신 확인한 반응의 **연결**. 저장된 행이 같은 매체·같은 결정·같은 유형인지 대조한다.
     """
     from collections import defaultdict
-    from datetime import timedelta
 
     from django.conf import settings
     from django.utils import timezone
@@ -92,9 +93,7 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append(f"수신 확인한 반응 {retyped}건의 유형이 확인한 것과 다르다")
 
     accepted = [r for r in reactions if r.status == "ACCEPTED"]
-    seen = {}
-    for r in accepted:
-        seen[(r.decision_id, r.person_id, r.type)] = seen.get((r.decision_id, r.person_id, r.type), 0) + 1
+    seen = Counter((r.decision_id, r.person_id, r.type) for r in accepted)
     if any(count > 1 for count in seen.values()):
         problems.append("같은 결정·사람·유형이 두 번 이상 인정됐다")
     # 퍼널: 인정된 클릭은 서버가 관측한 것이고, **도착 시각**으로 앞 단계가 맞아야 한다 — 클릭은 같은 사람의 인정된 노출이 클릭 접수 + 보류 기한 안에,
@@ -126,13 +125,15 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
     }
     problems += [f"{funnel_labels[key]}: {count}건" for key, count in funnel.items() if count]
 
-    expected_refs = set()
+    share_column = {"IMPRESSION": "impression_share", "CLICK": "click_share", "CONVERSION": "conversion_share"}
+    expected_amount = {}  # 반응 → 결정에 남긴 적용 금액 × 그 유형의 비율 ÷ 100(내림, 설계 §10 "구성별 반응 비율 과금") — 과금 코드와 따로 계산한다
     for r in accepted:
         decision = decisions.get(str(r.decision_id))
         if decision is None or decision.creative_id is None:
             problems.append(f"근거 없는 결정에 대한 반응이 인정됐다: {r.reaction_id}")
-        elif r.type == decision.pricing_unit:
-            expected_refs.add(f"{r.media_id}:{r.reaction_id}")
+        elif amount := decision.applied_amount * getattr(decision, share_column[r.type]) // 100:
+            expected_amount[f"{r.media_id}:{r.reaction_id}"] = amount
+    expected_refs = set(expected_amount)
     charges = list(LedgerEntry.objects.filter(entry_type="CHARGE").select_related("wallet"))
     refs = [c.reaction_ref for c in charges]
     if len(refs) != len(set(refs)):
@@ -146,13 +147,13 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
             continue  # 아래의 '인정되지 않은 반응에 대한 과금'이 잡는다
         wrong["owner"] += charge.wallet.owner_id != decision.owner_id
         wrong["campaign"] += charge.campaign_id != decision.campaign_id
-        wrong["amount"] += not (charge.amount <= 0 and -charge.amount + charge.shortfall == decision.applied_amount)  # 받은 금액 + 부족분 = 적용 금액
+        wrong["amount"] += not (charge.amount <= 0 and -charge.amount + charge.shortfall == expected_amount.get(charge.reaction_ref))  # 받은 금액 + 부족분 = 적용 금액 × 비율
         wrong["shortfall"] += bool(charge.shortfall) and charge.balance_after != 0  # 부족분은 잔액을 다 받았을 때만 생긴다
         wrong["time"] += charge.created_at != reaction.received_at
         wrong["policy"] += charge.charge_policy != settings.BILLING_CHARGE_POLICY
     labels = {
         "owner": "과금 대상 광고주가 결정의 광고주와 다르다", "campaign": "과금의 캠페인이 결정의 캠페인과 다르다",
-        "amount": "과금액(+부족분)이 결정의 적용 금액과 다르다", "shortfall": "잔액이 남았는데 부족분이 기록됐다",
+        "amount": "과금액(+부족분)이 결정의 적용 금액 × 그 유형의 비율(내림)과 다르다", "shortfall": "잔액이 남았는데 부족분이 기록됐다",
         "time": "과금 시각이 반응의 접수 시각과 다르다", "policy": "과금 정책 이름이 설정과 다르다",
     }
     problems += [f"{labels[key]}: {count}건" for key, count in wrong.items() if count]
@@ -163,10 +164,9 @@ def verify_invariants(acked_decisions=(), acked_reactions=None, expect_drained=T
         problems.append(f"인정되지 않은 반응에 대한 과금 {len(orphans)}건")
 
     problems += billing.check_ledger(quiescent=quiescent)  # 잔액 = 원장 합계, balance_after·seq 연속
-    per_day = {}
+    per_day = Counter()
     for c in charges:
-        key = (c.campaign_id, budget_day_of(c.created_at))
-        per_day[key] = per_day.get(key, 0) - c.amount
+        per_day[(c.campaign_id, budget_day_of(c.created_at))] -= c.amount
     spend = {(s.campaign_id, s.budget_day): s.spent for s in CampaignSpend.objects.all()}
     if {k: v for k, v in per_day.items() if v} != {k: v for k, v in spend.items() if v}:
         problems.append("일 소진액이 원장의 그날 과금 합과 다르다")
@@ -215,7 +215,6 @@ class LagSampler(threading.Thread):
 
     def report(self, grace_seconds):
         """{"events", "max_lag_s", "late", "unobserved"}. `late`: 지연이 여유보다 컸던 이벤트, `unobserved`: 훑는 범위 안에서 한 번도 못 본 이벤트(= 지연이 훑는 범위보다 컸다)."""
-        from django.conf import settings  # noqa: F401
         from events.models import EventOutbox
 
         every = set(EventOutbox.objects.filter(created_at__gte=self.started - timedelta(seconds=5)).values_list("event_id", flat=True))
@@ -251,10 +250,11 @@ def verify_events(relayed=False):
     for event_id in expected.keys() & outbox.keys():
         name, key, produced_at, payload = expected[event_id]
         row = outbox[event_id]
-        envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSION), "produced_at": (row.created_at, produced_at)}
+        envelope = {"schema_version": (row.schema_version, schemas.SCHEMA_VERSIONS[name]), "produced_at": (row.created_at, produced_at)}
         bad_envelope = [k for k, (got, want) in envelope.items() if got != want]
-        if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not relay.same_document({"p": row.payload}, {"p": payload}):
-            wrong.setdefault(name, []).append((event_id, bad_envelope + (_differing_keys(row.payload, payload) if not relay.same_document({"p": row.payload}, {"p": payload}) else [])))
+        same = relay.same_document({"p": row.payload}, {"p": payload})
+        if (row.event_name, row.aggregate_id) != (name, key) or bad_envelope or not same:
+            wrong.setdefault(name, []).append((event_id, bad_envelope + ([] if same else _differing_keys(row.payload, payload))))
     for name, items in sorted(wrong.items()):
         problems.append(f"원본 행과 내용이 다른 {name} 이벤트 {len(items)}건 (예: {items[0][0]} 의 {items[0][1]})")
     if relayed:
@@ -335,13 +335,9 @@ def percentile(values, p):
 
 
 def summarize(name, outcomes, wall):
-    statuses = {}
-    for o in outcomes:
-        statuses[o.status] = statuses.get(o.status, 0) + 1
+    statuses = dict(Counter(o.status for o in outcomes))
     retried = sum(1 for o in outcomes if len(o.attempts) > 1)
-    first_try = {}
-    for o in outcomes:
-        first_try[o.attempts[0]] = first_try.get(o.attempts[0], 0) + 1
+    first_try = dict(Counter(o.attempts[0] for o in outcomes))
     lat = [o.latency * 1000 for o in outcomes]
     total = [o.total * 1000 for o in outcomes]
     return {
@@ -365,7 +361,7 @@ class QuietHandler(WSGIRequestHandler):
 
 
 def seed(advertisers=5, premade=0):
-    """관리자·매체·슬롯·광고주(지갑·캠페인·광고그룹 입찰 30·소재)를 만든다. 모든 시각은 실제 현재 시각 기준이다."""
+    """관리자·매체·슬롯·광고주(지갑·캠페인·광고그룹 입찰 300(일괄 슬롯은 400)·소재)를 만든다. 모든 시각은 실제 현재 시각 기준이다."""
     import io
 
     from PIL import Image
@@ -377,22 +373,23 @@ def seed(advertisers=5, premade=0):
 
     admin = User.objects.create_superuser("load_admin", "Tr0ub4dor-horse-staple-9", nickname="관리", class_label="-")
     media = masters.create_media(admin, "부하 시험 매체")
-    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", "IMPRESSION", 10, 20, 50, "초기")
-    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", "IMPRESSION", 10, 20, 50, "초기", audience="shared")
+    slot = masters.create_slot(admin, media.media_id, "부하 슬롯", 100, 200, 500, "초기", audience="individual", **LOAD_SHARES)
+    shared = masters.create_slot(admin, media.media_id, "부하 일괄 슬롯", 100, 200, 500, "초기", audience="shared", **LOAD_SHARES)
     key = masters.issue_media_key(admin, media.media_id).key
     now = datetime.now(UTC)
     wallets = []
     for i in range(advertisers):
         adv = create_advertiser(f"load_adv_{i}", "Tr0ub4dor-horse-staple-9", f"광고주{i}", "1반")
         billing.grant_signup(adv)
+        billing.adjust(admin, adv.pk, 450_000, "부하 시험 충전")  # 금액을 하한 100 기준으로 10배 올린 만큼(6-10c) 지갑도 10배 — 시험 중 잔액이 바닥나지 않게
         campaign = campaigns.create_campaign(adv, f"캠페인{i}", now - timedelta(days=1), now + timedelta(days=30), 10**9)
-        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", "IMPRESSION", [slot.slot_id], bid_amount=30)
+        group = campaigns.create_ad_group(adv, campaign.campaign_id, f"그룹{i}", [slot.slot_id], bid_amount=300)
         image = io.BytesIO()
         Image.new("RGB", (32, 32), (20 * i, 80, 200)).save(image, "PNG")
         image.seek(0)
         campaigns.create_creative(adv, group.ad_group_id, f"제목{i}", "https://example.com/landing", image)
-        if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 40)
-            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", "IMPRESSION", [shared.slot_id], bid_amount=40)
+        if i == 0:  # 일괄 슬롯에는 광고주 한 명의 광고만 놓는다(입찰 400)
+            shared_group = campaigns.create_ad_group(adv, campaign.campaign_id, "일괄 그룹", [shared.slot_id], bid_amount=400)
             image2 = io.BytesIO()
             Image.new("RGB", (32, 32), (200, 80, 20)).save(image2, "PNG")
             image2.seek(0)
@@ -464,7 +461,7 @@ class Harness:
         return call(self.port, "GET", f"/api/media/v1/decisions/{decision_id}/reactions/{rid}", self.key)
 
     def drain(self):
-        out = subprocess.run([sys.executable, "manage.py", "process_reactions", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
+        out = self._manage("process_reactions", "--once")
         if out.returncode != 0:
             raise RuntimeError(out.stderr[-500:])
         return out.stdout.strip()
@@ -497,14 +494,8 @@ class Harness:
         left = EventOutbox.objects.filter(sent_at__isnull=True).count()
         self.check("상시 중계 프로세스만으로 outbox 가 비워진다(별도 명령 없이)", left == 0, f"남은 미전송 {left}건")
         self.check("상시 중계 프로세스 둘이 살아 있다", all(p.poll() is None for p in relays), str([p.poll() for p in relays]))
-        for proc in relays:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-        out = subprocess.run([sys.executable, "manage.py", "relay_events", "--once"], cwd=BASE_DIR, env=os.environ, capture_output=True, text=True, timeout=300)
+        stop_processes(relays)
+        out = self._manage("relay_events", "--once")
         self.check("남은 이벤트를 --once 로 비운다", out.returncode == 0, out.stderr[-200:])
 
     # ------------------------------------------------------------ H. Step 4-3 (구간 manifest·백필)
@@ -538,8 +529,6 @@ class Harness:
 
     def backfill_drill(self, count=60):
         """백필 훈련: 이벤트를 일부러 지워(outbox 와 MongoDB 에서) '이벤트가 없는 원본 행'을 만들고, 목록 → 백필 → 중계 → 점검이 모두 맞물려 원래대로 돌아오는지 본다."""
-        import random
-
         from events import ndjson, store
         from events.models import EventOutbox
 
@@ -598,9 +587,7 @@ class Harness:
         rids = [o.body["reaction_id"] for o in outcomes]  # 인덱스 순서(완료 순서가 아니다)
         reads, wall = run_concurrent(self.n, lambda i: self.get_reaction(self.decision_ids[i], rids[i]))
         self.phase("B' 동시 조회", reads, wall)
-        states = {}
-        for o in reads:
-            states[o.body["status"]] = states.get(o.body["status"], 0) + 1
+        states = dict(Counter(o.body["status"] for o in reads))
         self.check("모든 반응이 인정됐고 과금됐다", states == {"ACCEPTED": self.n}, str(states))
         self.verify("반응 직후")
 
@@ -615,9 +602,7 @@ class Harness:
 
         self.drain_until(lambda: not Reaction.objects.filter(decision_id=decision, status="RECEIVED").exists(), "같은 유형 동시 노출")
 
-        states = {}
-        for r in Reaction.objects.filter(decision_id=decision):
-            states[r.status] = states.get(r.status, 0) + 1
+        states = dict(Counter(r.status for r in Reaction.objects.filter(decision_id=decision)))
         self.check("정확히 하나만 인정, 나머지는 duplicate_type", states == {"ACCEPTED": 1, "REJECTED": self.n - 1}, str(states))
         three = max(3, self.n // 3 * 3)
         (decision2,) = make_decisions(self.ctx, 1)
@@ -773,7 +758,7 @@ class Harness:
                     first_use = cursor[0] < len(pool)
                     decision = pool[cursor[0]] if first_use else random.choice(pool)
                     cursor[0] += 1
-                # 처음 쓰는 결정에는 과금 대상인 노출, 그 뒤에는 아무 결정에 아무 유형(중복 거부·유형별 인정이 섞인다)
+                # 처음 쓰는 결정에는 노출(뒤의 클릭·전환의 전제), 그 뒤에는 아무 결정에 아무 유형(중복 거부·유형별 인정이 섞인다)
                 mine.append(self.put_reaction(decision, "IMPRESSION" if first_use else random.choice(["IMPRESSION", "CLICK", "CONVERSION"])))
             return mine
 
@@ -860,10 +845,7 @@ class Harness:
             buckets.reset()
             with CaptureQueriesContext(connection) as queries:
                 assert post().status_code == 201
-            kinds = {}
-            for q in queries.captured_queries:
-                kind = q["sql"].split(None, 1)[0].upper()
-                kinds[kind] = kinds.get(kind, 0) + 1
+            kinds = dict(Counter(q["sql"].split(None, 1)[0].upper() for q in queries.captured_queries))
             samples_ms = {}
             for label, patch in (("with_slot_name", None), ("without_slot_name", lambda ids: {})):
                 times = []
@@ -878,17 +860,23 @@ class Harness:
                     assert response.status_code == 201
                 samples_ms[label] = round(statistics.median(times), 2)
             buckets.reset()
-        for body_id in Decision_ids_since(samples * 2 + 1):
-            self.acked_decisions.add(body_id)
+        from records.models import Decision
+
+        self.acked_decisions.update(str(i) for i in Decision.objects.order_by("-decided_at").values_list("decision_id", flat=True)[: samples * 2 + 1])
         cost = round(samples_ms["with_slot_name"] - samples_ms["without_slot_name"], 2)
         self.cost = {"queries_per_decision_post": sum(kinds.values()), "by_kind": kinds, "median_ms": samples_ms, "slot_name_cost_ms": cost}
         self.log(f"G. 결정 요청 1건: 질의 {sum(kinds.values())}개 {kinds}, 서버 안쪽 중앙값 {samples_ms} ms, slot_name 조회 비용 ≈ {cost} ms")
 
 
-def Decision_ids_since(count):
-    from records.models import Decision
-
-    return [str(i) for i in Decision.objects.order_by("-decided_at").values_list("decision_id", flat=True)[:count]]
+def stop_processes(procs):
+    """살아 있는 하위 프로세스를 끝낸다(SIGTERM, 30초 안에 끝나지 않으면 SIGKILL)."""
+    for proc in procs:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 # ---------------------------------------------------------------- 실행
@@ -935,13 +923,7 @@ def cleanup(res, keep):
             sys.modules["django.db"].connections.close_all()
 
     def stop_relays():
-        for proc in res["relays"]:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+        stop_processes(res["relays"])
 
     def drop_mongo():
         name = res["mongo_db"]
@@ -967,7 +949,8 @@ def cleanup(res, keep):
 
 
 def run(args, count, tmp, db_name, res):
-    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MONGO_DB=res["mongo_db"], MEDIA_ROOT=str(tmp / "media"))
+    (tmp / "static").mkdir(exist_ok=True)  # 빈 정적 파일 폴더(WhiteNoise 가 시작할 때 읽는다, 6-5e)
+    os.environ.update(DJANGO_SETTINGS_MODULE="config.settings.dev", DB_NAME=db_name, MONGO_DB=res["mongo_db"], MEDIA_ROOT=str(tmp / "media"), STATIC_ROOT=str(tmp / "static"))
     os.environ.pop("DJANGO_DEBUG", None)
 
     import django
@@ -997,20 +980,10 @@ def run(args, count, tmp, db_name, res):
     lag = LagSampler()
     lag.start()  # 이벤트가 생성 시각으로부터 얼마 뒤에 보이는지 처음부터 끝까지 잰다
     try:
-        harness.decisions()
-        harness.rest()
-        harness.reactions()
-        harness.rest()
-        harness.duplicate_types()
-        harness.rest()
-        harness.resend_storm()
-        harness.rest()
-        harness.click_funnel()
-        harness.rest()
-        harness.shared_slot_funnel()
-        harness.rest()
-        harness.hold_resolution()
-        harness.rest()
+        for step in (harness.decisions, harness.reactions, harness.duplicate_types, harness.resend_storm, harness.click_funnel, harness.shared_slot_funnel,
+                     harness.hold_resolution):
+            step()
+            harness.rest()
         harness.sigterm_under_inflow(inflow_seconds=3.0 if args.small else 6.0)
         harness.rest(4)
         harness.rate_limit_burst()

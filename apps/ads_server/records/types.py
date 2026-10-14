@@ -10,7 +10,7 @@ class ChosenView:
     campaign_id: uuid.UUID
     ad_group_id: uuid.UUID
     creative_id: uuid.UUID
-    pricing_unit: str
+    charge_shares: dict  # 반응 유형 → 과금 비율(%), 결정에 남긴 값(6-10c)
     bid_amount: int
     applied_amount: int
     bid_version: int

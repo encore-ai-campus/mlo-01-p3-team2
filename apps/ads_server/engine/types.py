@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta
 
-PRICING_UNITS = ("IMPRESSION", "CLICK", "CONVERSION")
 CAMPAIGN_STATUSES = ("ACTIVE", "PAUSED", "SUSPENDED", "ENDED")
 CAMPAIGN_ACTIVE = "ACTIVE"
 
@@ -40,15 +39,11 @@ class Candidate:
     ad_group_id: uuid.UUID
     creative_id: uuid.UUID
     slot_id: uuid.UUID
-    # 과금
-    pricing_unit: str
     # 입찰
     bid_amount: int
     bid_version: int
-    bid_created_at: datetime
-    # 정책 스냅샷
+    # 정책 스냅샷(판정에 쓰는 것만 — 기준가는 판정에 쓰지 않는다, 6-13f)
     floor: int
-    base: int
     cap: int
     policy_version: int
     # 자격 판정용 사실
@@ -62,21 +57,18 @@ class Candidate:
     def __post_init__(self):
         for name in ("campaign_id", "ad_group_id", "creative_id", "slot_id"):
             _uuid(name, getattr(self, name))
-        if self.pricing_unit not in PRICING_UNITS:
-            raise ValueError(f"pricing_unit 이 올바르지 않다: {self.pricing_unit!r}")
         if self.campaign_status not in CAMPAIGN_STATUSES:
             raise ValueError(f"campaign_status 가 올바르지 않다: {self.campaign_status!r}")
         if not isinstance(self.ad_group_enabled, bool):
             raise TypeError("ad_group_enabled 은(는) bool 이어야 한다")
-        for name in ("bid_amount", "floor", "base", "cap"):
+        for name in ("bid_amount", "floor", "cap"):
             _int(name, getattr(self, name))
         for name in ("bid_version", "policy_version"):
             _int(name, getattr(self, name), minimum=1)
         for name in ("wallet_balance", "remaining_daily_budget"):
             _int(name, getattr(self, name))
-        if not self.floor <= self.base <= self.cap:
-            raise ValueError("정책은 하한 ≤ 기준가 ≤ 상한이어야 한다")
-        _utc("bid_created_at", self.bid_created_at)
+        if not self.floor <= self.cap:
+            raise ValueError("정책은 하한 ≤ 상한이어야 한다")
         _utc("period_start", self.period_start)
         _utc("period_end", self.period_end, nullable=True)
 
@@ -102,7 +94,7 @@ class AdRequest:
 
     slot_id: uuid.UUID
     now: datetime
-    subject_id: str | None = None  # V1 알고리즘은 읽지 않는다. 이후 알고리즘이 시그니처 변경 없이 쓰도록 항상 전달한다
+    subject_id: str | None = None  # 지금 알고리즘은 읽지 않는다. 이후 알고리즘이 시그니처 변경 없이 쓰도록 항상 전달한다
 
     def __post_init__(self):
         _uuid("slot_id", self.slot_id)

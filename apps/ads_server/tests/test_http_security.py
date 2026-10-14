@@ -4,6 +4,7 @@ import sys
 import os
 import subprocess
 
+from django.conf import settings
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings, tag
 from django.urls import reverse
 
@@ -11,9 +12,9 @@ from config.settings import base
 from foundation import errors
 from foundation.http import parse_json
 from foundation.models import User
-from tests.helpers import BASE_DIR, PROD_ENV
+from tests.factories import PW
+from tests.helpers import BASE_DIR, PROD_ENV, run_python
 
-PW = "Tr0ub4dor-horse-staple"
 URLS = "tests.urls_api"
 
 
@@ -36,16 +37,14 @@ class SecurityHeaderTests(TestCase):
         self.assertEqual(r["Referrer-Policy"], "same-origin")
         self.assertEqual(r["Cross-Origin-Opener-Policy"], "same-origin")
 
-    @override_settings(SECURE_HSTS_SECONDS=3600, SECURE_HSTS_INCLUDE_SUBDOMAINS=True, SECURE_SSL_REDIRECT=False)
-    def test_hsts_header_is_sent_over_https(self):
-        r = self.client.get(reverse("login"), secure=True)
-        self.assertEqual(r["Strict-Transport-Security"], "max-age=3600; includeSubDomains")
-
-    def test_prod_enforces_https_settings(self):
-        code = "from django.conf import settings as s; print(s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS > 0, s.DEBUG)"
-        r = subprocess.run([sys.executable, "-c", code], cwd=BASE_DIR, capture_output=True, text=True,
-                           env={"PATH": "/usr/bin:/bin", "DJANGO_SETTINGS_MODULE": "config.settings.prod", **PROD_ENV})
-        self.assertEqual(r.stdout.strip(), "True True False", r.stderr)
+    def test_prod_leaves_https_to_the_front_proxy_but_keeps_secure_cookies(self):
+        """6-5d(설계 §10 "배포 구성"): TLS·80→443·HSTS 는 앞단 nginx 몫이라 prod 는 HTTPS 리다이렉트·HSTS·X-Forwarded-Proto 신뢰를 두지 않는다.
+        예전 환경값(`SSL_REDIRECT`·`BEHIND_TLS_PROXY`·`HSTS_SECONDS`)이 남아 있어도 읽지 않는다. 브라우저 구간은 HTTPS 라 쿠키는 Secure 그대로다(옛 값이 없어도)."""
+        code = ("from django.conf import settings as s; "
+                "print(s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS, s.SECURE_PROXY_SSL_HEADER, s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE, s.DEBUG)")
+        for old in ({"SSL_REDIRECT": "1", "BEHIND_TLS_PROXY": "1", "HSTS_SECONDS": "3600"}, {}):
+            r = run_python(code, "config.settings.prod", {**PROD_ENV, **old})
+            self.assertEqual(r.stdout.strip(), "False 0 None True True False", (old, r.stderr))
 
     def test_csp_header_policy(self):
         r = self.client.get(reverse("login"))
@@ -101,6 +100,20 @@ class CsrfTests(TestCase):
         strict_logged_in.cookies = self.client.cookies
         self.assertEqual(strict_logged_in.post(reverse("logout")).status_code, 403)
 
+    def login_post_from_the_https_front(self):
+        """앞단 nginx 가 TLS 를 끝내 Django 는 HTTP 로 받지만, 브라우저는 https 출처(`Origin`)를 싣는다."""
+        client = Client(enforce_csrf_checks=True)
+        client.get(reverse("login"))
+        token = client.cookies[settings.CSRF_COOKIE_NAME].value
+        return client.post(reverse("login"), {"username": "csrf_user", "password": PW, "csrfmiddlewaretoken": token}, HTTP_ORIGIN="https://testserver")
+
+    def test_a_login_post_from_the_https_front_needs_the_trusted_origin(self):
+        """6-5d(설계 §10 "배포 구성"): Django 는 요청을 HTTP 로 알아 브라우저의 https 출처와 맞지 않는다 — 그래서 prod 는 `CSRF_TRUSTED_ORIGINS` 가 필수다."""
+        with override_settings(CSRF_TRUSTED_ORIGINS=[]):
+            self.assertEqual(self.login_post_from_the_https_front().status_code, 403)
+        with override_settings(CSRF_TRUSTED_ORIGINS=["https://testserver"]):
+            self.assertEqual(self.login_post_from_the_https_front().status_code, 302)  # 로그인 성공
+
     def test_csrf_failure_page_is_html_without_internals(self):
         r = self.strict.post(reverse("signup"), {"username": "x"})
         self.assertEqual(r.status_code, 403)
@@ -140,6 +153,21 @@ class ParseJsonTests(SimpleTestCase):
     def test_parse_json_rejects_nan_infinity(self):
         for body in ('{"a": NaN}', '{"a": Infinity}', '{"a": -Infinity}', '{"a": 1e999999}'):
             self.assertRejects(errors.InvalidRequest, body)
+
+    def test_parse_json_limits_numbers_to_the_javascript_safe_range_at_any_depth(self):
+        """6-2c: 정수·실수 모두 ±(2^53−1), 중첩 객체·배열 안에서도. 범위 밖은 형식 오류와 다른 문구의 400 이다(더 큰 수는 문자열로 보내라고 알린다)."""
+        huge = "1" + "0" * 400  # MySQL JSON 의 double 도 넘는 값(전에는 저장 오류 3140 → 503)
+        for body in (
+            '{"a": 9007199254740992}', '{"a": -9007199254740992}', '{"a": 18446744073709551617}', '{"a": %s}' % huge, '{"a": -%s}' % huge,
+            '{"a": 12345678901234567}', '{"a": %s}' % ("9" * 5000), '{"a": 9007199254740992.0}', '{"a": -1e300}', '{"a": [{"b": [1, 9007199254740992]}]}', '{"a": {"b": -9007199254740992}}',
+        ):
+            with self.assertRaises(errors.InvalidRequest, msg=body[:60]) as caught:
+                parse_json(json_request(body))
+            self.assertIn("9007199254740991", caught.exception.detail)
+        body = '{"a": 9007199254740991, "b": -9007199254740991, "c": [0, -0, 1.5, -0.25, 1e-300, 9007199254740991.0], "d": {"e": "18446744073709551617"}}'
+        self.assertEqual(parse_json(json_request(body)), {
+            "a": 2**53 - 1, "b": -(2**53 - 1), "c": [0, 0, 1.5, -0.25, 1e-300, float(2**53 - 1)], "d": {"e": "18446744073709551617"},
+        })
 
     def test_parse_json_rejects_unpaired_surrogates_but_keeps_valid_pairs(self):
         """`\\ud800` 같은 짝 없는 서로게이트는 JSON 문법상 유효하지만 UTF-8 로 쓸 수 없다 → 키·값·중첩 어디서든 400(500 이 되지 않는다)."""

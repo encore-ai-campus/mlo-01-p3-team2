@@ -2,9 +2,9 @@
 from django.conf import settings
 from django.utils.module_loading import import_string
 
-from .validation import ImageRejected, ValidatedImage, validate_image
+from .validation import FORMAT_INFO, ImageRejected, ValidatedImage, validate_image
 
-CONTENT_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
+CONTENT_TYPES = {ext: content_type for content_type, ext in FORMAT_INFO.values()}  # 확장자 → 응답 형식(검증이 정한 표 하나에서)
 
 
 def content_type(name: str) -> str:

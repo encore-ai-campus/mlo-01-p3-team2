@@ -3,6 +3,7 @@
 두 가지를 구분한다.
 1. **파일 검증**(`test_contract_files`): YAML 이 올바른 OpenAPI 3.1 이고 예시가 스키마를 지키는지. 서버와 무관하다.
 2. **응답 검증**(`Contract.response_problems`): 실제 응답의 상태 코드·헤더·미디어 타입·본문을 함께 본다.
+   본문은 **닫은 스키마**로 본다(`closed`): 계약은 소비자에게 모르는 응답 필드를 무시하라고 하지만, 서버는 계약에 적힌 필드만 내보내야 한다.
 
 `jsonschema` 는 기본 설정에서 `format`(uuid·date-time·uri 등)을 검사하지 않는다. 여기서는 `FormatChecker` 를 연결하고, 검사 의존성
 (`rfc3339-validator`·`rfc3986-validator`)이 빠졌을 때 조용히 건너뛰지 않도록 검사기 자체를 테스트한다(`test_contract_framework`).
@@ -44,6 +45,20 @@ def cookie_problems(response):
     return problems
 
 
+def closed(node):
+    """응답 검사용 사본: `properties` 가 있는 객체 스키마는 **모두 닫는다**(설계 §10 "공개 응답 스키마의 추가 필드", 6-2d).
+    공개 스키마가 추가 필드를 허용해도(`additionalProperties` 를 빼거나 `true`) 서버 응답의 내부 값 누출·이름 오타가 여기서 걸린다.
+    `properties` 가 없는 자유 형식 객체(`Context`)는 그대로 둔다. `allOf` 로 속성을 나눠 합치는 스키마에는 맞지 않는다(응답 검사를 받는 C1 에는 없다)."""
+    if isinstance(node, list):
+        return [closed(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    copy = {key: closed(value) for key, value in node.items()}
+    if "properties" in copy:
+        copy["additionalProperties"] = False
+    return copy
+
+
 def body_bytes(response):
     """일반 응답과 스트리밍 응답(`FileResponse`: 이미지)의 본문을 모두 읽는다."""
     if getattr(response, "streaming", False):
@@ -79,12 +94,18 @@ class Contract:
                     yield path, method, op
 
     # ------------------------------------------------------------ 스키마 검사
-    def validator(self, schema):
-        root = {**schema, "components": self.spec["components"]}  # `#/components/...` 참조가 이 루트 안에서 풀린다
+    @functools.cached_property
+    def closed_components(self):
+        return closed(self.spec["components"])
+
+    def validator(self, schema, components=None):
+        root = {**schema, "components": components or self.spec["components"]}  # `#/components/...` 참조가 이 루트 안에서 풀린다
         return Draft202012Validator(root, format_checker=FORMAT_CHECKER)
 
-    def schema_errors(self, schema, instance):
-        return [f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}" for e in self.validator(schema).iter_errors(instance)]
+    def schema_errors(self, schema, instance, close=False):
+        """`close=True` 면 스키마와 참조되는 `components` 모두 닫은 사본으로 본다(서버 응답 본문 검사)."""
+        validator = self.validator(closed(schema), self.closed_components) if close else self.validator(schema)
+        return [f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}" for e in validator.iter_errors(instance)]
 
     def named_schema_errors(self, name, instance):
         return self.schema_errors({"$ref": f"#/components/schemas/{name}"}, instance)
@@ -128,7 +149,7 @@ class Contract:
                     except ValueError:
                         problems.append("본문이 JSON 이 아니다")
                     else:
-                        problems += [f"본문 {e}" for e in self.schema_errors(schema, body)]
+                        problems += [f"본문 {e}" for e in self.schema_errors(schema, body, close=True)]
                         # RFC 9457 §3.1.2: 생성하는 서버는 본문 status 가 HTTP 상태와 같아야 한다
                         if media == "application/problem+json" and isinstance(body, dict) and body.get("status") != response.status_code:
                             problems.append(f"본문 status({body.get('status')!r}) 가 HTTP 상태({response.status_code}) 와 다르다")

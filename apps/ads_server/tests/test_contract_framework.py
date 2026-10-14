@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from django.test import SimpleTestCase, tag
 
-from tests.contract_support import Contract
+from tests.contract_support import Contract, closed
 
 REQUEST_ID = "11111111-2222-4333-8444-555555555555"
 DECISION = {
@@ -159,3 +159,33 @@ class ContractCheckerTests(SimpleTestCase):
             self.assertTrue(self.contract.named_schema_errors("Uuid", bad), bad)
         self.assertEqual(self.contract.named_schema_errors("DateTimeUtc", "2026-10-07T03:21:45Z"), [])
         self.assertTrue(self.contract.named_schema_errors("DateTimeUtc", "2026-10-07T03:21:45+09:00"))
+
+    def test_the_response_check_closes_response_schemas_even_when_the_contract_opens_them(self):
+        """6-2d(설계 §10 "공개 응답 스키마의 추가 필드"): 계약이 응답 스키마를 열어도(소비자는 모르는 필드를 무시) 서버 응답 검사는 계약에 없는 필드를 잡는다 —
+        결정·광고·오류 본문 어디서든. 열린 계약을 그대로 쓰면 통과하는 응답이라 검사가 공회전하지 않는다."""
+        opened = Contract("serving")
+        opened.spec = json.loads(json.dumps(opened.spec).replace('"additionalProperties": false', '"additionalProperties": true'))
+        problem = {"type": "/problems/invalid_request", "title": "요청이 올바르지 않습니다", "status": 400, "code": "invalid_request"}
+        bad_request = lambda body: Fake(400, body, {"Content-Type": "application/problem+json", "X-Request-ID": REQUEST_ID})
+        self.assertEqual(opened.response_problems("/decisions", "post", bad_request(problem)), [])
+        health = lambda body: Fake(200, body, {"Content-Type": "application/json", "X-Request-ID": REQUEST_ID})
+        leaky = {"status": "ok", "db_host": "10.0.0.5"}  # 상태 응답은 참조가 아닌 인라인 스키마다
+        self.assertEqual(opened.response_problems("/health", "get", health({"status": "ok"})), [])
+        self.assertTrue(opened.response_problems("/health", "get", health(leaky)))
+        self.assertEqual(opened.schema_errors(opened.operation("/health", "get")["responses"]["200"]["content"]["application/json"]["schema"], leaky), [])
+        for label, response in {
+            "결정": ok_201(body={**DECISION, "internal_score": 0.7}),
+            "광고": ok_201(body={**DECISION, "ad": {**DECISION["ad"], "owner_id": "x"}}),
+            "오류 본문": bad_request({**problem, "trace": "..."}),
+        }.items():
+            problems = opened.response_problems("/decisions", "post", response)
+            self.assertTrue(problems, label)  # 광고는 `oneOf`(광고 | null) 안이라 문구가 "Additional properties" 가 아니다 — 아래 확인으로 원인이 추가 필드임을 고정한다
+            schema = opened.operation("/decisions", "post")["responses"][str(response.status_code)]
+            body = json.loads(response.content)
+            self.assertEqual(opened.schema_errors(opened.resolve(schema)["content"][response.headers["Content-Type"]]["schema"], body), [], label)  # 열린 계약 자체로는 통과한다
+
+    def test_free_form_objects_without_properties_stay_open(self):
+        """`properties` 가 없는 자유 형식 객체(`Context`: 매체가 키를 정한다)는 닫지 않는다."""
+        context = self.contract.spec["components"]["schemas"]["Context"]
+        self.assertEqual(closed(context), context)
+        self.assertEqual(closed({"type": "object", "properties": {"a": {"type": "string"}}})["additionalProperties"], False)

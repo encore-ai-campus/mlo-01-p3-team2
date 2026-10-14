@@ -1,7 +1,7 @@
 """이름 → 과금 정책. 어떤 이름을 쓸지는 설정(`BILLING_CHARGE_POLICY`)이 정한다. 알 수 없는 이름은 즉시 오류다."""
-from .by_unit import ByUnitV1
+from .share import ShareV1
 
-_POLICIES = {ByUnitV1.name: ByUnitV1()}
+_POLICIES = {ShareV1.name: ShareV1()}
 
 
 class UnknownChargePolicy(ValueError):

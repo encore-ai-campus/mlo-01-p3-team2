@@ -1,4 +1,4 @@
-"""테스트 설정. 동작을 바꾸는 환경변수·.env 는 읽지 않는다(개발자 로컬 값이 테스트 결과를 바꾸지 않게). **DB 접속 값(DB_*)만 읽는다** — 접속 대상은 동작이 아니라 환경이다."""
+"""테스트 설정. 동작을 바꾸는 환경변수·.env 는 읽지 않는다(개발자 로컬 값이 테스트 결과를 바꾸지 않게). **접속 값(DB_*·MONGO_*)만 읽는다** — 접속 대상은 동작이 아니라 환경이다."""
 import atexit
 import shutil
 import tempfile
@@ -24,6 +24,9 @@ ACCESS_MAP = build_access_map(ADMIN_URL_PATH)
 MEDIA_ROOT = tempfile.mkdtemp(prefix="ads-test-media-")
 atexit.register(shutil.rmtree, MEDIA_ROOT, ignore_errors=True)
 ASSET_PUBLIC_BASE_URL = "http://testserver"
+# 정적 파일 모음 폴더(빈 임시 폴더). WhiteNoise 는 시작할 때 이 폴더를 읽고 없으면 경고한다(6-5e). 서빙 시험은 따로 모아서 본다(tests/test_static_serving.py)
+STATIC_ROOT = tempfile.mkdtemp(prefix="ads-test-static-")
+atexit.register(shutil.rmtree, STATIC_ROOT, ignore_errors=True)
 
 # 접근 통제 테스트용 더미 모델 앱(소유자가 있는 모델)
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.support_app"]

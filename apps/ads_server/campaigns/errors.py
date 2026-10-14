@@ -20,14 +20,6 @@ class ReviewPending(base.Conflict):
     code, title = "review_pending", "이미 대기 중인 재검토 요청이 있습니다"
 
 
-class UnitImmutable(base.Conflict):
-    code, title = "unit_immutable", "과금 단위는 바꿀 수 없습니다"
-
-
-class UnitMismatch(base.InvalidRequest):
-    code, title = "unit_mismatch", "게재 위치의 과금 단위가 광고그룹과 다릅니다"
-
-
 class LimitExceeded(base.Conflict):
     code, title = "limit_exceeded", "허용된 개수 또는 용량을 넘었습니다"
 

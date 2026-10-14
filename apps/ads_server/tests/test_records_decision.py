@@ -15,9 +15,8 @@ from foundation.models import AppendOnlyError
 from masters import api as masters
 from records import api as records
 from records.models import Decision, Reaction
-from tests.factories import DAY, NOW, SUBJECT, World, png_file
+from tests.factories import DAY, NOW, SHARES, SUBJECT, WHOLE, World, png_file
 
-UNIT = "IMPRESSION"
 
 
 def decide(w, **kw):
@@ -34,11 +33,11 @@ class DecisionSnapshotTests(TestCase):
         w = World()
         d = decide(w, subject_id="learner-1")
         before = records.get_decision(w.slot.media_id, d.decision_id)
-        self.assertEqual((before.chosen.applied_amount, before.chosen.bid_amount, before.chosen.title), (30, 30, "제목"))
+        self.assertEqual((before.chosen.applied_amount, before.chosen.bid_amount, before.chosen.title), (300, 300, "제목"))
         raw_before = list(Decision.objects.values())
 
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 99, expected_version=1, now=NOW)
-        masters.add_policy_version(w.admin, w.slot.slot_id, 1, 2, 3, "정책 대폭 변경", expected_version=1)
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 990, expected_version=1, now=NOW)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 100, 200, 300, "정책 대폭 변경", expected_version=1, **SHARES)
         campaigns.update_creative(w.adv, w.creative.creative_id, {"title": "완전히 다른 제목", "redirect_url": "https://changed.example"}, now=NOW)
         campaigns.replace_creative_image(w.adv, w.creative.creative_id, png_file((1, 2, 3)), now=NOW)
         campaigns.suspend_campaign(w.admin, w.campaign.campaign_id, "사유", now=NOW)
@@ -68,7 +67,7 @@ class DecisionSnapshotTests(TestCase):
             clone.save()
         with self.assertRaises(AppendOnlyError):
             Decision.objects.bulk_create([clone], update_conflicts=True, update_fields=["selection_policy"], unique_fields=["decision_id"])
-        self.assertEqual(Decision.objects.get(pk=row.pk).applied_amount, 30)
+        self.assertEqual(Decision.objects.get(pk=row.pk).applied_amount, 300)
 
     def test_chosen_columns_are_all_or_none_in_db(self):
         base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="p", candidate_count=0)
@@ -76,14 +75,33 @@ class DecisionSnapshotTests(TestCase):
             Decision.objects.create(campaign_id=uuid.uuid4(), **base)  # 일부만 채움
         Decision.objects.create(**base)  # 광고 없음
 
+    def test_charge_shares_follow_the_policy_rule_in_db(self):
+        """결정에 남긴 비율(6-10c)도 DB 가 지킨다: 광고가 있으면 각각 1~98·합 100, 광고 없음이면 비어 있다."""
+        base = dict(media_id=uuid.uuid4(), slot_id=uuid.uuid4(), subject_id=SUBJECT, audience="individual", selection_policy="p", candidate_count=1)
+        chosen = dict(owner_id=uuid.uuid4(), campaign_id=uuid.uuid4(), ad_group_id=uuid.uuid4(), creative_id=uuid.uuid4(), bid_amount=300, applied_amount=300,
+                      bid_version=1, policy_version=1, bid_id=uuid.uuid4(), bid_policy_id=uuid.uuid4(), snapshot={"title": "t", "redirect_url": "u", "image_name": "i"})
+        shares = lambda i, c, v: dict(impression_share=i, click_share=c, conversion_share=v)  # noqa: E731
+        for label, values in {
+            "노출 0%": {**chosen, **shares(0, 2, 98)}, "클릭 0%": {**chosen, **shares(2, 0, 98)}, "전환 0%": {**chosen, **shares(2, 98, 0)},
+            "98% 초과": {**chosen, **shares(99, 1, 0)}, "합 99": {**chosen, **shares(97, 1, 1)},
+            "합 101": {**chosen, **shares(98, 2, 1)}, "하나 빠짐": {**chosen, "impression_share": 98, "click_share": 2},
+            "광고 없음인데 비율": shares(98, 1, 1), "광고 없음인데 노출 비율만": {"impression_share": 98},
+            "광고 없음인데 클릭 비율만": {"click_share": 98}, "광고 없음인데 전환 비율만": {"conversion_share": 98},
+        }.items():
+            with self.subTest(label), self.assertRaises(IntegrityError), transaction.atomic():
+                Decision.objects.create(**base, **values)
+        Decision.objects.create(**base, **chosen, **shares(98, 1, 1))
+        Decision.objects.create(**base, **chosen, **shares(1, 1, 98))
+
     def test_decision_records_both_versions_and_policy_name(self):
         w = World()
-        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1)
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 35, expected_version=1, now=NOW)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 100, 200, 500, "v2", expected_version=1, **SHARES)
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 350, expected_version=1, now=NOW)
         d = decide(w)
-        self.assertEqual((d.chosen.bid_version, d.chosen.policy_version, d.chosen.bid_amount, d.chosen.applied_amount), (2, 2, 35, 35))
-        self.assertEqual(d.selection_policy, "highest-bid/v1")
-        self.assertEqual((d.trace["policy"], d.trace["picked"]), ("highest-bid/v1", str(w.group.ad_group_id)))
+        self.assertEqual((d.chosen.bid_version, d.chosen.policy_version, d.chosen.bid_amount, d.chosen.applied_amount), (2, 2, 350, 350))
+        self.assertEqual(d.selection_policy, "weighted-by-bid/v1")
+        self.assertEqual((d.trace["policy"], d.trace["picked"]), ("weighted-by-bid/v1", str(w.group.ad_group_id)))
+        self.assertEqual((d.trace["total"], d.trace["weight"]), (900, 900))  # 판정에 쓴 정책 v2(하한 100·상한 500)의 가중치: 400 + 2 × (350 − 100)
         self.assertEqual((d.candidate_count, d.rejected_counts), (1, {}))
         self.assertEqual(d.chosen.owner_id, w.adv.pk)
         self.assertTrue(d.chosen.image_url.endswith(f"/assets/{w.creative.image_name}"))
@@ -126,16 +144,6 @@ class SlotValidationTests(TestCase):
             records.decide("nope", "nope", now=NOW)
         self.assertEqual(Decision.objects.count(), 0)
 
-    def test_inactive_slot_of_an_active_media_is_recorded_as_no_ad(self):
-        """DRD D-1: 꺼진 슬롯은 후보가 있어도 광고 없음으로 기록한다(계약 C1: 201 + `ad: null`)."""
-        w = World()
-        masters.set_slot_active(w.admin, w.slot.slot_id, False)
-        d = decide(w)
-        self.assertIsNone(d.chosen)
-        self.assertEqual((Decision.objects.count(), d.candidate_count), (1, 0))
-        masters.set_slot_active(w.admin, w.slot.slot_id, True)
-        self.assertIsNotNone(decide(w).chosen)  # 다시 켜면 광고가 나간다
-
     def test_inactive_media_is_forbidden_and_leaves_no_decision(self):
         w = World()
         masters.set_media_active(w.admin, w.slot.media_id, False)
@@ -173,9 +181,10 @@ class GatingTests(TestCase):
         owner, cid = w.adv.pk, w.campaign.campaign_id
         self.assertIsNotNone(decide(w).chosen)
         # 일예산 소진: 한도 5,000 을 과금으로 채우면 후보에서 빠지고, 예산을 늘리면 다시 노출된다
-        billing.charge_for_reaction(owner, cid, UNIT, UNIT, 4_990, "m:r1", now=NOW)
+        campaigns.update_campaign(w.adv, cid, {"daily_budget": 5_000}, now=NOW)
+        billing.charge_for_reaction(owner, cid, "IMPRESSION", WHOLE, 4_990, "m:r1", now=NOW)
         d = decide(w)
-        self.assertEqual((d.chosen, d.rejected_counts), (None, {"budget_exhausted": 1}))  # 남은 10 < 적용 금액 30
+        self.assertEqual((d.chosen, d.rejected_counts), (None, {"budget_exhausted": 1}))  # 남은 10 < 적용 금액 300
         campaigns.update_campaign(w.adv, cid, {"daily_budget": 10_000}, now=NOW)
         self.assertIsNotNone(decide(w).chosen)
         # 잔액 소진: 잔액을 0 으로 만들면 빠지고, 충전(관리자 조정)하면 다시 노출된다
@@ -192,21 +201,13 @@ class GatingTests(TestCase):
 
     def test_below_floor_bid_is_excluded_and_cap_applies(self):
         w = World()
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 5, expected_version=1, now=NOW)  # 하한 10 미만
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 50, expected_version=1, now=NOW)  # 하한 100 미만
         self.assertEqual(decide(w).rejected_counts, {"below_floor": 1})
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 500, expected_version=2, now=NOW)  # 상한 50 초과
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 5000, expected_version=2, now=NOW)  # 상한 500 초과
         d = decide(w)
-        self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (500, 50))  # 입찰 원금액과 적용 금액이 함께 남는다
+        self.assertEqual((d.chosen.bid_amount, d.chosen.applied_amount), (5000, 500))  # 입찰 원금액과 적용 금액이 함께 남는다
 
-    def test_unit_aware_candidates(self):
-        """슬롯과 과금 단위가 다른 광고그룹은 후보가 되지 않는다(서비스가 막지만 구조적 일관성을 한 번 더 확인)."""
-        from campaigns.models import AdGroup
-
-        w = World()
-        AdGroup.objects.filter(pk=w.group.ad_group_id).update(pricing_unit="CLICK")  # 서비스를 우회한 불일치 상태
-        self.assertEqual(decide(w).candidate_count, 0)
-
-    def test_two_advertisers_compete_and_tie_is_random_but_reproducible(self):
+    def test_two_advertisers_at_the_same_amount_both_get_picked_reproducibly(self):
         w = World()
         slot_id = w.slot.slot_id
         from tests.factories import make_advertiser  # 같은 슬롯에 경쟁 광고주를 하나 더 둔다
@@ -214,11 +215,11 @@ class GatingTests(TestCase):
         adv2 = make_advertiser()
         billing.grant_signup(adv2, now=NOW)
         camp2 = campaigns.create_campaign(adv2, "경쟁", NOW - DAY, None, 5_000, now=NOW)
-        group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", UNIT, [slot_id], bid_amount=500, now=NOW)  # 상한 50 으로 적용
+        group2 = campaigns.create_ad_group(adv2, camp2.campaign_id, "경쟁 그룹", [slot_id], bid_amount=5000, now=NOW)  # 상한 500 으로 적용
         campaigns.create_creative(adv2, group2.ad_group_id, "경쟁 광고", "https://rival.example", png_file((3, 3, 3)), now=NOW)
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 400, expected_version=1, now=NOW)  # 둘 다 상한 50 → 동점
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 4000, expected_version=1, now=NOW)  # 둘 다 상한 500 → 같은 가중치
         winners = {decide(w, rng=Random(seed)).chosen.campaign_id for seed in range(40)}
-        self.assertEqual(winners, {w.campaign.campaign_id, camp2.campaign_id})  # 동점이면 고르게 뽑힌다
+        self.assertEqual(winners, {w.campaign.campaign_id, camp2.campaign_id})  # 같은 가중치면 둘 다 뽑힌다
         self.assertEqual(decide(w, rng=Random(5)).chosen.campaign_id, decide(w, rng=Random(5)).chosen.campaign_id)  # 시드 고정이면 재현
 
 
@@ -236,10 +237,10 @@ class PolicySwapTests(TestCase):
         default = decide(w)
         with override_settings(ADS_SELECTION_POLICY="lowest-bid/v1"):
             swapped = decide(w)
-        self.assertEqual((default.selection_policy, swapped.selection_policy), ("highest-bid/v1", "lowest-bid/v1"))
+        self.assertEqual((default.selection_policy, swapped.selection_policy), ("weighted-by-bid/v1", "lowest-bid/v1"))
         a, b = Decision.objects.get(decision_id=default.decision_id), Decision.objects.get(decision_id=swapped.decision_id)
         self.assertEqual({k for k in vars(a) if not k.startswith("_")}, {k for k in vars(b) if not k.startswith("_")})  # 열 구조가 같다
-        self.assertEqual((a.applied_amount, b.applied_amount), (30, 30))
+        self.assertEqual((a.applied_amount, b.applied_amount), (300, 300))
         with override_settings(ADS_SELECTION_POLICY="no-such/v1"):
             with self.assertRaises(engine.UnknownName):
                 decide(w)
@@ -280,24 +281,24 @@ class VersionRowIdentityTests(TestCase):
         from masters.models import BidPolicy
 
         w = World()
-        masters.add_policy_version(w.admin, w.slot.slot_id, 10, 20, 50, "v2", expected_version=1)
-        new_bid = campaigns.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
+        masters.add_policy_version(w.admin, w.slot.slot_id, 100, 200, 500, "v2", expected_version=1, **SHARES)
+        new_bid = campaigns.add_bid(w.adv, w.group.ad_group_id, 400, expected_version=1, now=NOW)
         d = decide(w)
         self.assertEqual(d.chosen.bid_id, new_bid.bid_id)
         self.assertEqual(d.chosen.bid_id, Bid.objects.get(ad_group_id=w.group.ad_group_id, bid_version=2).bid_id)
         self.assertEqual(d.chosen.bid_policy_id, BidPolicy.objects.get(slot_id=w.slot.slot_id, policy_version=2).bid_policy_id)
-        campaigns.add_bid(w.adv, w.group.ad_group_id, 45, expected_version=2, now=NOW)  # 나중 변경은 과거 결정에 영향 없음
+        campaigns.add_bid(w.adv, w.group.ad_group_id, 450, expected_version=2, now=NOW)  # 나중 변경은 과거 결정에 영향 없음
         self.assertEqual(records.get_decision(w.slot.media_id, d.decision_id).chosen.bid_id, new_bid.bid_id)
         self.assertIsNone(decide(World(with_creative=False)).chosen)
 
     def test_version_rows_have_unique_immutable_uuids_exposed_by_api(self):
         w = World()
         v1 = campaigns.list_bids(w.adv, w.group.ad_group_id)[0]
-        v2 = campaigns.add_bid(w.adv, w.group.ad_group_id, 40, expected_version=1, now=NOW)
+        v2 = campaigns.add_bid(w.adv, w.group.ad_group_id, 400, expected_version=1, now=NOW)
         self.assertNotEqual(v1.bid_id, v2.bid_id)
         self.assertEqual(campaigns.get_ad_group(w.adv, w.group.ad_group_id).current_bid.bid_id, v2.bid_id)
         p1 = masters.get_slot(w.slot.slot_id).policy
-        p2 = masters.add_policy_version(w.admin, w.slot.slot_id, 11, 21, 51, "v2", expected_version=1)
+        p2 = masters.add_policy_version(w.admin, w.slot.slot_id, 110, 210, 510, "v2", expected_version=1, **SHARES)
         self.assertNotEqual(p1.bid_policy_id, p2.bid_policy_id)
         self.assertEqual(masters.get_slot(w.slot.slot_id).policy.bid_policy_id, p2.bid_policy_id)
         facts = campaigns.candidate_facts_for_slot(w.slot.slot_id)

@@ -12,7 +12,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Min, Q
 from django.utils import timezone
 
 from billing import api as billing
@@ -22,7 +22,7 @@ from foundation.api import is_transient_lock_error
 from . import basis as judgment_basis
 from . import ordering
 from . import facts as fact_gathering
-from .models import Decision, Reaction, ReactionStatus
+from .models import Decision, Reaction, ReactionStatus, charge_shares
 from .rules import MANDATORY_RULES, Hold, run_rules
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ def _process(inbox_id, now):
         if mandatory is not None:
             verdict = ("guard", mandatory[1])
     if verdict is not None and isinstance(verdict[1], Hold):
+        logger.debug("보류 inbox=%s rule=%s reason=%s", row.inbox_id, verdict[0], verdict[1].reason)  # 기한이 지나면 이 사유로 거부된다(6-3c)
         _hold(row, now)
         return PENDING
     person = fact_gathering.person_of(decision, row.subject_id) if decision is not None else None  # 없는 결정에는 판정 단위의 사람이 없다(보고된 값은 basis.reaction 에만 남는다)
@@ -102,8 +103,8 @@ def _process(inbox_id, now):
         basis = judgment_basis.build(facts, rule=verdict[0], reason=verdict[1], person=person, judged_at=now)
         _finish(row, ReactionStatus.REJECTED, now, basis, reason=verdict[1], rule=verdict[0])
         return ReactionStatus.REJECTED
-    charge = billing.charge_for_reaction(  # 반응 유형이 과금 단위와 다르면 정책이 0 을 돌려줘 기록만 남는다(`None`)
-        decision.owner_id, decision.campaign_id, row.type, decision.pricing_unit, decision.applied_amount,
+    charge = billing.charge_for_reaction(  # 결정에 남긴 비율로(6-10c). 정책이 0 을 돌려주면 기록만 남는다(`None`)
+        decision.owner_id, decision.campaign_id, row.type, charge_shares(decision), decision.applied_amount,
         reaction_ref(row.media_id, row.reaction_id), now=row.received_at,
     )
     if charge is not None:
@@ -135,6 +136,9 @@ def _note_failure(inbox_id):
     try:
         with transaction.atomic():
             Reaction.objects.filter(pk=inbox_id, status=ReactionStatus.RECEIVED).update(attempts=F("attempts") + 1)
+            if Reaction.objects.filter(pk=inbox_id, status=ReactionStatus.RECEIVED, attempts=settings.REACTION_MAX_ATTEMPTS).exists():  # 실패 경로에서만 묻는다
+                # 자동 재처리에서 빠지는 순간을 한 번 남긴다(6-3c). 같은 결정의 뒤 반응이 이것을 기다리며 보류될 수 있다
+                logger.error("반응이 %d번 실패해 자동 재처리에서 빠졌다(stuck) — 원인을 고친 뒤 process_reactions --retry-stuck inbox=%s", settings.REACTION_MAX_ATTEMPTS, inbox_id)
     except Exception:  # noqa: BLE001 — 실패를 기록하다 또 실패해도 원래 오류를 가리지 않는다
         logger.exception("반응 처리 실패 횟수를 기록하지 못했다 inbox=%s", inbox_id)
 
@@ -216,6 +220,23 @@ def process_pending(limit=100, now=None, should_stop=None):
             continue
         counts["skipped" if outcome is None else outcome.lower()] += 1
     return counts
+
+
+def inbox_status(now=None):
+    """수신함의 처리 현황(질의 한 번, 6-3c). 처리기가 멈췄는지·한가한지를 밖에서 구분하는 근거다(설계 §7-9 "처리 대기 건수를 로그로 노출").
+
+    - `received`: 아직 `RECEIVED` 인 반응 전부(아래 둘을 포함한다).
+    - `held`: 앞 단계를 기다리며 보류 중인 것(확인한 적이 있고 자동 처리 대상) — 최대 `REACTION_HOLD_SECONDS` 뒤에는 판정된다.
+    - `stuck`: 실패가 반복돼 자동 재처리에서 빠진 것(`held` 와 겹치지 않는다). 0 이어야 정상이다.
+    - `oldest_age_seconds`: 자동 처리 대상(`stuck` 제외) 중 가장 오래 기다린 것의 나이. 계속 커지면 처리기가 멈춘 것이다. 없으면 `None`.
+    """
+    now = _now(now)
+    stuck = Q(attempts__gte=settings.REACTION_MAX_ATTEMPTS)
+    row = Reaction.objects.filter(status=ReactionStatus.RECEIVED).aggregate(
+        received=Count("pk"), held=Count("pk", filter=Q(checked_at__isnull=False) & ~stuck), stuck=Count("pk", filter=stuck), oldest=Min("received_at", filter=~stuck),
+    )
+    oldest = row.pop("oldest")
+    return {**row, "oldest_age_seconds": None if oldest is None else round((now - oldest).total_seconds(), 1)}
 
 
 def stuck_count():

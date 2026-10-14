@@ -27,7 +27,8 @@ class ModelConventionTests(SimpleTestCase):
         self.assertGreater(checked, 0)
 
     def test_every_primary_key_is_a_uuid7_and_nothing_auto_increments(self):
-        """PK 규칙(설계 §4·DRD R-2): 모든 PK 는 UUIDv7, 자동 증가 열 없음. 순서가 필요한 곳은 시각 열이나 원장 `seq` 다."""
+        """PK 규칙(설계 §4·DRD R-2): 모든 PK 는 UUIDv7, 자동 증가 열 없음. 순서가 필요한 곳은 시각 열이나 원장 `seq` 다.
+        예외는 outbox 의 `event_id` 하나(원천 행에서 결정적으로 만든 UUIDv5, 설계 §10 "PK 규칙") — 기본값이 있으면 빠뜨린 코드에 무작위 ID 가 들어간다."""
         import uuid
 
         from django.db import models
@@ -39,7 +40,10 @@ class ModelConventionTests(SimpleTestCase):
                 pk = model._meta.pk
                 where = f"{model.__name__}.{pk.name}"
                 self.assertIsInstance(pk, models.UUIDField, f"{where}: PK 는 UUID 여야 한다")
-                self.assertIs(pk.default, uuid.uuid7, f"{where}: 기본값은 uuid.uuid7 이어야 한다(시각이 앞에 오는 v7)")
+                if model._meta.label == "events.EventOutbox":
+                    self.assertFalse(pk.has_default(), f"{where}: 원천 행에서 만든 값만 받는다 — 기본값을 두지 않는다")
+                else:
+                    self.assertIs(pk.default, uuid.uuid7, f"{where}: 기본값은 uuid.uuid7 이어야 한다(시각이 앞에 오는 v7)")
                 self.assertFalse(pk.auto_created, f"{where}: 암묵적으로 만들어진 `id` PK 다 — 명시적으로 정의해야 한다")
                 self.assertIsNone(model._meta.auto_field, f"{model.__name__}: 자동 증가 열이 있다")
                 self.assertFalse(

@@ -1,11 +1,10 @@
-from django.db import IntegrityError, transaction
 from django.test import TestCase, tag
 from django.urls import reverse
 
 from foundation.api import record_audit
 from foundation.models import AppendOnlyError, AuditLog, User
+from tests.factories import PW
 
-PW = "Tr0ub4dor-horse-staple"
 MODEL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 
@@ -31,26 +30,6 @@ class AuditLogModelTests(TestCase):
         with self.assertRaises(AppendOnlyError):
             AuditLog.objects.bulk_update([entry], ["action"])
         self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.event")
-
-    def test_existing_row_cannot_be_overwritten_by_a_new_instance_or_upsert(self):
-        """`_state.adding` 은 Python 인스턴스 상태일 뿐이다. 같은 PK 의 새 인스턴스·upsert 로 기존 행을 바꿀 수 없어야 한다."""
-        entry = record_audit(None, "test.original")
-        with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
-            AuditLog(pk=entry.pk, action="review.overwritten").save()
-        with self.assertRaises(AppendOnlyError):
-            AuditLog(pk=entry.pk, action="review.overwritten").save(force_update=True)
-        with self.assertRaises(AppendOnlyError):
-            AuditLog(pk=entry.pk, action="review.overwritten").save(update_fields=["action"])
-        with self.assertRaises(AppendOnlyError):
-            AuditLog.objects.bulk_create(
-                [AuditLog(pk=entry.pk, action="review.overwritten")],
-                update_conflicts=True, update_fields=["action"], unique_fields=["log_id"],
-            )
-        with self.assertRaises((IntegrityError, AppendOnlyError)), transaction.atomic():
-            AuditLog.objects.update_or_create(pk=entry.pk, defaults={"action": "review.overwritten"})
-        AuditLog.objects.bulk_create([AuditLog(pk=entry.pk, action="review.overwritten")], ignore_conflicts=True)  # 건너뛸 뿐 덮어쓰지 않는다
-        self.assertEqual(AuditLog.objects.get(pk=entry.pk).action, "test.original")
-        self.assertEqual(AuditLog.objects.count(), 1)
 
     def test_audit_detail_strips_secret_keys(self):
         detail = {
@@ -175,7 +154,7 @@ class AdminAuditTests(TestCase):
             self.assertEqual(permissions, (False, False, False), model.__name__)
             self.assertEqual(model_admin.get_actions(request), {}, model.__name__)  # 묶음 동작(삭제·axes 정리)도 없다
             checked.append(model.__name__)
-        self.assertEqual(len(checked), 17, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 4, 캠페인 5, 지갑·원장 3, 결정 1, 로그인 잠금 기록 3(axes, 위협 모델 T44)
+        self.assertEqual(len(checked), 18, checked)  # 공회전이 아니다: 감사 로그 1, 마스터 5(매체 비활성화 기록 6-1a), 캠페인 5, 지갑·원장 3, 결정 1, 로그인 잠금 기록 3(axes, 위협 모델 T44)
 
     def test_login_lockout_records_are_read_only(self):
         """잠금 기록을 화면에서 지우거나 고쳐 잠금을 풀 수 없다(설계 §10 "로그인 잠금 기록 관리", 위협 모델 T44). 급할 때는 서버 명령(axes_reset_username)."""

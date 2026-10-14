@@ -1,5 +1,4 @@
 import datetime
-import uuid
 
 from django.template import Context, Template
 from django.test import SimpleTestCase, TestCase
@@ -13,23 +12,15 @@ class UserModelTests(TestCase):
         for forbidden in ("email", "first_name", "last_name", "phone"):
             self.assertNotIn(forbidden, names)
 
-    def test_pk_is_uuid(self):
-        u = User.objects.create_user("adv_one", "pw-not-checked", nickname="닉", class_label="1반")
-        self.assertIsInstance(u.pk, uuid.UUID)
-
     def test_create_user_defaults_to_advertiser(self):
         u = User.objects.create_user("adv_two", "pw", nickname="닉", class_label="1반")
         self.assertEqual(u.role, Role.ADVERTISER)
         self.assertFalse(u.is_superuser)
 
     def test_create_superuser_sets_admin_role(self):
-        u = User.objects.create_superuser("root_one", "pw", nickname="관리", class_label="-")
+        u = User.objects.create_superuser("root_one", "pw", nickname="관리", class_label="-", role=Role.ADVERTISER)  # 역할 인자는 무시한다
         self.assertEqual(u.role, Role.ADMIN)
         self.assertTrue(u.is_superuser)
-
-    def test_create_superuser_ignores_role_argument(self):
-        u = User.objects.create_superuser("root_two", "pw", nickname="관리", class_label="-", role=Role.ADVERTISER)
-        self.assertEqual(u.role, Role.ADMIN)
 
     def test_is_staff_only_for_active_admin(self):
         adv = User.objects.create_user("adv_three", "pw", nickname="닉", class_label="1반")
@@ -44,9 +35,6 @@ class UserModelTests(TestCase):
         u.refresh_from_db()
         self.assertIsNotNone(u.created_at.tzinfo)
         self.assertEqual(u.created_at.utcoffset(), datetime.timedelta(0))
-
-    def test_table_name_is_explicit(self):
-        self.assertEqual(User._meta.db_table, "foundation_user")
 
 
 class KstFilterTests(SimpleTestCase):

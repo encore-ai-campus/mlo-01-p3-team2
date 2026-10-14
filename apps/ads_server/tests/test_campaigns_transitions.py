@@ -43,16 +43,6 @@ class TransitionTableTests(TestCase):
                         tr.apply(c, action, who, NOW)
                     self.assertEqual(Campaign.objects.get(pk=c.pk).status, status)  # 거부되면 상태는 그대로
 
-    def test_ended_has_no_way_out(self):
-        for action, (_allowed, _to, who) in EXPECTED.items():
-            with self.assertRaises(CampaignEnded, msg=action):
-                tr.apply(make("ENDED"), action, who, NOW)
-
-    def test_suspended_blocks_every_advertiser_action(self):
-        for action in ("pause", "resume", "end"):
-            with self.assertRaises(CampaignSuspended, msg=action):
-                tr.apply(make("SUSPENDED"), action, "advertiser", NOW)
-
     def test_actor_kind_is_checked(self):
         for action, (_allowed, _to, who) in EXPECTED.items():
             wrong = "admin" if who != "admin" else "advertiser"

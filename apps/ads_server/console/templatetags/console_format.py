@@ -4,23 +4,32 @@ from django import template
 
 from billing.api import EntryType
 from campaigns.api import CampaignStatus, ReviewStatus
-from masters.api import Audience, PricingUnit
+from masters.api import Audience
+from records import api as records
 
 register = template.Library()
-_UNITS, _AUDIENCES, _STATUSES, _ENTRIES = dict(PricingUnit.choices), dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
+_AUDIENCES, _STATUSES, _ENTRIES = dict(Audience.choices), dict(CampaignStatus.choices), dict(EntryType.choices)
 _REVIEWS = dict(ReviewStatus.choices)
-
-
-@register.filter
-def unit_label(value):
-    """과금 단위 코드 → 화면 이름(노출·클릭·전환)."""
-    return _UNITS.get(value, value)
 
 
 @register.filter
 def audience_label(value):
     """슬롯 성격 코드 → 화면 이름(개인·일괄)."""
     return _AUDIENCES.get(value, value)
+
+
+@register.filter
+def shares(policy):
+    """입찰 정책의 반응 유형별 과금 비율 → "노출 98% · 클릭 1% · 전환 1%"."""
+    return f"노출 {policy.impression_share}% · 클릭 {policy.click_share}% · 전환 {policy.conversion_share}%"
+
+
+@register.filter
+def charges(amounts):
+    """반응 유형별 예상 과금 {유형: 포인트} → "노출 294 · 클릭 3 · 전환 3"(6-10d). 값이 없으면 빈 문자열."""
+    if not amounts:
+        return ""
+    return " · ".join(f"{label} {amounts[code]:,}" for code, label in (("IMPRESSION", "노출"), ("CLICK", "클릭"), ("CONVERSION", "전환")))
 
 
 @register.filter
@@ -101,10 +110,16 @@ def review_label(value):
 
 
 _EFFECTS = {"within_range": "그대로 적용", "capped_at_cap": "상한으로 적용", "below_floor": "하한 미만 — 노출 안 됨",
-            "slot_inactive": "꺼진 위치 — 노출 안 됨", "no_policy": "알 수 없는 위치"}
+            "slot_inactive": "꺼진 구성 — 노출 안 됨", "no_policy": "알 수 없는 구성"}
 
 
 @register.filter
 def effect_label(value):
     """위치별 적용 결과(C6 `SlotEffect.reason`) → 화면 문구. 모르는 값은 그대로(계약: 알 수 없는 값을 오류로 다루지 않는다)."""
     return _EFFECTS.get(value, value)
+
+
+@register.simple_tag
+def reaction_status():
+    """반응 처리 현황(관리자 첫 화면 카드, 설계 §10 "반응 처리 현황 노출", 6-3i) — `records.api.inbox_status()`, 질의 한 번."""
+    return records.inbox_status()

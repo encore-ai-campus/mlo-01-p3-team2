@@ -4,10 +4,17 @@ import time
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import InterfaceError, OperationalError, close_old_connections, connection
+from django.utils import timezone
 from pymongo.errors import PyMongoError
 
 from events import mongo
 from events.relay import BATCH, EventConflict, outbox_status, relay_batch
+
+
+def stamped(text):
+    """상시 실행의 상태·장애 줄 앞에 UTC 시각(로그와 같은 ISO 8601 Z 형식 — `foundation.logging.UtcFormatter`, 6-3b). 일회성 조회(`--status`)에는 붙이지 않는다."""
+    now = timezone.now()
+    return f"{now:%Y-%m-%dT%H:%M:%S}.{now.microsecond // 1000:03d}Z {text}"
 
 
 class Command(BaseCommand):
@@ -43,7 +50,7 @@ class Command(BaseCommand):
             return
         stop = []
         previous = signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
-        self.stdout.write(f"started {'once' if options['once'] else f'interval={interval}'} batch={batch}")
+        self.stdout.write(stamped(f"started {'once' if options['once'] else f'interval={interval}'} batch={batch}"))
         self.stdout.flush()
         failures = 0
         try:
@@ -52,17 +59,21 @@ class Command(BaseCommand):
                     total = self.drain(batch, lambda: bool(stop))
                     failures = 0
                     if any(total.values()) or options["once"]:
-                        self.stdout.write(f"{total} {outbox_status()}")
+                        self.stdout.write(stamped(f"{total} {outbox_status()}"))
                 except EventConflict as error:
                     # 이벤트 ID 가 결정적이라 일어나선 안 되는 일이다 — 덮어쓰지도 건너뛰지도 않고 멈춘다. 충돌하지 않은 이벤트는 이미 표시돼 있다
                     raise CommandError(f"충돌로 중계를 멈춥니다: {error}")
-                except (PyMongoError, mongo.NotConfigured, OperationalError, InterfaceError) as error:
+                except mongo.NotConfigured as error:
+                    # 설정이 없는 것은 일시 장애가 아니다 — 기다려도 고쳐지지 않으므로 상시 실행도 바로 멈춘다(0 이 아닌 종료 코드, 설계 §10 "이벤트 저장소 설정", 6-3e).
+                    # 보낼 이벤트가 있을 때 드러난다. 시작할 때 설정·접속을 미리 확인하는 것은 운영하면서 더한다(같은 결정의 C)
+                    raise CommandError(f"이벤트 저장소 설정이 없어 중계를 멈춥니다: {mongo.error_text(error)}")
+                except (PyMongoError, OperationalError, InterfaceError) as error:
                     if options["once"]:
                         raise CommandError(f"중계 실패: {mongo.error_text(error)}")
                     # 상시 중계는 MongoDB 나 DB 가 잠시 죽어도 죽지 않는다: 행은 미전송으로 남아 있고, 점점 길게 쉬며 다시 시도한다
                     failures += 1
                     wait = min(30.0, interval * 2 ** min(failures, 5))
-                    self.stderr.write(f"이번 주기를 건너뛴다({failures}번째, {wait:.0f}초 뒤 다시): {mongo.error_text(error)}")
+                    self.stderr.write(stamped(f"이번 주기를 건너뛴다({failures}번째, {wait:.0f}초 뒤 다시): {mongo.error_text(error)}"))
                     mongo.close()
                     if not connection.in_atomic_block:
                         close_old_connections()

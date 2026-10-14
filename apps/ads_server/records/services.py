@@ -17,7 +17,7 @@ from masters import api as masters
 
 from .assemble import assemble
 from . import ordering
-from .models import Decision, Reaction, ReactionSource, ReactionType
+from .models import SHARE_COLUMNS, Decision, Reaction, ReactionSource, ReactionType, charge_shares
 from .processing import process_after_receipt
 from .types import ChosenView, DecisionView, ReactionView
 
@@ -34,7 +34,7 @@ def _view(d):
         s = d.snapshot
         chosen = ChosenView(
             owner_id=d.owner_id, campaign_id=d.campaign_id, ad_group_id=d.ad_group_id, creative_id=d.creative_id,
-            pricing_unit=d.pricing_unit, bid_amount=d.bid_amount, applied_amount=d.applied_amount, bid_version=d.bid_version,
+            charge_shares=charge_shares(d), bid_amount=d.bid_amount, applied_amount=d.applied_amount, bid_version=d.bid_version,
             policy_version=d.policy_version, bid_id=d.bid_id, bid_policy_id=d.bid_policy_id, title=s["title"], redirect_url=s["redirect_url"], image_name=s["image_name"],
             image_url=asset_url(s["image_name"]),
         )
@@ -57,7 +57,7 @@ def _atomic_if_needed():
 
 def _record_decision_event(d, now):
     selected = None if d.creative_id is None else {
-        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "pricing_unit": d.pricing_unit, "bid_id": d.bid_id,
+        "campaign_id": d.campaign_id, "ad_group_id": d.ad_group_id, "creative_id": d.creative_id, "charge_shares": charge_shares(d), "bid_id": d.bid_id,
         "bid_version": d.bid_version, "bid_policy_id": d.bid_policy_id, "policy_version": d.policy_version, "bid_amount": d.bid_amount, "applied_amount": d.applied_amount,
     }
     events.record_decision(
@@ -97,7 +97,7 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     _check_subject(slot, subject_id)
     candidates, facts_by_creative = assemble(slot, now) if slot.is_active else ([], {})  # 꺼진 슬롯: 후보 없이 '광고 없음'으로 기록
     result = engine_decide(
-        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 동점 광고를 고르게 노출하려는 추첨이다. 보안 값(키·토큰)을 만들지 않는다
+        candidates, AdRequest(slot_id=slot_id, now=now, subject_id=subject_id), rng or random.Random(),  # nosec B311 — 노출 광고의 가중 추첨이다(설계 §4.3). 보안 값(키·토큰)을 만들지 않는다
         policy=settings.ADS_SELECTION_POLICY, filters=tuple(settings.ADS_ENGINE_FILTERS),
     )
     chosen = result.selection.chosen
@@ -107,12 +107,17 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
         fact = facts_by_creative[chosen.creative_id]
         values = dict(
             owner_id=fact.owner_id, campaign_id=chosen.campaign_id, ad_group_id=chosen.ad_group_id, creative_id=chosen.creative_id,
-            pricing_unit=chosen.pricing_unit, bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
+            bid_amount=chosen.bid_amount, applied_amount=chosen.applied_amount,
+            **{column: getattr(slot.policy, column) for column in SHARE_COLUMNS.values()},  # 판정에 쓴 정책 버전의 비율 — 과금은 이 값으로
             bid_version=chosen.bid_version, policy_version=chosen.policy_version,
             bid_id=fact.bid_id, bid_policy_id=slot.policy.bid_policy_id,  # 판정에 쓴 바로 그 버전 행
             snapshot={"title": fact.title, "redirect_url": fact.redirect_url, "image_name": fact.image_name},
         )
     with _atomic_if_needed():  # 결정과 이벤트(outbox)는 한 트랜잭션이다. 응답까지 묶는 트랜잭션은 C1 뷰가 열고(그 안이면 그대로 쓴다), 직접 부르면 여기서 연다
+        # 매체 생명주기 잠금(설계 §10 "매체 비활성화와 판정·결정의 순서", 6-2): 위의 활성 확인은 커밋 전 비활성화를 못 본다. 공유 잠금으로 다시 읽어
+        # 진행 중인 비활성화는 커밋까지 기다려 403 으로 막고, 잠금을 커밋까지 쥐어 뒤에 시작하는 비활성화가 이 결정보다 늦은 시각을 갖게 한다(결정끼리는 막지 않는다)
+        if not masters.media_active_for_share(media_id):
+            raise errors.Forbidden("이 매체는 비활성입니다.")
         decision = Decision.objects.create(
             media_id=media_id, slot_id=slot_id, subject_id=subject_id, audience=slot.audience, context=context or {}, decided_at=now,
             selection_policy=result.selection.trace.get("policy", settings.ADS_SELECTION_POLICY),
@@ -122,13 +127,17 @@ def decide(media_id, slot_id, subject_id=None, context=None, now=None, rng=None)
     return _view(decision)
 
 
+def _get(model, message, **ids):
+    """ID 들로 행 하나. 형식이 틀린 ID·없는 행·다른 매체의 행은 같은 404(`message`)다."""
+    try:
+        return model.objects.get(**{field: parse_uuid(value, field) for field, value in ids.items()})
+    except (model.DoesNotExist, errors.NotFound):
+        raise errors.NotFound(message)
+
+
 def get_decision(media_id, decision_id):
     """결정 조회. **그 결정을 만든 매체만** 볼 수 있고, 아니면 없는 것과 같다(404)."""
-    try:
-        d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"), media_id=parse_uuid(media_id, "매체"))
-    except (Decision.DoesNotExist, errors.NotFound):  # 형식이 틀린 ID·없는 결정·다른 매체의 결정은 같은 응답이다
-        raise errors.NotFound("결정을 찾을 수 없습니다.")
-    return _view(d)
+    return _view(_get(Decision, "결정을 찾을 수 없습니다.", decision_id=decision_id, media_id=media_id))
 
 
 # ---------------------------------------------------------------- 반응 수신함 (C1 PUT /reactions)
@@ -211,10 +220,7 @@ def observe_click(decision_id, viewer_id=None, now=None):
     - 기록의 실패는 이동을 막지 않는다(최종 사용자 경험이 우선이다). 실패는 로그로만 남긴다.
     판정(인정·거부)은 하지 않는다 — 수신함에 `CLICK` 으로 넣으면 처리 단계가 판정한다.
     """
-    try:
-        d = Decision.objects.get(decision_id=parse_uuid(decision_id, "결정"))
-    except (Decision.DoesNotExist, errors.NotFound):
-        raise errors.NotFound("결정을 찾을 수 없습니다.")
+    d = _get(Decision, "결정을 찾을 수 없습니다.", decision_id=decision_id)
     if d.creative_id is None:
         raise errors.NotFound("결정을 찾을 수 없습니다.")  # 광고가 없던 결정에는 클릭이 있을 수 없다
     person = d.subject_id if d.audience == masters.Audience.INDIVIDUAL else viewer_id
@@ -240,18 +246,11 @@ def _record_click(d, person, now):
             _record_received_event(row)
     except IntegrityError as error:
         if is_unique_violation(error) and Reaction.objects.filter(media_id=d.media_id, reaction_id=reaction_id, source=ReactionSource.SERVER).exists():
-            return None  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
+            return  # 같은 사람의 중복 클릭: 처음 것이 있다. (같은 ID 의 *매체* 행이면 중복이 아니다 — 오류로 올라가 기록된다)
         raise
     process_after_receipt(row.inbox_id)  # 수신 직후 한 번 처리해 본다(실패해도 이동·기록은 그대로, 남은 것은 재처리가 맡는다)
-    return row.inbox_id
 
 
 def get_reaction(media_id, decision_id, reaction_id):
     """반응 조회. **이 매체가 보고했고 이 결정 아래에 있는 것만** 보이고, 아니면 없는 것과 같다(404)."""
-    try:
-        r = Reaction.objects.get(
-            media_id=parse_uuid(media_id, "매체"), decision_id=parse_uuid(decision_id, "결정"), reaction_id=parse_uuid(reaction_id, "반응")
-        )
-    except (Reaction.DoesNotExist, errors.NotFound):
-        raise errors.NotFound("반응을 찾을 수 없습니다.")
-    return _reaction_view(r)
+    return _reaction_view(_get(Reaction, "반응을 찾을 수 없습니다.", media_id=media_id, decision_id=decision_id, reaction_id=reaction_id))

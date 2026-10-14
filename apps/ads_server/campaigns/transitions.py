@@ -69,12 +69,11 @@ def apply(campaign, action, by, now, reason=""):
         campaign.suspended_reason, campaign.suspended_at = "", None
     campaign.updated_at = now
     campaign.save()
+    # 열린 재검토 요청(캠페인당 최대 1건)은 UPDATE 한 번으로 닫는다 — `expire_due` 와 같은 방식, 캠페인 행 잠금 안이다
     if action == "release":
-        for review in ReviewRequest.objects.filter(campaign=campaign, status=ReviewStatus.OPEN):
-            close_review_request(review, ReviewStatus.RELEASED, now)
+        ReviewRequest.objects.filter(campaign=campaign, status=ReviewStatus.OPEN).update(status=ReviewStatus.RELEASED, closed_at=now)
     elif to == ENDED:
-        for review in ReviewRequest.objects.filter(campaign=campaign, status=ReviewStatus.OPEN):
-            close_review_request(review, ReviewStatus.CLOSED_ENDED, now)
+        ReviewRequest.objects.filter(campaign=campaign, status=ReviewStatus.OPEN).update(status=ReviewStatus.CLOSED_ENDED, closed_at=now)
     return previous
 
 

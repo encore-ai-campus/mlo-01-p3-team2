@@ -66,6 +66,18 @@ def status_of(error):
     return error.status if isinstance(error, errors.ApiError) else 400
 
 
+def submit(form, call, **kwargs):
+    """폼 하나의 제출: 입력이 맞으면 `call(cleaned_data)` 하고 `(결과, None)`. 폼이 거르면 `(None, 400)`, 서비스가 거절하면 그 폼에 오류를 붙이고
+    (`form_errors` — `kwargs` 는 그 인자) `(None, status_of)`. 뷰는 status 가 `None` 이면 완료로 가고, 아니면 그 코드로 폼을 다시 그린다."""
+    if not form.is_valid():
+        return None, 400
+    try:
+        return call(form.cleaned_data), None
+    except HANDLED as e:
+        form_errors(form, e, **kwargs)
+        return None, status_of(e)
+
+
 def run_action(request, call, *args, success=None, **kwargs):
     """폼이 없는 동작(목록·상세의 버튼): 서비스를 부르고 결과를 메시지 한 줄로 남긴다. 실패는 `message_of`(없음·권한 없음은 404·403), 성공은 `success`."""
     try:

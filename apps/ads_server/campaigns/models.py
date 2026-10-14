@@ -7,7 +7,6 @@ from django.db.models import Case, F, Q, When
 from django.utils import timezone
 
 from foundation.api import MAX_AMOUNT, AppendOnlyModel
-from masters.api import PricingUnit
 
 
 class CampaignStatus(models.TextChoices):
@@ -37,7 +36,7 @@ class Campaign(models.Model):
     suspended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
-    request_key = models.CharField(max_length=64, null=True, blank=True)  # 광고 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다)
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 캠페인 만들기 화면 폼 하나 = 캠페인 하나(같은 키로는 다시 만들지 않는다, 6-9d)
 
     class Meta:
         db_table = "campaigns_campaign"
@@ -53,21 +52,16 @@ class AdGroup(models.Model):
     ad_group_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="ad_groups")
     name = models.CharField(max_length=100)
-    pricing_unit = models.CharField(max_length=20, choices=PricingUnit.choices)
     enabled = models.BooleanField(default=True)
+    # 선택된 소재 — 결정에 나가는 소재다. 연결(`AdGroupCreative`)된 것 중에서만 고른다(서비스가 지킨다). 없으면 후보가 아니다(6-9c)
+    creative = models.ForeignKey("Creative", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    request_key = models.CharField(max_length=64, null=True, blank=True)  # 기존 캠페인에 광고 만들기 폼 하나 = 광고그룹 하나(6-9c)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)  # 화면이 본 값과 대조해 옛 폼(이름·게재 위치)이 그 사이의 변경을 덮지 않게(3-2d)
 
     class Meta:
         db_table = "campaigns_ad_group"
-
-    def save(self, *args, **kwargs):
-        """과금 단위는 만든 뒤 바꿀 수 없다(입찰 이력의 의미가 섞이지 않게)."""
-        if not self._state.adding:
-            current = type(self).objects.filter(pk=self.pk).values_list("pricing_unit", flat=True).first()
-            if current is not None and current != self.pricing_unit:
-                raise ValueError("광고그룹의 과금 단위는 바꿀 수 없다.")
-        super().save(*args, **kwargs)
+        constraints = [models.UniqueConstraint(fields=["request_key"], name="campaigns_ad_group_once_per_request")]  # NULL 은 서로 다르다
 
 
 class AdGroupSlot(models.Model):
@@ -81,18 +75,36 @@ class AdGroupSlot(models.Model):
 
 
 class Creative(models.Model):
+    """광고주 소유의 소재 목록(6-9c, 설계 §10 "소재 목록"). 광고그룹에는 `AdGroupCreative` 로 연결하고, 광고그룹이 그중 하나를 선택한다.
+    화면의 "삭제"는 보관(`archived_at`)이다 — 행은 남는다(감사 기록·연결 기록이 참조). 끝나지 않은 캠페인의 광고그룹에 연결돼 있으면 보관하지 못한다.
+    소재 끄기는 없다 — 광고를 멈추는 것은 광고그룹 ON/OFF 하나다(6-9b)."""
+
     creative_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
-    ad_group = models.ForeignKey(AdGroup, on_delete=models.PROTECT, related_name="creatives")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="creatives")
     title = models.CharField(max_length=200)
     redirect_url = models.CharField(max_length=2048)
     image_name = models.CharField(max_length=80, db_index=True)  # assets 의 `<sha256>.<ext>`
     image_bytes = models.PositiveIntegerField()
-    enabled = models.BooleanField(default=True)
+    archived_at = models.DateTimeField(null=True, blank=True)  # 보관(화면의 "삭제"). 보관한 소재는 개수 상한에서 빠지고 이미지 보유량에는 남는다
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "campaigns_creative"
+
+
+class AdGroupCreative(AppendOnlyModel):
+    """광고그룹에 연결한 소재(6-9c). **끊지 않는다**(추가만) — 연결 기록이 ① 보관 가능 여부(끝나지 않은 캠페인에 연결돼 있으면 불가) ②
+    이미지 공개 판정(연결된 적 있는 광고그룹의 캠페인이 살아 있으면 공개)의 근거다. 선택을 바꿔도 이전 결정의 이미지가 깨지지 않는다."""
+
+    link_id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
+    ad_group = models.ForeignKey(AdGroup, on_delete=models.PROTECT, related_name="creative_links")
+    creative = models.ForeignKey(Creative, on_delete=models.PROTECT, related_name="ad_group_links")
+    linked_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "campaigns_ad_group_creative"
+        constraints = [models.UniqueConstraint(fields=["ad_group", "creative"], name="campaigns_ad_group_creative_unique")]
 
 
 class CreativeImage(AppendOnlyModel):

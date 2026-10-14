@@ -7,12 +7,13 @@
 브라우저가 아니다: 폼은 HTMLParser 로 읽고 Django 시험 클라이언트로 낸다. 브라우저 엔진·CSS·키보드 동작·JS 실행은 이 시험의 범위 밖이고,
 실제 브라우저로 본 것은 따로 기록한다(3-3c Chrome 점검, 외부 검토의 Chrome 확인).
 """
+import uuid
 from html.parser import HTMLParser
 
 from django.test import Client, TestCase, tag
 from django.urls import reverse
 
-from campaigns.models import Campaign
+from campaigns.models import Campaign, Creative
 from tests.factories import PW, World, png_file
 
 
@@ -114,28 +115,42 @@ class NoJsJourneyTests(TestCase):
         self.assertRedirects(done, reverse("login"))
         self.login(self.adv, "nojs_user")
 
-        # 광고 만들기: 단위 고르기(다시 그림) → 미리보기(서버 계산) → 집행
-        page = submit(self.adv, self.go(self.adv, reverse("ad_create")), lambda a: "ad-create" in a.get("class", ""), button="unit", pricing_unit="IMPRESSION")
-        self.assertEqual(page.status_code, 200)
-        slot = str(self.w.slot.slot_id)
-        filled = dict(campaign_name="자바 없는 캠페인", ends_at="2030-12-31T09:00", daily_budget="3000", group_name="그룹", slot_ids=[slot], bid_amount="25",
-                      title="제목", redirect_url="https://example.com/nojs")
-        page = submit(self.adv, page, lambda a: "ad-create" in a.get("class", ""), button="preview", **filled)
-        self.assertContains(page, "지금 정책 기준")
-        done = submit(self.adv, page, lambda a: "ad-create" in a.get("class", ""), button="create", files={"image": png_file((1, 2, 3))})  # 미리보기 뒤 이미지는 다시 고른다
+        # 캠페인 만들기(광고는 따로, 6-9d)
+        done = submit(self.adv, self.go(self.adv, reverse("campaign_create")), no_action, name="자바 없는 캠페인", ends_at="2030-12-31T09:00", daily_budget="3000")
         campaign = Campaign.objects.get(name="자바 없는 캠페인")
         detail = reverse("campaign_detail", args=[campaign.campaign_id])
         self.assertRedirects(done, detail)
+
+        # 그 캠페인에 광고 만들기: 미리보기(서버 계산 — 위치별 결과와 예상 과금) → 집행(새 소재). 과금 단위를 고르는 단계는 없다(6-10d)
+        ad_form = lambda a: "ad-create" in a.get("class", "")  # noqa: E731
+        page = self.go(self.adv, f"{reverse('ad_create')}?campaign={campaign.campaign_id}")
+        slot = str(self.w.slot.slot_id)
+        filled = dict(group_name="그룹", slot_ids=[slot], bid_amount="250", title="제목", redirect_url="https://example.com/nojs")
+        page = submit(self.adv, page, ad_form, button="preview", **filled)
+        self.assertContains(page, "지금 정책 기준")
+        self.assertContains(page, "노출 245 · 클릭 2 · 전환 2")  # 250 × 98% · 1% · 1%(내림)
+        done = submit(self.adv, page, ad_form, button="create", files={"image": png_file((1, 2, 3))})  # 미리보기 뒤 이미지는 다시 고른다
+        group = campaign.ad_groups.get()
+        group_url = reverse("ad_group_detail", args=[group.ad_group_id])
+        self.assertRedirects(done, group_url)
 
         # 캠페인 수정(화면이 본 변경 시각을 싣는다)
         self.assertRedirects(submit(self.adv, self.go(self.adv, detail), no_action, name="바꾼 이름"), detail)
         self.assertContains(self.go(self.adv, detail), "바꾼 이름")
 
-        # 광고그룹: 새 입찰(화면이 본 버전을 싣는다)
-        group = campaign.ad_groups.get()
-        group_url = reverse("ad_group_detail", args=[group.ad_group_id])
-        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="40"), group_url)
-        self.assertEqual(group.bids.order_by("-bid_version").first().amount, 40)
+        # 광고: 새 입찰(화면이 본 버전을 싣는다)
+        self.assertRedirects(submit(self.adv, self.go(self.adv, group_url), action(reverse("ad_group_bid", args=[group.ad_group_id])), amount="350"), group_url)
+        self.assertEqual(group.bids.order_by("-bid_version").first().amount, 350)  # 하한(100) 위 — 하한 미만 경로가 아니다
+
+        # 소재 목록에 올린 이미지를 광고 상세의 "이미지"에서 고른다(재사용 — 연결은 고를 때 함께, 6-11)
+        done = submit(self.adv, self.go(self.adv, reverse("creative_list")), lambda a: a.get("enctype") == "multipart/form-data",
+                      files={"new-image": png_file((4, 5, 6))}, **{"new-title": "재사용 소재", "new-redirect_url": "https://example.com/reuse"})
+        reused = Creative.objects.get(title="재사용 소재")
+        self.assertRedirects(done, reverse("creative_detail", args=[reused.creative_id]))
+        page = self.go(self.adv, group_url)
+        self.assertRedirects(submit(self.adv, page, action(reverse("ad_group_creative_select", args=[group.ad_group_id]))), group_url)
+        group.refresh_from_db()
+        self.assertEqual(group.creative_id, reused.creative_id)
 
         # 관리자: 모니터링에서 중단(사유)
         self.login(self.admin, self.w.admin.username)
@@ -159,13 +174,13 @@ class NoJsJourneyTests(TestCase):
         self.assertContains(self.go(self.adv, reverse("points")), "가입")
 
     def test_the_helper_refuses_fields_the_page_does_not_have(self):
-        """도우미가 공회전하지 않는다: 화면에 없는 칸, 꺼진 칸(단위를 고르기 전의 위치), 선택지에 없는 값은 보낼 수 없다."""
+        """도우미가 공회전하지 않는다: 화면에 없는 칸, 꺼진 칸, 선택지에 없는 값은 보낼 수 없다."""
         self.login(self.adv, self.w.adv.username)
-        page = self.go(self.adv, reverse("ad_create"))  # 단위를 고르기 전 — 모든 위치가 꺼져 있다
+        page = self.go(self.adv, reverse("ad_create"))
         ad_form = lambda a: "ad-create" in a.get("class", "")
         with self.assertRaisesRegex(AssertionError, "화면에 없는 칸"):
-            submit(self.adv, page, ad_form, button="unit", made_up="1")
-        with self.assertRaisesRegex(AssertionError, "화면에 없는 칸: slot_ids"):
-            submit(self.adv, page, ad_form, button="unit", slot_ids=[str(self.w.slot.slot_id)])
+            submit(self.adv, page, ad_form, button="preview", made_up="1")
         with self.assertRaisesRegex(AssertionError, "고를 수 없는 값"):
-            submit(self.adv, page, ad_form, button="unit", pricing_unit="VIEW")
+            submit(self.adv, page, ad_form, button="preview", slot_ids=[str(uuid.uuid4())])
+        (form,) = Forms('<form><input name="off" value="1" disabled><input type="checkbox" name="box" value="a" disabled><input name="on" value="2"></form>').forms
+        self.assertEqual((form["values"], form["choices"]), ([["on", "2"]], {}))  # 꺼진 칸은 브라우저처럼 보내지 않는다
