@@ -725,14 +725,14 @@ erDiagram
 | 슬롯 성격 불변 | — | 모델 `save()` 거부 | `case_slot_audience_immutable` |
 | 광고그룹의 슬롯은 활성 | — | 400 | `case_ad_group_slot_validation`, `case_an_ad_may_combine_any_slots` |
 | 잔액 0 이상·최대값 이하, 잔액 = 원장 합계 | `CHECK` | 남은 잔액까지만 차감 | `case_balance_never_below_zero`, `check_ledger` |
-| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `case_seq_runs_from_one_without_gaps_and_per_wallet`, `case_db_rejects_a_duplicate_or_non_positive_seq`, `case_check_ledger_detects_a_gap_in_seq`, `test_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
+| 원장은 지갑 안에서 1부터 빈틈없이 이어진다 | UNIQUE(wallet, seq), `seq ≥ 1` | 지갑 잠금 안에서 +1, `check_ledger`가 연속성 확인 | `case_seq_runs_from_one_without_gaps_and_per_wallet`, `case_db_rejects_a_duplicate_or_non_positive_seq`, `case_check_ledger_detects_a_gap_in_seq`, `case_charges_adjustments_and_reads_on_one_wallet_keep_seq_balance_and_spend_consistent` |
 | 모든 PK는 UUIDv7(outbox `event_id`는 예외 — 기본값 없음) | — | 모델 규약 | `case_every_primary_key_is_a_uuid7_and_nothing_auto_increments` |
 | 같은 반응은 한 번만 과금 | UNIQUE(`reaction_ref`, NULL 허용) | 처음 결과 반환 | `case_charge_idempotent_by_reaction_ref` |
 | 같은 발급 요청은 키 하나 | UNIQUE(`request_key`) | 409 + 키 식별자 | `test_the_same_request_key_issues_once` |
 | 광고주 상한은 동시 쓰기에도 넘지 않는다 | — | 사용자 행(A1)을 가장 먼저 잠그고 그 안에서 센다 | `case_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit`, `case_two_new_ads_in_different_campaigns_do_not_pass_the_ad_limit`, `case_two_image_replacements_in_different_campaigns_do_not_pass_the_upload_quota`, `case_an_account_change_during_a_creation_waits_on_the_advertiser_row_and_both_finish` |
 | 같은 광고 만들기 폼은 광고 하나 | UNIQUE(O2 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 결과(상한에서 다시 보내도), 남의 캠페인에 붙은 키면 409(화면은 오류 메시지와 함께 광고 만들기 화면으로 302) | `case_the_same_form_sent_twice_at_once_creates_once`, `case_a_resubmission_at_the_quota_still_finds_the_first_ad` |
 | 같은 캠페인 만들기 폼은 캠페인 하나 | UNIQUE(O1 `request_key`) | 만들기 전에 키를 먼저 보고 같은 키면 처음 캠페인, 동시 제출은 사용자 행 잠금 안에서 다시 봄, 남의 캠페인에 붙은 키면 409 | `case_the_same_campaign_form_twice_creates_once`, `case_an_overlapping_resubmission_of_the_same_campaign_form_creates_once` |
-| 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `test_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `test_same_key_applies_once_and_a_different_content_is_refused` |
+| 같은 조정 폼은 한 번만 반영 | UNIQUE(`adjust_key`), 조정 줄에만(`CHECK`) | 같은 키면 처음 결과, 다른 내용이면 409 | `case_db_keeps_one_entry_per_key_and_keys_only_on_adjustments`, `case_same_key_applies_once_and_a_different_content_is_refused` |
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `case_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `case_only_one_open_review_request_per_campaign` |
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `case_edit_rejected_when_expired_but_status_still_active` |
