@@ -73,6 +73,13 @@ def profiles(user_ids):
     return {u.pk: _profile_view(u) for u in User.objects.filter(pk__in=parse_uuids(user_ids))}
 
 
+def lock_user(user):
+    """사용자 행을 잠근다(`FOR UPDATE`, 트랜잭션 안에서만). 광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)을 세는 만들기·이미지 교체가
+    **가장 먼저** 잡아 같은 광고주의 쓰기를 줄 세운다 — 잠금 순서는 사용자 → 캠페인 → 광고그룹 → 소재(설계 §10 "캠페인 행 잠금 규약"·"DRD 표 축소" ②, 6-16g).
+    계정 경로(프로필·비밀번호 변경·비활성화·관리 사이트 POST)도 사용자 행을 잠그지만 그 뒤에 다른 행을 잡지 않아 순서가 엇갈리지 않는다."""
+    User.objects.select_for_update().only("pk").get(pk=user.pk)
+
+
 def update_profile(user, nickname=None, class_label=None):
     """광고주 내 정보(닉네임·반) 수정(C6 `PATCH /me`). 준 값만 바꾸고 가입과 같은 규칙으로 검증한다. 하나라도 틀리면 아무것도 바꾸지 않는다.
 

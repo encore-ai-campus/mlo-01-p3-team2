@@ -25,7 +25,7 @@ class QuotaRaceTests(TransactionTestCase):
     """외부 검토(41d2288) P2: 광고주 전체 상한과 요청 키의 경쟁.
 
     1. 서로 다른 캠페인의 동시 쓰기가 광고주 전체 상한(캠페인 수·이미지 보유량)을 넘겼다 — 캠페인마다 잠그면 함께 줄을 서지 않는다.
-       → 만들기·이미지 교체는 광고주 잠금 행(`AdvertiserQuota`)을 가장 먼저 잡고, 잠금 안에서 상한을 다시 센다.
+       → 만들기·이미지 교체는 광고주의 사용자 행을 가장 먼저 잠그고(6-16g — 그 전에는 따로 둔 상한 잠금 행), 잠금 안에서 상한을 다시 센다.
     2. 성공한 요청 키의 겹친 재전송이 상한 오류(409)로 끝났다 — 첫 조회와 앞선 요청의 커밋 사이의 틈.
        → 같은 잠금 안에서 키를 다시 본다.
     실제 MySQL 연결 두 개로, 한쪽이 쓰기 직전(상한 확인 뒤)에 멈춘 사이 다른 쪽을 실행한다.
@@ -50,6 +50,15 @@ class QuotaRaceTests(TransactionTestCase):
         a, b = overlap(self, first, verb, table, second)
         self.assertEqual(a.errors, [])
         return b
+
+    def test_an_account_change_during_a_creation_waits_on_the_advertiser_row_and_both_finish(self):
+        """6-16g: 광고주 상한은 사용자 행을 잠근다(상한 잠금 행을 없앰). 계정 경로도 사용자 행을 잠그지만 그 뒤에 다른 행을 잡지 않아
+        순서가 엇갈리지 않는다 — 만들기가 상한을 센 뒤 멈춘 사이의 프로필 변경은 그 잠금에서 기다렸다가 끝나고, 교착 없이 둘 다 성공한다."""
+        from foundation.api import update_profile
+
+        first, second = overlap(self, self.campaign("k1"), "INSERT", "campaigns_campaign", lambda: update_profile(self.w.adv, nickname="새별명"))
+        self.assertEqual((first.errors, second.errors), ([], []))
+        self.assertEqual(Campaign.objects.filter(owner=self.w.adv, request_key="k1").count(), 1)
 
     @override_settings(MAX_CAMPAIGNS_PER_ADVERTISER=2)  # 이미 1개
     def test_two_new_campaigns_with_different_keys_do_not_pass_the_campaign_limit(self):
