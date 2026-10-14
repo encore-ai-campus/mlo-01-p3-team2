@@ -93,6 +93,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 - **두 서버(6-15)**: **프론트 서버**(80·443 공개)에 nginx + 프론트 Django(`../ads_frontend`, 127.0.0.1 바인딩), **백 서버**(내부망)에 이 백엔드와 상시 프로세스를 둔다. 백엔드는 내부망 주소로 열고 방화벽이 프론트 서버만 허용한다(게임 백엔드의 매체 API 호출 경로는 인프라에 따로 요청). 브라우저 경로는 nginx → 프론트 → 백의 두 단계라 **`TRUSTED_PROXY_COUNT=2`** 이고, `ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`·`ASSET_PUBLIC_BASE_URL` 은 브라우저가 여는 공개 주소(프론트가 `Host` 를 그대로 넘긴다) — 게임 백엔드가 부르는 내부 주소도 `ALLOWED_HOSTS` 에 둔다. 프론트의 `ADMIN_URL_PATH`·`ASSET_MAX_BYTES` 는 이 백엔드와 같게, nginx 의 업로드 크기는 `ASSET_MAX_BYTES` + 64KiB 이상. 아래 nginx 문장의 "Django"는 프론트 Django 다.
 - **배포 구성**(설계 §10 "배포 구성"): 광고 서버 앞 nginx(certbot)가 TLS·80→443 리다이렉트·HSTS·접속 허용 목록(강의실 라우터 IP·메타버스 서버 IP)을 맡고, 요청을 같은 호스트의 Django로 HTTP로 넘기기만 한다. Django는 HTTPS 리다이렉트·HSTS를 하지 않고 `X-Forwarded-Proto`도 읽지 않는다. 세션·CSRF 쿠키는 Secure라 nginx가 HTTP로 열면 로그인이 되지 않는다. `CSRF_TRUSTED_ORIGINS`에는 브라우저가 여는 https 주소를 적는다(Django가 요청을 HTTP로 알아 브라우저의 출처와 맞지 않으므로 필수 — 없으면 기동하지 않는다). nginx 쪽 요구사항(허용 목록과 certbot 검증 경로, 넘길 헤더, 업로드 크기, 바인딩)은 계획 §7.3.4 #9.
 - **배포 순서**: `migrate` → `collectstatic --noinput` → `ensure_event_store` → 웹과 상시 프로세스(아래). 웹은 `collectstatic` 뒤에 (다시) 시작한다 — WhiteNoise가 시작할 때 `STATIC_ROOT`를 읽는다. 중계를 먼저 띄우면 MongoDB가 봉투 검증 없는 `ad_events` 컬렉션을 자동으로 만든다(나중에 `ensure_event_store`가 검증을 맞추기는 한다).
+- **배포 후 점검 `ops_check`**(설계 §10 "시험 구성" ⑤): 배포 순서를 마친 뒤 `python manage.py ops_check`(prod 설정). 배포 설정(`check --deploy`)·DB 접속과 적용 안 된 마이그레이션(`migrate --check`)·MongoDB 이벤트 저장소(`check_event_store`)·반응 처리(stuck 0, 가장 오래 기다린 것 ≤ `OPS_CHECK_MAX_WAIT_SECONDS` 600초)·outbox(가장 오래된 미전송 ≤ 600초)·원장 대조(`check_ledger`)·파일 저장소(`MEDIA_ROOT` 쓰기 가능)를 한 줄씩 `OK`/`FAIL` 로 보이고 **하나라도 실패하면 종료 코드 1**이다. 하나가 실패해도 나머지를 모두 본다. 운영 데이터는 바꾸지 않는다(MongoDB 점검은 점검용 컬렉션에 문서 하나를 쓰고 지운다). 주기 감시에 써도 된다.
 - **배포 점검 — 신뢰할 프록시 수 `TRUSTED_PROXY_COUNT`는 prod 필수이고 1 이상이다**(6-15 부터 nginx + 프론트 2단 = `2`, 설계 §10 "배포 구성"). 없거나 0 이하면 기동하지 않는다. 앱은 `X-Forwarded-For`의 오른쪽에서 이 수만큼째 값을 클라이언트 IP로 쓴다. 실제 프록시 수보다 적으면 모든 요청이 프록시 IP 하나로 보여 로그인 잠금(아이디 + IP 기준)이 아이디만 보는 것과 같아지고(남이 계정을 잠글 수 있다) 감사 로그의 IP가 모두 프록시 IP가 된다. 많으면 `X-Forwarded-For` 앞쪽의 위조 값을 믿게 된다. **백엔드 포트는 프론트 서버 밖에 열지 않는다**(내부망 바인딩 + 방화벽) — 열려 있으면 프론트를 거치지 않고 `X-Forwarded-For`를 위조해 IP를 고를 수 있다.
 - **로그**: 시각은 UTC ISO 8601 `Z`(예: `2026-10-12T14:30:01.958Z`)이고 줄마다 `[요청 ID]`가 붙는다(요청 밖의 줄은 `[-]`). 응답 헤더 `X-Request-ID`로 그 요청의 로그를 Django 요약 줄(4xx·5xx)까지 찾을 수 있다. 화면·클릭(`/c/…`)의 503은 원인(오류 종류·MySQL 오류 번호)을 트레이스백 없이 한 줄로 남긴다. 두 상시 명령의 시작·처리·장애 줄 앞에도 같은 형식의 시각이 붙는다(일회성 `--status`는 붙지 않는다).
 
@@ -111,6 +112,7 @@ python manage.py check_event_store     # 연결·버전·레플리카셋·쓰기
 | `axes_reset_logs --age 30` | 매주 | 로그인 접속 기록(django-axes)이 계속 쌓인다(30일 넘은 것만 지운다) |
 | `end_expired_campaigns` | 주기 | 기간이 지난 캠페인의 저장 상태가 `ENDED`로 바뀌지 않는다(노출은 기간 판정이 막는다) |
 | `check_ledger` | 주기 | 잔액과 원장의 불일치를 모른다(불일치면 비정상 종료) |
+| `ops_check` | 배포 뒤·감시 | 설정·DB 마이그레이션·MongoDB·반응 처리·outbox·원장·파일 저장소 중 깨진 것을 한 번에 모른다(위 "배포 후 점검", 실패하면 종료 코드 1) |
 | `export_hop_manifests` → `verify_hops` | 주기(창이 닫힌 뒤) | 구간(원본·outbox·MongoDB) 대조를 하지 않는다 |
 | `export_integrity` | 수시 | 원장·이벤트 정합성 점검 |
 | `process_reactions --retry-stuck` | 필요할 때 | 실패가 반복돼 자동 처리에서 빠진(stuck) 반응을 원인을 고친 뒤 다시 처리 대상으로 돌린다 |

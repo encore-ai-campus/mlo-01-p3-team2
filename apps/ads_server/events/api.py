@@ -5,7 +5,7 @@
 from . import hops, ndjson, schemas
 from .mongo import NotConfigured, error_text as mongo_error_text
 from .outbox import OutsideTransaction, enqueue
-from .relay import missing_event_ids, sent_but_not_in_mongo
+from .relay import missing_event_ids, outbox_status, sent_but_not_in_mongo
 
 
 def record_decision(*, now=None, **fields):
@@ -45,5 +45,5 @@ __all__ = [
     "SCHEMA_VERSIONS", "decision_payload", "reaction_received_payload", "reaction_payload", "charge_payload",
     "normal_document", "summarize", "summarize_windows", "table_stream", "outbox_streams", "mongo_streams", "unsent_counts", "WINDOWS", "HOP_SCHEMA_VERSION", "window_label", "format_time", "parse_time",
     "OutsideTransaction", "record_decision", "record_reaction_received", "record_reaction", "record_charge", "event_id_for", "NAMES",
-    "missing_event_ids", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured", "mongo_error_text",
+    "missing_event_ids", "outbox_status", "sent_but_not_in_mongo", "write_ndjson", "verify_ndjson", "read_manifest", "manifest_digest", "run_lock", "verify_chain", "manifest_path", "NdjsonError", "NotConfigured", "mongo_error_text",
 ]

@@ -169,6 +169,7 @@ REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해
 REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
 
 # --- 이벤트 outbox (설계 §6.3, 계획 4-1) ---
+OPS_CHECK_MAX_WAIT_SECONDS = 600  # ops_check(배포 후 점검): 반응 처리·outbox 에서 가장 오래 기다린 것이 이보다 오래면 실패. 보류(REACTION_HOLD_SECONDS 300 + 재확인 30)보다 길게 둔다
 EVENTS_OUTBOX_RETENTION_DAYS = 7  # MongoDB 로 보낸 outbox 행을 이만큼 지난 뒤 `purge_sent_events` 가 지운다(미전송은 지우지 않는다). 보존 기간 전반은 설계 §7-8 이 열려 있다
 
 EVENTS_HOP_GRACE_SECONDS = 120  # 구간별 정합 manifest(4-3b)의 창 닫힘 여유: 창이 끝나고 이만큼 지나야 그 창의 첫 세대를 낸다(설계 §10 H11 A안). 늦은 이벤트가 보이면 B안으로 다시 정한다
