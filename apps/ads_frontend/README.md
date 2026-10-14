@@ -24,4 +24,5 @@ FRONTEND_DEBUG=1 python manage.py runserver 127.0.0.1:8001
 - `BACKEND_URL` 은 백 서버의 내부 주소(경로 없이). `ADMIN_URL_PATH`·`ASSET_MAX_BYTES` 는 백엔드와 같게 — 본문이 업로드 상한 + 64KiB 를 넘으면 백엔드로 보내지 않고 413 이다.
 - `X-Forwarded-For` 에 받은 상대 주소를 덧붙여 넘긴다 — 백엔드의 `TRUSTED_PROXY_COUNT` 는 2(nginx·프론트).
 - 정적 파일: `python manage.py collectstatic --noinput` → 재시작(WhiteNoise 가 시작할 때 `STATIC_ROOT` 를 읽는다). Django admin 의 정적 파일도 여기서 서빙한다.
+- **배포 후 점검 `python manage.py ops_check`**(계획서 §8.4.20): 배포 설정(`check --deploy`)·정적 파일(`collectstatic` 이 모을 파일이 `STATIC_ROOT` 에 모두 있다)·백엔드(`BACKEND_URL` 의 `/api/media/v1/health` 가 200)·화면 한 장(로그인 화면을 프론트 → 백엔드 → 그리기로 실제로 요청)을 한 줄씩 `OK`/`FAIL` 로 보이고 **하나라도 실패하면 종료 코드 1**이다. 아무것도 바꾸지 않는다. 백 서버의 상태(DB·MongoDB·처리 프로세스)는 백 서버의 `ops_check` 가 본다.
 - 점검: 백엔드의 `tests/tools/check.sh` 가 이 앱의 `check --deploy`·시험·Bandit 도 돌린다. 시험만: `python manage.py test`.

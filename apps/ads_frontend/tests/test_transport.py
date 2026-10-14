@@ -12,11 +12,12 @@ class FakeBackend(BaseHTTPRequestHandler):
 
     seen = []
     reply = (200, [("Content-Type", "text/plain")], b"ok")
+    routes = {}  # 경로마다 다른 응답(없으면 reply)
 
     def _handle(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         FakeBackend.seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers), "body": body})
-        status, headers, payload = FakeBackend.reply
+        status, headers, payload = FakeBackend.routes.get(self.path.split("?")[0], FakeBackend.reply)
         self.send_response(status)
         for name, value in headers:
             self.send_header(name, value)
@@ -51,6 +52,7 @@ class BackendCase(SimpleTestCase):
     def setUp(self):
         FakeBackend.seen = []
         FakeBackend.reply = (200, [("Content-Type", "text/plain")], b"ok")
+        FakeBackend.routes = {}
 
 
 class TransportTests(BackendCase):
