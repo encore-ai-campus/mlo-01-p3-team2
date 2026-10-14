@@ -1,6 +1,7 @@
-"""배포 후 점검 명령 `ops_check`(설계 §10 "시험 구성" ⑤, 6-18d): 건강한 백엔드에서는 모두 OK, 점검마다 깨진 상태를 만들면 그 줄만 FAIL 이고 종료 코드 1."""
+"""배포 후 점검 = 운영 환경 시험 `ops_check`(설계 §10 "시험 구성" ⑤, 6-18d, 6-19d 에서 다섯으로): 건강한 백엔드에서는 모두 OK, 점검마다 깨진 상태를 만들면 그 줄만 FAIL 이고 종료 코드 1."""
 import io
 from contextlib import contextmanager, nullcontext
+from importlib import metadata
 from unittest import mock
 
 from django.core.management import call_command
@@ -61,17 +62,21 @@ class OpsCheckTests(Cases, MongoDatabaseMixin, TransactionTestCase):
         self.assertEqual([line.split(":")[0] for line in lines], [f"OK   {name}" for name, _ in CHECKS])
 
     def case_each_broken_part_fails_only_its_own_line_and_the_command(self):
-        cases = {  # 나머지 점검은 그대로 통과해야 한다 — 한 점검의 실패가 다른 점검을 가리거나 끌고 가지 않는다
-            "배포 설정": (nullcontext(), False),  # 시험 설정은 배포 설정이 아니다(HSTS·HTTPS 이동 경고)
-            "DB·마이그레이션": (unapplied_migration(), True),
-            "MongoDB 이벤트 저장소": (unreachable_store(), True),
-            "반응 처리": (mock.patch("records.api.inbox_status", return_value={"received": 1, "held": 0, "stuck": 1, "oldest_age_seconds": 3.0}), True),
-            "outbox": (mock.patch("events.api.outbox_status", return_value={"pending": 2, "oldest_age_seconds": 601.0}), True),
-            "파일 저장소": (override_settings(MEDIA_ROOT="/nonexistent-ads-media"), True),
-            "원장 대조": (tampered_ledger(), True),  # 마지막 — 고친 원장은 시험이 끝날 때 비워진다
-        }
-        for name, (broken, prod_like) in cases.items():
-            with self.subTest(name), override_settings(**(PROD_LIKE if prod_like else {})), broken:
+        def django_at(version):
+            return mock.patch("console.management.commands.ops_check._installed", side_effect=lambda name: version if name == "Django" else metadata.version(name))
+        cases = [  # (점검, 어떻게 깨졌나, 깨뜨리기, 운영과 같은 배포 값) — 나머지 점검은 그대로 통과해야 한다
+            ("설정·파일 저장소", "시험 설정의 배포 경고(HSTS·HTTPS 이동)", nullcontext(), False),
+            ("설정·파일 저장소", "없는 MEDIA_ROOT", override_settings(MEDIA_ROOT="/nonexistent-ads-media"), True),
+            ("의존성", "같은 6.1 이지만 요구보다 낮은 Django(~=6.1.2 에 6.1.1)", django_at("6.1.1"), True),
+            ("의존성", "호환 범위를 넘은 Django(~=6.1.x 에 7.0.0)", django_at("7.0.0"), True),
+            ("MySQL", "적용 안 된 마이그레이션", unapplied_migration(), True),
+            ("MongoDB", "닿지 않음", unreachable_store(), True),
+            ("상시 처리", "stuck 반응", mock.patch("records.api.inbox_status", return_value={"received": 1, "held": 0, "stuck": 1, "oldest_age_seconds": 3.0}), True),
+            ("상시 처리", "601초 된 미전송", mock.patch("events.api.outbox_status", return_value={"pending": 2, "oldest_age_seconds": 601.0}), True),
+            ("MySQL", "고친 지갑 잔액", tampered_ledger(), True),  # 마지막 — 고친 원장은 시험이 끝날 때 비워진다
+        ]
+        for name, how, broken, prod_like in cases:
+            with self.subTest(f"{name}: {how}"), override_settings(**(PROD_LIKE if prod_like else {})), broken:
                 code, lines = self.run_check()
                 self.assertEqual(code, 1, lines)
                 failed = [line for line in lines if line.startswith("FAIL")]

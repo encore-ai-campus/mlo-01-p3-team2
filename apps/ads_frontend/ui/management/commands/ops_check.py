@@ -1,14 +1,15 @@
-"""프론트 배포 후 점검(설계 §10 "시험 구성" ⑤, 계획서 §8.4.20): 배포된 프론트에서 돌린다. 하나라도 실패하면 종료 코드 1.
+"""프론트 배포 후 점검 = 프론트 서버의 운영 환경 시험(설계 §10 "시험 구성" ⑤, 계획서 §8.4.20): 배포된 프론트에서 돌린다. 하나라도 실패하면 종료 코드 1.
 
     python manage.py ops_check
 
-백엔드의 `ops_check` 와 같은 모양이다 — 점검마다 `OK`/`FAIL` 한 줄, 하나가 실패해도 나머지를 모두 본다. 아무것도 바꾸지 않는다
-(화면 한 장은 로그인 화면을 읽기만 한다). 백 서버의 상태(DB·MongoDB·처리 프로세스)는 백 서버의 `ops_check` 가 본다.
+**다섯 가지**(6-19d — 서버마다 5개 이하): 설정 · 의존성 · 정적 파일 · 백엔드 · 화면 한 장. 백엔드의 `ops_check` 와 같은 모양이다 — 점검마다 `OK`/`FAIL` 한 줄,
+하나가 실패해도 나머지를 모두 본다. 아무것도 바꾸지 않는다(화면 한 장은 로그인 화면을 읽기만 한다). 백 서버의 상태(DB·MongoDB·처리 프로세스)는 백 서버의 `ops_check` 가 본다.
 """
 import io
 import json
 import re
 import urllib.request
+from importlib import metadata
 from pathlib import Path
 
 from django.conf import settings
@@ -68,8 +69,43 @@ def _screen():
     return f"/accounts/login/ (Host: {host})"
 
 
-CHECKS = (
-    ("배포 설정", _deploy),
+_installed = metadata.version  # 설치된 배포판의 버전(시험이 바꿔 끼운다)
+
+
+def _compatible(have, spec):
+    """`~=X.Y.Z`: X.Y 가 같고 X.Y.Z 이상(PEP 440 의 호환 릴리스) — 백엔드 `ops_check` 와 같은 규칙(프론트는 백엔드 코드를 가져오지 않아 따로 둔다)."""
+    want = [int(p) for p in spec.split(".")]
+    got = [int(p) for p in re.findall(r"\d+", have)[:len(want)]]
+    return got[:-1] == want[:-1] and got >= want
+
+
+def _dependencies():
+    """설치된 패키지가 requirements.txt(`~=` 고정)와 맞는가."""
+    wrong, count = [], 0
+    for line in (raw.split("#")[0].strip() for raw in (Path(settings.BASE_DIR) / "requirements.txt").read_text(encoding="utf-8").splitlines()):
+        if not line:
+            continue
+        m = re.fullmatch(r"([A-Za-z0-9_.-]+)\s*~=\s*(\d+(?:\.\d+)+)", line)
+        if not m:
+            wrong.append(f"읽을 수 없는 줄 '{line}'")
+            continue
+        name, spec = m.groups()
+        count += 1
+        try:
+            have = _installed(name)
+        except metadata.PackageNotFoundError:
+            wrong.append(f"{name} 가 없다")
+            continue
+        if not _compatible(have, spec):
+            wrong.append(f"{name} {have}(요구 ~={spec})")
+    if wrong:
+        raise CommandError("; ".join(wrong))
+    return f"{count}개가 requirements 와 맞다"
+
+
+CHECKS = (  # 서버마다 5개 이하(사용자 2026-10-14)
+    ("설정", _deploy),
+    ("의존성", _dependencies),
     ("정적 파일", _static),
     ("백엔드", _backend),
     ("화면 한 장", _screen),
@@ -77,7 +113,7 @@ CHECKS = (
 
 
 class Command(BaseCommand):
-    help = "프론트 배포 후 점검: 배포 설정·정적 파일·백엔드 닿음·화면 한 장(프론트 → 백엔드 → 그리기). 하나라도 실패하면 종료 코드 1."
+    help = "프론트 운영 환경 점검(배포 후): 설정·의존성·정적 파일·백엔드 닿음·화면 한 장(프론트 → 백엔드 → 그리기). 하나라도 실패하면 종료 코드 1."
 
     def handle(self, *args, **options):
         failed = []
