@@ -3,6 +3,7 @@ from axes import admin as axes_admin
 from axes.models import AccessAttempt, AccessFailureLog, AccessLog
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import Group
 from django.contrib.admin.utils import unquote
 from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.core.exceptions import ValidationError
@@ -16,6 +17,9 @@ from .templatetags.kst import kst
 
 class PasswordResetForm(PasswordOnlySave, AdminPasswordChangeForm):
     pass
+
+
+admin.site.unregister(Group)  # 그룹·권한을 두지 않는다 — Django 기본 등록이 쓰기 가능한 그룹 화면을 남겼다(6-16h, R20)
 
 
 @admin.register(User)

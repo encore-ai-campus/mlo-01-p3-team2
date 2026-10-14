@@ -151,7 +151,7 @@ ASSET_SERVABLE_CHECK = None  # 서빙 가능 여부 함수의 점 경로. dev·p
 
 # --- 포인트·예산 (설계 §4.7) ---
 SIGNUP_GRANT_POINTS = 50_000  # 가입 지급 포인트(설계 §10). dev/prod 는 환경변수로 바꿀 수 있다
-BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 바꾸면 recompute_spend 를 실행한다
+BUDGET_DAY_OFFSET_HOURS = 0  # 예산 "그날"의 경계. 0 = UTC 자정(KST 09:00), 9 = KST 자정. 소진액은 원장에서 세므로 바꾸기만 하면 된다(6-16f)
 BILLING_CHARGE_POLICY = "share/v1"  # 과금 정책 이름(billing/policies)
 
 # --- 반응 처리 (설계 §4.4, 계약 C1). 규칙은 records/rules/, 순서가 곧 판정 순서 ---
@@ -169,6 +169,7 @@ REACTION_PROCESS_ON_RECEIPT = True  # 수신 커밋 뒤 한 번 바로 처리해
 REACTION_MAX_ATTEMPTS = 5  # 이만큼 실패한 반응은 자동 재처리에서 빠지고 'stuck' 으로 보고된다(자동으로 거부·삭제하지 않는다: 돈이 걸려 있다)
 
 # --- 이벤트 outbox (설계 §6.3, 계획 4-1) ---
+OPS_CHECK_MAX_WAIT_SECONDS = 600  # ops_check(배포 후 점검): 반응 처리·outbox 에서 가장 오래 기다린 것이 이보다 오래면 실패. 보류(REACTION_HOLD_SECONDS 300 + 재확인 30)보다 길게 둔다
 EVENTS_OUTBOX_RETENTION_DAYS = 7  # MongoDB 로 보낸 outbox 행을 이만큼 지난 뒤 `purge_sent_events` 가 지운다(미전송은 지우지 않는다). 보존 기간 전반은 설계 §7-8 이 열려 있다
 
 EVENTS_HOP_GRACE_SECONDS = 120  # 구간별 정합 manifest(4-3b)의 창 닫힘 여유: 창이 끝나고 이만큼 지나야 그 창의 첫 세대를 낸다(설계 §10 H11 A안). 늦은 이벤트가 보이면 B안으로 다시 정한다
@@ -211,7 +212,7 @@ def mysql_config(name, user, password, host, port, isolation_level="read committ
     """MySQL 8.4 접속 설정 (계획 §7.3 S5·S7). 값은 호출한 쪽이 환경변수에서 읽어 넘긴다.
 
     - STRICT_ALL_TABLES: 잘리거나 잘못된 값을 경고로 넘기지 않고 오류로 한다.
-    - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`scripts/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
+    - READ COMMITTED **[DB-1c 측정으로 확정 2026-10-09]**: 150 동시 부하(`tests/tools/load_test.py`, MySQL 8.4.11 단일 노드)를 격리 수준만 바꿔 돌렸다.
       READ COMMITTED 는 두 번 모두 교착 0·잠금 초과 0·불변식 전부 통과, REPEATABLE READ 는 교착 8건(1213)이 나고 불변식 2건이 실패했다
       (같은 `reaction_id` 재전송 폭주에서 201 이 하나가 아니었고, 결정마다 퍼널이 인정되지 않은 결정이 있었다).
       간격 잠금이 같은 유일 키를 노리는 동시 INSERT 를 교착으로 몰기 때문이다. 판정은 유일 제약과 행 잠금에 기대므로 READ COMMITTED 로도 의미가 같다.

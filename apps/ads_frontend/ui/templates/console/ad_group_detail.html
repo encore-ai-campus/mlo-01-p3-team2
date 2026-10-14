@@ -77,7 +77,7 @@
   <div class="creative">
     <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 이미지">
     <p><strong><a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></strong> → <strong>{{ c.redirect_url|domain }}</strong>
-      {% if c.creative_id == group.creative_id %}<span class="status active">나가는 중</span>{% endif %}{% if c.archived %} <span class="muted">(삭제한 이미지)</span>{% endif %}</p>
+      {% if c.creative_id == group.creative_id %}<span class="status active">선택됨</span>{% endif %}{% if c.archived %} <span class="muted">(삭제한 이미지)</span>{% endif %}</p>
     {% if c.creative_id != group.creative_id %}{# 보관한 이미지는 선택된 것일 때만 목록에 있다 #}
     <form method="post" action="{% url 'ad_group_creative_select' group.ad_group_id %}">{% csrf_token %}<input type="hidden" name="creative_id" value="{{ c.creative_id }}">
       <button type="submit" class="secondary" aria-label="이 이미지로 바꾸기: {{ c.title }}">이 이미지로 바꾸기</button>

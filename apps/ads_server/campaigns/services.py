@@ -14,12 +14,12 @@ from django.utils import timezone
 
 from assets.api import store, validate_image
 from engine.api import effect_of, is_expired
-from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, is_request_key, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
+from foundation.api import MAX_AMOUNT, clean_request_key, clean_text, errors, is_int, is_request_key, lock_user, owned_or_404, parse_uuid, parse_uuids, record_audit, require_admin, require_advertiser
 from masters import api as masters
 
 from . import transitions as tr
 from .errors import CampaignSuspended, LimitExceeded, NotSuspended, ReviewPending
-from .models import AdGroup, AdGroupCreative, AdGroupSlot, AdvertiserQuota, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
+from .models import AdGroup, AdGroupCreative, AdGroupSlot, Bid, Campaign, CampaignStatus, Creative, CreativeImage, ReviewRequest, ReviewStatus
 from .types import (
     AdGroupEffects, AdGroupView, AdvertiserUsage, BidView, CampaignView, CandidateFacts, CreatedAd, CreativeUse, CreativeView, MonitoredCampaign, OwnedCreative,
     ReviewQueueItem, ReviewRequestView, SlotEffect, SuspensionView,
@@ -103,13 +103,6 @@ def _locked_group(user, ad_group_id, now):
     return group
 
 
-def _lock_quota(user):
-    """광고주 전체 상한(캠페인·광고그룹·소재 수, 이미지 보유량)의 잠금 행. 만들기·이미지 교체가 **가장 먼저** 잡고(그다음 캠페인 → 광고그룹·소재),
-    잠금 안에서 상한을 다시 센다 — 서로 다른 캠페인의 동시 쓰기도 줄을 선다(외부 검토 41d2288). 처음 쓸 때 만든다. 트랜잭션 안에서만."""
-    AdvertiserQuota.objects.get_or_create(owner_id=user.pk)  # 동시에 처음 만들면 한쪽은 유일 제약에서 기다렸다가 있는 행을 읽는다
-    return AdvertiserQuota.objects.select_for_update().get(owner_id=user.pk)
-
-
 def _locked_creative(user, creative_id):
     """소재를 바꾸거나 연결·선택·보관하는 동작용: 소유를 확인한 뒤 **소재 행**을 잠가 다시 읽는다(보관한 것은 404). 잠금 순서의 마지막이다 —
     광고주 → 캠페인 → 광고그룹 → 소재(설계 §10 "캠페인 행 잠금 규약"). 소재는 캠페인 밖에 있으므로 캠페인을 잠그지 않는다. 트랜잭션 안에서만."""
@@ -189,7 +182,7 @@ def create_campaign(user, name, starts_at, ends_at, daily_budget, now=None, requ
         _check_ends_at(ends_at, starts_at, now)
     try:
         with transaction.atomic():
-            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
+            lock_user(user)  # 광고주 상한: 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
             done = _campaign_by_key(user, request_key, now)  # 첫 조회와 앞선 요청의 커밋 사이의 틈
             if done is not None:
                 return done
@@ -511,7 +504,7 @@ def create_ad_group(user, campaign_id, name, slot_ids, bid_amount=None, now=None
     if bid_amount is not None:
         _amount(bid_amount, "/bid_amount")
     with transaction.atomic():
-        _lock_quota(user)
+        lock_user(user)  # 광고주 상한을 세기 전에(사용자 → 캠페인 → 광고그룹 → 소재)
         c = _campaign(user, campaign_id, lock=True)
         tr.assert_open(c, now)
         if AdGroup.objects.filter(campaign__owner=user).count() >= settings.MAX_AD_GROUPS_PER_ADVERTISER:
@@ -664,7 +657,7 @@ def create_creative(user, ad_group_id, title, redirect_url, image_file, now=None
     redirect_url = _redirect_url(redirect_url)
     image = validate_image(image_file)
     with transaction.atomic():
-        _lock_quota(user)
+        lock_user(user)  # 광고주 상한을 세기 전에(사용자 → 캠페인 → 광고그룹 → 소재)
         group = _locked_group(user, ad_group_id, now) if ad_group_id is not None else None
         # 개수는 보관하지 않은 소재만 센다(6-9c). 보관한 소재의 이미지는 `_check_image_quota` 가 계속 센다 — 저장 공간은 보유량 상한에서 멈춘다
         if Creative.objects.filter(owner=user, archived_at__isnull=True).count() >= settings.MAX_CREATIVES_PER_ADVERTISER:
@@ -765,7 +758,7 @@ def create_ad(user, campaign_id, ad_group, creative=None, creative_id=None, now=
         return done
     try:
         with transaction.atomic():
-            _lock_quota(user)  # 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
+            lock_user(user)  # 광고주 상한: 같은 광고주의 만들기는 여기서 줄을 선다 — 같은 키의 겹친 재전송도
             done = _created_by_key(user, request_key, now)
             if done is not None:
                 return done
@@ -792,9 +785,7 @@ def ad_created_by_key(user, request_key, now=None):
     """이 요청 키로 이미 만든 광고(`CreatedAd`, `duplicate=True`), 없거나 키 형식이 틀리면 `None`. 화면이 **폼 검증보다 먼저** 부른다 —
     이미 성공한 제출의 다시 보냄은 그 사이 바뀐 위치 목록·상한과 상관없이 처음 결과로 가야 한다(외부 검토 41d2288). 남의 키면 409."""
     require_advertiser(user)
-    if not is_request_key(request_key):
-        return None
-    return _created_by_key(user, request_key, _now(now))
+    return _created_by_key(user, request_key, _now(now)) if is_request_key(request_key) else None
 
 
 def _created_by_key(user, request_key, now):
@@ -867,7 +858,7 @@ def replace_creative_image(user, creative_id, image_file, now=None, expected_upd
     now = _now(now)
     image = validate_image(image_file)
     with transaction.atomic():
-        _lock_quota(user)
+        lock_user(user)  # 광고주 상한을 세기 전에(사용자 → 캠페인 → 광고그룹 → 소재)
         c = _locked_creative(user, creative_id)  # 잠금 순서: 광고주 → 소재
         _assert_seen(expected_updated_at, c.updated_at, again="바꾸세요")
         _check_image_quota(user, image)

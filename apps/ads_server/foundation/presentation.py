@@ -1,5 +1,5 @@
 """화면 데이터(설계 §6.6 "6-15 분리"): 백엔드는 우리 화면의 HTML 을 그리지 않고 `{"presentation": {"template", "context"}}` 를 돌려준다.
-프론트(apps/ads_frontend)가 같은 템플릿으로 그린다 — 시험은 그 렌더러를 그대로 써서 HTML 을 본다(tests/presentation.py).
+프론트(apps/ads_frontend)가 같은 템플릿으로 그린다 — 시험은 그 렌더러를 그대로 써서 HTML 을 본다(tests/support/presentation.py).
 
 값의 모양: 값 객체(dataclass)는 필드 + 속성, UUID 는 문자열, 시각·날짜는 표시를 붙인 ISO(`{"$dt": …}`·`{"$date": …}`), 폼은 `{"$form": …}`
 (칸마다 그리는 데 필요한 것 — 프론트가 같은 위젯으로 다시 만든다), 쪽 나누기는 `{"$page": …}`. 그 밖의 것(ORM 객체 등)은 실수로 새지 않게
@@ -19,13 +19,15 @@ from django.utils.functional import Promise
 SKIPPED = {"view", "site"}  # Django 의 클래스 뷰가 문맥에 넣는 객체 — 화면이 쓰지 않는다
 
 
-def present(request, template, context=None, status=200, csrf=True):
+def present(request, template, context=None, status=200, session=True):
     """`render(request, template, context, status)` 자리에 쓴다. 문맥 처리기(사용자·메시지·CSRF)가 하던 것도 여기서 싣는다.
-    `csrf=False`: 폼이 없는 화면(오류 화면) — 토큰을 만들지 않아 CSRF 쿠키를 심지 않는다(이미지 오류 응답에 쿠키가 없게, 계약 C3)."""
+    `session=False`: 세션을 건드리지 않는 화면(오류 화면 — 제목·문구만 그린다). 사용자·메시지·CSRF 토큰을 싣지 않아 그 사이의 안내 메시지를 먹지 않고
+    `Vary: Cookie`·쿠키를 남기지 않는다(이미지 오류 응답에 쿠키가 없게, 계약 C3). DB 장애의 500 이 세션을 읽다 다시 실패할 일도 없다(6-16e)."""
     data = {key: to_data(value) for key, value in (context or {}).items() if key not in SKIPPED}
-    data["user"] = _user(getattr(request, "user", None))  # 인증 미들웨어 앞에서 끊는 오류(본문 크기 등)에는 사용자가 아직 없다
-    data["messages"] = [{"message": str(m), "tags": m.tags, "level_tag": m.level_tag} for m in get_messages(request)]
-    data["csrf_token"] = get_token(request) if csrf else ""
+    if session:
+        data["user"] = _user(request.user)  # 세션을 싣는 화면은 모두 인증 미들웨어 뒤다(그 앞에서 끊는 본문 크기 오류는 오류 화면)
+        data["messages"] = [{"message": str(m), "tags": m.tags, "level_tag": m.level_tag} for m in get_messages(request)]
+        data["csrf_token"] = get_token(request)
     return JsonResponse({"presentation": {"template": template, "context": data}}, status=status)
 
 
@@ -41,8 +43,7 @@ def to_data(value):
     if isinstance(value, forms.BaseForm):
         return {"$form": _form(value)}
     if isinstance(value, Page):
-        return {"$page": {"items": [to_data(v) for v in value], "number": value.number, "num_pages": value.paginator.num_pages,
-                          "count": value.paginator.count}}
+        return {"$page": {"items": [to_data(v) for v in value], "number": value.number, "num_pages": value.paginator.num_pages}}
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         data = {f.name: to_data(getattr(value, f.name)) for f in dataclasses.fields(value)}
         data.update({name: to_data(getattr(value, name)) for name, _ in inspect.getmembers(type(value), lambda a: isinstance(a, property))})
@@ -85,11 +86,8 @@ def _widget_name(widget):
 
 
 def _user(user):
-    if user is None or not user.is_authenticated:
+    if not user.is_authenticated:
         return {"is_authenticated": False, "is_active": False, "is_staff": False}
-    data = {"is_authenticated": True, "is_active": user.is_active, "is_staff": user.is_staff, "username": user.username,
+    return {"is_authenticated": True, "is_active": user.is_active, "is_staff": user.is_staff, "username": user.username,
             "role": user.role, "nickname": user.nickname, "class_label": user.class_label,
             "get_username": user.get_username(), "has_usable_password": user.has_usable_password()}  # get_* 는 관리 템플릿이 부르는 메서드의 값
-    if hasattr(user, "get_short_name"):  # 없으면 관리 템플릿은 빈 값으로 본다 — 싣지 않으면 프론트도 같다
-        data["get_short_name"] = user.get_short_name()
-    return data

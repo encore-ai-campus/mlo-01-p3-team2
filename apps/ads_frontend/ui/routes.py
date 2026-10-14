@@ -1,5 +1,5 @@
 """백엔드와 같은 경로·URL 이름(설계 §6.6 "6-15 분리"). 템플릿의 `{% url %}` 과 현재 메뉴 표시(`resolver_match`)가 프론트에서도 그대로 동작하게 한다.
-**데이터만 둔다** — 백엔드 시험(`test_frontend_routes_match_the_backend`)이 이 파일을 읽어 백엔드의 경로와 같은지 본다. 모든 경로는 같은 뷰가 받는다(`ui.views.display`)."""
+**데이터만 둔다** — 백엔드 시험(`case_frontend_routes_match_the_backend`)이 이 파일을 읽어 백엔드의 경로와 같은지 본다. 모든 경로는 같은 뷰가 받는다(`ui.views.display`)."""
 
 CONSOLE = [  # 백엔드 console/urls.py
     ("", "root"),

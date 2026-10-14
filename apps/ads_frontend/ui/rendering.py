@@ -1,6 +1,6 @@
 """화면 데이터를 HTML 로 그린다(설계 §6.6 "6-15 분리"). DB·검증 없이, 백엔드가 준 값만으로.
 
-백엔드 시험도 이 파일을 그대로 써서 화면을 그린다(apps/ads_server/tests/presentation.py) — 그래서 설정의 TEMPLATES 대신 화면 전용 엔진을 쓰고,
+백엔드 시험도 이 파일을 그대로 써서 화면을 그린다(apps/ads_server/tests/support/presentation.py) — 그래서 설정의 TEMPLATES 대신 화면 전용 엔진을 쓰고,
 설정은 두 쪽에 같은 것(STATIC_URL·URL 이름)만 기댄다. 값의 모양은 백엔드 foundation/presentation.py 와 짝이다."""
 import datetime
 from functools import lru_cache
@@ -69,12 +69,11 @@ class Message(SimpleNamespace):
 class DisplayPage(list):
     """쪽 나누기(Django `Page` 와 같은 이름으로): 줄을 돌고, 번호·앞뒤 쪽을 묻는다."""
 
-    def __init__(self, items, number, num_pages, count):
+    def __init__(self, items, number, num_pages):
         super().__init__(items)
-        self.number, self.paginator = number, SimpleNamespace(num_pages=num_pages, count=count)
+        self.number, self.paginator = number, SimpleNamespace(num_pages=num_pages)
         self.has_previous, self.has_next = number > 1, number < num_pages
         self.previous_page_number, self.next_page_number = number - 1, number + 1
-        self.object_list = list(items)
 
 
 def from_data(value):
@@ -91,7 +90,7 @@ def from_data(value):
         if key == "$form":
             return display_form(inner)
         if key == "$page":
-            return DisplayPage(from_data(inner["items"]), inner["number"], inner["num_pages"], inner["count"])
+            return DisplayPage(from_data(inner["items"]), inner["number"], inner["num_pages"])
     return Record({k: from_data(v) for k, v in value.items()})
 
 

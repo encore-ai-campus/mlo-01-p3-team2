@@ -17,7 +17,7 @@ from campaigns import api as campaigns
 from foundation.api import present
 from masters import api as masters
 
-from ..errors import HANDLED, message_of, submit
+from ..errors import HANDLED, form_errors, message_of, submit
 from ..forms import EXISTING, NEW, AdCreateForm
 
 
@@ -101,5 +101,5 @@ def _preview(form):
     try:
         return campaigns.bid_effects(amount, slot_ids)
     except HANDLED as e:
-        form_errors(form, e, pointers={"/bid_amount": "bid_amount"})
+        form_errors(form, e)
         return None

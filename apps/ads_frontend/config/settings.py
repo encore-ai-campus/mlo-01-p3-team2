@@ -14,8 +14,7 @@ load_dotenv(BASE_DIR / ".env", override=False)
 
 
 def env(name, default=""):
-    value = os.environ.get(name, "")
-    return value if value != "" else default
+    return os.environ.get(name) or default
 
 
 DEV_KEY = "dev-only-frontend-key-do-not-use-in-production"

@@ -49,8 +49,7 @@ def presentation_of(backend):
 
 def error_page(request, status, title, message):
     """백엔드에 가지 않고 그리는 오류 화면(같은 템플릿)."""
-    context = {"status": status, "title": title, "message": message, "user": {"is_authenticated": False}, "messages": []}  # 오류 화면에는 폼이 없다(CSRF 토큰 없음)
-    html, _ = rendering.render(request, {"template": "foundation/error.html", "context": context})
+    html, _ = rendering.render(request, {"template": "foundation/error.html", "context": {"title": title, "message": message}})  # 오류 화면은 제목·문구만 그린다
     return HttpResponse(html, status=status)
 
 

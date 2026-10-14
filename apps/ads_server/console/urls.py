@@ -1,8 +1,9 @@
 from django.contrib.auth.decorators import login_not_required
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from .views.account import my_account, my_password
-from .views.auth import ConsoleLoginView, ConsoleLogoutView, SignupView
+from .views.auth import ConsoleLoginView, SignupView
 from .views.ad_groups import (
     ad_group_bid, ad_group_creative_select, ad_group_creative_upload, ad_group_detail, ad_group_enabled, ad_group_name, ad_group_slots,
 )
@@ -17,7 +18,7 @@ urlpatterns = [
     path("", root, name="root"),  # 역할의 첫 화면으로(익명은 로그인)
     path("accounts/signup/", login_not_required(SignupView.as_view()), name="signup"),
     path("accounts/login/", login_not_required(ConsoleLoginView.as_view()), name="login"),
-    path("accounts/logout/", ConsoleLogoutView.as_view(), name="logout"),
+    path("accounts/logout/", LogoutView.as_view(), name="logout"),  # POST 만 받는다(Django 기본)
     path("advertiser/", advertiser_home, name="advertiser_home"),
     path("advertiser/ads/new/", ad_create, name="ad_create"),
     path("advertiser/ad-groups/<str:ad_group_id>/", ad_group_detail, name="ad_group_detail"),

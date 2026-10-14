@@ -24,16 +24,12 @@ from .forms import AdjustForm, BulkPolicyForm, KeyIssueForm, KeyRotateForm, Medi
 
 
 def _render(request, template, title, status=200, **context):
-    return present(request, template, {**_site_context(request), "title": title, **context}, status=status)
-
-
-def _site_context(request):
-    """관리 사이트 공통 문맥(머리글·사이드바 앱 목록 등) 중 데이터로 보낼 것: 모델 클래스(`model`)와 최근 동작(`log_entries`, 질의)은
+    """관리 사이트 공통 문맥(머리글·사이드바 앱 목록 등) 중 데이터로 보낼 것과 함께: 모델 클래스(`model`)와 최근 동작(`log_entries`, 질의)은
     운영 화면이 상속하는 관리 템플릿(base·nav_sidebar·app_list)이 쓰지 않아 뺀다."""
     site = admin.site.each_context(request)
     site.pop("log_entries")
     site["available_apps"] = [{**app, "models": [{k: v for k, v in m.items() if k != "model"} for m in app["models"]]} for app in site["available_apps"]]
-    return site
+    return present(request, template, {**site, "title": title, **context}, status=status)
 
 
 def media_list(request):

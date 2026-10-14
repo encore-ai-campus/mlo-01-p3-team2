@@ -1,4 +1,4 @@
-"""화면 이름표(설계 §6.6 "6-15 분리"). 값(코드)은 백엔드의 선택지와 같다 — **데이터만 둔다**: 백엔드 시험(`test_frontend_labels_match_the_backend_choices`)이
+"""화면 이름표(설계 §6.6 "6-15 분리"). 값(코드)은 백엔드의 선택지와 같다 — **데이터만 둔다**: 백엔드 시험(`case_frontend_labels_match_the_backend_choices`)이
 이 파일을 읽어 백엔드의 선택지(masters·campaigns·billing)와 같은지 본다. 프론트는 백엔드 코드를 가져오지 않는다."""
 
 AUDIENCES = {"individual": "개인", "shared": "일괄"}
