@@ -27,7 +27,7 @@
   room('roof-terrace','중앙 계단형 쉼터',terrace.x,64,terrace.w,1672,[1224,950],{labelX:1160,labelY:590,description:'맵의 1/2 지점에 세로로 길게 놓은 여덟 단 쉼터입니다. 낮은 단과 난간을 따라 두 계단 통로로 오갈 수 있습니다.',tags:['중앙 1/2','세로 배치','낮은 8단 계단']});
   room('festival-youtube','01 유튜브 스튜디오',1425,175,310,400,[1565,530],{labelX:1570,labelY:552,description:'영상 제작을 테마로 꾸민 열린 부스입니다. 카메라·삼각대, 마이크, 영상 편집 화면, 재생 버튼 기념패를 배치했습니다.',tags:['SECTION 01','YouTube','촬영 · 영상 편집']});
   room('festival-instagram','02 심리 테스트 존',1740,175,310,400,[1880,530],{labelX:1885,labelY:552,description:'성격과 기분을 알아보는 심리 테스트 공간입니다. 마음 유형 보드, 질문 키오스크, 감정 카드 진열대를 두고 부스 중앙에서 E를 누르면 심심테스트가 열립니다.',tags:['SECTION 02','심리 테스트','성격 · 감정 유형']});
-  room('festival-booth3','03 게임 부스',2055,175,310,400,[2195,530],{labelX:2200,labelY:552,description:'아케이드 기기, 닌텐도 휴대용 콘솔과 스팀 게이밍 PC로 꾸민 게임 부스입니다. 중앙에서 E를 누르면 오목·전쟁시대·아빠와 나·지뢰찾기·사과게임·버블슈터·수박게임·후레시맨 카드가 열리고, 선택한 게임을 같은 팝업에서 플레이할 수 있습니다.',tags:['SECTION 03','Nintendo · Steam','아케이드 · 게이밍 PC','오목 · 전쟁시대 · 아빠와 나 · 지뢰찾기']});
+  room('festival-booth3','03 게임 부스',2055,175,310,400,[2195,530],{labelX:2200,labelY:552,description:'아케이드 기기, 닌텐도 휴대용 콘솔과 스팀 게이밍 PC로 꾸민 게임 부스입니다. 중앙에서 E를 누르면 오목·테트리스·죽림고수·팔라독·솔리테어 등 16가지 게임 카드가 열리고, 선택한 게임을 같은 팝업에서 플레이할 수 있습니다.',tags:['SECTION 03','Nintendo · Steam','아케이드 · 게이밍 PC','오목 · 전쟁시대 · 아빠와 나 · 지뢰찾기']});
   room('roof-stairs','18층 연결 계단',2220,1550,154,174,[2325,1565],{labelX:2300,labelY:1545,description:'계단으로 들어가거나 가까이에서 E를 누르면 18층 캠퍼스로 내려갑니다.'});
   const obj=(type,x,y,w,h,extra={})=>{const o={id:'roof-object-'+objects.length,type,x,y,w,h,...extra};objects.push(o);return o;};
   const tree=(x,y)=>obj('tree',x,y,42,42,{solid:true,renderHeight:105});
@@ -76,7 +76,7 @@
   for(const x of [2172,2240])obj('stool',x,452,28,28,{color:'#7189be'});
   const boothObjects=objects.slice(boothObjectStart);
   obj('fountain',1530,750,300,300,{id:'roof-fountain',name:'광장 분수대',roomId:'roof-plaza',solid:true,renderHeight:185,description:'부스 앞 광장에 놓인 원형 분수대입니다. 분수 둘레의 통로로 이동할 수 있습니다.',tags:['광장 쉼터']});
-  obj('plaza-display',2038,1385,24,250,{id:'roof-ad-board',name:'광고 · 행사 게시판',roomId:'roof-plaza',source:'ad',title:'',imageUrl:'assets/rooftop-event-banner.png',imageOnly:true,displayAxis:'y',screenWidth:300,screenHeight:168,solid:true,renderHeight:230,description:'18층 연결 계단 왼편에서 광고와 행사 안내 이미지를 표시하는 게시판입니다. 게시판을 선택하면 이미지를 크게 볼 수 있습니다.',tags:['광고 이미지','행사 안내']});
+  obj('plaza-display',2038,1385,24,250,{id:'roof-ad-board',name:'광고 · 행사 게시판',roomId:'roof-plaza',source:'ad',title:'',imageUrl:'',imageOnly:true,displayAxis:'y',screenWidth:300,screenHeight:168,solid:true,renderHeight:230,description:'18층 연결 계단 왼편에서 광고와 행사 안내 이미지를 표시하는 게시판입니다. 게시판을 선택하면 이미지를 크게 볼 수 있습니다.',tags:['광고 이미지','행사 안내']});
   obj('raffle-buzzer',1490,350,54,56,{id:'roof-event-buzzer',name:'기프티콘 이벤트 부저',roomId:'roof-plaza',action:'raffle',interactionPoint:[1540,384],solid:true,collision:{x:10,y:10,w:32,h:36},renderHeight:100});
   // Walkable paving connects the fountain court, seating and the front entrance.
   obj('plaza-paving',1436,656,488,488,{style:'fountain',solid:false});
@@ -117,6 +117,7 @@
   }
   const shortcut=obj('floor-portal',105,1570,80,80,{id:'roof-lounge2-portal',name:'18F 라운지 2로 이동',roomId:'roof-upper',toFloor:'campus',arrival:[extinguisher.x+extinguisher.w+18,extinguisher.y+extinguisher.h/2],approach:[145,1610],confirmTransfer:true,solid:false,portalStyle:'compact',portalScale:1.5,portalRadius:12,portalLabel:'18F',renderHeight:80,description:'소화기와 연결된 왕복 포탈입니다. 들어가거나 가까이에서 E를 누르면 18층 라운지 2로 이동할지 확인합니다.',tags:['18층 라운지 2 연결','예 · 아니오']});
   for(const [i,o] of objects.filter(o=>o.type==='balloons').entries()){const [, ,x,y]=boothLayout[i];Object.assign(o,{x:x+285,y:y+170});}
+  obj('wall-poster',1630,65,640,2,{id:'roof-wall-event-poster',name:'옥상 이벤트 안내',roomId:'roof-plaza',source:'event',imageUrl:'assets/rooftop-event-banner.png',posterHeight:640*937/1679,posterBottom:48,mounted:true,solid:false,renderHeight:416,description:'높은 벽면에 부착한 옥상 이벤트 참여 안내입니다. 사진을 선택하면 크게 볼 수 있습니다.',tags:['옥상 이벤트','기프티콘 안내']});
   const rooftop={id:'rooftop',name:'RF 옥상 광장',width,height,padding:140,paddingTop:440,rooms,objects,walls,surfaces,terrace,elevationAt,wallHeight:18,wallColor:'#e8eee8',spawn:[2325,1565],portals:[{x:down.x,y:down.y+78,w:down.w,h:32,objectId:down.id},{x:shortcut.x+14,y:shortcut.y+14,w:52,h:52,objectId:shortcut.id}]};
   window.CampusWorlds={campus,rooftop};
 })();

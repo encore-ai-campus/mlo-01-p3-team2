@@ -10,6 +10,16 @@ class HistoricalMigrationTests(TransactionTestCase):
     def setUp(self):
         executor = MigrationExecutor(connection)
         self.leaves = executor.loader.graph.leaf_nodes()
+        # flush removes data-migration seeds. This upgrade fixture needs the
+        # leisure catalogue too, because the new game migration depends on it.
+        from eventing.catalog import floor_uuid, zone_uuid, stable_uuid
+        from eventing.models import MapFloor, MapZone, ContentCategory
+        roof, _ = MapFloor.objects.get_or_create(code='rooftop', defaults={
+            'floor_uuid': floor_uuid('rooftop'), 'name': '옥상'})
+        ContentCategory.objects.get_or_create(code='game', defaults={
+            'category_uuid': stable_uuid('category', 'game'), 'domain': 'REST', 'name': '게임 콘텐츠'})
+        MapZone.objects.get_or_create(floor=roof, code='game-booth', defaults={
+            'zone_uuid': zone_uuid('game-booth'), 'zone_type': 'CONTENT', 'name': '게임 부스'})
         prepare_event_context(get_user_model().objects.create_user(username='migration-catalog-seed'))
 
     def tearDown(self):
