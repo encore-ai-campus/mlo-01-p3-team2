@@ -719,7 +719,7 @@ erDiagram
 |---|---|---|---|
 | 정책 `100 ≤ 하한 ≤ 기준가 ≤ 상한` | `CHECK` | 입력 검증(만들기·정책 변경·일괄 변경 같은 검사) | `test_policy_check_constraint_in_db`, `test_the_floor_is_at_least_100_in_all_three_places` |
 | 정책 비율 각각 1~98, 합 100 | `CHECK` 둘 | 입력 검증(세 곳 같은 검사) | `test_policy_check_constraint_in_db`, `test_charge_shares_are_checked_the_same_way_in_all_three_places` |
-| 결정 비율 각각 1~98·합 100, 광고 없음이면 비움 | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `test_charge_shares_follow_the_policy_rule_in_db` |
+| 결정 비율 각각 1~98·합 100, 광고 없음이면 비움 | `CHECK` 셋(묶음 포함) | 결정이 정책 버전의 값을 그대로 남긴다 | `case_charge_shares_follow_the_policy_rule_in_db` |
 | 추가 전용 여덟 표(R-5)는 추가만 | — | `AppendOnlyModel` | `test_positional_and_keyword_upserts_and_new_instance_saves_cannot_overwrite`, `test_every_append_only_model_is_covered_here`, `test_*_is_append_only*` |
 | 같은 버전 동시 저장은 한쪽만 | UNIQUE(부모, 버전) — 안전망 | `expected_version` 비교 — 주 방어 | `test_concurrent_*_only_one_wins` |
 | 슬롯 성격 불변 | — | 모델 `save()` 거부 | `test_slot_audience_immutable` |
@@ -736,9 +736,9 @@ erDiagram
 | 가입 지급은 한 번, 가입과 같은 트랜잭션 | UNIQUE(계산 열 `signup_grant_wallet`) | 가입 뷰의 트랜잭션 | `test_signup_and_grant_same_transaction` |
 | 캠페인당 대기 재검토 요청 하나 | UNIQUE(계산 열 `open_campaign`) | `review_pending` | `test_only_one_open_review_request_per_campaign` |
 | `ENDED`는 끝(하위 포함 쓰기 금지) | — | 종료 가드(기간 기준) | `test_edit_rejected_when_expired_but_status_still_active` |
-| 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `test_chosen_columns_are_all_or_none_in_db` |
-| 결정의 입찰 행은 뽑힌 광고그룹의 것 | — | 후보 사실을 광고그룹으로 묶는다(한 소재를 여러 광고그룹이 고를 수 있다) | `test_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row` |
-| 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `test_decision_not_saved_when_storage_fails` |
+| 결정의 선택 열은 전부 있거나 전부 없음 | `CHECK` | — | `case_chosen_columns_are_all_or_none_in_db` |
+| 결정의 입찰 행은 뽑힌 광고그룹의 것 | — | 후보 사실을 광고그룹으로 묶는다(한 소재를 여러 광고그룹이 고를 수 있다) | `case_two_ad_groups_with_the_same_creative_each_record_their_own_bid_row` |
+| 결정은 저장한 뒤에만 응답 | — | 저장 실패는 예외로 전파 | `case_decision_not_saved_when_storage_fails` |
 | 업무 데이터와 이벤트는 함께 커밋되거나 함께 되돌려진다 | outbox PK(같은 이벤트는 한 줄) | outbox는 호출한 쪽 트랜잭션 안에서만 쓴다(밖이면 거부) | `test_refuses_to_write_outside_a_transaction`, `test_rolls_back_with_the_business_data`, `test_if_the_event_cannot_be_written_the_decision_is_not_stored`, `test_if_the_charge_event_cannot_be_written_nothing_is_charged_or_judged` |
 
 ### 4.5 상태 전이
@@ -1185,7 +1185,7 @@ C6(콘솔 JSON API)의 응답 중 서비스가 직접 주지 않는 값은 콘�
 | 결정 행 수 | 광고 요청 수와 같다(광고 없음 포함) | R1 |
 | 반응 행 수 | 결정당 유형별 최대 1건 인정(최대 3) + 거부된 보고 | `once-per-type` |
 | 원장 `CHARGE` 행 수 | 인정된 반응 모두(과금액이 0이 아닌 것) | `share/v1` |
-| 결정 한 건의 DB 작업 | 후보 조립의 읽기 4번(후보 수와 무관) + 결정·이벤트 쓰기. 서빙 질의 수 기준선은 결정 11 · 반응 36 · 클릭 36([load-test.md](load-test.md) §12) | `test_assemble_query_count_independent_of_candidates` |
+| 결정 한 건의 DB 작업 | 후보 조립의 읽기 4번(후보 수와 무관) + 결정·이벤트 쓰기. 서빙 질의 수 기준선은 결정 11 · 반응 36 · 클릭 36([load-test.md](load-test.md) §12) | `case_assemble_query_count_independent_of_candidates` |
 | 오늘 소진액 읽기 | 그 캠페인의 그날 과금 줄 수에 비례(덮는 색인, 줄당 약 3µs — 1천 줄 2.8ms · 1만 줄 30ms). 150명 수업 규모는 캠페인당 하루 수천 줄. **1만 줄을 넘으면 파생값으로 되돌린다** | [load-test.md](load-test.md) §12, 설계서 §10 "DRD 표 축소" ① |
 | 결정 행 크기(추정) | 수백 바이트 ~ 1 KB(`trace`는 후보 수와 무관한 요약) | 추정 |
 | 저장소 한계 | MySQL 단일 노드. 요청마다 연결을 닫아 연결 수 = 동시 요청 수 — 서버 `max_connections`(기본 151)에 닿으면 넘친 요청은 503 + 재시도(150 동시에서 발생, 처리는 올바름) | 설계서 §6.5-7, [load-test.md](load-test.md) §2·§4·§7. 영속 연결·풀은 배포 구성이 정해진 뒤 |
