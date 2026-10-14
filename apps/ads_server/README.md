@@ -173,7 +173,7 @@ python scripts/failure_test.py restart crash  # 시나리오를 골라서. --jso
 - 관리자 화면(Django admin)에서 사용자 관리와 감사 로그 열람이 가능하다. 사용자 변경·비밀번호 초기화는 감사 로그에 남고, 감사 로그는 읽기 전용이다. 첫 화면에는 반응 처리 현황 카드(대기·보류·stuck·가장 오래된 대기, stuck이 있으면 강조)가 있다.
 - 이미지는 업로드 시 내장 ICC로 sRGB 변환한 뒤 메타데이터를 모두 버린다. 조작된 ICC 프로필로 lcms2(Pillow 번들)를 공격하는 위험은 완전히 막을 수 없어 위협 모델 T27·잔여 위험으로 관리한다(Pillow 업데이트 시 `pip-audit` 확인).
 - 아키텍처 경계(층·`api` 만 import)는 `tests/boundaries/`가 강제한다. 모듈을 추가하면 `test_layers.py`의 `LAYERS`에 등록한다.
-- 정적 파일(CSS·JS)은 운영에서도 Django가 서빙한다: `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 WhiteNoise가 내준다(시작할 때 읽으므로 모은 뒤 재시작). 앞단 nginx는 통로만 맡는다(6-5e, 설계 §10 "정적 파일 서빙" — 전에는 웹서버가 서빙하기로 했다). 파일 이름에 해시를 붙이지 않아 캐시는 WhiteNoise 기본값(짧은 유효 시간)이다.
+- 정적 파일(CSS·JS)은 운영에서도 Django가 서빙한다. **콘솔·운영 화면의 것은 프론트 서버**(`apps/ads_frontend`)가, 백 서버는 Django admin 의 것만 내준다(6-15 — 우리 화면은 프론트가 그린다). 백 서버도 `python manage.py collectstatic --noinput`으로 `STATIC_ROOT`(prod 환경변수, 기본 `./staticfiles`)에 모은 파일을 WhiteNoise가 내준다(시작할 때 읽으므로 모은 뒤 재시작). 앞단 nginx는 통로만 맡는다(설계 §10 "정적 파일 서빙"). 파일 이름에 해시를 붙이지 않아 캐시는 WhiteNoise 기본값(짧은 유효 시간)이다.
 
 ## 매체 키 (C1 인증)
 

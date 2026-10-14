@@ -31,7 +31,7 @@ check_deploy() {
     "$PY" -m django check --deploy --fail-level WARNING
 }
 
-# 프론트(apps/ads_frontend, 설계 §6.6 "6-15 분리") — DB 가 없어 DB 단계와 상관없이 돈다. 의존성(Django·python-dotenv·whitenoise)은 백엔드 목록에 모두 있어 pip-audit 이 함께 본다
+# 프론트(apps/ads_frontend, 설계 §6.6 "6-15 분리") — 프론트는 DB 를 쓰지 않지만, DB 접속 단계가 실패하면 check.sh 는 그 자리에서 멈추므로 이 단계도 돌지 않는다. 의존성(Django·python-dotenv·whitenoise)은 백엔드 목록에 모두 있어 pip-audit 이 함께 본다
 check_frontend_deploy() {
   local key; key="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(60))')"
   (cd ../ads_frontend && env -i PATH="$PATH" FRONTEND_SECRET_KEY="$key" FRONTEND_ALLOWED_HOSTS=ads.example.com ADMIN_URL_PATH=ops-check/ \
