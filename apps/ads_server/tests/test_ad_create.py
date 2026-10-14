@@ -84,6 +84,14 @@ class AdCreatePageTests(AdCreateBase, TestCase):
         self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">200 포인트</td><td>노출 196 · 클릭 2 · 전환 2</td>")
         self.assertFalse(self.created().exists())
 
+    def test_a_preview_with_a_bid_the_service_rejects_is_a_field_error_not_a_500(self):
+        """6-16c(E2): 리팩터링 6차(6-12f)가 미리보기의 오류 처리 import 를 지워, 0·음수·너무 큰 입찰의 미리보기가 500 이었다."""
+        for amount in ("0", "-5", str(2**53)):
+            r = self.client.post(URL, self.fields(action="preview", image="", bid_amount=amount))
+            self.assertContains(r, 'id="id_bid_amount_error"', status_code=200, msg_prefix=amount)
+            self.assertNotContains(r, "지금 정책 기준", msg_prefix=amount)  # 적용 결과 표는 없다
+        self.assertFalse(self.created().exists())
+
     def test_only_the_create_button_saves(self):
         """저장은 '집행'(`action=create`)만 한다. 사라진 '단위 보기' 버튼(6-10d 전 화면)이나 모르는 값은 입력을 그대로 두고 다시 그리기만 한다."""
         for action in ("unit", "", "made-up"):
