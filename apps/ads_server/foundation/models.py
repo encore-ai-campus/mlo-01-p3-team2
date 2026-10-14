@@ -1,6 +1,6 @@
 import uuid
 
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.db import models
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
@@ -34,8 +34,9 @@ class UserManager(BaseUserManager):
         return self._create(username, password, **extra)
 
 
-class User(AbstractBaseUser, PermissionsMixin):
-    """아이디·비밀번호·닉네임·반만 가진다. 이메일·이름 필드는 없다(설계 §5.1)."""
+class User(AbstractBaseUser):
+    """아이디·비밀번호·닉네임·반만 가진다. 이메일·이름 필드는 없다(설계 §5.1).
+    Django 권한 믹스인은 쓰지 않는다 — 그룹·사용자 권한을 두지 않고, 모델 화면 권한은 활성 슈퍼유저만 참이다(6-16h, 설계 §10 "DRD 표 축소" ③)."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid7, editable=False)
     username = models.CharField(max_length=30, unique=True)
@@ -43,6 +44,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     nickname = models.CharField(max_length=20)
     class_label = models.CharField("반", max_length=30)
     is_active = models.BooleanField(default=True)
+    is_superuser = models.BooleanField(default=False)  # 관리자만 참 — 계정을 만드는 곳(매니저)이 역할과 함께 정한다
     session_epoch = models.PositiveIntegerField(default=0, db_default=0)  # 올리면 그 전의 로그인 세션이 모두 끝난다(비활성화 — 다시 활성화해도 돌아오지 않는다). DB 기본값은 이 열을 모르는 옛 마이그레이션 상태의 INSERT 용
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -53,6 +55,12 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = "foundation_user"
+
+    def has_perm(self, perm, obj=None):
+        return self.is_active and self.is_superuser
+
+    def has_module_perms(self, app_label):
+        return self.is_active and self.is_superuser
 
     @property
     def is_staff(self):

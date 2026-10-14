@@ -107,6 +107,23 @@ class AdminAuditTests(TestCase):
         self.admin = User.objects.create_superuser("root_aud", PW, nickname="관리", class_label="-")
         self.client.force_login(self.admin, backend=MODEL_BACKEND)
 
+    def test_the_django_group_admin_is_not_there(self):
+        """6-16h(R20): Django 그룹 관리 화면이 기본 등록으로 남아 관리자가 그룹을 실제로 만들 수 있었다(효과·감사 없음). 이 프로젝트는 그룹·권한을 두지 않는다."""
+        from django.contrib.auth.models import Group
+
+        self.assertEqual(self.client.get("/test-admin/auth/group/").status_code, 404)
+        self.assertEqual(self.client.post("/test-admin/auth/group/add/", {"name": "몰래"}).status_code, 404)
+        self.assertFalse(Group.objects.exists())
+
+    def test_permissions_are_the_active_superuser_only(self):
+        """6-16h: 사용자 모델에 Django 권한 믹스인이 없다(그룹·사용자 권한 표 없음) — 모델 화면 권한은 활성 슈퍼유저만 참(전과 같은 결과)."""
+        advertiser = User.objects.create_user("perm_adv", PW, nickname="광고주", class_label="-")
+        for user, expected in ((self.admin, True), (advertiser, False)):
+            self.assertEqual((user.has_perm("campaigns.view_campaign"), user.has_module_perms("campaigns")), (expected, expected), user.username)
+        self.admin.is_active = False
+        self.assertEqual((self.admin.has_perm("campaigns.view_campaign"), self.admin.has_module_perms("campaigns")), (False, False))
+        self.assertFalse(hasattr(User, "groups") or hasattr(User, "user_permissions"))
+
     def test_admin_update_and_password_reset_are_audited(self):
         """사용자 관리 화면은 계정을 추가하지 않는다(설계 §10) — 수정과 비밀번호 초기화만 감사 로그에 남는지 본다."""
         created = User.objects.create_user("made_by_signup", PW, nickname="만든", class_label="2반")
