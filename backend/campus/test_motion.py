@@ -68,12 +68,11 @@ class ServerMotionTests(SimpleTestCase):
                     self.assertTrue(room.walkable(end['x'], end['y']))
                     self.assertIsNotNone(room.route(start, end), obj['id'])
 
-    def test_closed_classroom_gate_blocks_entry_and_open_gate_enters_its_subject(self):
+    def test_open_classroom_gate_enters_its_subject_without_door_state(self):
         for gate in geometry()['gates']:
             x = (gate['left'] + gate['right']) / 2
-            doors = {gate['doorId']: False}
-            self.assertFalse(world('campus').walkable(x, gate['y']+4.5, doors))
-            doors[gate['doorId']] = True
+            doors = {}
+            self.assertTrue(world('campus').walkable(x, gate['y']+4.5, doors))
             controller = MotionController({'floor': 'campus', 'x': x, 'y': gate['y']-1, 'dir': 'down'}, doors)
             controller.input(['s'], now=10)
             controller.tick(.04, doors, now=10)
@@ -94,7 +93,7 @@ class ServerMotionTests(SimpleTestCase):
     def test_exit_requires_the_classroom_doorway(self):
         controller = self.controller()
         gate = geometry()['gates'][0]
-        doors = {gate['doorId']: True}
+        doors = {}
         controller.interior = {'subject': gate['subject'], 'gate': gate,
             'actor': {'x': 320, 'y': 280, 'dir': 'down', 'moving': False}}
         with self.assertRaises(ControlError):

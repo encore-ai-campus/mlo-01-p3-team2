@@ -123,7 +123,7 @@
             589.5
           ],
           "front": "bottom",
-          "description": "SQL 학습교실입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.",
+          "description": "SQL 학습교실입니다. 출입구로 바로 입장한 뒤 학습 영역에서 E키를 누르세요.",
           "label": false,
           "info": false
         },
@@ -140,7 +140,7 @@
             589.5
           ],
           "front": "bottom",
-          "description": "Python 학습교실입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.",
+          "description": "Python 학습교실입니다. 출입구로 바로 입장한 뒤 학습 영역에서 E키를 누르세요.",
           "label": false,
           "info": false
         },
@@ -4365,97 +4365,6 @@
             "h": 24
           },
           "door": false
-        },
-        {
-          "id": "door-class4",
-          "type": "glass-door",
-          "name": "통합 강의실 왼쪽 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 820.5,
-            "y": 396,
-            "w": 64.5,
-            "h": 9
-          },
-          "door": true
-        },
-        {
-          "id": "door-class3",
-          "type": "glass-door",
-          "name": "통합 강의실 오른쪽 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 1617,
-            "y": 396,
-            "w": 64.5,
-            "h": 9
-          },
-          "door": true
-        },
-        {
-          "id": "door-class2",
-          "type": "glass-door",
-          "name": "SQL 학습교실 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 820.5,
-            "y": 549,
-            "w": 64.5,
-            "h": 9
-          },
-          "door": true
-        },
-        {
-          "id": "door-class1",
-          "type": "glass-door",
-          "name": "Python 학습교실 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 1617,
-            "y": 549,
-            "w": 64.5,
-            "h": 9
-          },
-          "door": true
-        },
-        {
-          "id": "door-left-top",
-          "type": "glass-door",
-          "name": "강의실 7 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 475.5,
-            "y": 219,
-            "w": 9,
-            "h": 57
-          },
-          "door": true
-        },
-        {
-          "id": "door-left-middle",
-          "type": "glass-door",
-          "name": "강의실 6 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 475.5,
-            "y": 516,
-            "w": 9,
-            "h": 57
-          },
-          "door": true
-        },
-        {
-          "id": "door-left-bottom",
-          "type": "glass-door",
-          "name": "강의실 5 유리문",
-          "confirmTransfer": false,
-          "footprint": {
-            "x": 475.5,
-            "y": 831,
-            "w": 9,
-            "h": 57
-          },
-          "door": true
         },
         {
           "id": "door-storage",
@@ -11029,14 +10938,13 @@
           589.5
         ],
         "front": "bottom",
-        "description": "Python 학습교실입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.",
+        "description": "Python 학습교실입니다. 출입구로 바로 입장한 뒤 학습 영역에서 E키를 누르세요.",
         "label": false,
         "info": false
       },
       "left": 1617,
       "right": 1681.5,
-      "y": 553.5,
-      "doorId": "door-class1"
+      "y": 553.5
     },
     {
       "subject": "sql",
@@ -11053,14 +10961,13 @@
           589.5
         ],
         "front": "bottom",
-        "description": "SQL 학습교실입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.",
+        "description": "SQL 학습교실입니다. 출입구로 바로 입장한 뒤 학습 영역에서 E키를 누르세요.",
         "label": false,
         "info": false
       },
       "left": 820.5,
       "right": 885,
-      "y": 553.5,
-      "doorId": "door-class2"
+      "y": 553.5
     }
   ],
   "avatarColors": {

@@ -268,7 +268,8 @@ class MotionController:
         if not self.interior:
             if self.pose['floor']=='campus' and now-self.last_classroom_transition>=CLASSROOM_TRANSITION_DELAY:
                 for gate in geometry()['gates']:
-                    if not (doors or {}).get(gate['doorId']) or previous['y']>=gate['y'] or self.pose['y']<gate['y']:
+                    # Open classroom thresholds do not depend on a door state.
+                    if previous['y']>=gate['y'] or self.pose['y']<gate['y']:
                         continue
                     ratio=(gate['y']-previous['y'])/(self.pose['y']-previous['y'])
                     x=previous['x']+(self.pose['x']-previous['x'])*ratio

@@ -14,10 +14,10 @@ class ClassroomTransitionTests(SimpleTestCase):
         gate = geometry()['gates'][0]
         pose = {'floor':'campus','x':(gate['left']+gate['right'])/2,
                 'y':gate['y']-.5,'dir':'down'}
-        controller = MotionController(pose, {gate['doorId']:True})
+        controller = MotionController(pose, {})
         controller.pose.update(pose)
         controller.input(['arrowdown'], now=100)
-        controller.tick(.04, {gate['doorId']:True}, now=100)
+        controller.tick(.04, {}, now=100)
         self.assertIsNotNone(controller.interior)
         return controller, gate
 
@@ -31,12 +31,12 @@ class ClassroomTransitionTests(SimpleTestCase):
         for now in [100.1,100.5,101.9,102.1,103.5]:
             self.at_exit(controller)
             controller.input(['arrowdown'], now=now)
-            controller.tick(.01, {gate['doorId']:True}, now=now)
+            controller.tick(.01, {}, now=now)
             self.assertIsNotNone(controller.interior)
         controller.input([], now=103.6)
         self.at_exit(controller)
         controller.input(['arrowdown'], now=103.7)
-        controller.tick(.01, {gate['doorId']:True}, now=103.7)
+        controller.tick(.01, {}, now=103.7)
         self.assertIsNone(controller.interior)
 
     def test_exit_button_and_repressed_direction_wait_for_two_seconds(self):
@@ -44,28 +44,28 @@ class ClassroomTransitionTests(SimpleTestCase):
         controller.input([], now=100.1)
         self.at_exit(controller)
         controller.input(['arrowdown'], now=100.2)
-        controller.tick(.01, {gate['doorId']:True}, now=100.2)
+        controller.tick(.01, {}, now=100.2)
         self.assertIsNotNone(controller.interior)
         with self.assertRaisesMessage(ControlError,'2초'):
-            controller.leave_classroom({gate['doorId']:True}, now=101.9)
+            controller.leave_classroom({}, now=101.9)
         with patch('campus.motion.time.monotonic',return_value=101):
-            self.assertEqual(controller.snapshot({gate['doorId']:True})['interior']['exitCooldownMs'],1000)
+            self.assertEqual(controller.snapshot({})['interior']['exitCooldownMs'],1000)
         self.at_exit(controller)
         controller.input(['arrowdown'],now=102.01)
-        controller.tick(.01,{gate['doorId']:True},now=102.01)
+        controller.tick(.01,{},now=102.01)
         self.assertIsNone(controller.interior)
 
     def test_exit_has_a_reentry_cooldown(self):
         controller,gate=self.enter()
-        controller.leave_classroom({gate['doorId']:True},now=103)
+        controller.leave_classroom({},now=103)
         pose={'x':(gate['left']+gate['right'])/2,'y':gate['y']-.5,'dir':'down'}
         controller.pose.update(pose)
         controller.input(['arrowdown'],now=103.1)
-        controller.tick(.04,{gate['doorId']:True},now=103.1)
+        controller.tick(.04,{},now=103.1)
         self.assertIsNone(controller.interior)
         controller.pose.update(pose)
         controller.input(['arrowdown'],now=105.1)
-        controller.tick(.04,{gate['doorId']:True},now=105.1)
+        controller.tick(.04,{},now=105.1)
         self.assertIsNotNone(controller.interior)
 
 

@@ -70,6 +70,6 @@ def render_document(data, root, debug=True):
         html = html.replace('<head>', f'<head>\n  <base href="{escape(static("campus/"))}">', 1)
         html = html.replace('href="./"', 'href="/"', 1)
         html = html.replace('</head>', f'<link rel="stylesheet" href="{escape(static("accounts/auth.css"))}">\n</head>', 1)
-        html = html.replace('<div class="top-actions">', '<div class="top-actions">' + render('accounts/map_account.html'), 1)
+        html = html.replace('<!-- campus-account -->', render('accounts/map_account.html'), 1)
         html = html.replace('<div id="settingsAccount" class="settings-account">', '<div id="settingsAccount" class="settings-account">' + render('accounts/map_settings.html'), 1)
     return html, context

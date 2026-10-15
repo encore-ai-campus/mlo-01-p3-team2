@@ -9,6 +9,7 @@
   <title>PLAYDATA · 캠퍼스 메타버스</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23167d79'/%3E%3Cpath d='M9 24V8h8a6 6 0 0 1 0 12h-4v4zm4-8h4a2 2 0 0 0 0-4h-4z' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="campus-guide.css">
   <link rel="stylesheet" href="avatars.css">
   <link rel="stylesheet" href="social.css">
   <link rel="stylesheet" href="point-wallet.css">
@@ -18,25 +19,29 @@
   <link rel="stylesheet" href="session-policy.css">
   <link rel="stylesheet" href="floor-transition.css">
   <link rel="stylesheet" href="lunch-wheel.css">
+  <link rel="stylesheet" href="campus-layout.css">
+  <link rel="stylesheet" href="campus-space-guide.css">
   <link rel="preload" href="assets/fonts/PressStart2P-Regular.ttf" as="font" type="font/ttf" crossorigin>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="./" aria-label="PLAYDATA 캠퍼스 처음 화면"><span class="brand-mark">P<span></span></span><span>PLAYDATA<small>VIRTUAL CAMPUS</small></span></a>
-    <div class="campus-name"><span class="divider"></span><span>플레이데이터 캠퍼스</span><span class="badge">2.5D 맵</span></div>
-    <div class="top-actions"><button id="referenceBtn" class="btn quiet">설계도 보기</button><a id="exportBtn" class="btn solid" href="assets/campus-map.png" download="PLAYDATA-campus-map.png">맵 PNG 저장</a></div>
-  </header>
   <main class="workspace">
-    <aside class="sidebar">
-      <div class="sidebar-heading"><span class="eyebrow">CAMPUS GUIDE</span><h1>공간 둘러보기</h1><p>공간 안내를 확인하고 키보드로 이동하세요.</p></div>
-      <nav id="roomNav" aria-label="캠퍼스 공간"></nav>
-      <div class="side-footer"><img id="avatarPreview" class="avatar-preview" src="assets/characters/male-1-preview.png" alt="나의 캐릭터"><div><strong>나의 캐릭터</strong><span id="avatarName">민트 후드</span></div></div>
-    </aside>
     <section class="map-shell" aria-label="메타버스 캠퍼스">
-      <div class="map-toolbar"><div class="map-title"><span class="map-symbol">⌘</span><strong id="mapHeading">2.5D 캠퍼스</strong><span id="currentRoom">라운지 1</span></div><div class="view-buttons"><span id="currentFloor" class="floor-badge">18F 캠퍼스</span><span id="cameraStatus" class="camera-badge">내 위치 고정</span><button id="followBtn" class="toolbtn" type="button" aria-pressed="true" hidden>화면 고정: 켬</button><button id="settingsBtn" class="toolbtn settings-button" type="button" aria-haspopup="dialog" aria-controls="settingsDialog" title="설정 (Esc)"><span aria-hidden="true">⚙</span> 설정</button><button id="fullscreenBtn" class="toolbtn" aria-label="맵 전체 화면">⛶</button></div></div>
+      <div class="map-toolbar">
+        <button id="campusNavToggle" class="map-guide-toggle" type="button" aria-expanded="false" aria-controls="campusSpaceGuide" title="캠퍼스 공간 안내 펼치기">
+          <span class="map-title"><span class="map-brand-mark" aria-hidden="true">P</span><span class="map-location"><strong>PLAYDATA CAMPUS</strong><span id="currentFloor" class="floor-badge">18F 캠퍼스</span></span></span>
+          <span id="currentRoom" class="map-current-room">라운지 1</span>
+          <svg class="map-guide-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <strong id="mapHeading" class="sr-only">2.5D 캠퍼스</strong>
+        <span id="cameraStatus" class="sr-only">내 위치 고정</span><span id="cameraHint" class="sr-only">내 위치 화면</span>
+        <button id="followBtn" class="toolbtn" type="button" aria-pressed="true" hidden>화면 고정: 켬</button>
+      </div>
+      <aside id="campusSpaceGuide" class="campus-space-guide" aria-labelledby="spaceGuideTitle" hidden>
+        <div class="space-guide-heading"><span class="eyebrow">CAMPUS GUIDE</span><button id="spaceGuideClose" type="button" aria-label="공간 안내 접기">×</button><h2 id="spaceGuideTitle">공간 둘러보기</h2><p>공간 안내를 확인하고 키보드로 이동하세요.</p></div>
+        <nav id="roomNav" aria-label="현재 층 공간 안내"></nav>
+      </aside>
       <div id="viewport" class="viewport">
         <canvas id="mapCanvas" tabindex="0" role="img" aria-label="PLAYDATA 캠퍼스 지도. 복도 오른쪽은 라운지 1, 왼쪽은 라운지 2입니다. 방향키 또는 WASD로 이동하고 가까운 시설에서 E로 상호작용합니다.">방향키로 움직이는 PLAYDATA 캠퍼스 지도</canvas>
-        <div class="map-caption"><span class="caption-icon">P</span><div><strong>PLAYDATA CAMPUS</strong><span>함께 배우는 공간</span></div></div>
         <div class="map-status-tools">
           <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
           <div class="map-view-tools">
@@ -84,18 +89,46 @@
           <label class="setting-row"><span class="setting-copy"><strong>다른 사람 닉네임</strong><small>캐릭터 머리 위 이름 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingNicknames" type="checkbox" role="switch" checked></span></label>
           <label class="setting-row"><span class="setting-copy"><strong>채팅창</strong><small>Enter로 입력 · 새 메시지 후 10초 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingChat" type="checkbox" role="switch" checked></span></label>
           <label class="setting-row"><span class="setting-copy"><strong>말풍선</strong><small>캐릭터 위에 5초 동안 표시</small></span><span class="setting-control"><span class="setting-state" aria-hidden="true">켬</span><input id="settingBubbles" type="checkbox" role="switch" checked></span></label>
+          <h3>이용 안내</h3>
+          <button id="campusGuideOpen" class="campus-guide-open" type="button"><span>처음 이용 안내 다시 보기</span><span aria-hidden="true">›</span></button>
           <div id="settingsAccount" class="settings-account"></div>
         </div>
       </dialog>
       <dialog id="floorTransitionDialog" aria-label="층 이동 중" aria-busy="true" tabindex="-1">
         <div id="floorTransitionContent">
-          <p class="floor-transition-label" role="status" aria-live="polite">loading...</p>
+          <p class="floor-transition-eyebrow">PLAYDATA CAMPUS</p>
+          <div class="floor-transition-route" aria-hidden="true"><span id="floorTransitionFrom">18층</span><b>→</b><span id="floorTransitionTo">옥상</span></div>
+          <canvas id="floorTransitionCanvas" width="640" height="340" aria-hidden="true"></canvas>
+          <p id="floorTransitionLabel" class="floor-transition-label" role="status" aria-live="polite">옥상으로 올라가는 중</p>
+          <p id="floorTransitionSubtitle" class="floor-transition-subtitle">계단을 따라 다음 공간으로 이동하고 있어요</p>
+          <div class="floor-transition-track" aria-hidden="true"><span id="floorTransitionProgress"></span></div>
           <section id="floorTransitionAdSlot" aria-label="층 전환 광고" hidden></section>
         </div>
       </dialog>
-      <footer class="map-footer"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>또는 방향키로 이동</span><i></i><span>키보드 이동</span><button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button></div><div><span id="cameraHint">내 위치 화면</span><i></i><kbd>E</kbd><span>상호작용</span><i></i><kbd>Z</kbd><span>찌르기</span></div></footer>
+      <footer class="map-footer">
+        <div class="map-key-guide" aria-label="조작키 안내">
+          <span class="map-key-item"><kbd>WASD</kbd><span> / 방향키 이동</span></span>
+          <span class="map-key-item"><kbd>E</kbd><span>상호작용</span></span>
+          <span class="map-key-item"><kbd>Z</kbd><span>찌르기</span></span>
+          <button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button>
+          <span class="map-key-item"><kbd>Esc</kbd><span>설정</span></span>
+        </div>
+        <div class="map-player-tools">
+          <div class="map-player" aria-label="나의 캐릭터와 닉네임"><img id="avatarPreview" class="avatar-preview" src="assets/characters/male-1-preview.png" alt="나의 캐릭터"><div class="map-player-copy"><span class="map-player-label">나의 캐릭터</span><!-- campus-account --><span id="avatarName" class="sr-only">민트 후드</span></div></div>
+          <button id="settingsBtn" class="toolbtn settings-button" type="button" aria-haspopup="dialog" aria-controls="settingsDialog" title="설정 (Esc)"><span aria-hidden="true">⚙</span><span>설정</span></button>
+        </div>
+      </footer>
     </section>
   </main>
+  <dialog id="campusGuideDialog" class="campus-guide" aria-labelledby="campusGuideTitle" aria-describedby="campusGuideText">
+    <header class="campus-guide-header"><div class="campus-guide-brand"><span aria-hidden="true">P</span>처음 이용 안내</div><button id="campusGuideSkip" class="campus-guide-skip" type="button">건너뛰기</button></header>
+    <div id="campusGuideScroll" class="campus-guide-scroll"><div class="campus-guide-content">
+      <section class="campus-guide-copy"><p id="campusGuideCategory" class="campus-guide-category"></p><h2 id="campusGuideTitle" class="campus-guide-title" tabindex="-1"></h2><p id="campusGuideText" class="campus-guide-text"></p><ol id="campusGuideItems" class="campus-guide-items"></ol><div id="campusGuideKeys" class="campus-guide-keys"></div></section>
+      <figure class="campus-guide-figure"><div class="campus-guide-image-wrap"><img id="campusGuideImage" class="campus-guide-image" width="1200" height="900" alt="" decoding="async"><p id="campusGuideImageError" class="campus-guide-image-error" hidden>화면 예시를 불러오지 못했어요.<br>옆의 설명을 따라 이용해 주세요.</p></div><figcaption class="campus-guide-caption"><span>화면 예시 · 이름과 수치는 실제와 다를 수 있어요.</span><button id="campusGuideEnlarge" class="campus-guide-enlarge" type="button">화면 크게 보기</button></figcaption></figure>
+    </div></div>
+    <footer class="campus-guide-footer"><div class="campus-guide-progress"><span id="campusGuideCounter" class="campus-guide-counter" aria-live="polite" aria-atomic="true"></span><nav id="campusGuideSteps" class="campus-guide-steps" aria-label="이용 안내 단계"></nav></div><div class="campus-guide-actions"><button id="campusGuideBack" class="campus-guide-back" type="button">이전</button><button id="campusGuideNext" class="campus-guide-next" type="button">다음</button></div></footer>
+  </dialog>
+  <dialog id="campusGuideImageDialog" class="campus-guide-image-dialog" aria-labelledby="campusGuideLargeTitle"><header class="campus-guide-image-heading"><h2 id="campusGuideLargeTitle">화면 예시</h2><button id="campusGuideImageClose" type="button">닫기</button></header><div class="campus-guide-large-wrap"><img id="campusGuideLargeImage" alt=""></div></dialog>
   <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-top"><div><span id="detailEyebrow" class="eyebrow">SPACE GUIDE</span><h2 id="detailTitle"></h2></div><button id="closeDialog" class="close-button" aria-label="안내 닫기">×</button></div><img id="detailImage" alt="" hidden><div class="dialog-content"><p id="detailText"></p><div id="detailTags" class="detail-tags"></div><div class="dialog-actions"><button id="detailClose" class="btn quiet">닫기</button></div></div></dialog>
   <dialog id="boardDialog" aria-labelledby="boardTitle" aria-describedby="boardDescription">
     <div class="dialog-top"><div><span id="boardEyebrow" class="eyebrow">CAMPUS BOARD</span><h2 id="boardTitle">PLAYDATA 게시판</h2></div><button id="closeBoardDialog" type="button" class="close-button" aria-label="게시판 닫기">×</button></div>
@@ -309,12 +342,16 @@
   <script src="social.js"></script>
   <script src="community.js"></script>
   <script src="rooftop-city.js"></script>
+  <script src="campus-background.js"></script>
   <script src="booth-assets.js"></script>
   <script src="isometric.js"></script>
+  <script src="floor-transition-portal.js"></script>
   <script src="floor-transition.js"></script>
   <script src="lunch-wheel.js"></script>
   <script src="point-wallet.js"></script>
   <!-- learning-assets -->
+  <script src="campus-guide.js"></script>
+  <script src="campus-space-guide.js"></script>
   <script src="campus.js"></script>
 </body>
 </html>

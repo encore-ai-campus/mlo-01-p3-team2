@@ -16,12 +16,12 @@ test('lounge seating remains separated from the front wall and nearby furniture'
  for(const o of D.objects.filter(o=>['coffee','ottoman','woodwall'].includes(o.type)))assert.equal(overlap(sofa,o),false);
  const wood=D.objects.find(o=>o.type==='woodwall');assert.ok(wood.x>1708.5+10);
 });
-test('classroom prompts and old panels are removed while the PLAYDATA board and doors remain',()=>{
+test('classroom prompts, old panels and glass doors are removed while the PLAYDATA board remains',()=>{
  assert.equal(D.objects.filter(o=>o.type==='board').length,0);
  for(const room of D.rooms.filter(r=>r.floor==='class')){
   assert.equal(room.info,false);assert.equal(room.label,false);
  }
- assert.equal(D.objects.filter(o=>o.type==='glass-door').length,7);
+ assert.equal(D.objects.filter(o=>o.type==='glass-door').length,0);
  assert.ok(D.objects.find(o=>o.id==='class3-4-noticeboard').mounted);
 });
 

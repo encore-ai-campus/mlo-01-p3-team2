@@ -13,7 +13,7 @@ from .test_poke import PokeSocketTests
 
 class DoorOccupancyTests(SimpleTestCase):
     async def check_door(self, hidden):
-        door_id='door-class4';door=DOORS[door_id];target=footprint(door,False)
+        door_id='door-storage';door=DOORS[door_id];target=footprint(door,False)
         room=consumers.CampusRoom();room.doors[door_id]=True
         user=consumers.CampusConsumer();user.player_id='visitor';user.last_door=-math.inf
         user.state={'floor':'campus','x':target['x']+target['w']/2,'y':target['y']-12}
@@ -27,13 +27,13 @@ class DoorOccupancyTests(SimpleTestCase):
 
     async def test_private_student_does_not_block_the_public_door(self):
         room,user=await self.check_door(True)
-        self.assertFalse(room.doors['door-class4'])
+        self.assertFalse(room.doors['door-storage'])
         user.broadcast.assert_awaited_once()
         user.send_packet.assert_not_awaited()
 
-    async def test_visible_student_still_blocks_door_swing(self):
+    async def test_visible_student_still_blocks_storage_door_closing(self):
         room,user=await self.check_door(False)
-        self.assertTrue(room.doors['door-class4'])
+        self.assertTrue(room.doors['door-storage'])
         self.assertEqual(user.send_packet.await_args.args[0]['type'],'door_error')
         user.broadcast.assert_not_awaited()
 
@@ -57,7 +57,6 @@ class ClassroomVisibilitySocketTests(TransactionTestCase):
             await student.connect();student_id=(await self.packets(student,{'welcome'}))['welcome']['selfId']
             await observer.connect();await self.packets(observer,{'welcome'})
             gate=geometry()['gates'][0];controller=consumers.room.controllers[student_id]
-            consumers.room.doors[gate['doorId']]=True
             controller.pose.update(x=(gate['left']+gate['right'])/2,y=gate['y']-.5,dir='down')
             await student.send_json_to({'type':'input','keys':['arrowdown']})
             entered=await self.matching_move(observer,student_id,True)

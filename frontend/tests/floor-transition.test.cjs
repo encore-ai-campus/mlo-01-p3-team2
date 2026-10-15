@@ -3,15 +3,16 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 function setup(){
   let now=0,ending=false;
   const timers=[],frames=[],events=[],listeners={};
-  const dialog={open:false,addEventListener(name,fn){listeners[name]=fn;},showModal(){this.open=true;},close(){this.open=false;},focus(){}};
-  const sandbox={window:{dispatchEvent:event=>events.push(event.type)},document:{getElementById:()=>dialog},Event,
-    setTimeout(fn,delay){timers.push({fn,at:now+delay});},requestAnimationFrame:fn=>frames.push(fn)};
+  const dialog={open:false,addEventListener(name,fn){listeners[name]=fn;},showModal(){this.open=true;},close(){this.open=false;},focus(){},setAttribute(){}};
+  const elements={floorTransitionDialog:dialog,floorTransitionCanvas:{getContext:()=>null}};
+  const sandbox={window:{dispatchEvent:event=>events.push(event.type),matchMedia:()=>({matches:false})},document:{getElementById:id=>elements[id]||(elements[id]={textContent:'',style:{}})},Event,performance:{now:()=>now},
+    setTimeout(fn,delay){timers.push({fn,at:now+delay});},requestAnimationFrame:fn=>frames.push(fn),cancelAnimationFrame(){}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/floor-transition.js'),'utf8'),sandbox);
   let starts=0,finishes=0;
   const transition=sandbox.window.CampusFloorTransition.create({onStart:()=>starts++,onFinish:()=>finishes++,isCancelled:()=>ending});
   return {transition,dialog,events,listeners,get starts(){return starts;},get finishes(){return finishes;},
     endSession(){ending=true;},async advance(ms){now+=ms;for(const timer of timers.filter(t=>t.at<=now&&!t.done)){timer.done=true;timer.fn();}await Promise.resolve();},
-    async paint(){for(const fn of frames.splice(0))fn();await Promise.resolve();}};
+    elements,async paint(){for(const fn of frames.splice(0))fn(now);await Promise.resolve();}};
 }
 
 test('floor changes wait 3 seconds, block duplicate requests, and reveal after destination paint',async()=>{
