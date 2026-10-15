@@ -22,6 +22,7 @@ LIBRARIES = {
     "tz": "django.templatetags.tz",
     "console_format": "ui.templatetags.console_format",
     "console_chart": "ui.templatetags.console_chart",
+    "console_icons": "ui.templatetags.console_icons",
     "kst": "ui.templatetags.kst",
 }
 WIDGETS = {cls.__name__: cls for cls in (

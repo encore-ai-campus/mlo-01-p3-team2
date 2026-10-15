@@ -86,7 +86,7 @@ class DashboardTests(Cases, TestCase):
     def case_the_chart_is_inline_svg_with_a_table_of_the_same_values(self):
         impression(self.w, NOW - 2 * DAY)
         html = self.page(metric="spent")
-        svg = re.search(r"<svg.*?</svg>", html, re.S).group(0)
+        svg = re.search(r"<svg class=\"chart\".*?</svg>", html, re.S).group(0)  # 메뉴 아이콘(장식 SVG)이 아니라 그래프
         self.assertIn('role="img"', svg)
         self.assertIn("소진 포인트 일별 추세", svg)
         self.assertIn("<title>10-05 294</title>", svg)  # 막대마다 값
