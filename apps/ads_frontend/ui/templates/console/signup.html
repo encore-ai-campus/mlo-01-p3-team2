@@ -1,19 +1,26 @@
 {% extends "console/base.html" %}
+{% load console_format console_icons %}
 {% block title %}광고주 가입{% endblock %}
-{% block main_class %}narrow{% endblock %}
+{% block body_class %} auth{% endblock %}
+{% block plain_top %}{% include "console/_brand_panel.html" %}{% endblock %}
+{% block main_class %}auth{% endblock %}
 {% block content %}
-<div class="card">
+<section class="card auth-card">
   <h1>광고주 가입</h1>
+  <p class="muted">아이디·비밀번호·닉네임·반만 받습니다. 가입하면 광고에 쓸 포인트가 지급됩니다.</p>
   <form method="post">
     {% csrf_token %}
-    {% for field in form %}
-      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {{ field.errors }}
-    {% endfor %}
-    <button type="submit">가입</button>
+    {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="field">{{ form.username.as_field_group }}</div>
+    <div class="field">{{ form.password.as_field_group }}</div>
+    <div class="field">{{ form.password_confirm.as_field_group }}</div>
+    <div class="pair">
+      <div class="field">{{ form.nickname.as_field_group }}</div>
+      <div class="field">{{ form.class_label.as_field_group }}</div>
+    </div>
+    {% if grant %}<p class="grant">{% icon "points" %}가입 즉시 {{ grant|p }} 지급</p>{% endif %}
+    <button type="submit" class="wide">가입</button>
   </form>
-  <p class="muted">아이디·비밀번호·닉네임·반만 받습니다. 가입하면 광고에 쓸 포인트가 지급됩니다.</p>
-  <p class="muted"><a href="{% url 'login' %}">로그인으로 돌아가기</a></p>
-</div>
+  <p class="switch">이미 계정이 있나요? <a href="{% url 'login' %}">로그인으로 돌아가기</a></p>
+</section>
 {% endblock %}

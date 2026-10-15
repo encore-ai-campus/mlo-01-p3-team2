@@ -39,21 +39,21 @@ class AdGroupPageBase(TestCase):
 class DetailTests(Cases, AdGroupPageBase):
     def case_shows_bid_effects_history_slots_and_the_creative(self):
         html = self.html()
-        self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">← 캠페인</a>', html)  # 속한 캠페인으로
-        self.assertIn("현재 입찰 <strong>300 포인트</strong>", html)
-        self.assertRegex(html, r"그대로 적용</td>\s*<td class=\"num\">300 포인트</td>\s*<td>노출 294 · 클릭 3 · 전환 3</td>")  # 위치별 예상 과금(6-10d)
+        self.assertIn(f'<a href="{reverse("campaign_detail", args=[self.w.campaign.campaign_id])}">캠페인</a> / 광고 상세', html)  # 속한 캠페인으로
+        self.assertIn('<p class="now"><strong>300 P</strong>', html)
+        self.assertIn('그대로 적용</td><td class="num">300 P</td><td class="num">294 / 3 / 3 P</td>', html)  # 위치별 예상 과금(노출 / 클릭 / 전환, 6-10d)
         self.assertIn("노출 98% · 클릭 1% · 전환 1%", html)  # 고를 수 있는 위치의 비율
         self.assertIn(reverse("creative_image_file", args=[self.crid]), html)
-        self.assertIn("<strong>example.com</strong>", html)
+        self.assertRegex(html, r'<span class="url">https://example\.com[^<]*</span>')  # 현재 노출 소재의 이동 주소
         self.assertRegex(html, rf'value="{self.w.slot.slot_id}" checked')
         campaigns.add_bid(self.w.adv, self.gid, 350, 1)
-        self.assertRegex(self.html(), r'(?s)입찰 변경 이력</caption>.*?<td class="num">2</td><td class="num">350 포인트</td>.*?<td class="num">1</td><td class="num">300 포인트</td>')  # 최신부터
+        self.assertRegex(self.html(), r'(?s)입찰 변경 이력</caption>.*?<td>v2 <span class="status active">현재</span></td><td>350 P</td>.*?<td>v1</td><td>300 P</td>')  # 최신부터
 
     def case_the_page_reads_slot_policies_once(self):
-        """계획 3-4g B1: 위치 정보와 위치별 결과가 같은 읽기를 본다(전에는 슬롯 정책을 두 번 읽었다)."""
+        """계획 3-4g B1: 위치 정보와 위치별 결과가 같은 읽기를 본다(전에는 슬롯 정책을 두 번 읽었다). 헤더 알림 표시(6-21d)가 따로 한 번 더 읽는다."""
         with mock.patch.object(masters, "get_slots_with_policy", wraps=masters.get_slots_with_policy) as read:
             self.html()
-        self.assertEqual(read.call_count, 1)
+        self.assertEqual(read.call_count, 2)
 
     def case_user_text_is_escaped(self):
         campaigns.update_ad_group(self.w.adv, self.gid, {"name": "<b>그룹</b>"})
@@ -72,7 +72,7 @@ class BidTests(Cases, AdGroupPageBase):
         self.assertRedirects(self.client.post(reverse("ad_group_bid", args=[self.gid]), {"amount": 600, "expected_version": 1}), self.detail)
         self.assertEqual([b.amount for b in campaigns.list_bids(self.w.adv, self.gid)], [600, 300])  # 추가만
         html = self.html()
-        self.assertRegex(html, r"상한으로 적용</td>\s*<td class=\"num\">500 포인트")
+        self.assertRegex(html, r'상한으로 적용</td><td class="num">500 P</td>')
         self.assertRegex(html, r'name="expected_version" value="2"')
 
     def case_a_concurrent_bid_is_explained_and_nothing_is_overwritten(self):

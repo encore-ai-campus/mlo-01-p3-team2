@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="{% static 'console/app.css' %}">
 </head>
 {# 시안 "광고주 센터 UI v2"(설계 §10 "광고주 화면 v2"): 로그인한 광고주는 사이드바 + 헤더, 그 밖(로그인·가입·잠김)은 단순한 틀 #}
-<body class="{% if user.is_authenticated and user.role == 'advertiser' %}console{% else %}plain{% endif %}">
+<body class="{% if user.is_authenticated and user.role == 'advertiser' %}console{% else %}plain{% endif %}{% block body_class %}{% endblock %}">
 {% if user.is_authenticated and user.role == "advertiser" %}
   <aside class="side">
     <div class="brand"><img class="logo" src="{% static 'console/logo.png' %}" alt="" width="32" height="32">광고주 센터</div>
@@ -32,7 +32,7 @@
   <div class="shell">
     <header class="top">
       <div class="crumb"><a href="{% url 'advertiser_home' %}">광고주 센터</a>{% block crumb %}{% endblock %}</div>
-      <a class="bell" href="{% url 'advertiser_home' %}" aria-label="알림{% if has_alerts %} 있음{% endif %}">{% icon "bell" %}{% if has_alerts %}<span class="dot"></span>{% endif %}</a>
+      <a class="bell" href="{% url 'advertiser_home' %}#alerts" aria-label="알림 보기{% if has_alerts %}(새 알림 있음){% endif %}">{% icon "bell" %}{% if has_alerts %}<span class="dot"></span>{% endif %}</a>
       <a class="chip" href="{% url 'my_account' %}"><span class="initial" aria-hidden="true">{{ user.nickname|slice:":1" }}</span>{{ user.nickname }} 님</a>
       <details class="more">
         <summary aria-label="더 보기">⋯</summary>
@@ -43,15 +43,18 @@
       </details>
     </header>
 {% else %}
+  {% block plain_top %}{# 로그인·가입·잠김은 왼쪽 소개(_brand_panel.html)로 바꾼다 #}
   <header class="plain-top">
     <span class="brand"><img class="logo" src="{% static 'console/logo.png' %}" alt="" width="32" height="32">광고주 센터</span>
     {% if user.is_authenticated %}
     <form method="post" action="{% url 'logout' %}" class="account">{% csrf_token %}<span>{{ user.nickname }}({{ user.class_label }})</span><button type="submit" class="secondary">로그아웃</button></form>
     {% endif %}
   </header>
+  {% endblock %}
 {% endif %}
     <main class="{% block main_class %}{% endblock %}">
-      {% for message in messages %}<div class="notice{% if message.tags %} {{ message.tags }}{% endif %}" role="status">{{ message }}</div>{% endfor %}
+      {# 알림(시안 states "FEEDBACK"): 화면 아래 가운데, 4초 뒤 사라지고(CSS) 오류는 닫을 때까지. 닫기는 <form method="dialog"> 라 스크립트가 없어도 된다 #}
+      {% if messages %}<div class="toasts">{% for message in messages %}<dialog open class="toast{% if message.tags %} {{ message.tags }}{% endif %}"><p role="status">{{ message }}</p><form method="dialog"><button type="submit" class="link">닫기</button></form></dialog>{% endfor %}</div>{% endif %}
       {% block page_head %}{% endblock %}
       {% block content %}{% endblock %}
     </main>

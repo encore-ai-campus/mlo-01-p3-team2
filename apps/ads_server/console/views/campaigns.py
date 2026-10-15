@@ -8,19 +8,33 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
-from foundation.api import present
 
 from ..errors import HANDLED, fetch, message_of, run_action, submit
 from ..forms import CampaignCreateForm, CampaignEditForm, ReviewRequestForm
 from ..queries.campaigns import campaign_page, campaign_rows, placement_summary
+from .common import present
 
 
 def _now():
     return timezone.now()
 
 
+STATUS_CHIPS = (("", "전체"), *((s.value, s.label) for s in campaigns.CampaignStatus))  # 목록의 상태 칩(시안 v2): 값, 이름
+SEARCH_MAX = 100
+
+
 def campaign_list(request):
-    return present(request, "console/campaign_list.html", {"rows": campaign_rows(request.user, _now())})
+    """캠페인 목록. `?status=`(상태 칩)·`?q=`(이름 검색)는 GET 이라 JS 없이 된다(6-21c). 거르기는 이미 읽은 줄에서 — 질의 수는 그대로다.
+    칩의 건수는 거르기 전 전체에서 센다. 모르는 상태 값은 전체로 본다."""
+    rows = campaign_rows(request.user, _now())
+    status = request.GET.get("status", "")
+    status = status if status in dict(STATUS_CHIPS) else ""
+    query = request.GET.get("q", "").strip()[:SEARCH_MAX]
+    counts = {value: sum(1 for r in rows if not value or r.campaign.status == value) for value, _ in STATUS_CHIPS}
+    shown = [r for r in rows if (not status or r.campaign.status == status) and query.casefold() in r.campaign.name.casefold()]
+    return present(request, "console/campaign_list.html", {
+        "rows": shown, "chips": [(value, label, counts[value]) for value, label in STATUS_CHIPS], "status": status, "q": query, "total": len(rows),
+    })
 
 
 def campaign_create(request):

@@ -1,40 +1,79 @@
 {% extends "console/base.html" %}
-{% load kst console_format %}
+{% load kst console_format console_icons %}
 {% block title %}캠페인{% endblock %}
+{% block crumb %} / 캠페인{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>캠페인</h1><p>기간과 일예산을 관리하고, 캠페인별 광고 집행 상태를 확인하세요.</p></div>
+  <div class="actions"><a class="button secondary" href="{% url 'ad_create' %}">{% icon "plus" 14 %}광고 만들기</a><a class="button" href="{% url 'campaign_create' %}">{% icon "plus" 14 %}캠페인 만들기</a></div>
+</div>
+{% endblock %}
 {% block content %}
-<section class="card">
-  <h1>캠페인</h1>
-  <p><a href="{% url 'campaign_create' %}">+ 캠페인 만들기</a> · <a href="{% url 'ad_create' %}">+ 광고 만들기</a></p>
-  <p class="muted">오늘 소진은 예산 일 기준이고 매일 09:00(KST)에 새로 시작합니다. 성과는 오늘을 포함한 최근 7일입니다.</p>
+<div class="notice info">오늘 소진과 성과의 기준이 달라요<span class="detail">오늘 소진은 예산 일 기준이고 매일 09:00(KST)에 새로 시작합니다. 노출·클릭·전환은 오늘을 포함한 최근 7일 성과입니다.</span></div>
+
+<div class="searchbar">
+  <form method="get" role="search" class="search">
+    {% icon "search" 16 %}
+    <label for="q" class="sr-only">캠페인 이름 검색</label>
+    <input type="search" id="q" name="q" value="{{ q }}" placeholder="캠페인 이름 검색" maxlength="100">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <button type="submit" class="sr-only">검색</button>
+  </form>
+  <ul class="chips" aria-label="상태로 거르기">
+    {% for value, label, count in chips %}
+    <li><a href="{% if value %}{% querystring status=value %}{% else %}{% querystring status=None %}{% endif %}"{% if value == status %} aria-current="true"{% endif %}>{{ label }} {{ count }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="section-head">
+  <h2>{% for value, label, count in chips %}{% if value == status %}{{ label }}{% endif %}{% endfor %} 캠페인 <span class="count">{{ rows|length }}</span>{% if q %} <span class="muted">· ‘{{ q }}’ 검색</span>{% endif %}</h2>
+  <span class="muted">성과: 최근 7일</span>
+</div>
+{% if rows %}
+<div class="card table">
   <div class="table-wrap">
     <table>
-      <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th><th scope="col">켜기·끄기</th><th scope="col">기간 (KST)</th>
-        <th scope="col" class="num">일예산</th><th scope="col" class="num">오늘 소진</th><th scope="col" class="num">노출</th><th scope="col" class="num">클릭</th><th scope="col" class="num">전환</th></tr></thead>
+      <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th><th scope="col" class="num">일예산</th><th scope="col">오늘 소진</th>
+        <th scope="col" class="num">노출</th><th scope="col" class="num">클릭</th><th scope="col" class="num">전환</th><th scope="col">관리</th></tr></thead>
       <tbody>
       {% for row in rows %}{% with c=row.campaign %}
         <tr>
-          <td><a href="{% url 'campaign_detail' c.campaign_id %}">{{ c.name }}</a></td>
-          <td><span class="status {{ c.status|lower }}">{{ c.status|status_label }}</span>{% if c.suspension %}<br><span class="muted">사유: {{ c.suspension.reason }}</span>{% endif %}</td>
-          <td>
-            {% if c.status == "ACTIVE" or c.status == "PAUSED" %}
-            <form method="post" action="{% url 'campaign_status' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="list">
-              <input type="hidden" name="status" value="{% if c.status == 'ACTIVE' %}PAUSED{% else %}ACTIVE{% endif %}">
-              <button type="submit" class="secondary" aria-label="{{ c.name }} {% if c.status == 'ACTIVE' %}끄기{% else %}켜기{% endif %}">{% if c.status == "ACTIVE" %}끄기{% else %}켜기{% endif %}</button>
-            </form>
-            {% elif c.status == "SUSPENDED" %}<span class="muted">중단됨 — 상세에서 재검토 요청</span>{% else %}<span class="muted">—</span>{% endif %}
-          </td>
-          <td>{{ c.starts_at|kst }} ~ {% if c.ends_at %}{{ c.ends_at|kst }}{% else %}끝 없음{% endif %}</td>
-          <td class="num">{{ c.daily_budget|points }}</td>
-          <td class="num">{{ row.today.spent|points }}</td>
+          <td><a href="{% url 'campaign_detail' c.campaign_id %}">{{ c.name }}</a><span class="sub">{{ c.starts_at|kst:"%m.%d" }} — {% if c.ends_at %}{{ c.ends_at|kst:"%m.%d" }} KST{% else %}종료일 없음{% endif %}</span></td>
+          <td><span class="status {{ c.status|lower }}">{{ c.status|status_label }}</span></td>
+          <td class="num">{{ c.daily_budget|p }}</td>
+          <td class="spend">{{ row.today.spent|p }}<progress value="{% if row.today.spent > c.daily_budget %}{{ c.daily_budget }}{% else %}{{ row.today.spent }}{% endif %}" max="{{ c.daily_budget }}">{{ row.today.spent }} / {{ c.daily_budget }}</progress></td>
           <td class="num">{{ row.recent.impressions|default:0|number }}</td>
           <td class="num">{{ row.recent.clicks|default:0|number }}</td>
           <td class="num">{{ row.recent.conversions|default:0|number }}</td>
+          <td class="manage">
+            {% if c.status == "ACTIVE" or c.status == "PAUSED" %}
+            <form method="post" action="{% url 'campaign_status' c.campaign_id %}">{% csrf_token %}<input type="hidden" name="back" value="list">
+              <input type="hidden" name="status" value="{% if c.status == 'ACTIVE' %}PAUSED{% else %}ACTIVE{% endif %}">
+              <button type="submit" class="link" aria-label="{{ c.name }} {% if c.status == 'ACTIVE' %}끄기{% else %}켜기{% endif %}">{% if c.status == "ACTIVE" %}끄기{% else %}켜기{% endif %}</button>
+            </form>
+            {% elif c.status == "SUSPENDED" %}<a class="danger" href="{% url 'campaign_detail' c.campaign_id %}" title="사유: {{ c.suspension.reason }}">사유 보기<span class="sr-only"> — 사유: {{ c.suspension.reason }}</span></a>
+            {% else %}<a href="{% url 'campaign_detail' c.campaign_id %}">상세</a>{% endif %}
+          </td>
         </tr>
-      {% endwith %}{% empty %}
-        <tr><td colspan="9">캠페인이 없습니다.</td></tr>
-      {% endfor %}
+      {% endwith %}{% endfor %}
       </tbody>
     </table>
   </div>
+</div>
+{% else %}
+<section class="card state">
+  <span class="glyph" aria-hidden="true">{% icon "search" 26 %}</span>
+  {% if q or status %}
+  <h2>조건에 맞는 캠페인이 없습니다</h2>
+  <p class="muted">검색어를 바꾸거나 상태 필터를 전체로 돌려 보세요.</p>
+  <a class="button secondary wide-sm" href="{% url 'campaign_list' %}">필터 초기화</a>
+  {% else %}
+  <h2>캠페인이 없습니다</h2>
+  <p class="muted">기간과 일예산을 정해 첫 캠페인을 만들어 보세요.</p>
+  <a class="button wide-sm" href="{% url 'campaign_create' %}">{% icon "plus" 14 %}캠페인 만들기</a>
+  {% endif %}
 </section>
+{% endif %}
+<p class="foot">관리자 중단 상태에서는 소재를 수정한 뒤 캠페인 상세에서 재검토를 요청할 수 있습니다.</p>
 {% endblock %}

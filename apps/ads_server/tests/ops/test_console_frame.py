@@ -1,4 +1,6 @@
 """Step 3-0 콘솔 공통 틀: 예외 → 화면 한 곳(`console/errors.py`), 포인트 표시, 쪽 나누기, 레이아웃."""
+import re
+
 from django import forms
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
@@ -104,10 +106,12 @@ class PointsAndPagingTests(Cases, SimpleTestCase):
 class LayoutTests(Cases, TestCase):
     def case_signed_in_advertiser_sees_navigation_and_no_script_unless_a_page_adds_one(self):
         self.client.force_login(make_advertiser())
-        html = self.client.get(reverse("advertiser_home")).content.decode()
+        html = self.client.get(reverse("my_account")).content.decode()  # 스크립트를 더하지 않는 화면 — 틀(base)에는 스크립트가 없다
         self.assertIn('aria-label="주 메뉴"', html)
         self.assertIn(reverse("advertiser_home"), html)
         self.assertNotIn("<script", html)
+        home = self.client.get(reverse("advertiser_home")).content.decode()  # 더하는 화면도 우리 서버의 정적 파일만(인라인 없음 — 6-21c 고르면 바로 보기)
+        self.assertEqual(re.findall(r"<script[^>]*>", home), ['<script src="/static/console/autosubmit.js" defer>'])
 
     def case_anonymous_pages_have_no_navigation(self):
         html = self.client.get(reverse("login")).content.decode()

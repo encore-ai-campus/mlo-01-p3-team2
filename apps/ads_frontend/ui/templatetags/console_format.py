@@ -20,19 +20,19 @@ def shares(policy):
 
 
 @register.filter
-def charges(amounts):
-    """반응 유형별 예상 과금 {유형: 포인트} → "노출 294 · 클릭 3 · 전환 3"(6-10d). 값이 없으면 빈 문자열."""
-    if not amounts:
-        return ""
-    return " · ".join(f"{label} {amounts[code]:,}" for code, label in (("IMPRESSION", "노출"), ("CLICK", "클릭"), ("CONVERSION", "전환")))
-
-
-@register.filter
 def points(value):
     """포인트 금액 표시(천 단위 쉼표 + 단위). 값이 없으면 빈 문자열. 포인트는 정수다."""
     if value is None or value == "":
         return ""
     return f"{value:,} 포인트"
+
+
+@register.filter
+def p(value):
+    """광고주 화면의 포인트 금액(시안 v2 — 숫자에 붙인 'P': `1,234 P`). 운영 화면은 `points`(… 포인트) 그대로. 값이 없으면 빈 문자열."""
+    if value is None or value == "":
+        return ""
+    return f"{value:,} P"
 
 
 @register.filter
@@ -75,6 +75,13 @@ def change(report, name):
     if not previous:
         return "—"
     return f"{(current - previous) / previous * 100:+.1f}%"
+
+
+@register.filter
+def change_up(report, name):
+    """직전 구간보다 늘었는가(시안의 ▲ 표시). 직전이 0 이면 비율이 없으므로 아니다."""
+    current, previous = getattr(report.totals, name), getattr(report.previous_totals, name)
+    return bool(previous) and current > previous
 
 
 @register.filter

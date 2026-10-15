@@ -25,7 +25,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # (이름, 시안 키, 높이) — 경로는 아래 pages() 가 시연 데이터에서 찾는다
 SCREENS = [("login", "login", 1024), ("signup", "signup", 1024), ("dashboard", "dashboard", 1110), ("campaigns", "campaigns", 1024),
            ("campaign-detail", "campaign-detail", 1024), ("suspended", "suspended", 1024), ("campaign-create", "campaign-create", 1024),
-           ("ad-create", "ad-create", 1240), ("ad-detail", "ad-detail", 1120), ("creatives", "creatives", 1080), ("points", "points", 1024),
+           ("ad-create", "ad-create", 1700), ("ad-create-filled", "ad-create", 1700), ("ad-detail", "ad-detail", 1120), ("creatives", "creatives", 1080), ("creative-detail", "creative-detail", 1024), ("points", "points", 1024),
            ("account", "account", 1024)]
 
 
@@ -47,16 +47,36 @@ class Site:
             if "/accounts/login/" in r.geturl():
                 raise SystemExit("로그인 실패 — demo_data.py 로 시연 계정을 만들었는지 확인")
 
+    def post(self, path, data):
+        request = urllib.request.Request(self.base + path, data=urllib.parse.urlencode(data, doseq=True).encode(), headers={"Referer": self.base + path})
+        with self.opener.open(request, timeout=30) as r:  # nosec B310
+            return r.read(), r.headers.get_content_type(), r.geturl()
+
+
+def filled_ad_create(site, path):
+    """광고 만들기에 값을 채우고 '구성별 적용금액 계산'을 누른 화면(시안 ad-create 와 같은 상태). 저장하지 않는다(action=preview)."""
+    page = site.get(path)[0].decode()
+    find = lambda pattern: re.search(pattern, page, re.S).group(1)
+    return site.post(path, {
+        "csrfmiddlewaretoken": find(r'name="csrfmiddlewaretoken" value="([^"]+)"'), "request_key": find(r'name="request_key" value="([^"]+)"'),
+        "campaign_id": find(r'name="campaign_id"[^>]*>\s*<option value="([^"]+)"'), "group_name": "옥상 게시판 · 가을 과정",
+        "slot_ids": find(r'value="([0-9a-f-]{36})">\s*<span class="name">옥상'), "bid_amount": "120",
+        "creative_source": "existing", "creative_id": find(r'name="creative_id".*?<option value="([0-9a-f-]{36})"'), "action": "preview",
+    })[0].decode()
+
 
 def pages(site):
     """시연 데이터에서 상세 화면의 경로를 찾는다."""
     found = {"dashboard": "/advertiser/", "campaigns": "/advertiser/campaigns/", "campaign-create": "/advertiser/campaigns/new/",
-             "ad-create": "/advertiser/ads/new/", "creatives": "/advertiser/creatives/", "points": "/advertiser/points/", "account": "/advertiser/me/"}
+             "ad-create": "/advertiser/ads/new/", "ad-create-filled": "/advertiser/ads/new/", "creatives": "/advertiser/creatives/", "points": "/advertiser/points/", "account": "/advertiser/me/"}
     listing = site.get(found["campaigns"])[0].decode()
     for key, name in (("campaign-detail", "가을 캠퍼스 프로그램"), ("suspended", "신규 과정 안내")):
         match = re.search(r'href="(/advertiser/campaigns/[0-9a-f-]{36}/)"[^>]*>(?:<[^>]+>)*\s*' + re.escape(name), listing)
         if match:
             found[key] = match.group(1)
+    match = re.search(r'href="(/advertiser/creatives/[0-9a-f-]{36}/)"', site.get(found["creatives"])[0].decode())
+    if match:
+        found["creative-detail"] = match.group(1)
     if "campaign-detail" in found:
         detail = site.get(found["campaign-detail"])[0].decode()
         match = re.search(r'href="(/advertiser/ad-groups/[0-9a-f-]{36}/)"', detail)
@@ -125,7 +145,8 @@ def main():
         if (wanted and name not in wanted) or name not in paths:
             continue
         client = anonymous if name in ("login", "signup") else site
-        page = localize(client, client.get(paths[name])[0].decode(), out)
+        body = filled_ad_create(site, paths[name]) if name == "ad-create-filled" else client.get(paths[name])[0].decode()
+        page = localize(client, body, out)
         page_file = out / f"{name}.html"
         page_file.write_text(page, encoding="utf-8")
         png = out / f"{name}.png"

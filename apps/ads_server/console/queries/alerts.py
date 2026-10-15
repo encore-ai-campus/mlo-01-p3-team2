@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from billing import api as billing
 from campaigns import api as campaigns
+from foundation.api import errors
 
 ENDED_RECENTLY = timedelta(days=7)  # 끝난 상태는 풀리지 않으므로 끝난 뒤 7일 동안만 알린다
 _SEVERITY = {"critical": 0, "warning": 1, "info": 2}
@@ -39,6 +40,15 @@ def alerts_for(user, now, camps, wallet):
     alerts += _bid_alerts(groups)
     alerts += _balance_alerts(user, wallet, [a for amounts in applied_by_campaign.values() for a in amounts], now)
     return sorted(alerts, key=lambda a: (_SEVERITY[a.severity], -a.since.timestamp()))
+
+
+def has_alerts(user, now):
+    """헤더 종의 점(6-21d): 대시보드 알림 패널과 같은 계산에 한 건이라도 있는지. 광고주 화면마다 부른다(질의 수는 캠페인 수와 무관)."""
+    try:
+        wallet = billing.get_wallet(user, now=now)
+    except errors.NotFound:  # 가입 절차를 거치지 않은 옛 계정
+        wallet = None
+    return bool(alerts_for(user, now, campaigns.list_campaigns(user, now=now), wallet))
 
 
 def _campaign_alerts(camps, reviews, now):

@@ -52,15 +52,22 @@ class AdCreateBase:
         return AdGroup.objects.filter(campaign__owner=self.w.adv, name="새 그룹")
 
 
+def effect_text(response, slot_name):
+    """'구성별 적용금액' 칸에서 그 구성의 글자(태그를 지우고 공백 하나로): "매체 · 구성 적용금액 결과 노출 … 클릭 … 전환 …"."""
+    section = response.content.decode().split('id="effects-title"')[1].split("</section>")[0].split('<p class="muted caption">')[0]
+    texts = [" ".join(re.sub(r"<[^>]+>", " ", block).split()) for block in section.split('<div class="effect">')[1:]]
+    return next(text for text in texts if f" · {slot_name} " in text)
+
+
 @tag("security")
 class AdCreatePageTests(Cases, AdCreateBase, TestCase):
     def case_page_groups_slots_by_media_and_every_slot_is_selectable_with_its_shares(self):
         """과금 단위를 고르는 단계가 없다(6-10d): 켜진 위치는 모두 고를 수 있고, 위치마다 반응 비율을 보인다."""
         html = self.client.get(URL).content.decode()
-        self.assertIn("① 캠페인", html)
-        self.assertIn("④ 확인 후 집행", html)
-        self.assertRegex(html, rf'value="{self.w.slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 98% · 클릭 1% · 전환 1%</span>')
-        self.assertRegex(html, rf'value="{self.click_slot.slot_id}">\s*[^<]*<span class="muted">[^<]*노출 1% · 클릭 98% · 전환 1%</span>')
+        self.assertIn('<span class="no">01</span> 캠페인', html)
+        self.assertIn("확인 후 집행</button>", html)
+        self.assertRegex(html, rf'value="{self.w.slot.slot_id}">\s*<span class="name">[^<]*</span><span class="muted">[^<]*노출 98% · 클릭 1% · 전환 1%</span>')
+        self.assertRegex(html, rf'value="{self.click_slot.slot_id}">\s*<span class="name">[^<]*</span><span class="muted">[^<]*노출 1% · 클릭 98% · 전환 1%</span>')
         for slot in (self.w.slot, self.click_slot):  # 구성은 그 매체 이름 아래에
             self.assertRegex(html, rf'<p class="media">{re.escape(slot.media_name)}</p>\s*<label class="slot"><input type="checkbox" name="slot_ids" value="{slot.slot_id}"')
         self.assertIn("console/ad_create.js", html)
@@ -79,10 +86,9 @@ class AdCreatePageTests(Cases, AdCreateBase, TestCase):
         cheap = make_slot(self.w.admin, floor=300, base=350, cap=400, name="비싼 하한")
         capped = make_slot(self.w.admin, floor=100, base=150, cap=200, name="낮은 상한")
         r = self.client.post(URL, self.fields(action="preview", image="", slot_ids=[str(self.w.slot.slot_id), str(cheap.slot_id), str(capped.slot_id)]))
-        table = r.content.decode().split("지금 정책 기준")[1]
-        self.assertRegex(table, r"그대로 적용</td><td class=\"num\">250 포인트</td><td>노출 245 · 클릭 2 · 전환 2</td>")  # 예상 과금: 250 × 98% · 1% · 1%(내림)
-        self.assertRegex(table, r"하한 미만 — 노출 안 됨</td><td class=\"num\">—</td><td>—</td>")  # 나가지 않는 위치에는 예상 과금이 없다
-        self.assertRegex(table, r"상한으로 적용</td><td class=\"num\">200 포인트</td><td>노출 196 · 클릭 2 · 전환 2</td>")
+        self.assertIn("250 P 그대로 적용 노출 245 P 클릭 2 P 전환 2 P", effect_text(r, self.w.slot.name))  # 예상 과금: 250 × 98% · 1% · 1%(내림)
+        self.assertTrue(effect_text(r, cheap.name).endswith("— 하한 미만 — 노출 안 됨"))  # 나가지 않는 위치에는 예상 과금이 없다
+        self.assertIn("200 P 상한으로 적용 노출 196 P 클릭 2 P 전환 2 P", effect_text(r, capped.name))
         self.assertFalse(self.created().exists())
 
     def case_a_preview_with_a_bid_the_service_rejects_is_a_field_error_not_a_500(self):
@@ -104,7 +110,7 @@ class AdCreatePageTests(Cases, AdCreateBase, TestCase):
     def case_the_preview_charges_are_what_the_ad_is_actually_charged(self):
         """미리보기의 예상 과금 = 그 입찰·정책으로 실제로 나간 광고의 과금(설계 §10 "구성별 반응 비율 과금" ⑦ — 같은 함수, 6-10d)."""
         r = self.client.post(URL, self.fields(action="preview", image="", slot_ids=[str(self.click_slot.slot_id)]))
-        self.assertContains(r, "노출 2 · 클릭 245 · 전환 2")  # 클릭 98% 위치
+        self.assertIn("노출 2 P 클릭 245 P 전환 2 P", effect_text(r, self.click_slot.name))  # 클릭 98% 위치
         self.client.post(URL, self.fields(slot_ids=[str(self.click_slot.slot_id)]))
         group = self.created().get()  # 이 위치의 광고는 이것뿐이다
         decision = records.decide(self.click_slot.media_id, self.click_slot.slot_id, subject_id=SUBJECT, now=NOW, rng=Random(1))

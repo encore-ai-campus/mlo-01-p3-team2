@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
@@ -18,7 +19,7 @@ class SignupView(View):
     def get(self, request):
         if request.user.is_authenticated:
             return redirect("advertiser_home")
-        return present(request, self.template_name, {"form": SignupForm()})
+        return present(request, self.template_name, {"form": SignupForm(), "grant": settings.SIGNUP_GRANT_POINTS})
 
     def post(self, request):
         form = SignupForm(request.POST)
@@ -31,7 +32,7 @@ class SignupView(View):
             else:
                 messages.success(request, "가입이 완료되었습니다. 로그인해 주세요.")
                 return redirect("login")
-        return present(request, self.template_name, {"form": form}, status=400)
+        return present(request, self.template_name, {"form": form, "grant": settings.SIGNUP_GRANT_POINTS}, status=400)
 
 
 class ConsoleLoginView(LoginView):
