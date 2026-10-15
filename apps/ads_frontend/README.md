@@ -20,7 +20,7 @@ FRONTEND_DEBUG=1 python manage.py runserver 127.0.0.1:8001
 
 ## 운영
 
-- 프론트 서버의 nginx(TLS·허용 목록) 뒤에 127.0.0.1 로 연다. `FRONTEND_DEBUG=0` 이면 `FRONTEND_SECRET_KEY`(50자 이상)가 필수다.
+- 프론트 서버의 nginx(TLS, 관리자 경로만 허용 목록 — 우리 강의실 라우터 IP) 뒤에 127.0.0.1 로 연다: `gunicorn config.wsgi --bind 127.0.0.1:8001 --workers <2×CPU+1> --timeout 40`(systemd 서비스, Python 3.14 venv). `--timeout` 은 `BACKEND_TIMEOUT`(30초)보다 길게 — 같거나 짧으면 백엔드를 기다리던 워커가 끊겨 오류 화면 대신 nginx 502 가 될 수 있다. `FRONTEND_DEBUG=0` 이면 `FRONTEND_SECRET_KEY`(50자 이상)가 필수다.
 - `BACKEND_URL` 은 백 서버의 내부 주소(경로 없이). `ADMIN_URL_PATH`·`ASSET_MAX_BYTES` 는 백엔드와 같게 — 본문이 업로드 상한 + 64KiB 를 넘으면 백엔드로 보내지 않고 413 이다.
 - `X-Forwarded-For` 에 받은 상대 주소를 덧붙여 넘긴다 — 백엔드의 `TRUSTED_PROXY_COUNT` 는 2(nginx·프론트).
 - 정적 파일: `python manage.py collectstatic --noinput` → 재시작(WhiteNoise 가 시작할 때 `STATIC_ROOT` 를 읽는다). Django admin 의 정적 파일도 여기서 서빙한다.
