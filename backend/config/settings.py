@@ -145,6 +145,10 @@ KAFKA_SASL_MECHANISM = os.environ.get("KAFKA_SASL_MECHANISM", "").strip()
 KAFKA_SASL_USERNAME = os.environ.get("KAFKA_SASL_USERNAME", "")
 KAFKA_SASL_PASSWORD = os.environ.get("KAFKA_SASL_PASSWORD", "")
 CAMPUS_RAW_SOURCE = os.environ.get("CAMPUS_RAW_SOURCE", "platform_server_1").strip() or "platform_server_1"
+CAMPUS_OUTBOX_IDLE_POLL_SECONDS = float(os.environ.get("CAMPUS_OUTBOX_IDLE_POLL_SECONDS", "5"))
+CAMPUS_OUTBOX_CONNECTION_MAX_AGE_SECONDS = int(os.environ.get("CAMPUS_OUTBOX_CONNECTION_MAX_AGE_SECONDS", "60"))
+if not 0 < CAMPUS_OUTBOX_IDLE_POLL_SECONDS < float("inf") or CAMPUS_OUTBOX_CONNECTION_MAX_AGE_SECONDS < 0:
+    raise ValueError("Outbox polling must be positive and connection lifetime must be non-negative")
 
 # Actual per-correct-answer rewards; shared by multiple-choice and fill-blank.
 LEARNING_POINTS_BY_DIFFICULTY = {
