@@ -29,6 +29,26 @@ class TransportTests(SimpleTestCase):
         self.assertEqual(kwargs['headers']['Origin'], 'http://127.0.0.1:8004')
         connection.close.assert_called_once()
 
+    @override_settings(BACKEND_URL='http://127.0.0.1:9003', BACKEND_TIMEOUT=30,
+                       ALLOWED_HOSTS=['43.203.25.153'])
+    def test_trusted_tls_proxy_keeps_public_https_origin_for_backend_csrf(self):
+        request = RequestFactory().post('/accounts/login/', {'username': 'tester'},
+            HTTP_HOST='43.203.25.153', HTTP_X_FORWARDED_PROTO='https',
+            HTTP_ORIGIN='https://43.203.25.153',
+            HTTP_REFERER='https://43.203.25.153/accounts/login/')
+        upstream = MagicMock(status=302)
+        upstream.read.return_value = b''
+        upstream.getheaders.return_value = []
+        connection = MagicMock()
+        connection.getresponse.return_value = upstream
+        with patch('pages.transport.http.client.HTTPConnection', return_value=connection):
+            self.assertEqual(call_backend(request).status, 302)
+        forwarded = connection.request.call_args.kwargs['headers']
+        self.assertEqual(forwarded['Host'], '43.203.25.153')
+        self.assertEqual(forwarded['X-Forwarded-Proto'], 'https')
+        self.assertEqual(forwarded['Origin'], 'https://43.203.25.153')
+        self.assertEqual(forwarded['Referer'], 'https://43.203.25.153/accounts/login/')
+
     def test_login_sets_multiple_cookies_and_logout_deletes_them(self):
         response = passthrough(BackendResponse(302, b'', [('Location', '/'),
             ('Set-Cookie', 'campus_sessionid=abc; HttpOnly; Path=/; SameSite=Lax'),
