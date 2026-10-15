@@ -35,8 +35,8 @@
 </section>
 
 <div class="split">
-  <section class="card" aria-label="{{ metric_label }} 추세">
-    <form method="get" class="section-head autosubmit">
+  <section class="card" id="trend" aria-label="{{ metric_label }} 추세">
+    <form method="get" class="section-head autosubmit" data-swap="trend">
       <div><h2>{{ metric_label }} 추세</h2><p class="muted">일별 성과 · 오늘(점선)은 아직 집계 중입니다</p></div>
       <div class="inline">
         <input type="hidden" name="days" value="{{ days }}">
