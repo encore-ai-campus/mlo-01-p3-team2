@@ -4,7 +4,7 @@
 
 ## 역할
 
-현재 Primary에서 game·spark·backend IP별 router 계정을 setupRouterAccount로 생성·갱신한다.
+현재 Primary에서 game·ad·spark·mysql·backend IP별 router 계정을 setupRouterAccount로 생성·갱신한다.
 
 ## 템플릿 입력
 

@@ -15,7 +15,7 @@ mysql_buffer_pool_ratio: 0.5
 mysql_buffer_pool_min_mb: 128
 
 # 계정 접속 허용 출처 (YAML 서버 목록의 그룹)
-mysql_dev_source_groups: [game, backend, spark, bastion]
+mysql_dev_source_groups: [game, ad, backend, spark, mysql, bastion]
 mysql_failover_extra_source_groups: [bastion]
 
 # dev 계정 권한. 시스템 스키마에서는 모두 뺀다.
@@ -28,7 +28,7 @@ mysql_port: 3306
 mysql_cluster_auto_rejoin_tries: 3
 # 신규 멤버의 업무 데이터가 있으면 clone을 중단한다. 데이터 폐기는 운영자가 별도로 승인한다.
 mysql_cluster_allow_clone_data_loss: false
-mysql_router_source_groups: [game, spark, backend]
+mysql_router_source_groups: [game, ad, spark, mysql, backend]
 
 # 비밀번호가 들어가는 task의 출력을 숨긴다. 문제를 찾을 때만 -e mysql_no_log=false 로 끈다.
 mysql_no_log: true

@@ -1,0 +1,31 @@
+---
+# MySQL 설치와 Router 단독 실행이 같은 계정 템플릿·해시를 사용한다.
+- name: Router 계정 입력 계산
+  ansible.builtin.set_fact:
+    mysql_router_accounts_js: "{{ lookup('ansible.builtin.template', 'router-accounts.js.j2') }}"
+  no_log: true
+
+- name: 적용된 Router 계정 해시 조회
+  ansible.builtin.slurp:
+    src: "{{ mysql_router_accounts_stamp }}"
+  register: mysql_router_stamp_current
+  failed_when: false
+
+- name: Router 계정 구성
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ mysql_router_accounts_js }}"
+  when:
+    - mysql_router_hosts | length > 0
+    - (mysql_router_stamp_current.content | default('') | b64decode) != (mysql_router_accounts_js | hash('sha256'))
+  changed_when: true
+  no_log: true
+
+- name: 적용한 Router 계정 해시 기록
+  ansible.builtin.copy:
+    content: "{{ mysql_router_accounts_js | hash('sha256') }}"
+    dest: "{{ mysql_router_accounts_stamp }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: mysql_router_hosts | length > 0

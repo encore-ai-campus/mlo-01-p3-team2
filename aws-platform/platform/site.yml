@@ -66,12 +66,34 @@
     - { role: zookeeper, tags: [zookeeper] }
     - { role: spark, tags: [spark] }
 
-# DB에 접속하는 기존 서버에 로컬 Router를 구성한다. 앱 런타임 설치는 별도다.
+# Router만 실행해도 현재 Primary에서 대상 출처의 계정을 먼저 준비한다.
+- name: MySQL Router 접속 계정 준비
+  hosts: mysql
+  become: true
+  strategy: linear
+  any_errors_fatal: true
+  tags: [backend, mysql_router]
+  tasks:
+    - name: Router 공통 계정 준비
+      ansible.builtin.import_role:
+        name: mysql
+        tasks_from: router-access
+
+# 광고·게임·Spark·MySQL 서버에 같은 로컬 Router 역할을 적용한다.
 - name: MySQL Router
-  hosts: game:spark:backend
+  hosts: game:ad:spark:mysql:backend
   become: true
   any_errors_fatal: true
   environment: "{{ proxy_environment }}"
+  pre_tasks:
+    # --limit ad처럼 계정 준비 play가 제외되면 패키지 설치 전에 중단한다.
+    - name: Router 계정 준비 완료 확인
+      ansible.builtin.assert:
+        that: hostvars[item].mysql_router_access_ready | default(false) | bool
+        fail_msg: MySQL 계정 준비가 생략됐습니다. --limit 없이 실행하거나 mysql 그룹을 함께 포함하세요.
+      loop: "{{ groups.get('mysql', []) }}"
+      run_once: true
+      tags: [backend, mysql_router]
   roles:
     - { role: backend, tags: [backend, mysql_router] }
 

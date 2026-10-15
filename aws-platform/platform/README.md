@@ -8,7 +8,7 @@
 
 ## 현재 MySQL 구성 — InnoDB Cluster
 
-MySQL 역할은 전체 mysql 그룹 3~9대의 단일 Primary InnoDB Cluster를 구축한다. Group Replication의 MYSQL 통신 스택(기본 3306)과 자동 Primary 선출을 사용하며, game·spark·backend의 기존 서버에 로컬 MySQL Router를 설치·bootstrap·서비스 실행한다. 앱의 읽기·쓰기 접속은 기본 127.0.0.1:6446, 읽기 전용은 6447이다. 공유 설정은 [MySQL·Router 변수 지도](docs/platform-routing/inventory/group_vars/all/mysql.yml.md)에 있다. 설치 경계는 [MySQL 역할](docs/platform-routing/roles/mysql/README.md)과 [backend 역할의 Router](docs/platform-routing/roles/backend/README.md)를 따른다.
+MySQL 역할은 전체 mysql 그룹 3~9대의 단일 Primary InnoDB Cluster를 구축한다. Group Replication의 MYSQL 통신 스택(기본 3306)과 자동 Primary 선출을 사용하며, game·ad·spark·mysql·backend의 기존 서버에 로컬 MySQL Router를 설치·bootstrap·서비스 실행한다. 앱의 읽기·쓰기 접속은 기본 127.0.0.1:6446, 읽기 전용은 6447이다. 공유 설정은 [MySQL·Router 변수 지도](docs/platform-routing/inventory/group_vars/all/mysql.yml.md)에 있다. 설치 경계는 [MySQL 역할](docs/platform-routing/roles/mysql/README.md)과 [backend 역할의 Router](docs/platform-routing/roles/backend/README.md)를 따른다.
 
 기본 및 `profiles/current` 배포 프로필에는 MySQL EC2 3대(mysql-1/account3, mysql-2/account5, mysql-3/account4)가 정의되어 있고 서비스 EC2는 총 17대다. 선택 Bastion은 별도다. 2026-10-13 로컬 확인 기준으로 `inventory/hosts.current.yml`에는 mysql-1·mysql-2·mysql-3와 Front별 그룹 `game_frontend`·`ad_frontend`가 포함되어 있다. `ansible.cfg`는 이 파일을 기본 인벤토리로 사용한다. 서버를 생성·교체하거나 주소가 바뀌면 [배포 절차의 Inventory 단계](../../aws-infra/docs/deployment-runbook.md#6-현재-ec2-주소로-인벤토리-생성)로 갱신하고 대상 그룹과 접속을 확인한다. 인벤토리 등록은 실제 EC2 가동·MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. 기존 ReplicaSet의 데이터 이전은 별도 계획으로 진행하며 이 역할은 기존 메타데이터를 삭제해 자동 전환하지 않는다.
 
@@ -22,15 +22,19 @@ export ANSIBLE_CONFIG="$PWD/ansible.cfg"
 inventoryFile="$PWD/inventory/hosts.current.yml"
 # MySQL은 일부 노드로 limit하지 않고 전체 그룹을 준비한다.
 ansible-playbook -i "$inventoryFile" site.yml --tags mysql --limit mysql --ask-vault-pass
-# game과 Spark에서 로컬 Router를 구성한다. 기존 backend 그룹이 있다면 함께 포함한다.
-ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --limit 'game:spark:backend' --ask-vault-pass
+# 광고·게임·Spark·MySQL의 계정 준비와 로컬 Router 설치를 함께 실행한다.
+ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --ask-vault-pass
 ```
+
+`site.yml --tags mysql_router`는 MySQL 전체 멤버의 ONLINE 상태와 단일 Primary를 확인하고, 해당 Primary에서 Router 대상 IP의 접속 계정을 준비한 다음 같은 대상에 Router를 설치한다. MySQL 패키지·복제·설정은 다시 구성하지 않는다. 광고 전용 `ad-router.yml`은 사용하지 않는다. MySQL 서버에도 Router를 설치하며 DB의 3306과 Router의 6446은 별도 포트다.
+
+기존 dev 계정은 보존하고 없는 출처만 추가한다. Router 메타데이터 계정은 기존 MySQL 설치 경로와 같은 템플릿·해시를 사용한다. 별도 `--limit` 없이 실행하는 것이 기본이다. 일부 대상만 설치할 때도 계정 준비에 필요한 `mysql` 그룹 전체를 함께 포함해야 한다. 예: `--limit 'mysql:ad'`. `--limit ad`처럼 계정 준비를 생략하면 설치 전에 중단한다.
 
 Cluster 재실행은 현재 Primary에서 계정을 적용한다. 가입된 Cluster의 설정 파일이 바뀌면 동시 재시작을 막기 위해 중단하며 순차 유지보수 후 다시 실행한다. 관리 계정 비밀번호 변경·기존 토폴로지 이전·전체 중단 복구는 별도 운영 절차다. 정상 구축 verify와 실제 Primary 장애 검사는 구분한다. 장애 시 앱은 끊긴 연결을 다시 열어야 하며 트랜잭션 재시도 여부는 앱이 판단한다.
 
 Spark 연동 테스트는 MYSQL_HOST=127.0.0.1과 MYSQL_PORT=6446을 사용한다(포트 기본 6446). JDBC 작업을 수행하는 모든 Spark 노드에 Router가 필요하다. game 앱의 실제 DB 접속 설정과 연결 풀 재시도는 애플리케이션 배포에서 맞춘다.
 
-로컬 검증은 WSL의 기존 Ansible 가상환경에서 `python tests/validate_mysql_cluster.py`로 실행한다. 원격 접속 없이 템플릿·AdminAPI 모의 검증·Ansible 인벤토리 검사·site.yml 문법 검사를 수행한다. 실제 Primary 중단 → 새 Primary → Router 경유 쓰기 → 노드 복귀는 EC2에서 별도로 검증해야 한다.
+로컬 검증은 WSL의 기존 Ansible 가상환경에서 `python tests/validate_mysql_cluster.py`와 `python tests/validate_router_scope.py`로 실행한다. 원격 접속 없이 템플릿·AdminAPI 모의 검증·Ansible 인벤토리 검사·site.yml 문법 검사를 수행한다. 실제 Primary 중단 → 새 Primary → Router 경유 쓰기 → 노드 복귀는 EC2에서 별도로 검증해야 한다.
 
 ## 구현 상태와 과거 검증
 
@@ -72,7 +76,7 @@ ansible-playbook -i "$inventoryFile" site.yml --tags mongodb --limit mongodb --a
 ansible-playbook -i "$inventoryFile" site.yml --tags kafka --limit kafka --ask-vault-pass
 ansible-playbook -i "$inventoryFile" site.yml --tags zookeeper,spark --limit spark --ask-vault-pass
 # Cluster와 Spark 설치 후 앱·JDBC 실행 노드의 로컬 Router를 준비한다.
-ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --limit 'game:spark:backend' --ask-vault-pass
+ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --ask-vault-pass
 ```
 
 각 실행의 failed=0·unreachable=0과 역할별 DB 복제·Kafka 송수신·ZooKeeper ensemble·Spark Worker 등록·작업 검증을 확인한다. 전체 실행은 MySQL 3~9대와 인벤토리의 역할·방화벽을 모두 준비한 경우에만 `ansible-playbook -i "$inventoryFile" site.yml --ask-vault-pass`로 진행한다. game·ad 앱과 flatten-1 Consumer 프로그램은 별도 배포한다. MySQL Cluster 작업 전에는 선택한 인벤토리의 전체 mysql 그룹과 실제 서버 접속 상태를 확인한다.
@@ -111,7 +115,7 @@ MySQL은 mysql 그룹 전체 3~9대와 노드 ID·IP 중복을 검사한다. 다
 | 역할 | 가능한 대수 | 모드 |
 |---|---|---|
 | Bastion | Proxy 활성 구성에서 1 | 별도 EC2이며 모든 목적지 연결의 경유점 |
-| Frontend, Monitoring, Backend | 그룹별 배치. Backend 그룹은 선택적 | 공통 설정·방화벽, Router는 game·spark·backend에 구성 |
+| Frontend, Monitoring, Backend | 그룹별 배치. Backend 그룹은 선택적 | 공통 설정·방화벽, Router는 game·ad·spark·mysql·backend에 구성 |
 | MySQL | 3~9 | 단일 Primary InnoDB Cluster. 한 대 장애 허용은 3노드 기준 |
 | MongoDB | 1 또는 3 | 1대 Standalone, 3대 Replica Set |
 | Kafka | 3 | KRaft combined |

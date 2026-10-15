@@ -62,7 +62,7 @@ flowchart TB
     MONGO --> KAFKA["kafka (java 의존)"]
     KAFKA --> ZK["zookeeper (java 의존)"]
     ZK --> SPARK["spark (java 의존)"]
-    SPARK --> BACK["game·spark·backend: 로컬 Router"]
+    SPARK --> BACK["game·ad·spark·mysql·backend: 로컬 Router"]
     BACK --> MON["monitoring: target → collector"]
     PKG["pkg: install · apt_repo"] -. "여러 역할에서 호출" .-> COMMON
     PKG -.-> MYSQL
@@ -106,7 +106,7 @@ flowchart TB
 
 - OS 선택은 distribution·os_family facts와 역할의 vars/amazon.yml·vars/ubuntu.yml로 분기한다. 저장소에 선언된 버전·URL·해시는 현 구현 값이며 외부 배포처의 현재 제공 여부는 검증하지 않았다.
 - site.yml의 prepare-proxy import는 항상 포함되며 내부 작업이 proxy_enabled 활성 조건으로 분기한다. APT 준비는 Ubuntu 24.04 x86_64의 기본 ubuntu.sources를 대상으로 한다. Squid 설치·ACL·포트 구성은 별도 bootstrap-proxy에서 맡으며 이 playbook은 proxy_enabled=true를 필수로 검사한다.
-- [edge 역할](platform-routing/roles/edge/README.md)은 두 Front의 Nginx·자기 IP 인증서·자동 갱신을 각각 설치한다. 별도 edge EC2는 현재 구성에 없다. Frontend 앱 설치 역할은 없다. backend 역할은 game·spark·backend에서 로컬 Router의 설치·bootstrap·서비스·Primary 접속 검증을 수행한다.
+- [edge 역할](platform-routing/roles/edge/README.md)은 두 Front의 Nginx·자기 IP 인증서·자동 갱신을 각각 설치한다. 별도 edge EC2는 현재 구성에 없다. Frontend 앱 설치 역할은 없다. backend 역할은 game·ad·spark·mysql·backend에서 로컬 Router의 설치·bootstrap·서비스·Primary 접속 검증을 수행한다.
 - MySQL은 mysql 그룹 전체 3~9대의 InnoDB Cluster를 검사한다. MongoDB는 그룹 크기로 단일/복제 모드를 나누며 대수 제한을 검사하지 않는다. Kafka의 기본 복제 수는 3, Spark의 기본 Master 수는 2다.
 - 모니터링 수집 목표 주기는 10초, 서비스 상태는 3주기마다다. 로그 회전·수집·압축 보관은 각각 다른 파일에서 처리한다.
 - Python AST 검사와 실제 서비스 검증은 범위가 다르다. MySQL Cluster 변경은 로컬 템플릿·모의 검증·Ansible 문법 검사까지 수행했으며 EC2에는 적용하지 않았다.

@@ -12,7 +12,7 @@ MySQL 역할과 Router 역할이 공유하는 Cluster 이름·MySQL 포트·Rout
 | --- | --- | --- |
 | 3 | mysql_cluster_name | infra |
 | 4 | mysql_port | 3306 |
-| 5 | mysql_router_source_groups | [game, spark, backend] |
+| 5 | mysql_router_source_groups | [game, ad, spark, mysql, backend] |
 | 6 | mysql_router_bind_address | 127.0.0.1 |
 | 7 | mysql_router_rw_port | 6446 |
 | 8 | mysql_router_ro_port | 6447 |

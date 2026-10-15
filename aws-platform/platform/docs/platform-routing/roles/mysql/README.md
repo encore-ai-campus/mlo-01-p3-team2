@@ -17,6 +17,9 @@ mysql 그룹 전체 3~9대가 대상이다. 첫 노드는 구축 담당이고 �
 | roles/mysql/defaults/main.yml | [main.yml](defaults/main.yml.md) | MySQL 8.4 저장소·버퍼·계정 출처·Cluster 이름·재가입 횟수·clone 데이터 보호 기본값을 정의한다. |
 | roles/mysql/handlers/main.yml | [main.yml](handlers/main.yml.md) | 기존 OS별 저장소·서비스·설치 경로 설정을 제공한다. Cluster 구성 흐름에서 재사용한다. |
 | roles/mysql/tasks/accounts.yml | [accounts.yml](tasks/accounts.yml.md) | 현재 Primary에서 관리·업무 계정 SQL과 Router 계정을 구성한다. 적용 해시가 같으면 재설정을 생략한다. |
+| roles/mysql/tasks/router-access.yml | [router-access.yml](tasks/router-access.yml.md) | Router 단독 실행의 대상·현재 Primary 확인과 신규 클라이언트 계정 준비 |
+| roles/mysql/tasks/router-accounts.yml | [router-accounts.yml](tasks/router-accounts.yml.md) | 전체 설치와 Router 단독 실행이 공유하는 메타데이터 계정·해시 처리 |
+| roles/mysql/templates/router-dev-access.js.j2 | [router-dev-access.js.j2](templates/router-dev-access.js.j2.md) | 기존 dev 계정을 보존하고 Router 대상의 없는 출처만 추가 |
 | roles/mysql/tasks/main.yml | [main.yml](tasks/main.yml.md) | 전체 MySQL 3~9대 인벤토리를 검사하고 기존 토폴로지 확인 → 설치 → 인스턴스 준비 → Cluster → 현재 Primary 계정 → 검증을 연결한다. |
 | roles/mysql/tasks/prepare-instance.yml | [prepare-instance.yml](tasks/prepare-instance.yml.md) | 메타데이터가 없는 인스턴스에 관리 계정을 복제 없이 준비하고 checkInstanceConfiguration/configureInstance로 Cluster 요구 설정을 검사·구성한다. |
 | roles/mysql/tasks/repo-debian.yml | [repo-debian.yml](tasks/repo-debian.yml.md) | 기존 OS별 저장소·서비스·설치 경로 설정을 제공한다. Cluster 구성 흐름에서 재사용한다. |
@@ -32,7 +35,7 @@ mysql 그룹 전체 3~9대가 대상이다. 첫 노드는 구축 담당이고 �
 | roles/mysql/templates/cluster.js.j2 | [cluster.js.j2](templates/cluster.js.j2.md) | 기존 Cluster 조회 또는 최초 생성, 실제 Primary 접속, 신규 노드 clone 추가, OFFLINE/(MISSING) 멤버 증분 재가입을 수행한다. |
 | roles/mysql/templates/configure-instance.js.j2 | [configure-instance.js.j2](templates/configure-instance.js.j2.md) | 가입 전에 생성한 failover 계정으로 각 노드 사설 IP·MySQL 포트에 접속하고, 요구 설정이 맞지 않을 때만 configureInstance(restart=true)를 호출한다. |
 | roles/mysql/templates/infra.cnf.j2 | [infra.cnf.j2](templates/infra.cnf.j2.md) | 사설 IP·포트·server-id·GTID·ROW 바이너리 로그·log_replica_updates·clone·버퍼를 설정한다. Group Replication 동적 설정은 AdminAPI의 mysqld-auto.cnf에 맡긴다. |
-| roles/mysql/templates/router-accounts.js.j2 | [router-accounts.js.j2](templates/router-accounts.js.j2.md) | 현재 Primary에서 game·spark·backend IP별 router 계정을 setupRouterAccount로 생성·갱신한다. |
+| roles/mysql/templates/router-accounts.js.j2 | [router-accounts.js.j2](templates/router-accounts.js.j2.md) | 현재 Primary에서 game·ad·spark·mysql·backend IP별 router 계정을 setupRouterAccount로 생성·갱신한다. |
 | roles/mysql/vars/amazon.yml | [amazon.yml](vars/amazon.yml.md) | 기존 OS별 저장소·서비스·설치 경로 설정을 제공한다. Cluster 구성 흐름에서 재사용한다. |
 | roles/mysql/vars/ubuntu.yml | [ubuntu.yml](vars/ubuntu.yml.md) | 기존 OS별 저장소·서비스·설치 경로 설정을 제공한다. Cluster 구성 흐름에서 재사용한다. |
 

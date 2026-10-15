@@ -20,7 +20,7 @@
 | 10 | mysql_router_bind_address | 127.0.0.1 |
 | 11 | mysql_router_rw_port | 6446 |
 | 12 | mysql_router_ro_port | 6447 |
-| 13 | mysql_router_source_groups | [game, spark, backend] |
+| 13 | mysql_router_source_groups | [game, ad, spark, mysql, backend] |
 | 14 | backend_no_log | true |
 
 ## 검증 범위

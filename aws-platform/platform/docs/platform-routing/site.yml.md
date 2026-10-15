@@ -6,7 +6,13 @@
 
 ## 역할
 
-프록시·공통 보안·방화벽 → MySQL Cluster → 다른 서비스 → game:spark:backend 로컬 Router → 모니터링 순서다. MySQL과 Router play는 any_errors_fatal=true다. MySQL은 strategy=linear로 모든 노드의 준비가 끝난 뒤 구축 담당이 Cluster를 생성한다.
+프록시·공통 보안·방화벽 → MySQL Cluster → 다른 서비스 → game:ad:spark:mysql:backend 로컬 Router → 모니터링 순서다. MySQL과 Router play는 any_errors_fatal=true다. MySQL은 strategy=linear로 모든 노드의 준비가 끝난 뒤 구축 담당이 Cluster를 생성한다.
+
+## Router 단독 실행
+
+`--tags mysql_router`는 [계정 준비](roles/mysql/tasks/router-access.yml.md) play와 game:ad:spark:mysql:backend Router play를 함께 선택한다. 기존 backend 태그도 같은 준비 경로를 사용한다. MySQL 패키지·설정·Cluster 구성 play는 mysql 태그이므로 단독 Router 실행에 포함되지 않는다.
+
+계정 준비가 MySQL 전체에서 성공한 뒤에만 Router 설치로 진행한다. `--limit ad`는 준비 누락 검사에서 중단된다. 일부 대상만 선택할 때도 `--limit 'mysql:ad'`처럼 mysql 그룹을 포함한다.
 
 ## 작업 탐색
 
@@ -14,17 +20,19 @@
 
 | 원본 행 | 작업 이름 | 모듈/제어 | 조건 |
 | --- | --- | --- | --- |
-| 3 | 프록시 준비 import | ansible.builtin.import_playbook | 내부 proxy_enabled 조건 |
-| 6 | 공통 보안 (Bastion) | play | 상위 조건 확인 |
-| 14 | 공통 보안 (나머지 서버) | play | 상위 조건 확인 |
-| 22 | 방화벽 (Bastion) | play | 상위 조건 확인 |
-| 30 | 방화벽 (나머지 서버) | play | 상위 조건 확인 |
-| 37 | MySQL | play | 상위 조건 확인 |
-| 46 | MongoDB | play | 상위 조건 확인 |
-| 53 | Kafka | play | 상위 조건 확인 |
-| 61 | ZooKeeper와 Spark | play | 상위 조건 확인 |
-| 70 | MySQL Router | play | 상위 조건 확인 |
-| 79 | Monitoring | play | 상위 조건 확인 |
+| 3 | 프록시 준비 import | ansible.builtin.import_playbook | proxy 태그·내부 조건 |
+| 6 | 공통 보안 (Bastion) | play | 해당 태그·host 조건 |
+| 14 | 공통 보안 (나머지 서버) | play | 해당 태그·host 조건 |
+| 22 | 방화벽 (Bastion) | play | 해당 태그·host 조건 |
+| 30 | 방화벽 (나머지 서버) | play | 해당 태그·host 조건 |
+| 37 | MySQL | play | 해당 태그·host 조건 |
+| 46 | MongoDB | play | 해당 태그·host 조건 |
+| 53 | Kafka | play | 해당 태그·host 조건 |
+| 61 | ZooKeeper와 Spark | play | 해당 태그·host 조건 |
+| 70 | MySQL Router 접속 계정 준비 | play | 해당 태그·host 조건 |
+| 83 | MySQL Router | play | 해당 태그·host 조건 |
+| 100 | 진입 서버 HTTPS | play | 해당 태그·host 조건 |
+| 108 | Monitoring | play | 해당 태그·host 조건 |
 
 ## 검증 범위
 

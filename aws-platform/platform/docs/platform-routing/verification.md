@@ -334,3 +334,18 @@ edge_frontend_upstreams는 비어 있으므로 설치 확인 페이지만 제공
 - 두 서버의 SSH 22 출처는 Bastion 10.10.0.152이고, established,related 응답 허용은 유지된다. 실제 테이블에서 Kafka·MySQL 출처의 8000 허용이 제거된 것을 확인했다.
 - 서버 삭제·교체·재부팅, 데이터 삭제·초기화, Terraform Apply는 수행하지 않았다. DB·Kafka·MongoDB 실제 데이터 송수신 시험은 이번 검증에 포함하지 않는다.
 - Ansible의 Python 자동 탐색 경고와 reset_connection의 when 미지원 경고가 있었다. 적용 대상 두 서버 모두 새 연결 및 후속 검증이 성공했다.
+
+
+## 2026-10-15 MySQL Router 실행 경로 통합 — 코드·로컬 검증만
+
+사용자는 광고 전용 플레이북 대신 기존 MySQL Router 실행에서 광고·게임·Spark·MySQL을 모두 처리하도록 요청했고, 실제 EC2 설치 없이 코드 통합과 검증만 선택했다. 작업 시작 시 ad-router.yml과 광고 전용 준비 파일은 이미 작업본에 없었다. 전용 플레이북은 다시 만들지 않았다.
+
+site.yml의 mysql_router/backend 태그는 MySQL 전체 그룹의 계정 준비와 game:ad:spark:mysql:backend Router 설치 play를 선택한다. Router 대상 그룹과 전체 MySQL 설치의 dev 계정 출처에도 ad/mysql을 포함했다. 준비 단계는 단일 ONLINE Primary를 확인하고 Router 대상의 없는 dev 계정을 추가하며 기존 dev 계정을 보존한다. Router 메타데이터 계정·해시 처리는 router-accounts.yml에 모아 전체 MySQL 설치와 단독 Router 실행이 재사용한다. MySQL 일부만 선택하거나 준비 play를 제외하면 설치 전에 중단한다.
+
+- 기존 validate_mysql_cluster.py: AdminAPI 모의 시나리오 27개, 템플릿·SQL/config 불변 조건, Ansible 입력·구성 경계, site.yml 문법 검사 통과.
+- 신규 validate_router_scope.py: 8개 고유 호스트 집합·현재 Primary 선택, 메타데이터 계정 해시 재사용, Primary 없음/다중 Primary/OFFLINE/부분 MySQL 제한 거부, ad-only 설치 전 중단, 기존 dev 계정 보존과 신규 계정 생성, 태그 실행의 저장소·패키지 작업 포함 확인 통과. 가짜 CLI·임시 인벤토리·로컬 역할 사본을 사용했다. 사본의 해시 파일 소유권만 현재 사용자로 바꿔 sudo 없이 검사했다.
+- 원격 SSH·AWS 조회·서비스 재시작·패키지 설치·DB 계정 변경·애플리케이션 설정 변경은 이번 작업에서 실행하지 않았다. 이전 실제 EC2 조회·광고 설치 기록을 이번 통합 코드의 원격 적용 결과로 취급하지 않는다.
+
+배포 준비가 된 운영자는 platform 디렉터리의 기존 WSL 가상환경에서 ansible-playbook -i inventory/hosts.current.yml site.yml --tags mysql_router --ask-vault-pass를 실행한다. 기본 실행은 --limit을 생략한다. 일부 대상만 선택하려면 MySQL 전체 그룹도 포함한다(예: --limit 'mysql:ad'). 실제 장애 전환과 애플리케이션의 재접속 처리는 별도 검증 범위다.
+
+라우팅 후속 확인: routing-doc-sync의 인식된 참조 2건(file_match·signature_match), 불일치 0건·diagnostics 0건. 결과는 needs_review / role_status=not_verified이며 YAML/Jinja 의미까지 자동 검증한 결과가 아니다. 새 Python 실행 함수 선언은 AST JSON으로 대조했고 변경 문서의 로컬 링크 210개에서 누락 경로가 없었다.

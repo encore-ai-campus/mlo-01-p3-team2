@@ -15,3 +15,5 @@ MySQL Cluster 전환은 로컬 렌더링·모의 검사·Ansible 문법 검사�
 Spark 포트 범위의 Terraform 전달·SG 속성은 [인프라 포트 범위 테스트](../../../../../aws-infra/docs/infra-routing/tests/README.md#spark-포트-범위)에서 확인한다. model·security-rules·workload의 정적/모의 검사이며 원격 서비스는 실행하지 않는다.
 
 Spark 통신 변경은 [기본 변수](../roles/spark/defaults/main.yml.md), [Worker unit](../roles/spark/templates/spark-worker.service.j2.md), [데몬 환경](../roles/spark/templates/spark-env.sh.j2.md), [작업 포트](../roles/spark/templates/spark-defaults.conf.j2.md)와 [Master 조회·PySpark 검증](../roles/spark/tasks/verify.yml.md)으로 이어진다. ZooKeeper 검증 성공은 Spark 설치·Worker 등록·계산 작업 검증 성공과 구분한다.
+
+Router 대상 통합·Primary 계정 준비와 태그 실행 범위는 [validate_router_scope.py](validate_router_scope.py.md)에서 검사한다.

@@ -14,7 +14,7 @@
 | kafka | [Kafka KRaft combined 클러스터](kafka/README.md) | kafka 그룹. Java 역할에 의존한다. |
 | zookeeper | [Spark 복구용 ZooKeeper ensemble](zookeeper/README.md) | 기본 zookeeper_group=spark. site.yml이 Spark 역할보다 먼저 실행한다. |
 | spark | [Spark Standalone Master·Worker](spark/README.md) | spark 그룹. 앞 spark_master_count대는 Master이고 전체가 Worker다. Java와 ZooKeeper 설정을 사용한다. |
-| backend | [앱 서버의 로컬 MySQL Router](backend/README.md) | game:spark:backend 그룹. |
+| backend | [대상 서버의 로컬 MySQL Router](backend/README.md) | game:ad:spark:mysql:backend 그룹. |
 | monitoring | [SSH 수집·로그 회전·보관](monitoring/README.md) | monitoring 그룹이 있을 때 site.yml이 모든 서버에 실행한다. collector는 monitoring 노드에만 배포한다. |
 
 roles/pkg는 tasks/main.yml이 없는 보조 역할이며, java는 Kafka·ZooKeeper·Spark의 meta 의존성으로 연결된다. 다른 역할의 기본 진입점은 tasks/main.yml이다.

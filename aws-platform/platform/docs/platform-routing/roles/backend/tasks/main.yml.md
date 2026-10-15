@@ -4,7 +4,7 @@
 
 ## 역할
 
-game·spark·backend에서 Router 설치 → 관리 범위 확인 → bootstrap → 해시 기록 → systemd 서비스 → 검증을 수행한다.
+game·ad·spark·mysql·backend에서 Router 설치 → 관리 범위 확인 → bootstrap → 해시 기록 → systemd 서비스 → 검증을 수행한다.
 
 ## 작업 탐색
 
