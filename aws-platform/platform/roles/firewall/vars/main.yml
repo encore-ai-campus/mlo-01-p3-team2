@@ -17,9 +17,9 @@ firewall_rules:
     from: [frontend, spark, bastion]
   # API 수신 출처를 허용한다. 목적지 포트는 AWS SG에서 TCP 8000으로 제한한다.
   game:
-    from: [frontend, ad, mysql, bastion]
+    from: [frontend, ad, bastion]
   ad:
-    from: [frontend, game, mysql, bastion]
+    from: [frontend, game, bastion]
   mysql:
     from: [game, ad, backend, spark, bastion]
     self: true

@@ -11,6 +11,7 @@ WSL 또는 Linux의 Ansible 컨트롤 노드에서 프록시 준비 명령을 �
 | --inventory | 실제 인벤토리 파일. 필수이며 상대 경로는 호출한 작업 디렉터리 기준이다. |
 | --limit | 준비·검사할 Ansible 호스트 패턴. 기본 all이며 account1 등 계정 그룹도 선택할 수 있다. |
 | --venv | 사용할 Ansible 가상환경. 생략하면 현재 PATH의 Ansible을 쓴다. ~/ 경로를 지원한다. |
+| --ask-vault-pass | 모든 Ansible 호출에 Vault 암호 입력 옵션을 전달한다. 각 명령에서 암호를 다시 입력하며 스크립트는 암호를 저장하지 않는다. |
 | --help | 실행 방법만 출력한다. |
 
 배스천은 limit에 포함되지 않아도 설치·APT·방화벽을 준비한다. 따라서 일부 클라이언트만 선택한 실행도 공용 배스천 설정에 영향을 준다. 선택한 인벤토리 전체가 한 배포 구성을 나타내야 하며 일부 호스트만 담은 파일로 공용 프록시 범위를 축소하지 않는다.
@@ -31,23 +32,25 @@ WSL 또는 Linux의 Ansible 컨트롤 노드에서 프록시 준비 명령을 �
 
 | 원본 행 | 코드 위치 | 책임과 연결 |
 | --- | --- | --- |
-| 8 | 옵션 처리 루프 | --inventory·--limit·--venv를 읽는다. 값 누락·알 수 없는 옵션은 종료 코드 2이며 -h/--help는 0으로 종료한다. |
-| 30 | limit 입력 검사 | -로 시작하는 호스트 패턴을 종료 코드 2로 거부한다. |
-| 34 | 가상환경 활성화 | --venv가 있으면 bin/activate를 확인하고 불러온다. 상대 경로는 호출한 작업 디렉터리 기준이며 ~/를 확장한다. 없으면 종료 코드 1이다. |
-| 42 | 인벤토리 파일 검사 | 인벤토리 누락·파일 부재는 종료 코드 2다. |
-| 46 | Ansible 실행 파일 검사 | ansible·ansible-playbook이 현재 PATH에 없으면 종료 코드 1이다. |
-| 54 | 실행 경로 고정 | 인벤토리를 절대 경로로 바꾼 뒤 platform 디렉터리로 이동하고 ANSIBLE_CONFIG를 지정한다. |
-| 59 | 실패 알림 | ERR 트랩으로 현재 단계와 종료 코드를 출력한다. 명시적인 exit를 사용하는 입력 오류는 각 오류 메시지로 종료한다. |
-| 62 | 대상 존재 검사 | bastion과 limit 패턴을 --list-hosts로 확인한다. 패턴 불일치나 대상 0대는 실패 처리한다. |
-| 73 | 1/6 문법 검사 | [bootstrap-proxy](../bootstrap-proxy.yml.md), prepare-proxy, [site](../site.yml.md)를 차례로 --syntax-check한다. |
-| 79, 80, 81 | 2/6 연결 확인 | bastion·limit에 wait_for_connection(timeout=300)을 실행하고 limit 대상에 ping을 실행한다. |
-| 85, 86 | 3/6 배스천 준비 | bootstrap-proxy로 Squid를 준비한 뒤 prepare-proxy --limit bastion으로 직접 APT 연결을 준비한다. |
-| 90 | 4/6 배스천 방화벽 | site --tags firewall --limit bastion으로 [프록시 허용 규칙](../roles/firewall/templates/infra-fw.nft.j2.md)을 적용한다. |
-| 94 | 5/6 선택 대상 준비 | prepare-proxy --limit으로 대상의 저장소·APT·프록시를 준비하고 접속을 검사한다. |
-| 98 | 6/6 접속 재검사 | prepare-proxy --tags proxy_verify --limit으로 HTTPS와 파일 다운로드를 재검사한다. |
+| 9 | 옵션 처리 루프 | --inventory·--limit·--venv·--ask-vault-pass를 읽는다. 값 누락·알 수 없는 옵션은 종료 코드 2이며 -h/--help는 0으로 종료한다. |
+| 36 | limit 입력 검사 | -로 시작하는 호스트 패턴을 종료 코드 2로 거부한다. |
+| 40 | 가상환경 활성화 | --venv가 있으면 bin/activate를 확인하고 불러온다. 상대 경로는 호출한 작업 디렉터리 기준이며 ~/를 확장한다. 없으면 종료 코드 1이다. |
+| 48 | 인벤토리 파일 검사 | 인벤토리 누락·파일 부재는 종료 코드 2다. |
+| 52 | Ansible 실행 파일 검사 | ansible·ansible-playbook이 현재 PATH에 없으면 종료 코드 1이다. |
+| 60 | 실행 경로 고정 | 인벤토리를 절대 경로로 바꾼 뒤 platform 디렉터리로 이동하고 ANSIBLE_CONFIG를 지정한다. |
+| 65 | 실패 알림 | ERR 트랩으로 현재 단계와 종료 코드를 출력한다. 명시적인 exit를 사용하는 입력 오류는 각 오류 메시지로 종료한다. |
+| 69 | 대상 존재 검사 | bastion과 limit 패턴을 --list-hosts로 확인한다. 패턴 불일치나 대상 0대는 실패 처리한다. |
+| 78 | 1/6 문법 검사 | [bootstrap-proxy](../bootstrap-proxy.yml.md), prepare-proxy, [site](../site.yml.md)를 차례로 --syntax-check한다. |
+| 86, 87, 88 | 2/6 연결 확인 | bastion·limit에 wait_for_connection(timeout=300)을 실행하고 limit 대상에 ping을 실행한다. |
+| 92, 93 | 3/6 배스천 준비 | bootstrap-proxy로 Squid를 준비한 뒤 prepare-proxy --limit bastion으로 직접 APT 연결을 준비한다. |
+| 97 | 4/6 배스천 방화벽 | site --tags firewall --limit bastion으로 [프록시 허용 규칙](../roles/firewall/templates/infra-fw.nft.j2.md)을 적용한다. |
+| 101 | 5/6 선택 대상 준비 | prepare-proxy --limit으로 대상의 저장소·APT·프록시를 준비하고 접속을 검사한다. |
+| 105 | 6/6 접속 재검사 | prepare-proxy --tags proxy_verify --limit으로 HTTPS와 파일 다운로드를 재검사한다. |
 
 all 또는 bastion을 포함하는 패턴을 선택하면 5/6·6/6에도 배스천이 포함된다. 전체 실행에 대한 일괄 복구는 없으며 Squid 설정 복구는 bootstrap-proxy의 설정 적용 블록에 한정된다.
 
 ## 검증 범위
 
 실제 Bash·Ansible·EC2 검증은 운영자가 수행한다. PowerShell 배포 연결과 인벤토리 생성의 로컬 검사 결과는 [검증 기록](../verification.md)에 구분해 기록한다.
+
+2026-10-13 Vault 옵션 변경은 PowerShell 파서와 `bash -n`을 통과했다. 모의 WSL로 옵션 유무·공백 경로·실패 전파를 검사했고, 모의 Ansible로 13개 호출의 옵션 전달·옵션 생략 호환·연결 실패 시 후속 단계 중단을 확인했다. 실제 Vault 암호 입력과 EC2 배포는 이 로컬 검사에 포함하지 않았다.

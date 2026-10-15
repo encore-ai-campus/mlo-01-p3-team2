@@ -1,6 +1,64 @@
 # 현재 EC2 보안그룹과 서비스 통신
 
-기준: 2026-10-13의 기본 topology·traffic과 workload 선언. 전체 표는 설정상의 규칙이다. 2026-10-10 mysql-3 증설 규칙 23개의 AWS 대조 기록과, 2026-10-11 애플리케이션 연결 추가의 로컬 검증 결과를 구분한다. 현재 문서는 코드 대조 결과이며 실제 AWS 적용 완료를 뜻하지 않는다.
+기준: 2026-10-15의 기본 topology·traffic과 workload 선언. 전체 표와 연결도는 로컬 설정상의 규칙이며 실제 AWS 적용이나 전체 서비스의 통신 성공을 뜻하지 않는다. 아래 과거 적용 기록과 최신 로컬 변경·검증 기록을 구분한다.
+
+## 전체 서비스 연결도
+
+양방향 화살표는 요청·응답 또는 데이터 송수신 관계를 뜻한다. 양쪽 서버가 각각 새 연결을 시작하도록 보안 그룹을 허용했다는 뜻은 아니다. 숫자는 요청을 받는 서비스의 TCP 포트다. 예를 들어 광고 Backend ↔ Kafka 9092는 광고 Backend가 Kafka의 9092에 연결하고 같은 연결로 데이터를 주고받는다는 의미이며, 광고 Backend의 9092를 여는 규칙이 아니다.
+
+```mermaid
+flowchart TB
+    U["HTTPS 허용 사용자<br/>222.112.208.66~72"]
+    H["HTTP 전체 IPv4<br/>인증서 검증·HTTPS 리다이렉트"]
+
+    subgraph A1["Account 1"]
+        GF["게임 Front"]
+        AF["광고 Front"]
+        G["게임 Backend"]
+        A["광고 Backend"]
+        C["평탄화 Consumer"]
+    end
+
+    K["Kafka 3대<br/>Account 4·5"]
+    M["MySQL 3대<br/>Account 3·4·5"]
+    D["MongoDB 3대<br/>Account 2·3·5"]
+    S["Spark 3대<br/>Account 2·3·4"]
+
+    U <-->|"443"| GF
+    H <-->|"80"| GF
+    U <-->|"443"| AF
+    H <-->|"80"| AF
+
+    GF <-->|"8000"| G
+    AF <-->|"8000"| A
+    G <-->|"8000"| A
+
+    G <-->|"9092"| K
+    A <-->|"9092"| K
+    G <-->|"3306"| M
+    A <-->|"3306"| M
+    A <-->|"27017"| D
+
+    C <-->|"9092"| K
+    C <-->|"27017"| D
+
+    S <-->|"9092"| K
+    S <-->|"3306"| M
+    S <-->|"27017"| D
+
+    M <-->|"9092"| K
+```
+
+MySQL ↔ Kafka 9092는 MySQL 서버에서 실행하는 별도 프로그램의 Kafka 접속 허용이며 MySQL 자체의 자동 전송 기능을 뜻하지 않는다. 이 그림은 서비스 간 연결을 요약한다. 관리 SSH·프록시·클러스터 내부 포트와 연결 시작 방향은 아래 역할별 TCP 연결 및 관련 설명을 따른다.
+
+## 과거 기록: 2026-10-14 Backend 연결 적용
+
+- account1에 game↔ad 및 Kafka·MySQL→두 Backend TCP 8000 수신 규칙 14개를 추가했다.
+- account3·4·5 Kafka에 각 두 Backend TCP 8000 송신 규칙을 추가했다. MySQL 송신 규칙은 기존 것을 유지했다.
+- 게임·광고 서버의 nftables에 해당 Front·상대 Backend·Kafka 3대·MySQL 3대의 사설 IP를 허용했다. 두 서버 모두 Ansible 실패·접속 불가 0건이며 새 SSH 연결, 저장된 규칙 파일, 부팅 시 방화벽 서비스 활성화를 확인했다.
+- 실제 앱은 8000번에서 실행 중이지 않았다. 최대 120초 수명의 고정 응답 수신기로 게임 10.10.10.158→광고 10.10.10.239:8000 및 역방향 HTTP 요청 성공을 확인하고 수신기·임시 파일을 정리했다. 앱 API 기능 검증은 아니다.
+- account5 Kafka는 중지 상태를 유지했으므로 실제 요청을 발생시키지 않았다. 해당 송신 규칙과 활성 Peering 참조는 AWS 조회로 확인했다.
+- 증거는 infra/.local/backend-link-apply-account*.log, backend-link-firewall-apply.log, backend-link-final-firewall.log, backend-link-probe.log에 저장했다.
 
 [계정 배치](costs/account-allocation.md), [설정](infra-routing/config/README.md), [workload](infra-routing/terraform/stacks/workload.md), [플랫폼 방화벽](../../aws-platform/platform/docs/platform-routing/roles/firewall/README.md)이 각 계층을 설명한다.
 
@@ -8,17 +66,17 @@
 
 | 계정 | 역할 | SG 수 |
 | --- | --- | ---: |
-| account1 | ad, bastion, game_frontend, ad_frontend, game | 5 |
-| account2 | mongo, spark, consumer | 3 |
-| account3 | kafka, mongo, mysql, spark | 4 |
+| account1 | ad, bastion, game_frontend, ad_frontend, game, consumer | 6 |
+| account2 | mongo, spark | 2 |
+| account3 | mongo, mysql, spark | 3 |
 | account4 | kafka, mysql, spark | 3 |
 | account5 | kafka, mongo, mysql | 3 |
 
-총 18개다. 이름은 aws-infra-계정-역할이며 실제 ID는 foundation 출력으로 읽는다. 서비스 역할 SG 17개와 Bastion 하나다. 현재 설정에서는 ALB SG를 생성하지 않는다. SG 자체는 foundation, 입출력 규칙은 workload가 소유한다. 같은 역할 서버는 같은 계정의 SG를 공유한다. 광고는 account1 Private A이고 MySQL은 account3·4·5 세 대다.
+총 17개다. 이름은 aws-infra-계정-역할이며 실제 ID는 foundation 출력으로 읽는다. 서비스 역할 SG 16개와 Bastion 하나다. 현재 설정에서는 ALB SG를 생성하지 않는다. SG 자체는 foundation, 입출력 규칙은 workload가 소유한다. 같은 역할 서버는 같은 계정의 SG를 공유한다. 광고는 account1 Private A이고 MySQL은 account3·4·5 세 대다.
 
 ## 역할별 TCP 연결
 
-아래는 기본 traffic의 전체 connections다. 같은 역할 간 연결은 로컬 SG와 다른 계정의 해당 역할 SG 조합으로 확장된다. 서로 다른 계정은 소유 계정 ID/SG ID 형식으로 참조하며, 소스 계정의 egress와 대상 계정의 ingress를 각각 계산한다. 단, Account 1 Backend 8000의 ingress는 workload에서 해당 Front 출처만 남긴다. 아래 game_ad·ad_game·mysql_game·mysql_ad는 traffic 및 송신 선언에 남아 있지만 Account 1의 해당 수신 규칙은 생성하지 않으므로 API 연결 허용을 뜻하지 않는다.
+아래는 기본 traffic의 전체 connections다. 같은 역할 간 연결은 로컬 SG와 다른 계정의 해당 역할 SG 조합으로 확장된다. 서로 다른 계정은 소유 계정 ID/SG ID 형식으로 참조하며, 소스 계정의 egress와 대상 계정의 ingress를 각각 계산한다. Account 1 Backend 8000의 ingress는 해당 Front와 상대 Backend 출처를 허용한다. game_ad·ad_game은 양쪽 SG 규칙을 생성하며 실제 앱 통신에는 서버 방화벽과 앱 리슨 설정도 필요하다.
 
 | 연결 키 | 출발 역할 → 목적 역할 | 포트 |
 | --- | --- | --- |
@@ -41,8 +99,6 @@
 | ad_mongo | ad → mongo | 27017 |
 | ad_mysql | ad → mysql | 3306 |
 | mysql_kafka | mysql → kafka | 9092 |
-| mysql_game | mysql → game | 8000 |
-| mysql_ad | mysql → ad | 8000 |
 | spark_master | spark → spark | 7077 |
 | spark_driver | spark → spark | 7078–7094 |
 | spark_block | spark → spark | 7079–7095 |
@@ -59,16 +115,17 @@ port_end는 ports의 끝 키를 선택하는 항목이며 생략하면 단일 �
 
 | 대상 | 방향·포트 | 허용 출처 또는 목적지 |
 | --- | --- | --- |
-| 게임·광고 Front | 수신 TCP 80·443 | 0.0.0.0/0. HTTP-01 검증 경로 외 HTTP 요청은 Nginx에서 HTTPS로 이동 |
+| 게임·광고 Front | 수신 TCP 80 | 0.0.0.0/0. HTTP-01 인증서 검증 및 HTTPS 리다이렉트 |
+| 게임·광고 Front | 수신 TCP 443 | 222.112.208.66/32~222.112.208.72/32의 7개 IP. public_http_cidrs에서 지정 |
 | 게임·광고 Front | 송신 모든 프로토콜 | 0.0.0.0/0 |
-| 게임 Backend | 수신 TCP 8000 | game_frontend SG만 |
-| 광고 Backend | 수신 TCP 8000 | ad_frontend SG만 |
+| 게임 Backend | 수신 TCP 8000 | game_frontend·ad SG |
+| 광고 Backend | 수신 TCP 8000 | ad_frontend·game SG |
 | Account 1 네 서비스 | 수신 TCP 22 | Bastion SG만 |
-| Bastion | 수신 TCP 22 | admin_public_cidrs의 관리자 IP |
+| Bastion | 수신 TCP 22 | 기본·current 모두 222.112.208.69/32 |
 
-Account 1 네 서비스에는 관리자 공인 IP SSH와 EC2 Instance Connect 콘솔 SSH 규칙을 생성하지 않는다. Account 2~5에는 기존 Private 관리자 CIDR SSH 및 콘솔 SSH 규칙(3/4/3/3개 SG)을 유지한다. Private SG의 CIDR 규칙이 인터넷 접속 경로를 만드는 것은 아니다. Bastion 콘솔 SSH 규칙은 생성하지 않는다.
+Account 1 네 서비스에는 관리자 공인 IP SSH와 EC2 Instance Connect 콘솔 SSH 규칙을 생성하지 않는다. Account 1 Consumer와 Account 2~5에는 Private 관리자 CIDR SSH 및 콘솔 SSH 규칙을 유지한다. 대상 SG 수는 계정별 1/2/3/3/3개, 총 12개다. Private SG의 CIDR 규칙이 인터넷 접속 경로를 만드는 것은 아니다. Bastion 콘솔 SSH 규칙은 생성하지 않는다.
 
-internet_https_roles의 Bastion은 인터넷 TCP 443 송신을 허용한다. 다른 Private 서버의 인터넷 송신 경로는 기존 Proxy 구성을 유지한다. 현재 Front 80·443 공개 범위는 workload에서 직접 선언하며 game_client_cidrs나 public_http_cidrs를 바꿔도 제한되지 않는다. public_http_cidrs는 이전 frontend 역할 및 선택 ALB HTTP에 사용하며, 해당 필드가 없으면 game_client_cidrs로 대체한다.
+internet_https_roles의 Bastion은 인터넷 TCP 443 송신을 허용한다. 다른 Private 서버의 인터넷 송신 경로는 기존 Proxy 구성을 유지한다. 현재 Front TCP 80은 인증서 검증을 위해 0.0.0.0/0에 허용한다. TCP 443은 public_http_cidrs를 사용하며 기본 및 current는 222.112.208.66~72의 7개 /32만 허용한다. public_http_cidrs는 이전 frontend 역할 및 선택 ALB HTTP에 사용하며, 해당 필드가 없으면 game_client_cidrs로 대체한다.
 
 선택적으로 활성화할 수 있는 ALB 모듈은 HTTP listener만 지원하며 현재 기본 설정에서는 호출하지 않는다. 인증서·HTTPS 리다이렉트는 없다. Django·정적 파일·광고 앱 설치와 실제 헬스 체크 성공은 별도다. CloudWatch agent·전용 Endpoint나 그 전송 정책은 이 구현에 추가돼 있지 않다.
 
@@ -90,7 +147,7 @@ Spark의 전체 세 서버에 Worker·ZooKeeper를, 인벤토리 앞 두 서버�
 
 VPC 모든 쌍 10개를 직접 Peering으로 연결하고 양쪽 라우팅 테이블에 상대 CIDR 경로를 둔다. 기본 Private 인터넷 라우트는 없다. 클라이언트의 다운로드 요청은 사설 경로로 Bastion Squid:3128에 도달하고 Squid가 인터넷 HTTPS 연결을 만든다. 이는 다른 계정 NAT를 Peering으로 공유하는 구성과 다르다.
 
-SG, Squid ACL과 EC2 안의 nftables는 모두 맞아야 한다. 플랫폼 방화벽은 인벤토리의 역할 그룹 IP를 사용한다. account1_service_restricted가 설정된 네 서비스는 Front 웹 80·443, Backend의 대응 Front 8000, Bastion SSH 22로 수신을 제한하며 일반 from/self 허용 분기를 건너뛴다. 다른 계정의 기존 역할별 from/self 정책은 유지한다. Proxy 활성 Bastion에는 프로젝트 CIDR → TCP 3128을 허용한다. 이 OS 정책이 AWS SG의 모든 포트를 여는 것은 아니다.
+SG, Squid ACL과 EC2 안의 nftables는 모두 맞아야 한다. 플랫폼 방화벽은 인벤토리의 역할 그룹 IP를 사용한다. account1_service_restricted가 설정된 네 서비스는 Front 웹 80·443, Backend의 대응 Front·상대 Backend 출처 TCP 8000, Bastion SSH 22로 수신을 제한하며 일반 from/self 허용 분기를 건너뛴다. 다른 계정의 기존 역할별 from/self 정책은 유지한다. Proxy 활성 Bastion에는 프로젝트 CIDR → TCP 3128을 허용한다. 이 OS 정책이 AWS SG의 모든 포트를 여는 것은 아니다.
 
 game·ad 애플리케이션 전용 설치 역할은 현재 없다. 다만 game·Spark·선택 backend에는 기존 backend 역할로 로컬 MySQL Router를 설치하며, 플랫폼 MySQL 방화벽의 허용 출처에는 game·ad를 포함한다. 광고 서버의 Router 설치는 이번 변경에 추가하지 않았다. 앱 런타임과 나머지 애플리케이션 통신·계정 권한은 별도로 맞춘다. 앱의 Kafka 우선 쓰기·Consumer 처리·원본 보관·Spark 집계 요구는 네트워크 규칙이 강제하지 않는다.
 
@@ -134,7 +191,7 @@ edge-1은 account1 Public A의 전용 edge SG를 사용한다. edge_front·admin
 
 ## 과거 기록: 2026-10-12 학원 접속 범위
 
-아래는 당시 정책이다. 현재 Front는 80·443 전체 공개이며 Account 1 네 서비스의 SSH는 Bastion만 허용한다. 아래 edge 및 전체 서비스 콘솔 SSH 설명을 현재 정책으로 적용하지 않는다.
+아래는 당시 정책이다. 현재 Front는 80을 전체 IPv4에, 443을 지정한 7개 IP에 허용하며 Account 1 네 서비스의 SSH는 Bastion만 허용한다. 아래 edge 및 전체 서비스 콘솔 SSH 설명을 현재 정책으로 적용하지 않는다.
 
 - 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
 - `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
@@ -143,3 +200,30 @@ edge-1은 account1 Public A의 전용 edge SG를 사용한다. edge_front·admin
 - Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
 - Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
 - 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.
+
+
+## 2026-10-15 Front 웹 접속 IP 제한
+
+기본·current의 public_http_cidrs는 222.112.208.66/32~222.112.208.72/32의 7개다. 현재 front_https_ingress는 80에 0.0.0.0/0을, 443에 이 목록을 사용한다. 두 Front × (HTTP 규칙 1개 + HTTPS 규칙 7개) = 웹 수신 규칙 16개다. 기존 전체 공개 규칙 4개는 제거하고 새 키의 규칙을 생성한다. 80의 허용 범위는 유지되며 443만 제한된다.
+
+이 필드는 기존 frontend 역할과 선택적 ALB HTTP에도 사용한다. 현재 ALB는 비활성화다. 빈 목록이면 Front 443 수신 규칙을 생성하지 않고 80 전체 공개는 유지하며 필드 누락·null은 기존 game_client_cidrs 대체 정책을 따른다. 관리자 SSH, Backend·DB 통신, Front 전체 송신은 변경하지 않았다.
+
+사용자에 따르면 현재 AWS에 자원이 운영 중이다. 이번 변경은 로컬 설정·코드·문서만 반영했으며 실제 AWS Plan·Apply·조회·원격 접속 테스트는 하지 않았다. SG 제한은 배포 후 적용된다. 운영 상태의 변경 필요 여부는 새 실제 Plan에서 별도로 확인해야 한다.
+
+80은 HTTP-01 인증서 발급·갱신용으로 전체 IPv4에 허용한다. SG는 HTTP 경로를 구분하지 않으며 Nginx가 ACME 검증 경로를 처리하고 다른 HTTP 요청을 HTTPS로 리다이렉트한다. 443의 외부 출처 제한은 AWS SG가 담당한다. 인증서 발급·갱신 성공은 이 규칙 선언만으로 보증하지 않는다.
+
+
+## 2026-10-15 Backend API 역방향 연결 제거
+
+기본·current traffic.connections에서 kafka_game, kafka_ad, mysql_game, mysql_ad를 제거했다. Kafka·MySQL SG의 Backend 8000 송신과 Backend SG의 대응 수신이 제거 대상이다. workload의 Backend 8000 출처 필터도 해당 Front·상대 Backend로 제한했다.
+
+게임·광고→Kafka 9092, 게임·광고→MySQL 3306, 광고→MongoDB 27017은 유지한다. 광고는 MongoDB에 저장·조회 요청을 보내고 같은 연결로 결과를 받는다. Front→해당 Backend 8000 및 게임↔광고 8000도 유지한다. DB·Kafka 응답용으로 Backend 8000을 열 필요는 없다.
+
+플랫폼 nftables의 Account 1 제한 분기에서 Kafka·MySQL의 Backend API 출처를 제거했고 일반 game/ad from 목록에서도 MySQL을 제거했다. 기존 established,related 응답 허용과 DB·Kafka·MongoDB 수신 정책은 유지한다. 위 과거 적용 기록은 당시 이력이며 현재 로컬 선언과 구분한다.
+
+이번 작업은 로컬 코드·설정·문서 수정이다. 실제 AWS 조회·Plan·Apply·원격 Ansible·접속 테스트는 실행하지 않았다. 운영 SG와 OS 방화벽은 배포 전까지 변경되지 않는다.
+
+
+## 2026-10-15 관리자 SSH 허용 IP 정리
+
+current의 admin_public_cidrs에서 집 공인 IP 211.117.107.63/32를 제거했다. 기본·current 모두 222.112.208.69/32만 남는다. Front 웹 허용 목록 222.112.208.66~72의 7개 /32와 서비스 연결은 유지한다. 과거 기록의 집 IP는 당시 이력으로 보존한다. 이 변경은 로컬 설정에만 반영했으며 실제 AWS SG 적용·조회는 하지 않았다.

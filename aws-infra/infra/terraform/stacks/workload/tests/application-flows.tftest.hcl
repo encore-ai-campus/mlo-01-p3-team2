@@ -59,7 +59,7 @@ run "account1_application_flows" {
   command = plan
   variables { account_key = "account1" }
   assert {
-    condition = alltrue([for key in ["account1/ad_frontend/account1/ad/8000", "account1/game_frontend/account1/game/8000"] : try(
+    condition = alltrue([for key in ["account1/ad/account1/game/8000", "account1/ad_frontend/account1/ad/8000", "account1/game/account1/ad/8000", "account1/game_frontend/account1/game/8000"] : try(
       module.rules.ingress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] &&
       module.rules.ingress[key].peer_id == (split("/", key)[0] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] : "${var.topology.accounts[split("/", key)[0]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]]}") &&
       module.rules.ingress[key].port == tonumber(split("/", key)[4]) &&
@@ -68,7 +68,7 @@ run "account1_application_flows" {
     error_message = "요청한 애플리케이션 연결의 ingress SG·상대 계정·단일 포트가 일치해야 합니다."
   }
   assert {
-    condition = alltrue([for key in ["account1/ad/account1/game/8000", "account1/ad/account2/mongo/27017", "account1/ad/account3/kafka/9092", "account1/ad/account3/mongo/27017", "account1/ad/account3/mysql/3306", "account1/ad/account4/kafka/9092", "account1/ad/account4/mysql/3306", "account1/ad/account5/kafka/9092", "account1/ad/account5/mongo/27017", "account1/ad/account5/mysql/3306", "account1/ad_frontend/account1/ad/8000", "account1/game_frontend/account1/game/8000", "account1/game/account1/ad/8000", "account1/game/account3/kafka/9092", "account1/game/account3/mysql/3306", "account1/game/account4/kafka/9092", "account1/game/account4/mysql/3306", "account1/game/account5/kafka/9092", "account1/game/account5/mysql/3306"] : try(
+    condition = alltrue([for key in ["account1/ad/account1/game/8000", "account1/ad/account2/mongo/27017", "account1/ad/account3/mongo/27017", "account1/ad/account3/mysql/3306", "account1/ad/account4/kafka/9092", "account1/ad/account4/mysql/3306", "account1/ad/account5/kafka/9092", "account1/ad/account5/mongo/27017", "account1/ad/account5/mysql/3306", "account1/ad_frontend/account1/ad/8000", "account1/consumer/account2/mongo/27017", "account1/consumer/account3/mongo/27017", "account1/consumer/account4/kafka/9092", "account1/consumer/account5/kafka/9092", "account1/consumer/account5/mongo/27017", "account1/game/account1/ad/8000", "account1/game/account3/mysql/3306", "account1/game/account4/kafka/9092", "account1/game/account4/mysql/3306", "account1/game/account5/kafka/9092", "account1/game/account5/mysql/3306", "account1/game_frontend/account1/game/8000"] : try(
       module.rules.egress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] &&
       module.rules.egress[key].peer_id == (split("/", key)[2] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] : "${var.topology.accounts[split("/", key)[2]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]]}") &&
       module.rules.egress[key].port == tonumber(split("/", key)[4]) &&
@@ -88,7 +88,7 @@ run "account2_application_flows" {
   command = plan
   variables { account_key = "account2" }
   assert {
-    condition = alltrue([for key in ["account1/ad/account2/mongo/27017", "account2/consumer/account2/mongo/27017"] : try(
+    condition = alltrue([for key in ["account1/ad/account2/mongo/27017", "account1/consumer/account2/mongo/27017"] : try(
       module.rules.ingress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] &&
       module.rules.ingress[key].peer_id == (split("/", key)[0] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] : "${var.topology.accounts[split("/", key)[0]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]]}") &&
       module.rules.ingress[key].port == tonumber(split("/", key)[4]) &&
@@ -97,7 +97,7 @@ run "account2_application_flows" {
     error_message = "요청한 애플리케이션 연결의 ingress SG·상대 계정·단일 포트가 일치해야 합니다."
   }
   assert {
-    condition = alltrue([for key in ["account2/consumer/account2/mongo/27017", "account2/consumer/account3/kafka/9092", "account2/consumer/account3/mongo/27017", "account2/consumer/account4/kafka/9092", "account2/consumer/account5/kafka/9092", "account2/consumer/account5/mongo/27017", "account2/spark/account3/kafka/9092", "account2/spark/account3/mysql/3306", "account2/spark/account4/kafka/9092", "account2/spark/account4/mysql/3306", "account2/spark/account5/kafka/9092", "account2/spark/account5/mysql/3306"] : try(
+    condition = alltrue([for key in ["account2/spark/account3/mysql/3306", "account2/spark/account4/kafka/9092", "account2/spark/account4/mysql/3306", "account2/spark/account5/kafka/9092", "account2/spark/account5/mysql/3306"] : try(
       module.rules.egress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] &&
       module.rules.egress[key].peer_id == (split("/", key)[2] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] : "${var.topology.accounts[split("/", key)[2]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]]}") &&
       module.rules.egress[key].port == tonumber(split("/", key)[4]) &&
@@ -116,8 +116,17 @@ run "account2_application_flows" {
 run "account3_application_flows" {
   command = plan
   variables { account_key = "account3" }
+  # DB·Kafka의 응답을 위한 Backend API 역방향 연결은 생성하지 않는다.
   assert {
-    condition = alltrue([for key in ["account1/ad/account3/kafka/9092", "account1/ad/account3/mongo/27017", "account1/ad/account3/mysql/3306", "account1/game/account3/kafka/9092", "account1/game/account3/mysql/3306", "account2/consumer/account3/kafka/9092", "account2/consumer/account3/mongo/27017", "account2/spark/account3/kafka/9092", "account2/spark/account3/mysql/3306", "account3/mysql/account3/kafka/9092", "account3/spark/account3/kafka/9092", "account3/spark/account3/mysql/3306", "account4/mysql/account3/kafka/9092", "account4/spark/account3/kafka/9092", "account4/spark/account3/mysql/3306", "account5/mysql/account3/kafka/9092"] : try(
+    condition = alltrue([for flow in values(module.model.flows) :
+      !(contains(["kafka", "mysql"], split("/", flow.source)[1]) &&
+        contains(["account1/game", "account1/ad"], flow.target) &&
+      flow.port <= 8000 && flow.port_end >= 8000)
+    ]) && alltrue([for rule in values(module.rules.egress) : rule.port != 8000])
+    error_message = "DB·Kafka 계정에 Backend 8000 송신 규칙이 없어야 합니다."
+  }
+  assert {
+    condition = alltrue([for key in ["account1/ad/account3/mongo/27017", "account1/ad/account3/mysql/3306", "account1/consumer/account3/mongo/27017", "account1/game/account3/mysql/3306", "account2/spark/account3/mysql/3306", "account3/spark/account3/mysql/3306", "account4/spark/account3/mysql/3306"] : try(
       module.rules.ingress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] &&
       module.rules.ingress[key].peer_id == (split("/", key)[0] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] : "${var.topology.accounts[split("/", key)[0]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]]}") &&
       module.rules.ingress[key].port == tonumber(split("/", key)[4]) &&
@@ -126,7 +135,7 @@ run "account3_application_flows" {
     error_message = "요청한 애플리케이션 연결의 ingress SG·상대 계정·단일 포트가 일치해야 합니다."
   }
   assert {
-    condition = alltrue([for key in ["account3/mysql/account1/ad/8000", "account3/mysql/account1/game/8000", "account3/mysql/account3/kafka/9092", "account3/mysql/account4/kafka/9092", "account3/mysql/account5/kafka/9092", "account3/spark/account3/kafka/9092", "account3/spark/account3/mysql/3306", "account3/spark/account4/kafka/9092", "account3/spark/account4/mysql/3306", "account3/spark/account5/kafka/9092", "account3/spark/account5/mysql/3306"] : try(
+    condition = alltrue([for key in ["account3/mysql/account4/kafka/9092", "account3/mysql/account5/kafka/9092", "account3/spark/account3/mysql/3306", "account3/spark/account4/kafka/9092", "account3/spark/account4/mysql/3306", "account3/spark/account5/kafka/9092", "account3/spark/account5/mysql/3306"] : try(
       module.rules.egress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] &&
       module.rules.egress[key].peer_id == (split("/", key)[2] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] : "${var.topology.accounts[split("/", key)[2]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]]}") &&
       module.rules.egress[key].port == tonumber(split("/", key)[4]) &&
@@ -145,8 +154,17 @@ run "account3_application_flows" {
 run "account4_application_flows" {
   command = plan
   variables { account_key = "account4" }
+  # DB·Kafka의 응답을 위한 Backend API 역방향 연결은 생성하지 않는다.
   assert {
-    condition = alltrue([for key in ["account1/ad/account4/kafka/9092", "account1/ad/account4/mysql/3306", "account1/game/account4/kafka/9092", "account1/game/account4/mysql/3306", "account2/consumer/account4/kafka/9092", "account2/spark/account4/kafka/9092", "account2/spark/account4/mysql/3306", "account3/mysql/account4/kafka/9092", "account3/spark/account4/kafka/9092", "account3/spark/account4/mysql/3306", "account4/mysql/account4/kafka/9092", "account4/spark/account4/kafka/9092", "account4/spark/account4/mysql/3306", "account5/mysql/account4/kafka/9092"] : try(
+    condition = alltrue([for flow in values(module.model.flows) :
+      !(contains(["kafka", "mysql"], split("/", flow.source)[1]) &&
+        contains(["account1/game", "account1/ad"], flow.target) &&
+      flow.port <= 8000 && flow.port_end >= 8000)
+    ]) && alltrue([for rule in values(module.rules.egress) : rule.port != 8000])
+    error_message = "DB·Kafka 계정에 Backend 8000 송신 규칙이 없어야 합니다."
+  }
+  assert {
+    condition = alltrue([for key in ["account1/ad/account4/kafka/9092", "account1/ad/account4/mysql/3306", "account1/consumer/account4/kafka/9092", "account1/game/account4/kafka/9092", "account1/game/account4/mysql/3306", "account2/spark/account4/kafka/9092", "account2/spark/account4/mysql/3306", "account3/mysql/account4/kafka/9092", "account3/spark/account4/kafka/9092", "account3/spark/account4/mysql/3306", "account4/mysql/account4/kafka/9092", "account4/spark/account4/kafka/9092", "account4/spark/account4/mysql/3306", "account5/mysql/account4/kafka/9092"] : try(
       module.rules.ingress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] &&
       module.rules.ingress[key].peer_id == (split("/", key)[0] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] : "${var.topology.accounts[split("/", key)[0]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]]}") &&
       module.rules.ingress[key].port == tonumber(split("/", key)[4]) &&
@@ -155,7 +173,7 @@ run "account4_application_flows" {
     error_message = "요청한 애플리케이션 연결의 ingress SG·상대 계정·단일 포트가 일치해야 합니다."
   }
   assert {
-    condition = alltrue([for key in ["account4/mysql/account1/ad/8000", "account4/mysql/account1/game/8000", "account4/mysql/account3/kafka/9092", "account4/mysql/account4/kafka/9092", "account4/mysql/account5/kafka/9092", "account4/spark/account3/kafka/9092", "account4/spark/account3/mysql/3306", "account4/spark/account4/kafka/9092", "account4/spark/account4/mysql/3306", "account4/spark/account5/kafka/9092", "account4/spark/account5/mysql/3306"] : try(
+    condition = alltrue([for key in ["account4/mysql/account4/kafka/9092", "account4/mysql/account5/kafka/9092", "account4/spark/account3/mysql/3306", "account4/spark/account4/kafka/9092", "account4/spark/account4/mysql/3306", "account4/spark/account5/kafka/9092", "account4/spark/account5/mysql/3306"] : try(
       module.rules.egress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] &&
       module.rules.egress[key].peer_id == (split("/", key)[2] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] : "${var.topology.accounts[split("/", key)[2]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]]}") &&
       module.rules.egress[key].port == tonumber(split("/", key)[4]) &&
@@ -174,8 +192,17 @@ run "account4_application_flows" {
 run "account5_application_flows" {
   command = plan
   variables { account_key = "account5" }
+  # DB·Kafka의 응답을 위한 Backend API 역방향 연결은 생성하지 않는다.
   assert {
-    condition = alltrue([for key in ["account1/ad/account5/kafka/9092", "account1/ad/account5/mongo/27017", "account1/ad/account5/mysql/3306", "account1/game/account5/kafka/9092", "account1/game/account5/mysql/3306", "account2/consumer/account5/kafka/9092", "account2/consumer/account5/mongo/27017", "account2/spark/account5/kafka/9092", "account2/spark/account5/mysql/3306", "account3/mysql/account5/kafka/9092", "account3/spark/account5/kafka/9092", "account3/spark/account5/mysql/3306", "account4/mysql/account5/kafka/9092", "account4/spark/account5/kafka/9092", "account4/spark/account5/mysql/3306", "account5/mysql/account5/kafka/9092"] : try(
+    condition = alltrue([for flow in values(module.model.flows) :
+      !(contains(["kafka", "mysql"], split("/", flow.source)[1]) &&
+        contains(["account1/game", "account1/ad"], flow.target) &&
+      flow.port <= 8000 && flow.port_end >= 8000)
+    ]) && alltrue([for rule in values(module.rules.egress) : rule.port != 8000])
+    error_message = "DB·Kafka 계정에 Backend 8000 송신 규칙이 없어야 합니다."
+  }
+  assert {
+    condition = alltrue([for key in ["account1/ad/account5/kafka/9092", "account1/ad/account5/mongo/27017", "account1/ad/account5/mysql/3306", "account1/consumer/account5/kafka/9092", "account1/consumer/account5/mongo/27017", "account1/game/account5/kafka/9092", "account1/game/account5/mysql/3306", "account2/spark/account5/kafka/9092", "account2/spark/account5/mysql/3306", "account3/mysql/account5/kafka/9092", "account3/spark/account5/kafka/9092", "account3/spark/account5/mysql/3306", "account4/mysql/account5/kafka/9092", "account4/spark/account5/kafka/9092", "account4/spark/account5/mysql/3306", "account5/mysql/account5/kafka/9092"] : try(
       module.rules.ingress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] &&
       module.rules.ingress[key].peer_id == (split("/", key)[0] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] : "${var.topology.accounts[split("/", key)[0]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]]}") &&
       module.rules.ingress[key].port == tonumber(split("/", key)[4]) &&
@@ -184,7 +211,7 @@ run "account5_application_flows" {
     error_message = "요청한 애플리케이션 연결의 ingress SG·상대 계정·단일 포트가 일치해야 합니다."
   }
   assert {
-    condition = alltrue([for key in ["account5/mysql/account1/ad/8000", "account5/mysql/account1/game/8000", "account5/mysql/account3/kafka/9092", "account5/mysql/account4/kafka/9092", "account5/mysql/account5/kafka/9092"] : try(
+    condition = alltrue([for key in ["account5/mysql/account4/kafka/9092", "account5/mysql/account5/kafka/9092"] : try(
       module.rules.egress[key].group_id == jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[0]].sg_ids[split("/", key)[1]] &&
       module.rules.egress[key].peer_id == (split("/", key)[2] == var.account_key ? jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]] : "${var.topology.accounts[split("/", key)[2]].id}/${jsondecode(file("../../../tests/fixtures.json")).foundations[split("/", key)[2]].sg_ids[split("/", key)[3]]}") &&
       module.rules.egress[key].port == tonumber(split("/", key)[4]) &&

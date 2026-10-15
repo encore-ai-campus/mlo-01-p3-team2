@@ -74,19 +74,19 @@ security-rules는 SG 참조용 peer 규칙과 IPv4 CIDR용 public 규칙을 각�
 | root_block_device | 암호화 gp3, root_gib 크기, delete_on_termination = true |
 | metadata_options / credit_specification | IMDSv2 토큰 필수, CPU 크레딧 unlimited |
 | user_data | /etc/aws-infra/node.json에 이름·역할·계정 기록 |
-| local.disks / aws_ebs_volume.data | 노드/디스크 키로 별도 암호화 EBS 생성. EC2와 같은 AZ, 현재 prevent_destroy = true |
+| local.disks / aws_ebs_volume.data | 노드/디스크 키로 별도 암호화 EBS 생성. EC2와 같은 AZ, 현재 prevent_destroy = false |
 | aws_volume_attachment.data | 설정한 device_name으로 EBS 연결 |
 | aws_eip.this / aws_eip_association.this | public_ip가 true인 노드에 EIP 생성·연결 |
 
 instances 출력은 노드별 ID, role, private_ip, public_ip, instance_type, availability_zone, data_volumes다. OS 설치 이후 프로그램 설치·EBS 포맷/마운트·DB 초기화는 하지 않는다. [bootstrap 경계](../bootstrap/README.md)를 함께 확인한다.
 
-현재 데이터 EBS의 Terraform 삭제 보호는 prevent_destroy=true다. 데이터 삭제·교체 Plan은 이 보호 때문에 실패할 수 있다. 전체 삭제의 DeleteDataVolumes는 데이터 삭제 선택이며 보호 해제 옵션이 아니다. Destroy와 DisableDataVolumeProtection을 함께 지정하면 이 선언을 Plan 전에 잠시 false로 바꾸고 종료 시 원래 바이트로 복원한다. 별도 Plan·Apply에서는 자동 변경하지 않으며 직접 설정을 바꾸면 새 Plan을 준비해야 한다. 삭제 흐름은 [전체 삭제 문서](../scripts/destroy-all.ps1.md)에 있다.
+2026-10-14 작업 파일의 데이터 EBS 선언은 prevent_destroy=false다. 현재는 이 lifecycle 설정이 데이터 삭제·교체 Plan을 막지 않는다. 전체 삭제의 DeleteDataVolumes 선택과 저장 계획 검사는 별도 조건이며, 이 선택만으로 보호 값이 바뀌지는 않는다. true인 구성에서 Destroy와 DisableDataVolumeProtection을 함께 지정하면 Plan 전에 잠시 false로 바꾸고 종료 시 원래 바이트로 복원한다. 별도 Plan·Apply에서는 자동 변경하지 않으며 직접 설정을 바꾸면 새 Plan을 준비해야 한다. 삭제 흐름은 [전체 삭제 문서](../scripts/destroy-all.ps1.md)에 있다. 이번 동기화는 문서만 변경했다.
 
 ## bastion
 
 원본: [modules/bastion/main.tf](../../../infra/terraform/modules/bastion/main.tf), [versions.tf](../../../infra/terraform/modules/bastion/versions.tf). 전용 [bastion stack](stacks/bastion.md)에서만 호출한다.
 
-입력은 name, account_key, ami_id, instance_type, root_gib, subnet_id, sg_id, key_name, public_key다. 전용 aws_key_pair와 aws_instance 각 하나를 만든다. Public A에서 자동 공인 IP를 받고 EIP 자원은 없다. 루트 디스크는 암호화 gp3·delete_on_termination=true, IMDSv2 필수, CPU 크레딧 unlimited다. user_data는 Bastion 역할 정보만 기록하며 Proxy를 설치하지 않는다.
+입력은 name, account_key, ami_id, instance_type, root_gib, subnet_id, sg_id, key_name, public_key다. 전용 aws_key_pair·aws_instance·aws_eip·aws_eip_association을 각 하나 만든다. Public A의 기존 EC2 옵션을 유지하면서 EIP를 연결한다. 출력 public_ip는 EIP이며 Bastion 삭제 시 EIP도 반환한다. 루트 디스크는 암호화 gp3·delete_on_termination=true, IMDSv2 필수, CPU 크레딧 unlimited다. user_data는 Bastion 역할 정보만 기록하며 Proxy를 설치하지 않는다.
 
 instance 출력은 id, public_ip, private_ip, root_volume_id, key_name이다. VPC·서브넷·SG·규칙·서비스 서버·별도 데이터 EBS는 이 모듈이 생성하거나 삭제하지 않는다.
 

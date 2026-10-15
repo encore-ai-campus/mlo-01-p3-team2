@@ -2,6 +2,41 @@
 
 [탐색 시작점](../ROUTING-README.md) · [실행 안내](../../README.md) · 로컬 작업 규칙: AGENTS.md(Git 제외)
 
+## 2026-10-15 수정 코드와 라우팅 문서 재대조
+
+Git HEAD ba6f151a494f604d2d3dc70d443b52a0a2a19cfd → WORKTREE와 미추적 소스를 기준으로 기존 문서 변경을 유지하며 대조했다. MongoDB에 추가된 데이터 디렉터리 소유권 작업을 [작업 지도](roles/mongodb/tasks/main.yml.md)·[역할 안내](roles/mongodb/README.md)·탐색 시작점에 반영했다. 작업 지도 17개의 이름·행 번호를 원본과 맞췄으며 포맷·마운트·재귀 소유권 변경을 하지 않는 경계도 명시했다.
+
+[방화벽 템플릿](roles/firewall/templates/infra-fw.nft.j2.md)의 누락된 Front·peer·edge 출력식과 Backend 8000의 신규 연결 허용 의미를 보완했다. 이전 edge와 현재 Front의 분기, Nginx의 조건부 308/404 응답을 구분하고 [역할 지도](roles/README.md)의 edge 적용 대상에 두 Front 그룹을 반영했다. 기본 인벤토리·프록시 Vault 전달·MySQL 조회 playbook·모니터링 줄바꿈 변경은 기존 대응 설명을 유지했다.
+
+Python 구조는 routing-doc-sync 번들 AST 분석기로 조사했다. 두 프로젝트의 라우팅 문서 177개에 있는 인식 가능한 Python 참조 39개를 검사했으며 확정 불일치와 분석 진단은 0개다. 상태 needs_review와 role_status=not_verified는 유지한다. 파일·시그니처 일치가 역할 의미나 비Python 코드의 실행 성공을 증명하지는 않는다. 보고서와 정적 검사 결과는 infra/.local/routing-doc-sync-20261015/에 로컬 보관한다.
+
+라우팅 문서의 상대 링크·제목 및 HTML 앵커, MongoDB 작업 표, 비Markdown 파일의 변경 전후 해시를 확인했다. 이번에는 문서만 변경했으며 AWS API·배포·원격 접속·Ansible 실행·Terraform 테스트는 수행하지 않았다. 아래 날짜별 실행 결과는 당시 이력으로 보존한다.
+
+## 2026-10-14 수정 코드 라우팅 동기화
+
+Git HEAD → WORKTREE와 미추적 check-mysql.yml을 기준으로 대조했다. [MySQL 조회 안내](check-mysql.yml.md)를 추가하고 탐색 시작점·MySQL 역할·검증 지도에서 연결했다. Vault root 비밀번호의 환경 변수 전달, no_log, SQL 반환 코드 검사와 멤버 상태 조회를 설명한다. --check에서도 실제 읽기 전용 조회가 실행되며 이 playbook 자체는 멤버 수·모든 노드 ONLINE·Primary 수를 단언하지 않는 점을 구분했다.
+
+기존 수정인 [기본 인벤토리](ansible.cfg.md), [Vault 옵션을 전달하는 프록시 실행기](scripts/setup-proxy.sh.md), [Backend 8000 방화벽](roles/firewall/templates/infra-fw.nft.j2.md)도 소스와 대응 문서를 대조했다. 모니터링 셸 3개는 Git 차이에 로직 변경이 없고 작업 파일 LF·eol=lf 속성을 확인해 [역할 안내](roles/monitoring/README.md#구현-조건)에 연결했다.
+
+routing-doc-sync의 Python 분석 결과에서 Spark 연동 파일은 바이트 차이가 있으나 구조 변경은 없다. 새 Python 함수 7개는 인프라 전원 테스트에 속하며 [인프라 검증 기록](../../../../aws-infra/docs/infra-routing/verification.md#2026-10-14-수정-코드와-라우팅-문서-동기화)에 분석 결과·한계를 남겼다. Ansible 파일명을 Python 심볼로 오인한 참조는 원본 링크로 정리했다.
+
+이번에는 라우팅 문서만 변경하고 로컬 참조·코드 해시를 검사했다. 원격 인증·클러스터 정상 여부, Ansible 실행과 기존 회귀 테스트를 새로 통과했다고 기록하지 않는다. 아래 날짜별 실행 기록은 보존한다.
+
+## 2026-10-13 기본 인벤토리와 모니터링 셸 줄바꿈 수정
+
+[ansible.cfg](../../ansible.cfg)의 기본 인벤토리를 inventory/hosts.current.yml로 변경했다. 로컬 파일에는 mysql-1·mysql-2·mysql-3와 game_frontend의 front-a, ad_frontend의 front-b가 등록되어 있다. 다른 프로필·팀 접속용·수동 인벤토리는 `-i`로 선택하며, 새 체크아웃에 생성 파일이 없으면 먼저 Inventory를 실행한다. README·설정·인벤토리·MySQL 역할 안내도 이 기준으로 맞췄다.
+
+모니터링의 archive.sh·collector.sh·resource.sh를 LF로 정규화하고 루트 `.gitattributes`에 `roles/monitoring/files/*.sh`의 LF 유지 규칙을 추가했다. Windows 체크아웃의 CRLF가 서버에 그대로 복사되어 발생하던 Bash 오류를 방지한다. 셸 로직과 수집·보관 정책은 변경하지 않았다.
+
+WSL의 기존 Ansible 14.4.0 환경에서 `ANSIBLE_CONFIG`를 지정하고 다음을 확인했다.
+
+- `-i` 없는 대상 목록 조회에서 MySQL 3대와 HTTPS 대상 Front 2대를 선택한다.
+- [site.yml](../../site.yml), [edge.yml](../../edge.yml), [prepare-proxy.yml](../../prepare-proxy.yml), [bootstrap-proxy.yml](../../bootstrap-proxy.yml)의 `--syntax-check`가 모두 통과한다.
+- 모니터링 셸 3개와 scripts의 셸 3개가 `bash -n`을 통과한다. resource.sh는 로컬 읽기 전용 실행으로 리소스 한 줄 출력도 확인했다.
+- `git ls-files --eol`에서 모니터링 셸 3개의 작업 파일이 LF이며 `text eol=lf` 규칙을 적용받는다.
+
+인벤토리 등록·로컬 문법 검사 결과이며 실제 EC2 접속·설치·인증서 발급·DB 복제는 이번 수정에서 검증하지 않았다. 아래 2026-10-10의 인벤토리 불일치와 Inventory 실패 내용은 당시 이력이며 현재 로컬 파일의 상태를 설명하지 않는다.
+
 ## 2026-10-10 MySQL 프로필과 로컬 인벤토리 불일치
 
 기본 및 `profiles/current` 토폴로지에는 mysql-1(account3), mysql-2(account5), mysql-3(account4)가 정의되어 서비스 EC2는 총 17대다. 선택 Bastion은 별도다. 이는 EC2 프로필 설정 수이며 MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. [인프라 구성 문서](../../../../aws-infra/docs/infra-routing/config/README.md#mysql-3-증설)와 [플랫폼 실행 안내](../../README.md)를 따른다.
@@ -275,3 +310,27 @@ edge_frontend_upstreams는 비어 있으므로 설치 확인 페이지만 제공
 로컬 YAML/Jinja, Ubuntu 미러 6종, Nginx HTTP/HTTPS/least_conn 3상태, NFT CIDR 제한, Certbot 발급·갱신 인수와 edge.yml/site.yml 문법 검사를 통과했다. routing-doc-sync의 Python AST 범위 밖인 YAML·Jinja의 의미는 이 검사와 실제 실행으로 확인한 부분만 기록한다.
 
 최종 전체 삭제 회귀 검사 17개가 통과했다. 실제 AWS 삭제는 실행하지 않았다. 관련 변경 문서 31개의 로컬 파일 링크 423개에서 누락 경로가 없었다. 전체 문서를 대상으로 한 routing-doc-sync는 README의 셸 명령과 YAML 이름 등을 Python 경로·심볼로 해석해 9개 mismatch를 출력했다. 실제 Python 실행 파일 경로와 해당 비-Python 문맥을 따로 확인했으며 이 결과를 자동 검증 통과로 표시하지 않는다. Terraform·YAML 의미는 별도 검사 범위다.
+
+
+## 2026-10-15 Kafka·MySQL의 Backend 8000 연결 제거 검증
+
+기본·current에서 kafka_game/kafka_ad/mysql_game/mysql_ad를 제거했다. Backend 8000은 해당 Front와 상대 Backend만 허용한다. 광고→MongoDB 27017, 게임·광고→Kafka 9092·MySQL 3306, 기존 Front 7개 공인 IP 제한을 유지했다. OS 방화벽의 Kafka·MySQL API 출처도 제거했다.
+
+- Terraform fmt -check 및 validate 통과.
+- mock AWS provider와 원격 상태 override를 사용한 edge/application-flows/school-access/workload 테스트: 20 passed, 0 failed. Backend 수신 집합, Account 3~5의 8000 송신 부재, 서비스별 포트와 SG 대상, 기존 SSH·Front 정책을 검사했다.
+- 로컬 WSL Python으로 두 JSON 파싱·삭제 대상 부재·유지할 포트와 7개 IP 일치, 방화벽 YAML 로딩·게임/광고 Jinja 렌더링을 통과했다. 각 Backend API 출처는 해당 Front·상대 Backend 두 종류이고 Kafka·MySQL IP는 포함하지 않는다. established,related 응답 규칙과 DB·Kafka·MongoDB 수신 허용을 확인했다.
+- 검증 스크립트: aws-infra/infra/.local/verify-backend-ports.py (로컬 진단 파일).
+- AWS 조회·실제 Plan/Apply·SSH·원격 Ansible·네트워크 접속 테스트는 하지 않았다. OS의 nft 명령을 통한 규칙 로딩 검사는 하지 않았다. 운영 자원은 변경하지 않았다.
+
+## 2026-10-15 게임·광고 Backend OS 방화벽 실제 적용
+
+사용자 승인 후 기존 EC2를 유지하고 firewall 역할만 game-server(10.10.10.152), ad-server(10.10.10.20)에 순차 적용했다. AWS 조회로 확인한 Bastion 공인 IP 54.117.44.140을 hosts.current.yml의 public_ip/ansible_host에 반영했다. 방화벽에 필요하지 않은 Vault 로딩을 피하도록 접속 변수와 game/ad/game_frontend/ad_frontend/bastion 그룹만 담은 별도 로컬 인벤토리를 사용했다.
+
+- 실행 기록: aws-infra/infra/.local/backend-firewall-20261015/apply.log. 실행 플레이북과 인벤토리 및 적용 전 규칙 백업도 같은 디렉터리에 보관했다.
+- Ansible 문법 검사 통과. 실제 실행은 두 서버 모두 ok=32, changed=5, unreachable=0, failed=0이었다.
+- 두 서버에서 후보 및 영구 규칙의 nft -c 문법 검사와 실제 nft -f 적용, 연결 초기화 후 새 SSH 재접속을 통과했다. 부팅용 infra-firewall.service enabled, 복구 타이머 비활성도 검증했다. 실제 재부팅 시험은 하지 않았다.
+- 게임 Backend의 TCP 8000 허용 출처는 게임 Front 10.10.0.242와 광고 Backend 10.10.10.20이다.
+- 광고 Backend의 TCP 8000 허용 출처는 광고 Front 10.10.0.181과 게임 Backend 10.10.10.152이다.
+- 두 서버의 SSH 22 출처는 Bastion 10.10.0.152이고, established,related 응답 허용은 유지된다. 실제 테이블에서 Kafka·MySQL 출처의 8000 허용이 제거된 것을 확인했다.
+- 서버 삭제·교체·재부팅, 데이터 삭제·초기화, Terraform Apply는 수행하지 않았다. DB·Kafka·MongoDB 실제 데이터 송수신 시험은 이번 검증에 포함하지 않는다.
+- Ansible의 Python 자동 탐색 경고와 reset_connection의 when 미지원 경고가 있었다. 적용 대상 두 서버 모두 새 연결 및 후속 검증이 성공했다.

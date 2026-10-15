@@ -6,9 +6,11 @@
 
 전체 mysql 인벤토리 검사 → 기존 Cluster 확인 → 설치·root 인증 → 신규 인스턴스 준비 → Cluster 생성/가입/재가입 → 실제 Primary 계정 → 정상 상태 검증
 
-mysql 그룹 전체 3~9대가 대상이다. 첫 노드는 구축 담당이고 현재 Primary는 Group Replication 상태로 판단한다. 기존 ReplicaSet의 자동 데이터 이전·메타데이터 삭제는 제공하지 않는다. MYSQL 통신 스택을 사용하므로 멤버 간 MySQL 포트(기본 3306)가 필요하다. 현재 배포 프로필은 mysql-1(account3), mysql-2(account5), mysql-3(account4)를 정의하지만 로컬 `inventory/hosts.current.yml`은 아직 mysql-1·mysql-2만 포함한다. Inventory 갱신은 kafka-1이 실행 중이 아니라는 검사에서 중단됐다. 새 인벤토리를 생성한 뒤 mysql 그룹에 세 노드가 모두 있는지 확인하고 이 역할을 실행한다.
+mysql 그룹 전체 3~9대가 대상이다. 첫 노드는 구축 담당이고 현재 Primary는 Group Replication 상태로 판단한다. 기존 ReplicaSet의 자동 데이터 이전·메타데이터 삭제는 제공하지 않는다. MYSQL 통신 스택을 사용하므로 멤버 간 MySQL 포트(기본 3306)가 필요하다. 현재 배포 프로필은 mysql-1(account3), mysql-2(account5), mysql-3(account4)를 정의하며 2026-10-13 로컬 확인 기준으로 기본 인벤토리 `inventory/hosts.current.yml`에도 세 노드가 포함되어 있다. 서버 구성·주소가 바뀌면 Inventory를 갱신하고, 실행 전 mysql 그룹 전체와 실제 접속 상태를 확인한다. 인벤토리 등록만으로 설치·Cluster 가입 완료를 판단하지 않는다.
 
 ## 경로별 문서
+
+설치된 Ubuntu MySQL의 Vault root 인증과 멤버 목록만 확인할 때는 별도 [check-mysql.yml](../../check-mysql.yml.md)을 사용한다. SQL 반환 코드와 조회 결과를 확인하며 모든 노드 ONLINE·Primary 개수를 자동 단언하는 검사는 아래 verify 작업에서 찾는다.
 
 | 소스 | 대응 문서 | 책임 |
 | --- | --- | --- |

@@ -18,7 +18,7 @@ OS 변수·패키지 → 후보 규칙 → 기존 파일·테이블 비교 → �
 
 ## 구현 조건
 
-account1_service_restricted가 아닌 일반 분기의 from과 self는 SSH 22를 제외한 모든 포트를 허용한다. 서비스별 포트만 허용하는 정책이 아니다. 기본 복구 타이머는 120초다. game·ad의 기존 역할 목록은 남아 있지만 현재 Account 1 제한 분기는 이를 사용하지 않고 해당 Front의 8000만 허용한다. MySQL에는 ad, MongoDB에는 ad·consumer, Kafka에는 game·ad·mysql·consumer를 포함해 인프라 연결과 맞춘다. 정확한 그룹 목록은 [역할 변수](vars/main.yml.md)를 따른다. Consumer·MySQL 전송 프로그램을 설치하는 기능은 아니다.
+account1_service_restricted가 아닌 일반 분기의 from과 self는 SSH 22를 제외한 모든 포트를 허용한다. 서비스별 포트만 허용하는 정책이 아니다. 기본 복구 타이머는 120초다. game·ad의 기존 역할 목록은 남아 있지만 현재 Account 1 제한 분기는 이를 사용하지 않고 해당 Front·상대 Backend의 사설 IP에서 오는 TCP 8000만 허용한다. MySQL에는 ad, MongoDB에는 ad·consumer, Kafka에는 game·ad·mysql·consumer를 포함해 인프라 연결과 맞춘다. 정확한 그룹 목록은 [역할 변수](vars/main.yml.md)를 따른다. Consumer·MySQL 전송 프로그램을 설치하는 기능은 아니다.
 
 프록시를 활성화한 배스천은 이 역할 관계와 별도로 지정 VPC CIDR의 프록시 TCP 포트(기본 3128)를 허용한다. 일반 서버에는 이 추가 규칙을 생성하지 않는다. 적용 후 prepare-proxy.yml의 proxy_verify 태그로 클라이언트에서 새 프록시 요청이 통과하는지 확인한다.
 
@@ -47,3 +47,14 @@ account1_service_restricted가 아닌 일반 분기의 from과 self는 SSH 22를
 ## 기존 Edge HTTPS 호환
 
 기존 edge 분기는 HTTP80을 전체 허용한다. 현재 두 Front에는 Account 1 분기가 적용돼 80·443을 전체 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.
+
+
+## 2026-10-15 Backend API 역방향 연결 제거
+
+기본·current traffic.connections에서 kafka_game, kafka_ad, mysql_game, mysql_ad를 제거했다. Kafka·MySQL SG의 Backend 8000 송신과 Backend SG의 대응 수신이 제거 대상이다. workload의 Backend 8000 출처 필터도 해당 Front·상대 Backend로 제한했다.
+
+게임·광고→Kafka 9092, 게임·광고→MySQL 3306, 광고→MongoDB 27017은 유지한다. 광고는 MongoDB에 저장·조회 요청을 보내고 같은 연결로 결과를 받는다. Front→해당 Backend 8000 및 게임↔광고 8000도 유지한다. DB·Kafka 응답용으로 Backend 8000을 열 필요는 없다.
+
+플랫폼 nftables의 Account 1 제한 분기에서 Kafka·MySQL의 Backend API 출처를 제거했고 일반 game/ad from 목록에서도 MySQL을 제거했다. 기존 established,related 응답 허용과 DB·Kafka·MongoDB 수신 정책은 유지한다. 위 과거 적용 기록은 당시 이력이며 현재 로컬 선언과 구분한다.
+
+이번 작업은 로컬 코드·설정·문서 수정이다. 실제 AWS 조회·Plan·Apply·원격 Ansible·접속 테스트는 실행하지 않았다. 운영 SG와 OS 방화벽은 배포 전까지 변경되지 않는다.

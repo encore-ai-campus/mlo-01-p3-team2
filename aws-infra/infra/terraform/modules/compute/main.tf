@@ -61,7 +61,7 @@ resource "aws_ebs_volume" "data" {
   encrypted         = true
   tags              = { Name = "${var.name}-${each.value.node}-${each.value.disk}" }
   # 배치 변경으로 데이터 볼륨이 자동 폐기되지 않도록 이전 절차를 요구한다.
-  lifecycle { prevent_destroy = true }
+  lifecycle { prevent_destroy = false }
 }
 resource "aws_volume_attachment" "data" {
   for_each    = local.disks

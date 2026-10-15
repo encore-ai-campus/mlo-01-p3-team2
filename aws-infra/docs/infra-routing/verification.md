@@ -2,6 +2,45 @@
 
 [탐색 시작점](ROUTING-README.md) · 로컬 적용 규칙: AGENTS.md(Git 제외)
 
+## 2026-10-15 수정 코드와 문서 재대조
+
+Git HEAD ba6f151a494f604d2d3dc70d443b52a0a2a19cfd → WORKTREE 및 미추적 소스를 기준으로 양쪽 라우팅 문서 177개를 재대조했다. 전원 실행기·Python 모의 테스트·계정 재배치·Kafka→Backend 8000·데이터 EBS lifecycle·삭제 허용 목록·Vault 옵션 전달은 기존 문서에 반영되어 있어 내용을 유지했다. 이번 추가 수정은 [플랫폼 검증 기록](../../../aws-platform/platform/docs/platform-routing/verification.md#2026-10-15-수정-코드와-라우팅-문서-재대조)의 MongoDB 데이터 디렉터리 소유권, 방화벽 출력식·분기 설명과 edge 역할 대상이다.
+
+routing-doc-sync 번들 AST 분석기의 인식 가능한 Python 참조는 39개이며 확정 불일치·분석 진단은 0개다. needs_review·role_status=not_verified를 유지하며 비Python 동작을 AST 검증 결과로 간주하지 않는다. 신규 전원 테스트 함수는 기존 문서의 시그니처와 대조하고, 구조 변경이 없는 Python 파일도 보고서에 남긴다.
+
+보고서는 infra/.local/routing-doc-sync-20261015/before.json과 final.json, 링크·MongoDB 작업 표 및 소스 보존 확인은 checks.json에 보관한다. 문서 경로·앵커와 비Markdown 파일 해시를 확인했으며 기존 코드와 Git index는 수정하지 않았다. AWS API 호출, 전원 변경, Plan·Apply, Ansible 실행, 서비스 연결 검증은 하지 않았다. 아래 기록의 테스트·배포 결과는 각 날짜의 이력이다.
+
+## 2026-10-14 Kafka·Consumer 계정 재배치 — 로컬 검증
+
+사용자 요청에 따라 기본 topology와 profiles/current의 kafka-1을 account4, flatten-1을 account1로 변경했다. ad-server는 account1에 유지했다. 두 topology JSON의 전체 내용이 일치하며 총 18대, 계정별 6 / 2 / 3 / 4 / 3대(Bastion 포함)다. 사양·디스크·AZ·역할과 traffic 연결 선언은 유지했다.
+
+- foundation Terraform 모의 테스트 3개, workload 모의 테스트 32개가 통과했다. 계정별 배치·Consumer Kafka/MongoDB/프록시 연결·SSH 정책·account4 Kafka의 자체 broker/controller 통신을 검사했다.
+- current 프로필의 foundation·workload에서 backend 없이 terraform validate가 통과했다. 수정한 Terraform 테스트의 fmt 검사도 통과했다.
+- fixture의 consumer SG를 account1로 옮기고 account2의 consumer 및 account3의 kafka SG를 제거해 오래된 참조가 테스트에서 드러나도록 했다. 기존 서버 수·통신·SSH 테스트를 새 배치에 맞췄다.
+- 처음에는 샌드박스에서 provider 프로세스가 응답하지 않아 실행 환경을 바꿨다. 최종 테스트는 AWS provider와 원격 상태 모두 모의 처리했으며 실제 AWS Plan·Apply·자원 생성은 실행하지 않았다.
+- 사용자 범위 조정 전에 EC2 조회만 수행했고 다섯 계정 모두 실행 중·중지 상태의 인스턴스가 없었다. Ansible 코드·인벤토리 변경과 원격 설치는 이번 작업에서 제외했다. 실서비스 접속·클러스터 동작은 검증하지 않았다.
+
+실행 로그는 infra/.local/account-rebalance-20261014/의 foundation-test.log, workload-test.log, foundation-validate.log, workload-validate.log에 보관한다. 아래 이전 검증 기록은 당시 입력의 결과다.
+
+## 2026-10-14 수정 코드와 라우팅 문서 동기화
+
+비교 기준은 Git HEAD → WORKTREE이며 신규 미추적 소스도 포함했다. routing-doc-sync 스킬의 번들 AST 분석기로 두 프로젝트의 Python 구조와 라우팅 Markdown을 대조했다. 보고서는 infra/.local/routing-doc-sync-20261014/before.json과 final.json에 로컬 보관한다. 대상 Python을 import하거나 원본 본문을 읽어 선언을 추출하지 않았다.
+
+| 코드 변경 | 연결 문서·반영 내용 |
+| --- | --- |
+| 전체 EC2 전원 실행기·계정별 작업자 | [power-all.ps1](scripts/power-all.ps1.md) · [infra-power.ps1](scripts/lib/infra-power.ps1.md). 구성·출력·소유자·태그·권한 검사, 전체 Check 이후 병렬 Change, 전환 대기·부분 실패 경계 |
+| 신규 Python 모의 전원 테스트 2개 | [전원 테스트 구조](tests/power-tests.md). AST로 추출한 함수 7개의 파일·정확한 인자·기본값과 호출 보조 근거 |
+| 데이터 EBS lifecycle | [compute](terraform/README.md#compute) · [workload](terraform/stacks/workload.md#변경-시-경계) · [bastion](terraform/stacks/bastion.md). 현재 prevent_destroy=false로 설명을 맞춤 |
+| Backend API 수신 필터 | [통신 설정](config/README.md#애플리케이션-통신-확장) · [workload](terraform/stacks/workload.md) · [통신 테스트](tests/README.md). 현재 Backend 8000은 해당 Front·상대 Backend만 허용하며 Kafka·MySQL 출처는 제거 |
+| 삭제 허용 목록·PowerShell 회귀 검사 | [삭제 경계](scripts/lib/infra-destroy.ps1.md#삭제-계획의-경계) · [삭제 테스트](tests/destroy-tests.md). Front 두 역할의 정확한 송신 규칙 주소·기존 거부 조건 대조 |
+| Vault 입력 전달 | [deploy.ps1](scripts/deploy.ps1.md#프록시-실행) · [프록시 스크립트](../../../aws-platform/platform/docs/platform-routing/scripts/setup-proxy.sh.md). 기존 문서에 AskVaultPass 전달과 암호 저장 없음이 반영되어 있음을 확인 |
+
+첫 전체 문서 검사에서 나온 6개 불일치는 Terraform 주소와 Ansible 파일명을 Python 심볼로 해석한 경우였다. Terraform 주소는 HCL 블록으로, Ansible 파일명은 원본 링크로 명시했다. 새 테스트 함수 7개는 모두 signature_match이고 확정된 구조 불일치와 분석 진단은 0건이다.
+
+분석기의 최종 상태는 needs_review이며 role_status는 not_verified다. 자유 형식 설명·지원 밖 표기와 함수 역할의 의미를 자동 증명하지 못하는 한계를 유지한다. Python 역할은 모듈 docstring·import·호출 이름을 보조 근거로 검토했으며 PowerShell·Terraform·JSON·Bash·YAML은 실제 변경 파일과 기존 문서를 수동 대조했다. Python 분석 결과로 이 언어들의 동작을 검증했다고 판정하지 않는다.
+
+이번 작업은 라우팅 Markdown만 수정했다. 변경 문서의 상대 링크·앵커와 코드 파일 해시를 검사하며, 실행기 테스트·Terraform test·Ansible playbook·AWS 전원 및 배포는 재실행하지 않았다. 아래 날짜별 테스트 통과·실제 AWS 조회 기록은 당시 결과로 보존한다.
+
 ## 2026-10-10 광고 서버 AZ A 배치 설정
 
 사용자 요청으로 기본 topology와 로컬 profiles/current의 nodes.ad-server.az를 c에서 a로 변경했다. account1·role=ad·private·t3a.large·OS 20GiB·별도 데이터 디스크 없음은 유지한다. 선언상 Bastion 포함 AZ별 대수는 A 13대·C 5대다. 기존 클러스터의 A 2대·C 1대 배치는 그대로다.
@@ -143,7 +182,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 실제 변경 및 문서 차이는 다음과 같다.
 
-- [서비스 콘솔 SSH](terraform/stacks/workload.md#콘솔-ssh-규칙의-범위): 리전별 EC2 Instance Connect 관리형 IPv4 접두사 목록을 조회하고 서비스 SG에 TCP 22를 허용한다. 계정별 3 / 2 / 4 / 2 / 3개, 총 14개 SG가 대상이다. 기존 Bastion 규칙의 대상·주소는 유지한다. 이 경로와 [별도 모의 테스트](tests/README.md)를 탐색 목록에도 반영했다.
+- [서비스 콘솔 SSH](terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위): 리전별 EC2 Instance Connect 관리형 IPv4 접두사 목록을 조회하고 서비스 SG에 TCP 22를 허용한다. 계정별 3 / 2 / 4 / 2 / 3개, 총 14개 SG가 대상이다. 기존 Bastion 규칙의 대상·주소는 유지한다. 이 경로와 [별도 모의 테스트](tests/README.md)를 탐색 목록에도 반영했다.
 - [compute 모듈](terraform/README.md#compute): 작업 시작 시 데이터 EBS의 prevent_destroy가 이미 false였다. true로 설명하던 모듈·workload 문서와 무조건 보호 해제가 필요하다고 설명하던 전체 삭제·Bastion 문서를 현재 값과 조건에 맞췄다. 이번 작업은 보호 설정을 변경하지 않았다.
 - [계정별 SSH 키](scripts/account-keys.ps1.md): Write-KeyText·Get-KeyTag 함수의 위치를 추가하고 Protect-KeyFile이 기존 소유자를 확인한 뒤 ACL을 설정한다는 설명을 보완했다. 개인키·공개키 파일명 세 개가 Python 함수로 오인되던 Markdown 표기도 정리했다.
 - [테스트 지도](tests/README.md): 통과한 서비스 콘솔 SSH 검사와 기존 workload 테스트의 미해결 기대값 차이를 구분했다. 광고 서버 이동 당시의 미실행 기록을 최근의 별도 테스트 성공과 혼동하지 않도록 설명을 갱신했다.
@@ -162,7 +201,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 기존 workload.tftest.hcl에는 Account 1의 Bastion 포함 노드 기대값과 다른 계정의 bare SG ID 기대값이 남아 현재 구현과 불일치한다. 코드 수정은 이번 요청 범위에 포함되지 않는다. 이 미해결 상태와 기존 변경이 섞여 있으므로 자동 스테이징·커밋을 추가하지 않고 기존 index를 유지한다.
 
-아래 기록의 “현재”와 검사 수치는 각 당시 시점의 값이다. 데이터 EBS의 false 기록과 보호가 유지된다는 설명도 각각 당시 설정을 뜻한다. 최신 작업 파일은 prevent_destroy=true이며 현재 값과 검사 범위는 이 문서 상단의 최신 기록과 compute 모듈 문서를 기준으로 확인한다.
+아래 기록의 “현재”와 검사 수치는 각 당시 시점의 값이다. 데이터 EBS의 false 기록과 보호가 유지된다는 설명도 각각 당시 설정을 뜻한다. 최신 작업 파일의 값과 검사 범위는 이 문서 상단의 2026-10-14 기록과 compute 모듈 문서를 기준으로 확인한다.
 
 ## 2026-10-09~10 전체 삭제 기능 구현 당시 기록
 
@@ -216,7 +255,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 ## 남겨 둔 조건
 
-- [기존 workload 모의 테스트](tests/README.md#현재-입력과-모의-테스트의-차이)는 Account 1에 Bastion 포함 5대와 다른 계정의 bare SG ID를 기대하여 현재 구현과 불일치한다. 이번에는 차이만 기록하고 테스트 코드를 수정하지 않았다.
+- [기존 workload 모의 테스트](tests/README.md#현재-입력과-모의-테스트의-범위)는 Account 1에 Bastion 포함 5대와 다른 계정의 bare SG ID를 기대하여 현재 구현과 불일치한다. 이번에는 차이만 기록하고 테스트 코드를 수정하지 않았다.
 - 당시에는 전체 인프라 삭제 실행기가 없고 Delete 계획이 bastion 단계에만 허용됐다. 위 구현으로 전체 삭제 실행기가 추가됐으며 원본 서비스 데이터 EBS의 prevent_destroy는 계속 유지한다.
 - 루트 README·infra/README.md 등 라우팅 폴더 밖에 있는 이전 배치·Bastion·HTTPS 설명은 이번 수정 범위 밖이다.
 - 실제 AWS 생성·삭제, 접속·서비스·Proxy·데이터 보존 검증은 이번 문서 동기화에서 수행하지 않았다. 이 조건들이 남아 있어 자동 스테이징·커밋은 하지 않으며 기존 index를 유지한다.
@@ -240,7 +279,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 - JSON을 작업 시작 시점과 구조적으로 비교해 광고 서버의 account, 광고용 ALB 항목 세 개, ad 포트와 alb_ad 연결 외의 값이 같음을 확인했다.
 - 변경한 Terraform 3개 파일의 fmt -check와 workload의 validate가 통과했다. validate는 처음 샌드박스에서 provider 응답 오류가 발생했고, 승인된 샌드박스 밖 재실행에서 통과했다.
 - routing-doc-sync 분석기로 기존 Python 구조 문서의 참조를 재검사했다. Python 구조 검사는 Terraform·JSON의 동작 검증이 아니며, 이번 비Python 변경은 해당 원본과 라우팅 문서를 별도로 대조했다.
-- 최초에는 테스트 파일을 유지했으나 사용자 추가 승인 후 fixtures.json 및 foundation/workload 테스트 파일을 변경된 배치에 맞췄다. account1에 ad SG와 광고 노드를 포함하고 account2에서는 제외했다. workload에는 ALB→ad:8000 양방향 SG 참조 검사를 추가하고 닫힌 기본값 검사에서만 CIDR을 비웠다. 자세한 내용은 [테스트 지도](tests/README.md#현재-입력과-모의-테스트의-차이)에 기록했다.
+- 최초에는 테스트 파일을 유지했으나 사용자 추가 승인 후 fixtures.json 및 foundation/workload 테스트 파일을 변경된 배치에 맞췄다. account1에 ad SG와 광고 노드를 포함하고 account2에서는 제외했다. workload에는 ALB→ad:8000 양방향 SG 참조 검사를 추가하고 닫힌 기본값 검사에서만 CIDR을 비웠다. 자세한 내용은 [테스트 지도](tests/README.md#현재-입력과-모의-테스트의-범위)에 기록했다.
 - 테스트 파일 두 개의 fmt -check와 fixture JSON의 계정별 역할 대조는 통과했다. workload 모의 테스트는 샌드박스 밖 실행 권한 요청이 거절되어 시작하지 못했다. foundation 모의 테스트도 이번에 실행하지 않았으므로 실행 통과 여부는 미확인이다.
 - 실제 AWS Plan·Apply, 서버 이동·삭제, Django 실행과 /ads/·헬스 체크 /의 응답 검증은 수행하지 않았다. Django 앱 소스가 없어 URL·ALLOWED_HOSTS 설정도 확인하지 못했다.
 - 모의 테스트 실행 검증이 남아 있어 자동 스테이징·커밋은 하지 않았다.
@@ -440,7 +479,7 @@ AWS provider·원격 상태는 모의 처리했다. 실제 AWS Plan·Apply·EC2 
 
 - foundation: 22 added, 0 changed, 0 destroyed. workload: 18 added, 0 changed, 0 destroyed.
 - edge-1: i-0fc792099ad53451a, t3a.small, Ubuntu 24.04, root gp3 20GiB, Private IP 10.10.0.39, EIP 54.116.158.93.
-- SG는 인터넷 ACME 80, 현재 허용 사용자 211.117.107.63/32의 443, 관리 SSH, 패키지·ACME용 HTTPS 송신과 지정한 내부 연결을 허용한다. Nginx HTTP는 인증 검증 경로 외 404, HTTPS는 허용 CIDR과 localhost만 수용한다.
+- SG는 인터넷 ACME 80, 당시 허용 사용자 211.117.107.63/32의 443, 관리 SSH, 패키지·ACME용 HTTPS 송신과 지정한 내부 연결을 허용한다. Nginx HTTP는 인증 검증 경로 외 404, HTTPS는 허용 CIDR과 localhost만 수용한다.
 - edge.yml 실제 실행: ok=85, changed=29, unreachable=0, failed=0. Certbot 5.8.0, Nginx, OS 방화벽, 설치 확인 페이지, 인증서 발급과 자동 갱신을 적용했다.
 - 정식 인증서 IP SAN은 54.116.158.93, issuer는 Let's Encrypt YE2, 만료는 2026-10-18 04:26:06 UTC다. 외부 curl의 신뢰 검증을 켠 HTTPS 200, HTTP / 404, 비허용 출처의 Nginx 403을 확인했다.
 - edge-certbot-renew.timer 활성·자동 시작을 확인했다. 최초 발급 사전 검증과 설치 후 renew --dry-run이 모두 성공했고 Nginx 검사·reload 훅도 성공했다. 실제 미래 갱신 결과까지 확인한 것은 아니다.
@@ -465,3 +504,67 @@ routing-doc-sync는 Python 파일·심볼 구조를 분석하며 Terraform·Ansi
 - PowerShell 구문·CIDR 검사 및 잘못된 public_http_cidrs 거부 검사 통과.
 - routing-doc-sync 실행: mismatch 0, structural_status=needs_review, role_status=not_verified. 이번 Terraform·PowerShell 변경은 Python AST 검사 범위 밖이므로 해당 문서와 소스를 직접 대조했다. 보고서의 Python 구조 변경은 없으며 기존 Python 파일의 바이트 차이는 이 작업에서 수정하지 않았다.
 - AWS Apply·원격 Nginx 설정은 실행하지 않았다. 새 Plan과 검토가 필요하며 테스트 Front는 Inventory 갱신 후 Front 설정을 다시 적용해야 HTTP 허용 CIDR이 반영된다.
+
+
+## 과거 기록: 2026-10-15 Front 80·443 모두 제한한 초기 로컬 검증
+
+아래는 정책 확정 전의 실행 이력이다. 현재 정책은 HTTP 80 전체 IPv4 허용·HTTPS 443 지정 IP 허용이며 웹 규칙은 16개다. 아래 28개 규칙 검사 결과를 현재 정책의 검증 결과로 해석하지 않는다.
+
+- 변경: 기본 및 current traffic의 public_http_cidrs를 222.112.208.66/32~222.112.208.72/32로 설정하고 workload/front_https_ingress가 해당 목록을 사용하도록 수정했다.
+- 두 JSON 파싱과 7개 IP의 정확한 일치 검사를 통과했다. current의 기존 관리자 CIDR 등 나머지 설정은 유지했다. current는 Git 제외 로컬 프로필이므로 저장소의 테스트는 기본 파일을 사용하고 current 목록은 별도로 대조했다.
+- terraform fmt -check: 변경한 main.tf 및 세 테스트 파일 통과.
+- terraform validate: Success! The configuration is valid.
+- terraform test: edge.tftest.hcl, school-access.tftest.hcl, workload.tftest.hcl의 15개 run 통과, 실패 0개. Windows에서는 -filter 인수에 tests\파일명.tftest.hcl을 사용했다.
+- 검증 내용: Front 2개 × TCP 80·443 × 지정 IP 7개의 규칙 28개, 각 역할·포트의 정확한 CIDR 집합, 기존 Front 전체 송신·Backend 통신·SSH 정책, 빈 목록의 웹 수신 차단, 기존 ALB 선택 동작.
+- AWS provider는 mock_provider로, foundation·connectivity 원격 상태는 override_data로 대체했다. 테스트의 command=apply는 모의 자원 평가이며 실제 AWS Apply가 아니다.
+- 초기 validate에서 테스트용 로컬 compute 모듈 등록 누락을 발견했다. init -backend=false가 로컬 모듈을 등록한 뒤 registry 접근 제한으로 종료됐으나, 기존 설치 provider로 후속 validate와 모의 테스트는 성공했다. 원격 백엔드 초기화는 하지 않았다.
+- 사용자 요청에 따라 실제 AWS Plan·Apply·조회·SSH·HTTP 요청은 하지 않았다. 운영 중인 AWS 자원의 변경 결과·드리프트·권한·할당량은 검증 범위 밖이며 로컬 성공이 실제 적용 성공을 보증하지 않는다.
+- 80번 출처 제한은 Certbot HTTP-01 발급·갱신에 영향을 준다. 인증 방식 변경은 이번 범위에 포함하지 않았다. 실제 적용 시 새 Plan에서 기존 Front 전체 공개 수신 규칙 4개 제거와 IP별 규칙 28개 생성을 확인해야 한다.
+
+
+## 2026-10-15 Kafka·MySQL의 Backend 8000 연결 제거 검증
+
+기본·current에서 kafka_game/kafka_ad/mysql_game/mysql_ad를 제거했다. Backend 8000은 해당 Front와 상대 Backend만 허용한다. 광고→MongoDB 27017, 게임·광고→Kafka 9092·MySQL 3306, 기존 Front 7개 공인 IP 제한을 유지했다. OS 방화벽의 Kafka·MySQL API 출처도 제거했다.
+
+- Terraform fmt -check 및 validate 통과.
+- mock AWS provider와 원격 상태 override를 사용한 edge/application-flows/school-access/workload 테스트: 20 passed, 0 failed. Backend 수신 집합, Account 3~5의 8000 송신 부재, 서비스별 포트와 SG 대상, 기존 SSH·Front 정책을 검사했다.
+- 로컬 WSL Python으로 두 JSON 파싱·삭제 대상 부재·유지할 포트와 7개 IP 일치, 방화벽 YAML 로딩·게임/광고 Jinja 렌더링을 통과했다. 각 Backend API 출처는 해당 Front·상대 Backend 두 종류이고 Kafka·MySQL IP는 포함하지 않는다. established,related 응답 규칙과 DB·Kafka·MongoDB 수신 허용을 확인했다.
+- 검증 스크립트: aws-infra/infra/.local/verify-backend-ports.py (로컬 진단 파일).
+- AWS 조회·실제 Plan/Apply·SSH·원격 Ansible·네트워크 접속 테스트는 하지 않았다. OS의 nft 명령을 통한 규칙 로딩 검사는 하지 않았다. 운영 자원은 변경하지 않았다.
+
+
+## 2026-10-15 실행기 중복 처리 공통화
+
+기능·명령어·대상·검사 시점을 유지하며 PowerShell 실행기 7개 파일을 정리했다. 환경 변수 보관·해제·복원 3곳은 Save-InfraEnvironment / Restore-InfraEnvironment, CLI stdout·stderr·종료 코드 수집 4곳은 Invoke-InfraCapturedCommand, 저장 계획 읽기 3곳은 Read-InfraTerraformPlan으로 모았다. 각 호출부의 환경 변수 목록·CLI 인수·제한 시간·DryRun/AbsentErrors 판정·오류 메시지는 유지한다. Plan 직후와 Apply 직전의 재검사는 캐시하거나 생략하지 않는다. 기존 작업 파일을 기준으로 수정했으며 이전부터 있던 Terraform·보안·플랫폼 변경은 이번 리팩토링 결과에 포함하지 않는다.
+
+- 변경 전 test_runner.py 8개 통과. 변경 후에도 8개 통과.
+- Windows PowerShell 5.1: test_destroy_all.py 17개, test_destroy_once.py 12개, test_power_all.py 13개, test_destroy_console_ssh.ps1 28개 검사 통과. 모두 모의 실행이며 실제 AWS 호출 없음.
+- 신규 test_common.ps1: 예외 후 환경 복원, 네이티브 stdout·stderr·종료 코드·빈 출력, 저장 계획 재읽기·호출부 오류 메시지 검사를 PowerShell 5.1과 7에서 통과.
+- 변경 직전 스크립트 사본과 현재 CLI 래퍼 4개를 PowerShell AST로 추출하여 성공·일반 오류·DryRunOperation·NoSuchKey 응답의 명령 인수와 반환값/오류 메시지를 비교했다. 두 셸에서 모두 일치했다. 전체 AWS 동작의 동등성을 증명하는 검사는 아니다.
+- 최초 삭제 테스트 실행에서는 run.json의 File.Replace가 실패했다. 파일 교체 코드는 변경하지 않았으며, 두 삭제 테스트를 각각 단독 재실행했을 때 모두 통과했다. 최초 오류의 외부 원인은 확정하지 않았다.
+- 변경/신규 PowerShell 8개 파일 구문 검사, 공통 함수 13개 선언과 라우팅 문서 표 대조, 관련 문서 11개의 로컬 링크 118개 존재 확인 통과.
+- routing-doc-sync는 관련 라우팅 문서 10개를 지정해 재실행했다. 인식한 Python 참조 5개 중 불일치 0건, diagnostics 0건이며 결과는 needs_review / role_status=not_verified다. 이 스킬은 PowerShell 자동 분석을 지원하지 않으므로 PowerShell 선언과 호출부는 별도 구문 분석·코드 대조로 확인했다. 보고서는 infra/.local/refactor-routing-after.json에 저장했다.
+
+실제 AWS 배포·삭제·전원 변경·SSH 키 등록 및 원격 Ansible은 실행하지 않았다. 실행 코드 fingerprint가 바뀌므로 기존 저장 계획은 재사용하지 않고 새 Plan을 생성해야 한다.
+
+
+## 2026-10-15 Bastion Elastic IP 구성
+
+Bastion 모듈에 aws_eip.this(domain=vpc)와 aws_eip_association.this를 추가하고 기존 aws_instance.this에 연결했다. 기존 EC2 생성 인수는 유지했다. instance.public_ip는 EIP를 반환하며 모듈 출력은 연결 완료에 의존한다. stack의 SSH 안내는 해당 출력, 내부 proxy_endpoint는 기존 사설 IP를 사용한다. Bastion 상태가 EIP를 소유하므로 Stop/Start에는 유지하고 Bastion Delete/전체 삭제에는 반환한다.
+
+Assert-InfraBastionPlan과 Assert-InfraDeletePlan의 정확한 허용 주소에 EIP·연결 자원을 추가했다. 기존 EIP의 Project/Account/Stage 태그도 검사하고 생성 모드의 삭제·교체·import 거부는 유지했다. 전체 삭제의 기존 describe-addresses 검사로 EIP 할당 ID 잔존을 확인한다.
+
+- Terraform fmt -check 및 bastion stack validate 통과. 로컬 AWS provider 6.68.0을 사용하고 init은 별도 TF_DATA_DIR에서 backend=false로 실행했다.
+- Terraform 모의 테스트: Bastion 모듈 1개와 stack 1개 통과. AWS provider와 S3 원격 상태를 모의 처리했다. 모듈 검사는 .local/bastion-eip/module 사본에서 실행했다.
+- test_bastion_eip.ps1: PowerShell 5.1·7 모두 통과. 생성·삭제 허용, 교체·다른 계정·유사 자원명 거부와 남은 EIP 탐지 확인.
+- 기존 실행기 test_runner.py 8개와 콘솔 SSH 삭제 경계 28개 검사 통과. 전체 삭제/전원 테스트 전체를 이번에 재실행한 것은 아니다.
+- 관련 문서 12개의 로컬 링크 247개 존재 확인, 변경 PowerShell 구문과 git diff --check 통과.
+- routing-doc-sync를 관련 라우팅 문서 7개에 실행했다. diagnostics 0건·인식한 Python 참조 불일치 0건이며 needs_review / not_verified다. Terraform·PowerShell은 스킬 자동 분석 밖이므로 위 검사와 코드 대조를 근거로 삼는다. 보고서: infra/.local/bastion-eip/routing.json.
+
+실제 AWS Plan·Apply·EIP 할당·연결은 실행하지 않았다. 기존 배포와 같은 구성 경로로 새 Bastion Plan을 만들고 EC2 교체나 다른 변경이 없는지 확인한 뒤 Apply해야 한다. 실제 서버가 EIP로 전환됐다는 기록이 아니다. 최초 연결 후 SSH 주소와 인벤토리를 갱신한다.
+
+## 2026-10-15 Front HTTP 공개·HTTPS 제한 정책 확정
+
+사용자가 HTTP 80 전체 IPv4 허용(인증서 검증용), HTTPS 443의 222.112.208.66~72 7개 /32 제한을 확정했다. 현재 workload 선언과 제공된 Account 1 Plan을 대조해 관련 안내·구성도·운영 문서를 수정했다. 웹 수신 규칙은 HTTP 2개 + HTTPS 14개 = 16개다. 허용 목록이 비어도 HTTP 2개는 유지하며 HTTPS 규칙만 생성하지 않는다.
+
+사용자가 제공한 Plan은 16 add / 0 change / 16 destroy이며, 변경 대상은 모두 Account 1 SG 인바운드 규칙이다. 삭제는 기존 Front 규칙 4개, Kafka·MySQL→Backend 8000 규칙 10개, 집 IP SSH 규칙 2개다. EC2·EBS·EIP 변경은 출력에 없다. 이 기록은 제공된 Plan 검토이며 Apply 성공 기록이 아니다. 이번 문서 수정에서는 AWS 명령·배포·테스트를 실행하지 않았다. 이전 28개 웹 규칙 모의 테스트 기록은 정책 변경 전 이력으로 보존했다.

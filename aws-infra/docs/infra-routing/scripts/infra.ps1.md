@@ -1,5 +1,7 @@
 # infra/scripts/infra.ps1
 
+환경 변수 저장·복원은 공통 Save-InfraEnvironment / Restore-InfraEnvironment를 호출한다. Get-SavedDeleteSummary, Assert-SavedBastionPlan, Assert-SavedEdgePlan은 Read-InfraTerraformPlan으로 저장 계획을 읽는다. 각 검사 조건·오류 메시지·Plan 직후와 Apply 직전 호출 시점은 유지한다.
+
 [탐색 시작점](../ROUTING-README.md) · [원본 실행기](../../../infra/scripts/infra.ps1) · [공통 함수](lib/infra-common.ps1.md)
 
 ## 역할과 입력

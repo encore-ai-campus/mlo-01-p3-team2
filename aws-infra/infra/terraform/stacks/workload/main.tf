@@ -48,7 +48,8 @@ locals {
       }... if flow.target_account == var.account_key && !(
       var.account_key == "account1" && contains(["account1/game", "account1/ad"], flow.target) &&
       flow.port <= 8000 && flow.port_end >= 8000 &&
-      flow.source != (flow.target == "account1/game" ? "account1/game_frontend" : "account1/ad_frontend")
+      # Backend API는 해당 Front와 상대 Backend에서 시작한 연결만 허용한다.
+      !contains(flow.target == "account1/game" ? ["account1/game_frontend", "account1/ad"] : ["account1/ad_frontend", "account1/game"], flow.source)
     )
   }
   egress_grouped = { for flow in values(local.active_flows) :
@@ -68,10 +69,15 @@ locals {
       group_id = local.foundation.sg_ids["frontend"], cidr = cidr, port = 80
     }
   } : {}
-  # 공개 Front는 HTTP 인증서 검증/리다이렉트와 HTTPS만 인터넷에 연다.
-  front_https_ingress = merge({}, [for role, sg in local.front_sg_ids : {
-    for port in [80, 443] : "${role}/${port}" => { group_id = sg, cidr = "0.0.0.0/0", port = port }
-  }]...)
+  # 80번은 인증서 검증을 위해 전체 IPv4에 허용한다.
+  # 443번은 기존 설정의 공인 IP 목록만 허용한다.
+  front_https_ingress = merge({}, [for role, sg in local.front_sg_ids : merge({}, [
+    for port in [80, 443] : {
+      for cidr in(port == 80 ? toset(["0.0.0.0/0"]) : toset(local.public_http_cidrs)) : "${role}/${port}/${cidr}" => {
+        group_id = sg, cidr = cidr, port = port
+      }
+    }
+  ]...)]...)
   # 허용한 사용자 CIDR에서 ALB의 HTTP 80으로 들어오는 요청만 연다.
   alb_ingress = local.alb_enabled ? merge({}, [for port in [80] : {
     for cidr in toset(local.public_http_cidrs) : "alb/${port}/${cidr}" => {

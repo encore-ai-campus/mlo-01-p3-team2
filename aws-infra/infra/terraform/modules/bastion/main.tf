@@ -33,7 +33,7 @@ resource "aws_instance" "this" {
   subnet_id              = var.subnet_id
   vpc_security_group_ids = [var.sg_id]
   key_name               = aws_key_pair.this.key_name
-  # EIP를 할당하지 않는다. 재생성·중지 후 시작 시 현재 주소를 다시 조회한다.
+  # 기존 EC2의 생성 옵션을 유지하고, 아래 별도 연결 자원으로 공인 주소를 EIP로 고정한다.
   associate_public_ip_address = true
   root_block_device {
     volume_type           = "gp3"
@@ -54,12 +54,25 @@ resource "aws_instance" "this" {
   tags = { Name = var.name, Role = "bastion", Node = "bastion", Stage = "bastion" }
 }
 
+# Bastion 전용 상태가 EIP도 소유한다. 중지·시작에는 유지하고 Bastion 삭제 시 반환한다.
+resource "aws_eip" "this" {
+  domain = "vpc"
+  tags   = { Name = var.name, Role = "bastion", Node = "bastion", Stage = "bastion" }
+}
+
+resource "aws_eip_association" "this" {
+  allocation_id = aws_eip.this.id
+  instance_id   = aws_instance.this.id
+}
+
 output "instance" {
   value = {
     id             = aws_instance.this.id
-    public_ip      = aws_instance.this.public_ip
+    public_ip      = aws_eip.this.public_ip
     private_ip     = aws_instance.this.private_ip
     root_volume_id = one(aws_instance.this.root_block_device).volume_id
     key_name       = aws_key_pair.this.key_name
   }
+  # 출력 소비자는 EIP 연결이 끝난 뒤 고정 주소를 사용한다.
+  depends_on = [aws_eip_association.this]
 }

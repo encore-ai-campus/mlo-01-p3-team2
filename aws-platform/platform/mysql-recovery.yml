@@ -1,0 +1,12 @@
+---
+# 기존 DB 설치/초기화 역할을 실행하지 않고 복구 도구만 배포한다.
+- name: 기존 MySQL 클러스터 자동 복구 구성
+  hosts: mysql
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  strategy: linear
+  vars_files:
+    - inventory/group_vars/all/vault.yml
+  roles:
+    - mysql_recovery

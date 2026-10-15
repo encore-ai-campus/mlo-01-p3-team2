@@ -29,6 +29,8 @@ python .\infra\tests\test_destroy_once.py pwsh
 
 서비스 콘솔 SSH 허용 목록 회귀 검사는 별도로 실행한다. 실제 오류의 ad 규칙을 포함한 현재 서비스 역할 7개와 기존 Bastion 주소를 허용하고 비슷한 자원 이름·잘못된 키·추가 주소·다른 단계·계정 태그 불일치·수정·import를 거부한다. Terraform 주소는 위 PowerShell 검사 파일과 [삭제 경계 문서](../scripts/lib/infra-destroy.ps1.md)에 있다.
 
+2026-10-13에는 현재 Front 송신 규칙 두 개의 허용 및 다른 역할·유사 이름·단계·계정 태그·수정 거부를 추가하여 Windows PowerShell에서 총 28개 경계 검사를 통과했다. 실제 AWS 삭제 계획에서 발견된 광고 Front 송신 규칙의 허용 누락 회귀 검사다. 정확한 Terraform 주소는 [삭제 경계 문서](../scripts/lib/infra-destroy.ps1.md#삭제-계획의-경계)에서 확인한다.
+
 ```powershell
 # C:/third_project/aws-infra에서 실행하며 실제 클라우드는 호출하지 않는다.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\infra\tests\test_destroy_console_ssh.ps1
@@ -36,7 +38,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\infra\tests\test_destroy_c
 
 ## Python 선언
 
-선언은 routing-doc-sync inventory와 대조한다. 경로는 Git 최상위 C:/third_project 기준이다. 함수 역할은 작성한 테스트의 목적이며 AST 구조 일치가 테스트 성공이나 실제 AWS 동작을 증명하지 않는다.
+선언은 routing-doc-sync inventory와 대조한다. 경로는 Git 최상위 기준이며 aws-infra/ 접두사를 포함한다. 함수 역할은 작성한 테스트의 목적이며 AST 구조 일치가 테스트 성공이나 실제 AWS 동작을 증명하지 않는다.
 
 | 정규 선언 참조 | 역할 |
 | --- | --- |

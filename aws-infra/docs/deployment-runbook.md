@@ -371,6 +371,8 @@ ping에서 인증 오류나 접속 시간 초과가 발생하면 [SSH 연결 장
 
 **deploy.ps1**이 **platform.json**을 읽고 WSL의 `aws-platform/platform/scripts/setup-proxy.sh`를 호출한다. 실행 순서는 다음과 같다.
 
+암호화된 Ansible 변수가 있으면 위 Proxy 명령에 `-AskVaultPass`를 추가한다. Deploy에도 같은 옵션을 사용할 수 있다. 각 Ansible 명령의 `Vault password:`에 기존 Vault 암호를 입력하며, 스크립트는 암호를 저장하지 않는다.
+
 1. 대상 호스트와 플레이북 문법 확인
 2. SSH·원격 Python 연결 확인
 3. 배스천 Squid 설치·접근 규칙과 APT 준비
@@ -663,7 +665,7 @@ ALB를 추후 다시 만들면 workload Output의 새 alb_dns_name을 확인하�
 
 ## 평탄화 Consumer 변경 연결
 
-flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
+flatten-1은 account1 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account1_proxy, workload의 account1_default_closed·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
 
 ## ALB 비활성화 적용 순서
 
@@ -687,7 +689,7 @@ ALB 제거만으로 Front HTTPS 설치가 완료되지는 않는다. 현재 코�
 | game-server | game | Private A | t3.large | 없음 |
 | ad-server | ad | Private A | t3.large | 없음 |
 
-선택 Bastion은 별도 bastion 상태에서 생성·삭제하며 자동 공인 IP를 사용한다. Front 각각에 Nginx·Certbot을 설치하고 자기 EIP의 인증서를 발급·갱신한다. edge라는 Ansible 역할·플레이북 이름은 설치 코드 재사용을 위한 이름이며 별도 edge EC2를 생성한다는 뜻이 아니다.
+선택 Bastion은 별도 bastion 상태에서 EC2·EIP를 생성·삭제한다. EIP 적용 후 중지·시작에는 공인 주소를 유지한다. Front 각각에 Nginx·Certbot을 설치하고 자기 EIP의 인증서를 발급·갱신한다. edge라는 Ansible 역할·플레이북 이름은 설치 코드 재사용을 위한 이름이며 별도 edge EC2를 생성한다는 뜻이 아니다.
 
 빈 환경에서는 본문의 foundation 5계정 → connectivity → workload → 선택 Bastion 순서를 따른다. 기존 환경은 옛 edge·frontend SG를 EC2나 다른 계정 규칙이 참조하는지 먼저 확인한다. 최신 foundation을 바로 적용하면 사용 중인 SG 제거와 충돌할 수 있다. 저장 상태와 새 Plan으로 참조 정리·새 SG 준비·EC2 변경 범위를 확인하기 전에는 일괄 Apply하지 않는다. 이 문서는 기존 AWS 자원의 삭제나 이관 완료를 확인한 기록이 아니다.
 
@@ -718,7 +720,7 @@ export ANSIBLE_CONFIG="$PWD/ansible.cfg"
   --limit 'game_frontend:ad_frontend'
 ```
 
-게임 Front는 게임 Backend, 광고 Front는 광고 Backend의 사설 IP:8000으로 전달한다. /static/·/assets/도 해당 Backend로 넘기며 두 Front 사이의 전달은 구성하지 않는다. 각 Front 80·443은 전체 IPv4 공개이고 송신도 전체 IPv4를 허용한다. Account 1 Backend 8000 수신은 해당 Front SG만, 네 서비스 SSH 22는 Bastion SG만 허용한다. 동일한 제한이 서버 방화벽에도 적용되도록 인벤토리와 Ansible 적용 결과를 확인한다.
+게임 Front는 게임 Backend, 광고 Front는 광고 Backend의 사설 IP:8000으로 전달한다. /static/·/assets/도 해당 Backend로 넘기며 두 Front 사이의 전달은 구성하지 않는다. 각 Front 80은 전체 IPv4 공개, 443은 222.112.208.66~72의 7개 /32로 제한하고 송신도 전체 IPv4를 허용한다. Account 1 Backend 8000 수신은 해당 Front·상대 Backend SG만, 네 서비스 SSH 22는 Bastion SG만 허용한다. 동일한 제한이 서버 방화벽에도 적용되도록 인벤토리와 Ansible 적용 결과를 확인한다.
 
 HTTP의 /.well-known/acme-challenge/는 검증 파일을 제공하고 나머지 경로는 HTTPS로 308 리다이렉트한다. 공인 IP HTTPS 구성에는 HSTS를 추가하지 않는다. 설치 후 각 Front에서 인증서·갱신 타이머, HTTP 리다이렉트, 대응 Backend 응답을 따로 확인한다. TLS 성공만으로 Django·광고 앱 배포까지 완료된 것은 아니다. 앱 실행·정적 파일 제공·환경변수는 별도 작업이다.
 

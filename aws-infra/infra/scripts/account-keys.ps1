@@ -10,6 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'lib/infra-common.ps1')
 $infraRoot = Split-Path -Parent $PSScriptRoot
 $topologyPath = Join-Path $infraRoot 'config/topology.tfvars.json'
 $accountKeys = @('account1','account2','account3','account4','account5')
@@ -98,11 +99,9 @@ function Invoke-KeyAws {
     param([string]$Profile, [string[]]$Arguments)
     $cliArguments = @($Arguments) + @('--profile', $Profile, '--region', $topology.region,
         '--output','json','--no-cli-pager','--no-cli-auto-prompt','--cli-connect-timeout','5','--cli-read-timeout','20')
-    $ErrorActionPreference = 'Continue'
-    $lines = & $awsCommand @cliArguments 2>&1
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+    $result = Invoke-InfraCapturedCommand $awsCommand $cliArguments
+    $code = $result.ExitCode
+    $text = $result.Text
     if ($code -ne 0) { throw "AWS 호출 실패 ($Profile / $($Arguments[0]) $($Arguments[1])): $text" }
     return ($text | ConvertFrom-Json)
 }

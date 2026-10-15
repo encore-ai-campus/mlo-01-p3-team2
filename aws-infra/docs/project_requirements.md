@@ -22,9 +22,9 @@ Account 1의 게임·광고 Front는 Public A의 t3.small, 게임·광고 Backen
 
 ## 4. 네트워크와 다운로드
 
-VPC CIDR은 10.10·20·30·40·50.0.0/16이다. 기본 및 current 설정의 ALB는 비활성화돼 있다. 게임 Front→game, 광고 Front→ad TCP 8000만 Backend 수신에 허용한다. 두 Front의 TCP 80·443은 0.0.0.0/0에 공개하며, 각각 Nginx·Certbot으로 자기 공인 IP의 HTTPS를 처리하는 설치 코드가 있다. HTTP는 ACME 검증 경로 외 요청을 HTTPS로 리다이렉트하고 /static/·/assets/도 해당 Backend로 전달한다. 광고 Front 본문 제한은 3m, 게임 Front는 기본 1m이다. 실제 인증서 발급·앱 응답 성공은 별도 검증한다.
+VPC CIDR은 10.10·20·30·40·50.0.0/16이다. 기본 및 current 설정의 ALB는 비활성화돼 있다. Backend TCP 8000 수신은 게임 Front→game, 광고 Front→ad, game↔ad를 허용한다. Kafka·MySQL→game/ad 8000은 제거했다. 두 Front의 TCP 80은 0.0.0.0/0에 공개하고 TCP 443은 222.112.208.66~72의 7개 /32로 제한하며, 각각 Nginx·Certbot으로 자기 공인 IP의 HTTPS를 처리하는 설치 코드가 있다. HTTP는 ACME 검증 경로 외 요청을 HTTPS로 리다이렉트하고 /static/·/assets/도 해당 Backend로 전달한다. 광고 Front 본문 제한은 3m, 게임 Front는 기본 1m이다. 실제 인증서 발급·앱 응답 성공은 별도 검증한다.
 
-기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대에만 EIP를 할당하고 배스천은 자동 공인 IP를 사용한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
+기본 NAT는 0개다. 배스천의 Squid TCP 3128을 통해 사설 서버가 HTTPS 저장소·파일을 다운로드한다. Account 1의 Front 2대와 배스천에 각각 EIP를 할당한다. Front EIP는 workload, 배스천 EIP는 bastion 상태에서 관리한다. 계정 간 서비스 연결은 Peering과 역할별 보안그룹을 사용한다. 포트 범위는 [보안그룹 안내](security-groups.md)를 따른다.
 
 ## 5. 자동화가 하는 일
 

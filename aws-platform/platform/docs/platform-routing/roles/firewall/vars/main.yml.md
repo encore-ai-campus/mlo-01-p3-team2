@@ -10,8 +10,8 @@ SSH 출처와 그룹 간 허용 관계를 정의한다. 키는 연결을 받는 
 | --- | --- | --- |
 | frontend | 모든 출처 TCP 80·443 | 없음 |
 | backend | frontend, spark, bastion | 없음 |
-| game | frontend, ad, mysql, bastion | 없음 |
-| ad | frontend, game, mysql, bastion | 없음 |
+| game | frontend, ad, bastion | 없음 |
+| ad | frontend, game, bastion | 없음 |
 | mysql | game, ad, backend, spark, bastion | 있음 |
 | mongodb | ad, consumer, backend, spark, bastion | 있음 |
 | kafka | game, ad, mysql, backend, spark, bastion, consumer | 있음 |

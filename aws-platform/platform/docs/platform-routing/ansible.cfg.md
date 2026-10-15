@@ -8,8 +8,8 @@
 
 ## 핵심 설정
 
-기본 인벤토리는 inventory/hosts.yml, roles_path는 roles, interpreter_python은 /usr/bin/python3다. SSH pipelining과 ControlPersist=60s를 사용하고 새 host key는 accept-new로 처리한다. 명령은 platform 디렉터리에서 실행하는 구성을 전제로 한다.
+기본 인벤토리는 inventory/hosts.current.yml, roles_path는 roles, interpreter_python은 /usr/bin/python3다. 현재 프로필의 생성 인벤토리를 사용하며 다른 프로필·팀 접속용·수동 인벤토리는 -i로 지정한다. 파일이 없는 새 체크아웃에서는 먼저 Inventory를 생성해야 한다. SSH pipelining과 ControlPersist=60s를 사용하고 새 host key는 accept-new로 처리한다. 명령은 platform 디렉터리에서 실행하는 구성을 전제로 한다.
 
 ## 검증 범위
 
-이 문서는 현재 작업 파일의 선언·작업 이름·조건·참조를 대조했다. Ansible 실행, 템플릿 렌더링, 원격 서버 동작은 이번 문서 작업에서 검증하지 않았다. Python AST 스킬의 자동 심볼 검사는 이 파일 형식에 적용되지 않는다.
+2026-10-13 WSL에서 이 설정을 `ANSIBLE_CONFIG`로 지정하고 -i 없는 대상 목록 조회와 네 진입 playbook의 문법 검사를 통과했다. MySQL 3대와 Front 2대가 선택됨을 확인했으며 실제 원격 서버에는 적용하지 않았다. 자세한 범위는 [검증 기록](verification.md)을 따른다. Python AST 스킬의 자동 심볼 검사는 이 파일 형식에 적용되지 않는다.

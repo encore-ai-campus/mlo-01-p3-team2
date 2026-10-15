@@ -39,7 +39,7 @@ Ubuntu 공식 archive/security 및 EC2 지역별 archive 주소를 HTTPS 공식 
 
 HTTP ACME 경로는 검증 파일을 제공한다. 현재 Front의 나머지 HTTP 요청은 HTTPS로 308 이동하며, edge_http_redirect=false인 이전 호출만 404다. 인증서가 없는 상태에서443을 먼저 활성화하지 않는다. 인증서가 있으면 재실행 시에도 HTTPS를 유지한다. 최초 staging dry-run 성공 후 certonly --webroot --ip-address --required-profile shortlived로 운영 인증서를 발급한다. 요청 시 ACME 이용약관에 동의하며 계정·키는 서버 /etc/letsencrypt에 저장한다. 재실행은 유효 인증서를 유지한다.
 
-인증서가 준비되면 Nginx는 TLS 1.2/1.3과 사용자 CIDR 접근 제한을 적용한다. AWS SG도 동일 CIDR의443을 허용해야 한다. 현재 Front는 0.0.0.0/0으로 80·443을 전체 허용한다. 기존 edge 분기만 별도 CIDR 제한을 유지한다. 로컬 HTTPS 검증용127.0.0.1은 Nginx에서 허용한다.
+인증서가 준비되면 Nginx는 TLS 1.2/1.3과 사용자 CIDR 접근 제한을 적용한다. AWS SG도 동일 CIDR의443을 허용해야 한다. 현재 Front의 Nginx 허용 CIDR은 0.0.0.0/0이지만 AWS SG에서 443을 222.112.208.66~72의 7개 /32로 제한한다. SG의 80은 HTTP-01 검증을 위해 전체 IPv4에 허용한다. 기존 edge 분기만 별도 CIDR 제한을 유지한다. 로컬 HTTPS 검증용127.0.0.1은 Nginx에서 허용한다.
 
 현재 Front 모드는 목적지가 정확히 하나여야 한다. 이전 호출에서 Front 목록이 비어 있으면 정적 준비 화면을 제공하므로 애플리케이션 배포 완료를 의미하지 않는다. 목록을 지정하면 least_conn과 수동 장애 감지(max_fails=2, fail_timeout=10s)를 사용하고 HTTP/WebSocket 요청을 전달한다. CPU·메모리 사용량을 측정하는 분산 방식은 아니다. 진입 EC2 자체의 이중화는 제공하지 않는다.
 

@@ -1,0 +1,8 @@
+---
+mysql_recovery_coordinator: mysql-1
+mysql_recovery_boot_delay: 2min
+mysql_recovery_interval: 2min
+mysql_recovery_enable_timer: true
+mysql_recovery_data_mount: /srv/cluster-data
+mysql_recovery_cluster_name: infra
+mysql_recovery_port: 3306

@@ -63,6 +63,8 @@ CIDR·프록시 포트·키·접속 주소는 host 변수로 기록해 플랫폼
 
 platform.json의 WSL 배포판과 기존 Ansible 가상환경을 사용한다. wslpath로 경로를 변환하고 bash 스크립트에 인수로 전달한다. AWS 로그인, S3 상태 버킷, WSL·Ansible 설치, Linux 개인키 파일은 미리 준비해야 한다.
 
+암호화된 Ansible 변수를 사용하는 대화형 실행은 Proxy 또는 Deploy에 `-AskVaultPass`를 추가한다. 이 스위치는 setup-proxy.sh의 `--ask-vault-pass`로 전달되며 각 Ansible 명령이 Vault 암호를 직접 입력받는다. 암호는 스크립트가 저장하거나 명령행 인수로 전달하지 않는다. 옵션을 생략하면 기존 Ansible Vault 설정을 그대로 사용한다.
+
 Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해도 검색 순서의 첫 실행 파일 하나만 선택한다. 경로 배열 전체를 호출 연산자에 넘겨 여러 경로가 하나의 명령 이름으로 합쳐지는 오류를 방지한다.
 
 연결 대상은 [플랫폼 실행 스크립트](../../../../aws-platform/platform/scripts/setup-proxy.sh)와 [배스천 초기화](../../../../aws-platform/platform/bootstrap-proxy.yml)다. 프록시 준비에서는 Kafka·Spark·DB 애플리케이션 설치를 실행하지 않는다.

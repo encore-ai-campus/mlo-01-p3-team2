@@ -35,11 +35,9 @@ function Assert-InfraDestroyInvocation {
 function Invoke-InfraDestroyAws {
     param([string]$Command, [string[]]$Arguments, [string[]]$AbsentErrors = @())
     # PowerShell 5.1에서도 stderr를 수집한 뒤 명시적인 AWS 오류 코드로만 없음 여부를 판단한다.
-    $ErrorActionPreference = 'Continue'
-    $lines = & $Command @Arguments --output json --no-cli-pager --no-cli-auto-prompt --cli-connect-timeout 10 --cli-read-timeout 30 2>&1
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+    $result = Invoke-InfraCapturedCommand $Command (@($Arguments) + @('--output','json','--no-cli-pager','--no-cli-auto-prompt','--cli-connect-timeout','10','--cli-read-timeout','30'))
+    $code = $result.ExitCode
+    $text = $result.Text
     if ($code -ne 0) {
         foreach ($absent in $AbsentErrors) {
             if ($text -match ('\(' + [regex]::Escape($absent) + '\)')) { return $null }
@@ -82,11 +80,11 @@ function Assert-InfraDeletePlan {
     if ($Plan.PSObject.Properties['complete'] -and -not $Plan.complete) { throw '미완성 삭제 계획입니다.' }
     if ($Plan.PSObject.Properties['deferred_changes'] -and @($Plan.deferred_changes).Count) { throw '확정되지 않은 삭제 변경이 있습니다.' }
     $patterns = @{
-        bastion = '^module\.(?:model\.terraform_data\.configuration|bastion\.aws_(?:instance|key_pair)\.this)$'
+        bastion = '^module\.(?:model\.terraform_data\.configuration|bastion\.aws_(?:instance|key_pair|eip|eip_association)\.this)$'
         foundation = '^(?:module\.model\.terraform_data\.configuration|module\.groups\.aws_security_group\.this\[.+\]|module\.network\.aws_(?:(?:vpc|subnet|internet_gateway|route_table|route_table_association|nat_gateway)\.this|eip\.nat|route\.(?:public|private_nat))(?:\[.+\])?)$'
         connectivity = '^(?:module\.model\.terraform_data\.configuration|module\.account[1-5]_account[1-5]\[0\]\.aws_(?:vpc_peering_connection(?:_accepter)?\.this|vpc_peering_connection_options\.(?:requester|accepter)|route\.(?:requester|accepter)\[.+\]))$'
-        # workload가 소유한 역할별 콘솔 SSH 규칙만 기존 삭제 허용 목록에 추가한다.
-        workload = '^(?:module\.model\.terraform_data\.configuration|terraform_data\.connectivity_ready|terraform_data\.edge_bootstrap_guard\[0\]|aws_vpc_security_group_ingress_rule\.bastion_console_ssh\[0\]|aws_vpc_security_group_ingress_rule\.service_console_ssh\["[^"]+"\]|module\.compute\.aws_(?:(?:key_pair|instance|eip|eip_association)\.this|(?:ebs_volume|volume_attachment)\.data)(?:\[.+\])?|module\.rules\.aws_vpc_security_group_(?:ingress|egress)_rule\.(?:peer|public)\[.+\]|module\.alb\[0\]\.aws_(?:lb\.this|lb_target_group\.this\[.+\]|lb_target_group_attachment\.(?:frontend|game|ad)\[.+\]|lb_listener\.http|lb_listener_rule\.(?:static|ad)))$'
+        # workload가 소유한 콘솔 SSH와 두 Front의 송신 규칙을 정확한 주소로 허용한다.
+        workload = '^(?:module\.model\.terraform_data\.configuration|terraform_data\.connectivity_ready|terraform_data\.edge_bootstrap_guard\[0\]|aws_vpc_security_group_ingress_rule\.bastion_console_ssh\[0\]|aws_vpc_security_group_ingress_rule\.service_console_ssh\["[^"]+"\]|aws_vpc_security_group_egress_rule\.front_all\["(?:game_frontend|ad_frontend)"\]|module\.compute\.aws_(?:(?:key_pair|instance|eip|eip_association)\.this|(?:ebs_volume|volume_attachment)\.data)(?:\[.+\])?|module\.rules\.aws_vpc_security_group_(?:ingress|egress)_rule\.(?:peer|public)\[.+\]|module\.alb\[0\]\.aws_(?:lb\.this|lb_target_group\.this\[.+\]|lb_target_group_attachment\.(?:frontend|game|ad)\[.+\]|lb_listener\.http|lb_listener_rule\.(?:static|ad)))$'
     }
     if (-not $patterns.ContainsKey($Stage)) { throw '지원하지 않는 삭제 단계입니다.' }
     # 삭제 후 managed 자원이 남는 계획을 전체 삭제로 오인하지 않는다.

@@ -1,5 +1,7 @@
 # infra/scripts/destroy-all.ps1
 
+환경 변수 저장·복원은 infra-common.ps1의 Save-InfraEnvironment / Restore-InfraEnvironment를 사용한다. 기존 변수 목록, 단계 순서, finally의 보호 복원·환경 복원·잠금 해제 순서는 유지한다.
+
 [탐색 시작점](../ROUTING-README.md) · [원본](../../../infra/scripts/destroy-all.ps1) · [삭제 공통 함수](lib/infra-destroy.ps1.md) · [실행 명령](../../operations-recovery.md#6-전체-인프라-삭제)
 
 ## 역할과 입력

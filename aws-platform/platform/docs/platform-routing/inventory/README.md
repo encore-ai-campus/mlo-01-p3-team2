@@ -15,6 +15,6 @@ deploy.ps1이 account1의 두 Front에 EIP·공개 HTTPS CIDR·HTTP 리다이렉
 | inventory/group_vars/bastion.yml | [bastion.yml](group_vars/bastion.yml.md) | Bastion 접속 주소를 public_ip로 덮어쓰고 경유 SSH 인자를 비운다. |
 | inventory/hosts.example.yml | [hosts.example.yml](hosts.example.yml.md) | 실제 hosts.yml을 만들기 위한 그룹·IP·접속 계정·팀원 공개키 예시다. 전체 지원 구성의 완성된 인벤토리는 아니다. |
 
-hosts.example.yml은 형식 예시이며 실제 hosts.yml과 vault.yml은 Git 제외 대상이다. 이 문서에는 운영자의 Secret 값이나 실제 서버 인벤토리를 수록하지 않는다. 일반 서버는 사설 IP, Bastion은 공인 IP로 접속하며 Bastion이 없으면 ProxyCommand를 생략한다.
+기본 인벤토리는 생성된 hosts.current.yml이다. 2026-10-13 로컬 확인 기준으로 mysql 그룹에는 세 노드, game_frontend·ad_frontend 그룹에는 Front가 각각 한 노드씩 등록되어 있다. 다른 프로필·팀 접속용·수동 인벤토리는 -i로 선택한다. hosts.example.yml은 형식 예시이며 hosts.current.yml·hosts.yml 등 실제 인벤토리와 vault.yml은 Git 제외 대상이다. 이 문서에는 운영자의 Secret 값이나 실제 서버 주소를 수록하지 않는다. 일반 서버는 사설 IP, Bastion은 공인 IP로 접속하며 Bastion이 없으면 ProxyCommand를 생략한다.
 
 프록시를 사용할 때는 인벤토리의 all.vars에서 proxy_enabled를 활성화한다. SSH 경유는 기존 main.yml·bastion.yml, 패키지·다운로드 프록시는 새 proxy.yml이 담당한다. no_proxy 계산에는 전체 호스트의 ip가 필요하며 프록시 활성 구성의 배스천은 정확히 1대여야 한다. 실제 접속 준비는 [prepare-proxy.yml](../prepare-proxy.yml.md)에서 확인한다.

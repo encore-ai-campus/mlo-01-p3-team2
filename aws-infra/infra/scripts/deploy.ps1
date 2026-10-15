@@ -7,7 +7,8 @@ param(
     [ValidateSet('foundation','connectivity','workload','bastion')][string]$Stage,
     [ValidateSet('all','account1','account2','account3','account4','account5')]
     [string]$Account = 'all',
-    [string]$Limit = 'all'
+    [string]$Limit = 'all',
+    [switch]$AskVaultPass
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -162,7 +163,7 @@ function Write-DeploymentInventory {
             proxy_port = $traffic.ports.proxy
             proxy_client_cidrs = @($accountNames | ForEach-Object { $topology.accounts.$_.vpc_cidr })
         }
-        # Account 1 서비스는 Bastion SSH만 사용한다. Backend는 자기 Front의 8000만 수신한다.
+        # Account 1 서비스는 Bastion SSH만 사용한다. Backend 8000은 자기 Front·상대 Backend·Kafka·MySQL만 수신한다.
         if ($record.Account -eq 'account1' -and $record.Role -in @('game_frontend', 'ad_frontend', 'game', 'ad')) {
             $hostVars.account1_service_restricted = $true
         }
@@ -174,8 +175,17 @@ function Write-DeploymentInventory {
             $backendInstance = $live[$backendRecords[0].Id]
             if (-not $backendInstance.PrivateIpAddress) { throw "$backendRole Backend 사설 IP가 없습니다." }
             $hostVars.public_ip = $instance.PublicIpAddress
-            $hostVars.edge_https_allowed_cidrs = @('0.0.0.0/0')
-            $hostVars.edge_http_redirect = $true
+            # Nginx의 HTTPS 허용 범위도 Terraform과 같은 공인 IP 목록을 사용한다.
+            $httpCidrsProperty = $traffic.PSObject.Properties['public_http_cidrs']
+            $hostVars.edge_https_allowed_cidrs = @(if (
+                $null -ne $httpCidrsProperty -and $null -ne $httpCidrsProperty.Value
+            ) {
+                @($httpCidrsProperty.Value)
+            } else {
+                @($traffic.game_client_cidrs)
+            })
+            # 인증서 검증 경로 외 HTTP 요청에는 기존 템플릿이 404를 반환한다.
+            $hostVars.edge_http_redirect = $false
             $hostVars.edge_frontend_mode = $true
             # 광고 업로드만 3m까지 전달하고 게임 Front는 역할 기본값을 사용한다.
             if ($record.Role -eq 'ad_frontend') { $hostVars.edge_client_max_body_size = '3m' }
@@ -218,7 +228,10 @@ function Invoke-DeploymentProxy {
     # bash -c에 구성값을 연결하지 않고 스크립트 인수로 전달해 PowerShell의 중첩 따옴표를 피한다.
     $scriptWsl = ($scriptWsl -join '').Trim()
     $inventoryWsl = ($inventoryWsl -join '').Trim()
-    & $wsl -d $platform.wsl_distribution --exec bash $scriptWsl --venv $platform.ansible_venv --inventory $inventoryWsl --limit $Limit
+    # 암호 자체는 인수로 전달하지 않고 Ansible의 대화형 입력 옵션만 전달한다.
+    $proxyArguments = @('--venv', $platform.ansible_venv, '--inventory', $inventoryWsl, '--limit', $Limit)
+    if ($AskVaultPass) { $proxyArguments += '--ask-vault-pass' }
+    & $wsl -d $platform.wsl_distribution --exec bash $scriptWsl @proxyArguments
     if ($LASTEXITCODE -ne 0) { throw "프록시 준비에 실패했습니다: 종료 코드 $LASTEXITCODE" }
 }
 

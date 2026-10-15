@@ -2,9 +2,9 @@
 
 ## 2026-10-13 Account 1 Front 독립 HTTPS
 
-Account 1의 game_frontend·ad_frontend에 각각 IPv4 전체 출처 TCP 80·443을 허용한다. front_all은 이 두 SG에만 ip_protocol=-1의 전체 IPv4 송신을 생성한다. 서비스 네 역할의 콘솔 SSH와 관리자 CIDR 직접 SSH는 제외하고 Bastion SG의 TCP 22를 유지한다.
+Account 1의 game_frontend·ad_frontend에 각각 TCP 80은 전체 IPv4에, TCP 443은 public_http_cidrs에 지정한 IPv4 출처에 허용한다. 기본 및 current는 222.112.208.66~72의 7개 /32다. front_all은 이 두 SG에만 ip_protocol=-1의 전체 IPv4 송신을 생성한다. 서비스 네 역할의 콘솔 SSH와 관리자 CIDR 직접 SSH는 제외하고 Bastion SG의 TCP 22를 유지한다.
 
-Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad만 남긴다. 기존 game↔ad·MySQL→Backend 수신은 이 계정에서 필터링한다. 다른 계정의 SG와 송신 규칙은 변경하지 않는다. 이전 SG가 foundation 출력에 남아도 실제 edge 노드가 없으면 edge_ingress를 생성하지 않는다.
+Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad, game↔ad만 허용한다. 선언된 흐름 중 그 외 출처의 Backend 8000 수신은 필터링한다. Kafka·MySQL 출발 계정에는 Backend 8000 송신을 생성하지 않는다. 이전 SG가 foundation 출력에 남아도 실제 edge 노드가 없으면 edge_ingress를 생성하지 않는다.
 
 기본 구성은 edge 없이 서비스 네 대다. 아래 이전 기록의 frontend·edge 및 Account 1 직접 SSH 설명은 이번 정책으로 대체된다. 신규 SG를 먼저 준비하고 사용 중인 옛 SG 참조를 제거한 뒤 옛 SG를 정리해야 하므로, 기존 AWS 자원이 있으면 foundation/workload Plan의 삭제 순서를 함께 검토한다. 이 변경은 AWS 적용 결과가 아니다.
 
@@ -23,7 +23,7 @@ Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad만 남�
 | [console-ssh.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) | 계정별 서비스 SG·접두사 목록·TCP 22 유지 및 Bastion 콘솔 규칙 미생성 모의 검사 |
 | [spark-ports.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/spark-ports.tftest.hcl) | Spark 세 계정의 포트 범위·7100·8080, 기존 규칙 키 및 같은 시작 포트의 끝 값 병합 검사 |
 
-평탄화 노드 flatten-1은 account2의 consumer 역할이다. 기존 local.nodes와 compute의 동적 입력으로 생성하고 service_console_ssh에도 consumer SG를 포함한다. 기본 설정의 [flatten.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 Private A·medium 사양·기존 서버 유지·브로커 세 계정의 규칙을 모의 검사한다.
+평탄화 노드 flatten-1은 account1의 consumer 역할이다. 기존 local.nodes와 compute의 동적 입력으로 생성하고 service_console_ssh에도 consumer SG를 포함한다. 기본 설정의 [flatten.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 Private A·medium 사양·기존 서버 유지·브로커 두 계정(account4·5)의 규칙을 모의 검사한다.
 
 ## 주요 계산 위치
 
@@ -33,12 +33,12 @@ Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad만 남�
 | local.active_flows | 정규 배포는 전체 flow, 초기 구축은 같은 계정의 edge 관련 flow만 선택 |
 | local.edge_ingress | 실제 edge 노드가 있는 이전 구성에만 생성. 현재 기본 구성은 빈 값 |
 | local.restricted_roles | Account 1의 game_frontend·ad_frontend·game·ad. 다른 계정은 빈 집합 |
-| local.front_sg_ids / local.front_https_ingress | 두 Front SG와 전체 IPv4 출처 TCP 80·443 |
+| local.front_sg_ids / local.front_https_ingress | 두 Front SG와 TCP 80 전체 IPv4·TCP 443 public_http_cidrs 출처 |
 | aws_vpc_security_group_egress_rule.front_all | 두 Front에만 전체 IPv4 프로토콜 송신 허용 |
 | local.service_console_ssh_sg_ids | 현재 계정 서비스 EC2의 역할별 SG. 같은 역할을 중복 제거하며 Bastion·ALB 및 Account 1 restricted_roles는 제외 |
 | local.sg_ids | 모든 foundation의 SG ID를 계정/역할 키로 결합 |
 | local.peer_sg_ids | 같은 계정은 SG ID, 다른 계정은 소유 계정 ID/SG ID로 peer 참조 구성 |
-| local.ingress_grouped | 현재 계정 대상 흐름을 선택하고 Account 1 Backend 8000 포함 흐름은 해당 Front 출처만 유지 |
+| local.ingress_grouped | 현재 계정 대상 흐름을 선택하고 Account 1 Backend 8000 포함 흐름은 해당 Front·상대 Backend 출처만 유지 |
 | local.egress_grouped | model.flows 중 소스 계정이 현재 계정인 규칙. port·port_end 전달 |
 | local.admin_ingress | Bastion SG가 있을 때 관리자 CIDR → SSH 포트 |
 | local.public_http_cidrs | 선택 입력 public_http_cidrs, 누락·null이면 game_client_cidrs |
@@ -60,7 +60,7 @@ SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 �
 
 ## 선택적으로 ALB를 활성화했을 때의 HTTP 접속 경로
 
-현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. 현재 두 Front는 별도 규칙으로 80·443을 전체 공개하고 각 Front→해당 Backend 8000을 허용한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
+현재 기본 및 current 설정에서는 ALB가 비활성화돼 아래 ALB 경로를 생성하지 않는다. 현재 두 Front는 별도 규칙으로 80은 전체 IPv4에, 443은 public_http_cidrs의 IP에 허용하고 각 Front→해당 Backend 8000을 허용한다. ALB를 다시 사용할 때는 활성화와 전용 연결 3개를 함께 설정한다.
 
 | 경로 | 허용·전달 조건 |
 | --- | --- |
@@ -94,7 +94,7 @@ inventory에는 account, account_id, region, instances, alb_dns_name이 들어�
 
 ## 변경 시 경계
 
-SG 규칙·compute·ALB는 하나의 workload 상태로 묶여 있다. 실행기에 보안규칙만 적용하는 별도 Stage는 없다. 현재 compute의 데이터 볼륨은 prevent_destroy=true이고 OS 루트 디스크는 EC2 종료 시 삭제 설정이다. 데이터 볼륨 삭제·교체가 포함된 배치 이동·이름 변경 계획은 보호 설정 때문에 실패할 수 있다. 이 보호는 데이터 이전·백업 기능이 아니다.
+SG 규칙·compute·ALB는 하나의 workload 상태로 묶여 있다. 실행기에 보안규칙만 적용하는 별도 Stage는 없다. 현재 compute의 데이터 볼륨은 prevent_destroy=false이고 OS 루트 디스크는 EC2 종료 시 삭제 설정이다. 데이터 볼륨 삭제·교체가 포함된 배치 이동·이름 변경을 현재 lifecycle 값으로 차단하지 않는다. 데이터 이전·백업은 별도로 준비하며 전체 삭제 실행기의 DeleteDataVolumes 선택과 계획 검사는 유지된다. [모듈의 현재 값과 조건](../README.md#compute)을 함께 확인한다.
 
 ## 콘솔 SSH 및 학원 SSH 규칙의 범위
 
@@ -102,7 +102,7 @@ SG 규칙·compute·ALB는 하나의 workload 상태로 묶여 있다. 실행기
 
 `private_role_sg_ids`는 실제 생성 대상 노드 중 private 역할을 중복 없이 선택하며 Account 1 restricted_roles는 제외한다. `private_admin_ingress`는 해당 SG마다 관리자 CIDR의 TCP 22 규칙을 만들고 module.rules.public_ingress에 합친다. 초기 edge_bootstrap_only 모드에는 private 노드가 없으므로 추가되지 않는다.
 
-`front_ingress`는 이전 frontend 역할의 HTTP 규칙이다. 현재 두 Front는 `front_https_ingress`에서 80·443을 전체 공개한다. 이전 edge 호환 분기만 game_client_cidrs를 사용한다. optional ALB의 HTTP에도 public_http_cidrs를 사용한다.
+`front_ingress`는 이전 frontend 역할의 HTTP 규칙이다. 현재 두 Front는 `front_https_ingress`에서 80은 전체 IPv4에, 443은 public_http_cidrs의 IP에 허용한다. 이전 edge 호환 분기만 game_client_cidrs를 사용한다. optional ALB의 HTTP에도 public_http_cidrs를 사용한다.
 
 이 규칙은 Private 서버에 인터넷 경로나 EC2 Instance Connect Endpoint를 만들지 않는다. 기존 Bastion→서버 SG 참조와 Account 2~5의 서비스 콘솔 SSH는 유지하며 IAM·키·OS 방화벽은 별도 검증 대상이다.
 
@@ -149,3 +149,14 @@ edge_bootstrap_only는 기본 false인 기존 호환 기능이다. 현재 topolo
 connectivity_ready는 edge_bootstrap_guard에 의존하며, compute와 SG 규칙은 connectivity_ready 뒤에 생성된다. 삭제 시 역순으로 정리해 EC2·규칙 삭제가 중단돼도 초기 구축 표식이 남도록 한다.
 
 학원 접근 정책은 [school-access.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/school-access.tftest.hcl)의 계정별 5개 모의 검사와 [테스트 지도](../../tests/README.md#학원-접속-검사)를 참고한다.
+
+
+## 2026-10-15 Backend API 역방향 연결 제거
+
+기본·current traffic.connections에서 kafka_game, kafka_ad, mysql_game, mysql_ad를 제거했다. Kafka·MySQL SG의 Backend 8000 송신과 Backend SG의 대응 수신이 제거 대상이다. workload의 Backend 8000 출처 필터도 해당 Front·상대 Backend로 제한했다.
+
+게임·광고→Kafka 9092, 게임·광고→MySQL 3306, 광고→MongoDB 27017은 유지한다. 광고는 MongoDB에 저장·조회 요청을 보내고 같은 연결로 결과를 받는다. Front→해당 Backend 8000 및 게임↔광고 8000도 유지한다. DB·Kafka 응답용으로 Backend 8000을 열 필요는 없다.
+
+플랫폼 nftables의 Account 1 제한 분기에서 Kafka·MySQL의 Backend API 출처를 제거했고 일반 game/ad from 목록에서도 MySQL을 제거했다. 기존 established,related 응답 허용과 DB·Kafka·MongoDB 수신 정책은 유지한다. 위 과거 적용 기록은 당시 이력이며 현재 로컬 선언과 구분한다.
+
+이번 작업은 로컬 코드·설정·문서 수정이다. 실제 AWS 조회·Plan·Apply·원격 Ansible·접속 테스트는 실행하지 않았다. 운영 SG와 OS 방화벽은 배포 전까지 변경되지 않는다.

@@ -61,20 +61,20 @@ override_data {
 run "account1_independent_frontends" {
   command = apply
   assert {
-    condition     = toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server"]) && length(module.alb) == 0
-    error_message = "Account 1은 edge 없이 네 서비스만 생성해야 합니다."
+    condition     = toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server", "flatten-1"]) && length(module.alb) == 0
+    error_message = "Account 1은 edge 없이 네 서비스와 Consumer를 생성해야 합니다."
   }
   assert {
     condition     = alltrue([for name in ["front-a", "front-b"] : output.inventory.instances[name].public_ip == "203.0.113.20" && output.inventory.instances[name].instance_type == "t3.small"]) && alltrue([for name in ["game-server", "ad-server"] : output.inventory.instances[name].public_ip == null && output.inventory.instances[name].instance_type == "t3.large"])
     error_message = "Front 두 대만 EIP를 사용하고 요청한 사양을 유지해야 합니다."
   }
   assert {
-    condition     = length(local.front_https_ingress) == 4 && alltrue([for rule in values(local.front_https_ingress) : rule.cidr == "0.0.0.0/0" && contains([80, 443], rule.port)]) && length(aws_vpc_security_group_egress_rule.front_all) == 2 && alltrue([for rule in aws_vpc_security_group_egress_rule.front_all : rule.ip_protocol == "-1" && rule.cidr_ipv4 == "0.0.0.0/0" && rule.from_port == null && rule.to_port == null])
-    error_message = "두 Front만 80/443 공개 및 전체 IPv4 송신을 허용해야 합니다."
+    condition     = length(local.front_https_ingress) == 16 && alltrue([for role in ["game_frontend", "ad_frontend"] : alltrue([for port in [80, 443] : toset([for key, rule in module.rules.public_ingress : rule.cidr if startswith(key, "${role}/") && rule.port == port]) == (port == 80 ? toset(["0.0.0.0/0"]) : toset([for octet in range(66, 73) : "222.112.208.${octet}/32"]))])]) && length(aws_vpc_security_group_egress_rule.front_all) == 2 && alltrue([for rule in aws_vpc_security_group_egress_rule.front_all : rule.ip_protocol == "-1" && rule.cidr_ipv4 == "0.0.0.0/0" && rule.from_port == null && rule.to_port == null])
+    error_message = "두 Front의 80번은 전체 IPv4, 443번은 지정한 7개 IP만 허용하고 전체 IPv4 송신은 유지해야 합니다."
   }
   assert {
-    condition     = toset([for key, rule in module.rules.ingress : key if rule.port == 8000]) == toset(["account1/game_frontend/account1/game/8000", "account1/ad_frontend/account1/ad/8000"]) && length(local.private_admin_ingress) == 0 && length(aws_vpc_security_group_ingress_rule.service_console_ssh) == 0 && alltrue([for key, rule in module.rules.ingress : startswith(key, "account1/bastion/") if rule.port == 22])
-    error_message = "Backend 8000은 각 Front만, 서비스 SSH는 Bastion만 허용해야 합니다."
+    condition     = toset([for key, rule in module.rules.ingress : key if rule.port == 8000]) == toset(["account1/game_frontend/account1/game/8000", "account1/ad_frontend/account1/ad/8000", "account1/game/account1/ad/8000", "account1/ad/account1/game/8000"]) && length(local.private_admin_ingress) == length(toset(var.traffic.admin_public_cidrs)) && toset(keys(aws_vpc_security_group_ingress_rule.service_console_ssh)) == toset(["consumer"]) && alltrue([for key, rule in module.rules.ingress : startswith(key, "account1/bastion/") if rule.port == 22])
+    error_message = "Backend 8000은 각 Front·상대 Backend만, Front·Backend SSH는 Bastion만, Consumer는 기존 관리자·콘솔 SSH 정책을 허용해야 합니다."
   }
   assert {
     condition     = length(local.edge_ingress) == 0 && length(local.front_ingress) == 0

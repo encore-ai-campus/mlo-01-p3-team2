@@ -1,4 +1,36 @@
 ﻿#Requires -Version 5.1
+function Save-InfraEnvironment {
+    param([string[]]$Names)
+    # 호출부가 지정한 변수만 보관·해제해 작업별 인증 격리 범위를 유지한다.
+    $saved = @{}
+    foreach ($name in $Names) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+    return $saved
+}
+function Restore-InfraEnvironment {
+    param([string[]]$Names, [hashtable]$Saved)
+    foreach ($name in $Names) {
+        [Environment]::SetEnvironmentVariable($name, $Saved[$name], 'Process')
+    }
+}
+function Invoke-InfraCapturedCommand {
+    param([string]$Command, [string[]]$Arguments)
+    # Windows PowerShell의 stderr도 수집한다. 성공·허용 오류 판단은 호출부가 맡는다.
+    $ErrorActionPreference = 'Continue'
+    $lines = & $Command @Arguments 2>&1
+    $code = $LASTEXITCODE
+    $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+    return [pscustomobject]@{ ExitCode = $code; Text = $text }
+}
+function Read-InfraTerraformPlan {
+    param([string]$Command, [string]$Directory, [string]$Path, [string]$FailureMessage)
+    # 검사 시점마다 다시 읽어 Plan·Apply 사이의 재검증을 유지한다.
+    $lines = & $Command "-chdir=$Directory" show -json $Path
+    if ($LASTEXITCODE -ne 0) { throw $FailureMessage }
+    return (($lines -join "`n") | ConvertFrom-Json)
+}
 function Read-InfraJson {
     param([string]$Path)
     return ([IO.File]::ReadAllText($Path) | ConvertFrom-Json)
@@ -111,7 +143,8 @@ function Get-InfraFingerprint {
 function Assert-InfraBastionPlan {
     param($Plan, [ValidateSet('Create','Delete')][string]$Mode, [string]$Account, [string]$Project)
     # 다른 상태의 자원이나 의도하지 않은 교체 작업을 저장 계획으로 적용하지 않는다.
-    $allowed = @('module.model.terraform_data.configuration', 'module.bastion.aws_instance.this', 'module.bastion.aws_key_pair.this')
+    $allowed = @('module.model.terraform_data.configuration', 'module.bastion.aws_instance.this',
+        'module.bastion.aws_key_pair.this', 'module.bastion.aws_eip.this', 'module.bastion.aws_eip_association.this')
     $modules = @()
     if ($Plan.PSObject.Properties['planned_values'] -and $Plan.planned_values.PSObject.Properties['root_module']) {
         $modules += $Plan.planned_values.root_module
@@ -146,7 +179,7 @@ function Assert-InfraBastionPlan {
             throw "Bastion $Mode 계획에 허용되지 않은 생성·삭제·교체·가져오기가 있습니다: $($resource.address)"
         }
         # 삭제 전 기존 자원도 전용 단계의 태그를 가져야 한다. 기존 workload 자원을 자동 이관하지 않는다.
-        if ($resource.type -in @('aws_instance','aws_key_pair') -and $resource.change.before) {
+        if ($resource.type -in @('aws_instance','aws_key_pair','aws_eip') -and $resource.change.before) {
             $before = $resource.change.before
             if (-not $before.PSObject.Properties['tags_all'] -or -not $before.tags_all -or
                 -not $before.tags_all.PSObject.Properties['Stage'] -or $before.tags_all.Stage -ne 'bastion' -or

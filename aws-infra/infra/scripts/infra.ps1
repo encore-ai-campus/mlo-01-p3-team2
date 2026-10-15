@@ -133,11 +133,7 @@ $environmentNames = @(
     'AWS_ENDPOINT_URL','AWS_ENDPOINT_URL_EC2','AWS_ENDPOINT_URL_STS','AWS_ENDPOINT_URL_S3',
     'AWS_IGNORE_CONFIGURED_ENDPOINT_URLS'
 )
-$savedEnvironment = @{}
-foreach ($name in $environmentNames) {
-    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
-}
+$savedEnvironment = Save-InfraEnvironment $environmentNames
 try {
     $env:AWS_EC2_METADATA_DISABLED = 'true'
     $env:AWS_PAGER = ''
@@ -179,16 +175,12 @@ try {
     } else { $initArgs += '-backend=false' }
     Invoke-InfraTerraform $terraformCommand $stackPath $initArgs
     function Get-SavedDeleteSummary {
-        $deleteText = & $terraformCommand "-chdir=$stackPath" show -json $planPath
-        if ($LASTEXITCODE -ne 0) { throw '저장된 삭제 계획을 읽지 못했습니다.' }
-        $deletePlan = ($deleteText -join "`n") | ConvertFrom-Json
+        $deletePlan = Read-InfraTerraformPlan $terraformCommand $stackPath $planPath '저장된 삭제 계획을 읽지 못했습니다.'
         return @(Assert-InfraDeletePlan $deletePlan $Stage $Account $topology -DeleteDataVolumes:$DeleteDataVolumes)
     }
     # Plan 직후와 Apply 직전에 같은 자원 범위·기존 Bastion 중복 여부를 검사한다.
     function Assert-SavedBastionPlan {
-        $planText = & $terraformCommand "-chdir=$stackPath" show -json $planPath
-        if ($LASTEXITCODE -ne 0) { throw 'Bastion 저장 계획을 읽지 못했습니다.' }
-        $plan = ($planText -join "`n") | ConvertFrom-Json
+        $plan = Read-InfraTerraformPlan $terraformCommand $stackPath $planPath 'Bastion 저장 계획을 읽지 못했습니다.'
         Assert-InfraBastionPlan $plan $PlanMode $Account $topology.project
         $ownedIds = @()
         if ($plan.PSObject.Properties['resource_changes']) {
@@ -211,9 +203,7 @@ try {
     }
     # 모드가 기존 노드를 제거하는 용도로 사용되지 않도록 Plan과 Apply에서 모두 검사한다.
     function Assert-SavedEdgePlan {
-        $edgeText = & $terraformCommand "-chdir=$stackPath" show -json $planPath
-        if ($LASTEXITCODE -ne 0) { throw '진입 서버 저장 계획을 읽지 못했습니다.' }
-        $edgePlan = ($edgeText -join "`n") | ConvertFrom-Json
+        $edgePlan = Read-InfraTerraformPlan $terraformCommand $stackPath $planPath '진입 서버 저장 계획을 읽지 못했습니다.'
         foreach ($change in @($edgePlan.resource_changes)) {
             if ('delete' -in @($change.change.actions)) { throw '진입 서버 초기 구축에서는 기존 자원 삭제·교체를 허용하지 않습니다.' }
             if ($change.type -eq 'aws_instance' -and ($change.address -ne 'module.compute.aws_instance.this["edge-1"]' -or $change.change.after.instance_type -ne 't3a.small')) {
@@ -275,7 +265,5 @@ try {
     }
 } finally {
     # 다른 PowerShell 작업에 인증·backend 환경을 남기지 않는다.
-    foreach ($name in $environmentNames) {
-        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
-    }
+    Restore-InfraEnvironment $environmentNames $savedEnvironment
 }

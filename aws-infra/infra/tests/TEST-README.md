@@ -1,5 +1,9 @@
 # 검증 범위와 결과
 
+## 공통 실행기 회귀 검사
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\infra\tests\test_common.ps1`로 환경 변수 복원, CLI 출력·오류 코드 수집, 저장 계획 재읽기를 확인한다. PowerShell 7에서는 `pwsh -NoProfile -File .\infra\tests\test_common.ps1`을 사용한다. 두 명령 모두 aws-infra 루트에서 실행한다. 실제 AWS·Terraform 대신 로컬 모의 명령을 사용한다.
+
 ## 현재 검사 지도 — 2026-10-10
 
 아래 날짜별 통과 기록은 기존 검증 이력이다. 이번 일반 문서 갱신에서는 Terraform·PowerShell 모의 테스트나 실제 AWS 배포·삭제·서비스 시험을 실행하지 않았다. 로컬 문서 링크·현재 설정 설명을 확인한 범위와 테스트 실행 결과를 구분한다.

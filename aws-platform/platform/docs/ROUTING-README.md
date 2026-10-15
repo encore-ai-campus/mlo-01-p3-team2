@@ -39,7 +39,8 @@ EC2 생성·사양·계정별 네트워크·전체 삭제 실행기는 [인프�
 | APT/dnf 설치와 저장소 동작 변경 | [pkg](platform-routing/roles/pkg/README.md) | roles/pkg/ |
 | Java 설치·OS 패키지명 변경 | [java](platform-routing/roles/java/README.md) | roles/java/ |
 | MySQL Cluster·계정·자동 선출 설정 변경 | [mysql](platform-routing/roles/mysql/README.md) | roles/mysql/ |
-| MongoDB 인증·커널 처리·Replica Set 변경 | [mongodb](platform-routing/roles/mongodb/README.md) | roles/mongodb/ |
+| Vault root 인증·MySQL 멤버 상태 조회 | [MySQL 조회 playbook](platform-routing/check-mysql.yml.md) | check-mysql.yml. 현재 Ubuntu 소켓에서 읽기 전용 조회 |
+| MongoDB 데이터 디렉터리 권한·인증·커널 처리·Replica Set 변경 | [mongodb](platform-routing/roles/mongodb/README.md) | roles/mongodb/ |
 | Kafka KRaft·리스너·토픽 검증 변경 | [kafka](platform-routing/roles/kafka/README.md) | roles/kafka/ |
 | ZooKeeper ensemble·Spark 복구 변경 | [zookeeper](platform-routing/roles/zookeeper/README.md) | roles/zookeeper/ |
 | Spark Master·Worker·JAR·Python 변경 | [spark](platform-routing/roles/spark/README.md) | roles/spark/ |
@@ -76,7 +77,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    INPUT["inventory · --limit · 선택적 --venv"] --> CHECK["대상 확인 → 문법 검사 → SSH·Python 확인"]
+    INPUT["inventory · --limit · 선택적 --venv · --ask-vault-pass"] --> CHECK["대상 확인 → 문법 검사 → SSH·Python 확인"]
     CHECK --> SQUID["bootstrap-proxy: bastion Squid 설치·ACL·포트"]
     SQUID --> BAPT["prepare-proxy --limit bastion: 직접 APT 준비"]
     BAPT --> BFW["site --tags firewall --limit bastion"]
@@ -94,6 +95,7 @@ flowchart TB
 | ansible.cfg | [ansible.cfg](platform-routing/ansible.cfg.md) | 기본 인벤토리, 역할 경로, 대상 시스템 Python과 SSH 연결 재사용을 지정한다. |
 | requirements.txt | [requirements.txt](platform-routing/requirements.txt.md) | 컨트롤 노드에 설치할 Ansible 버전을 ansible==14.4.0으로 고정한다. 실제 설치 가능 여부는 이번 작업에서 확인하지 않았다. |
 | site.yml | [site.yml](platform-routing/site.yml.md) | 프록시 준비 import와 원격 환경변수, Bastion 우선 공통 보안·방화벽, 서비스 역할, 마지막 모니터링을 연결한다. |
+| check-mysql.yml | [check-mysql.yml](platform-routing/check-mysql.yml.md) | Vault root 인증과 Group Replication 멤버 목록을 조회한다. 설치·복구와 전체 정상 판정은 별도다. |
 | prepare-proxy.yml | [prepare-proxy.yml](platform-routing/prepare-proxy.yml.md) | 활성 인벤토리의 Ubuntu HTTPS 저장소·APT 프록시를 준비하고 원격 다운로드를 검사한다. |
 | scripts/setup-team-access.sh | [팀 접속 설정](platform-routing/scripts/setup-team-access.sh.md) | 기존 Endpoint·AWS 인증·인벤토리로 로컬 SSH 설정과 접속용 인벤토리를 생성하고 배스천 SSH·프라이빗 서버 ping을 확인한다. |
 | scripts/setup-proxy.sh | [scripts/setup-proxy.sh](platform-routing/scripts/setup-proxy.sh.md) | 인벤토리와 대상 그룹을 받아 문법·SSH·배스천·클라이언트 준비를 순서대로 실행한다. |

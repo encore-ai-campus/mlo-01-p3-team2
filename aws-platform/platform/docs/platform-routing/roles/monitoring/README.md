@@ -14,6 +14,8 @@ OS 변수·대상 계산 → target 설정 → monitoring 노드 collector → �
 
 ## 구현 조건
 
+archive.sh·collector.sh·resource.sh는 서버로 복사되는 셸 파일이므로 LF 줄바꿈을 유지한다. 저장소 [.gitattributes](../../../../../../.gitattributes)의 roles/monitoring/files/*.sh 규칙이 Windows 체크아웃에도 적용된다. 이번 변경은 줄바꿈 정규화이며 수집·보관 로직 변경은 없다. 기존 로컬 검사 기록은 [검증 기록](../../verification.md#2026-10-13-기본-인벤토리와-모니터링-셸-줄바꿈-수정)에서 확인한다.
+
 기본 리소스·로그 수집 목표 주기는 10초, 서비스 상태는 3주기마다다. 작업 시간이 길어지면 실제 주기가 늘어난다. 수집기는 SSH 사용자명을 monitor로 고정 사용하므로 monitor_user만 바꿔서는 일치하지 않는다.
 
 ## 경로별 문서

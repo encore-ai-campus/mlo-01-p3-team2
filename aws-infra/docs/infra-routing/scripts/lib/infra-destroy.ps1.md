@@ -1,5 +1,7 @@
 # infra/scripts/lib/infra-destroy.ps1
 
+Invoke-InfraDestroyAws는 infra-common.ps1의 Invoke-InfraCapturedCommand로 출력·종료 코드를 수집한다. CLI 인수·제한 시간·AbsentErrors 판정·오류 메시지는 이 함수에서 유지한다. 호출부가 두 라이브러리를 함께 로드해야 한다.
+
 [탐색 시작점](../../ROUTING-README.md) · [원본](../../../../infra/scripts/lib/infra-destroy.ps1) · [전체 삭제 실행기](../destroy-all.ps1.md)
 
 전체 삭제의 순서·저장 계획·원격 상태·삭제 결과 조회 함수다. 아래 선언은 PowerShell 원본과 대조했으며 Python AST 검사 대상이 아니다.
@@ -27,6 +29,13 @@ aws_vpc_security_group_ingress_rule.service_console_ssh["역할"]
 
 서비스 역할별 규칙도 workload가 생성하므로 전체 삭제 대상에 포함한다. 이 정확한 자원 이름과 문자열 키 형식만 추가로 허용하며 다른 단계·이름·태그 검사와 delete/no-op 제한은 유지한다. [회귀 검사](../../../../infra/tests/test_destroy_console_ssh.ps1)는 실제 AWS 없이 허용·거부 경계를 확인한다.
 
+두 Front의 송신 규칙도 [workload](../../../../infra/terraform/stacks/workload/main.tf)가 소유하므로 아래 정확한 Terraform 주소를 허용한다. 다른 역할 키·유사 이름·다른 단계는 거부하며 기존 태그와 변경 종류 검사는 유지한다.
+
+```hcl
+aws_vpc_security_group_egress_rule.front_all["game_frontend"]
+aws_vpc_security_group_egress_rule.front_all["ad_frontend"]
+```
+
 데이터 EBS는 DeleteDataVolumes가 필요하다. EC2 루트 디스크가 delete_on_termination=false이면 계획을 거부한다. 자동 삭제되는 루트 디스크 ID는 결과 검증 목록에 포함한다. 이 함수는 prevent_destroy를 수정하지 않는다. Bastion은 기존 Assert-InfraBastionPlan의 전용 주소·Stage 태그 검사도 함께 받는다.
 
 ## 원격 상태와 결과 검증
@@ -40,3 +49,5 @@ S3 get-object의 NoSuchKey만 상태 없음으로 인정한다. 403·인증·네
 ## edge 초기 구축 상태의 전체 삭제
 
 Get-InfraDestroyState는 기존 존재 여부·해시·관리 자원 수와 함께 edge_bootstrap_only를 반환한다. Account 1 workload의 terraform_data.edge_bootstrap_guard[0]에 인스턴스가 있으면 true이며, 없는 상태나 기존 일반 상태는 false다. destroy-all.ps1은 이 값을 실행 단계에 저장해 Delete Plan·Apply에 전달한다. Assert-InfraDeletePlan은 해당 guard 자원도 허용하며 나머지 삭제 범위·태그 검사를 유지한다. Assert-InfraDestroyArtifacts는 단계와 manifest의 모드가 같은지 확인한다. 예전 기록에 없는 필드는 false로 읽는다.
+
+Bastion 삭제 허용 주소에는 module.bastion.aws_eip.this와 module.bastion.aws_eip_association.this가 포함된다. EIP 할당 ID는 기존 describe-addresses 잔존 검사 대상이다. 연결 자원은 별도 태그가 없으며 전용 상태의 정확한 주소와 삭제 동작 범위로 검사한다.

@@ -5,6 +5,7 @@ set -euo pipefail
 inventory=''
 limit='all'
 venv=''
+vault_args=()
 while (( $# > 0 )); do
   case "$1" in
     --inventory|--limit|--venv)
@@ -19,9 +20,14 @@ while (( $# > 0 )); do
       esac
       shift 2
       ;;
+    --ask-vault-pass)
+      vault_args=(--ask-vault-pass)
+      shift
+      ;;
     -h|--help)
-      printf '사용법: bash scripts/setup-proxy.sh --inventory <파일> [--limit <호스트 또는 그룹>] [--venv <가상환경>]\n'
+      printf '사용법: bash scripts/setup-proxy.sh --inventory <파일> [--limit <호스트 또는 그룹>] [--venv <가상환경>] [--ask-vault-pass]\n'
       printf '기본 대상: all. 배스천 설치·설정·방화벽은 --limit과 관계없이 먼저 준비합니다.\n'
+      printf 'Vault 암호 입력: --ask-vault-pass 지정 시 각 Ansible 명령에서 암호를 입력합니다.\n'
       exit 0
       ;;
     *) printf '알 수 없는 옵션: %s\n' "$1" >&2; exit 2 ;;
@@ -58,9 +64,10 @@ export ANSIBLE_CONFIG="$platform_dir/ansible.cfg"
 step='입력 확인'
 trap 'status=$?; printf "\n실패: %s (종료 코드 %s). 이후 단계는 실행하지 않았습니다.\n" "$step" "$status" >&2; exit "$status"' ERR
 
+# 암호는 Ansible이 직접 입력받는다. 스크립트는 암호를 저장하지 않고 모든 호출에 옵션만 전달한다.
 # 오타로 대상이 0대인 경우를 성공으로 보고하지 않는다.
 for pattern in bastion "$limit"; do
-  listing="$(ANSIBLE_HOST_PATTERN_MISMATCH=error ansible -i "$inventory" "$pattern" --list-hosts)"
+  listing="$(ANSIBLE_HOST_PATTERN_MISMATCH=error ansible "${vault_args[@]}" -i "$inventory" "$pattern" --list-hosts)"
   printf '%s\n' "$listing"
   if grep -Eq '^[[:space:]]*hosts \(0\):' <<< "$listing"; then
     printf '오류: 대상이 없습니다: %s\n' "$pattern" >&2
@@ -71,29 +78,29 @@ done
 step='1/6 문법 검사'
 printf '\n%s\n' "$step"
 for playbook in bootstrap-proxy.yml prepare-proxy.yml site.yml; do
-  ansible-playbook -i "$inventory" "$platform_dir/$playbook" --syntax-check
+  ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/$playbook" --syntax-check
 done
 
 step='2/6 SSH와 원격 Python 확인'
 printf '\n%s\n' "$step"
-ansible -i "$inventory" bastion -m ansible.builtin.wait_for_connection -a 'timeout=300'
-ansible -i "$inventory" "$limit" -m ansible.builtin.wait_for_connection -a 'timeout=300'
-ansible -i "$inventory" "$limit" -m ansible.builtin.ping
+ansible "${vault_args[@]}" -i "$inventory" bastion -m ansible.builtin.wait_for_connection -a 'timeout=300'
+ansible "${vault_args[@]}" -i "$inventory" "$limit" -m ansible.builtin.wait_for_connection -a 'timeout=300'
+ansible "${vault_args[@]}" -i "$inventory" "$limit" -m ansible.builtin.ping
 
 step='3/6 배스천 Squid와 APT 준비'
 printf '\n%s\n' "$step"
-ansible-playbook -i "$inventory" "$platform_dir/bootstrap-proxy.yml"
-ansible-playbook -i "$inventory" "$platform_dir/prepare-proxy.yml" --limit bastion
+ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/bootstrap-proxy.yml"
+ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/prepare-proxy.yml" --limit bastion
 
 step='4/6 배스천 방화벽 적용'
 printf '\n%s\n' "$step"
-ansible-playbook -i "$inventory" "$platform_dir/site.yml" --tags firewall --limit bastion
+ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/site.yml" --tags firewall --limit bastion
 
 step='5/6 선택한 서버의 APT와 프록시 준비'
 printf '\n%s\n' "$step"
-ansible-playbook -i "$inventory" "$platform_dir/prepare-proxy.yml" --limit "$limit"
+ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/prepare-proxy.yml" --limit "$limit"
 
 step='6/6 방화벽 적용 후 HTTPS와 다운로드 재확인'
 printf '\n%s\n' "$step"
-ansible-playbook -i "$inventory" "$platform_dir/prepare-proxy.yml" --tags proxy_verify --limit "$limit"
+ansible-playbook "${vault_args[@]}" -i "$inventory" "$platform_dir/prepare-proxy.yml" --tags proxy_verify --limit "$limit"
 printf '\n프록시 준비 완료. 인벤토리: %s / 대상: %s\n' "$inventory" "$limit"

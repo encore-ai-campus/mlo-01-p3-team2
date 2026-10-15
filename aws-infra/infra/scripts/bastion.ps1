@@ -20,11 +20,9 @@ function Invoke-BastionAws {
     )
     if ($DryRun) { $cliArguments += '--dry-run' }
     # PowerShell 5.1의 네이티브 stderr도 수집한 뒤 AWS 종료 코드로 판정한다.
-    $ErrorActionPreference = 'Continue'
-    $outputLines = & $awsCommand @cliArguments 2>&1
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    $outputText = ($outputLines | ForEach-Object { $_.ToString() }) -join "`n"
+    $result = Invoke-InfraCapturedCommand $awsCommand $cliArguments
+    $code = $result.ExitCode
+    $outputText = $result.Text
     if ($DryRun) {
         # AWS의 권한 검사 성공은 종료 코드 0이 아닌 DryRunOperation 오류로 온다.
         if ($code -ne 0 -and $outputText -match '\(DryRunOperation\)') { return }
@@ -186,11 +184,7 @@ $environmentNames = @(
     'AWS_EC2_METADATA_DISABLED','AWS_PAGER','AWS_CLI_AUTO_PROMPT','AWS_MAX_ATTEMPTS',
     'AWS_ENDPOINT_URL','AWS_ENDPOINT_URL_EC2','AWS_ENDPOINT_URL_STS','AWS_IGNORE_CONFIGURED_ENDPOINT_URLS'
 )
-$savedEnvironment = @{}
-foreach ($name in $environmentNames) {
-    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
-}
+$savedEnvironment = Save-InfraEnvironment $environmentNames
 try {
     $env:AWS_EC2_METADATA_DISABLED = 'true'
     $env:AWS_PAGER = ''
@@ -248,7 +242,5 @@ try {
     }
 } finally {
     # 성공·실패 여부와 관계없이 호출한 PowerShell의 AWS 환경을 복원한다.
-    foreach ($name in $environmentNames) {
-        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
-    }
+    Restore-InfraEnvironment $environmentNames $savedEnvironment
 }

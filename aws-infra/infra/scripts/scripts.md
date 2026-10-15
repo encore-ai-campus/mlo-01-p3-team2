@@ -2,6 +2,8 @@
 
 실제 생성·설치 순서는 [배포 절차](../../docs/deployment-runbook.md)를 따른다. S3·AMI·접속 IP 복원, 배스천 운영, SSH 키 전환과 전체 삭제는 [복원·운영 절차](../../docs/operations-recovery.md)로 옮겼다. 장애가 발생하면 배포 절차의 장애 표에서 해당 절차로 이동한다.
 
+현재 환경의 서버를 잠시 껐다 켤 때는 [전체 EC2 중지·시작](../../docs/operations/ec2-power.md)의 `power-all.ps1 -Action Stop` 또는 `-Action Start`를 사용한다.
+
 
 이 문서는 **infra.ps1** 명령어를 단어별로 읽는 방법과 각 계정에 배포할 자원, 실행 순서를 설명한다.
 2026-10-13의 [실행기](infra.ps1)와 [배치 설정](../config/topology.tfvars.json)을 기준으로 작성했다. 아래 표는 코드의 배포 대상이며, 실제 AWS에 생성됐다는 의미는 아니다.
@@ -9,6 +11,12 @@
 전체 준비 사항은 [공통 실행 안내](../infra.md), 구조와 역할은 [설계 문서](../terraform-restructure-plan.md), Windows 도구 설치는 [설치 안내](../setup-windows/setup-windows.md)를 참고한다.
 
 전체 삭제 명령은 [복원·운영 문서의 전체 삭제 절](../../docs/operations-recovery.md#6-전체-인프라-삭제)에 있다. 삭제 범위·Bastion 분리 등 최신 코드 탐색은 [라우팅 문서](../../docs/infra-routing/ROUTING-README.md)를 기준으로 확인한다.
+
+## 실행기 공통 처리
+
+환경 변수 보관·복원, AWS CLI 출력 수집, Terraform 저장 계획 읽기는 [공통 라이브러리](lib/infra-common.ps1)에 모았다. 각 실행기는 대상·명령 인수·오류 판정과 실행 순서를 담당한다. 명령어 사용법과 Plan/Apply 재검사 시점은 같다. 함수별 연결은 [공통 함수 지도](../../docs/infra-routing/scripts/lib/infra-common.ps1.md)를 따른다.
+
+실행 코드 변경 후에는 기존 저장 계획의 fingerprint가 달라지므로 Plan을 새로 생성해야 한다. 이는 기존 저장 계획 보호 규칙이다.
 
 ## 1. 명령어를 단어별로 읽기
 
@@ -31,7 +39,7 @@ Set-Location C:\third_project\aws-infra
 | `-Account` | 대상 계정을 선택하는 옵션 | 바로 뒤의 계정 키를 읽음 |
 | `account2` | 배치 설정에 있는 계정 키 | Account 2의 AWS 계정 ID·CLI 프로필을 선택 |
 | `-Stage` | 작업 묶음을 선택하는 옵션 | 바로 뒤의 단계 이름을 읽음 |
-| `workload` | 서버와 서비스 연결을 관리하는 단계 | Mongo-1·Spark-2·flatten-1, 해당 디스크·키페어·보안규칙 |
+| `workload` | 서버와 서비스 연결을 관리하는 단계 | Mongo-1·Spark-2, 해당 디스크·키페어·보안규칙 |
 | `-Action` | 수행할 동작을 선택하는 옵션 | 바로 뒤의 동작 이름을 읽음 |
 | `Plan` | 변경 계획 생성 | AWS 계정과 상태를 확인하고 계획 파일 저장. 자원 변경 적용은 하지 않음 |
 
@@ -45,10 +53,10 @@ Set-Location C:\third_project\aws-infra
 
 | `-Account` 값 | AWS 계정 ID | CLI 프로필 | VPC CIDR | workload의 서버 대상 |
 | --- | --- | --- | --- | --- |
-| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server — 4대 |
-| `account2` | `529088287882` | `account2` | `10.20.0.0/16` | mongo-1, spark-2, flatten-1 — 3대 |
-| `account3` | `667879771148` | `account3` | `10.30.0.0/16` | kafka-1, mysql-1, spark-1, mongo-2 — 4대 |
-| `account4` | `688567306400` | `account4` | `10.40.0.0/16` | kafka-2, mysql-3, spark-3 — 3대 |
+| `account1` | `541308265856` | `account1` | `10.10.0.0/16` | front-a, front-b, game-server, ad-server, flatten-1 — 5대 |
+| `account2` | `529088287882` | `account2` | `10.20.0.0/16` | mongo-1, spark-2 — 2대 |
+| `account3` | `667879771148` | `account3` | `10.30.0.0/16` | mysql-1, spark-1, mongo-2 — 3대 |
+| `account4` | `688567306400` | `account4` | `10.40.0.0/16` | kafka-1, kafka-2, mysql-3, spark-3 — 4대 |
 | `account5` | `217016296352` | `account5` | `10.50.0.0/16` | mysql-2, mongo-3, kafka-3 — 3대 |
 | `shared` | 단일 계정 없음 | 위 5개 프로필 | 5개 VPC 사이 연결 | 서버 생성 없이 Peering·상대 VPC 라우팅 관리 |
 
@@ -67,9 +75,9 @@ Set-Location C:\third_project\aws-infra
 | account1 | game-server | Private | A | t3.large | 없음 |
 | account2 | mongo-1 | Private | A | t3a.small | 900GiB |
 | account2 | spark-2 | Private | A | t3a.large | 100GiB |
-| account2 | flatten-1 | Private | A | t3a.medium | 없음 |
+| account1 | flatten-1 | Private | A | t3a.medium | 없음 |
 | account1 | ad-server | Private | A | t3.large | 없음 |
-| account3 | kafka-1 | Private | A | t3a.large | 200GiB |
+| account4 | kafka-1 | Private | A | t3a.large | 200GiB |
 | account3 | mysql-1 | Private | A | t3a.small | 100GiB |
 | account3 | spark-1 | Private | A | t3a.large | 100GiB |
 | account3 | mongo-2 | Private | A | t3a.small | 900GiB |
@@ -94,7 +102,7 @@ Set-Location C:\third_project\aws-infra
 | `connectivity` | `shared` | 설정된 계정 쌍의 Peering 요청·수락·양방향 라우팅 | 5개 계정의 foundation 적용 완료 |
 | `workload` | `account1`~`account5` 중 하나 | 그 계정의 보안그룹 규칙·EC2·EBS·키페어·공인 IP, 해당 시 ALB | 5개 foundation과 공통 connectivity 적용 완료, 해당 계정의 AMI·공개키 등 준비 |
 
-| `bastion` | `account1` | 선택 Bastion EC2·루트 디스크·전용 키페어. EIP 없음 | Account 1 foundation·workload의 SSH/Proxy 규칙, AMI·공개키 준비 |
+| `bastion` | `account1` | 선택 Bastion EC2·루트 디스크·전용 키페어·EIP·EIP 연결 | Account 1 foundation·workload의 SSH/Proxy 규칙, AMI·공개키 준비 |
 
 현재 설정에서는 Account 1만 Public 서브넷·IGW를 만들고, 모든 계정의 인터넷 송신 방식은 Proxy이므로 NAT는 생성하지 않는다. connectivity는 현재 설정된 10개 계정 쌍을 연결한다.
 
@@ -199,7 +207,7 @@ Account 1의 변경 계획을 만든다.
 
 ### 6-4. 각 계정의 workload
 
-아래는 Account 2 예시다. 대상 서버는 mongo-1·spark-2·flatten-1이며, 해당 계정의 보안규칙·키페어·설정된 데이터 디스크도 함께 계획한다.
+아래는 Account 2 예시다. 대상 서버는 mongo-1·spark-2이며, 해당 계정의 보안규칙·키페어·설정된 데이터 디스크도 함께 계획한다.
 
 ```powershell
 .\infra\scripts\infra.ps1 -Account account2 -Stage workload -Action Plan

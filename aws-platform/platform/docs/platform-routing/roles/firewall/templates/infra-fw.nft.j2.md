@@ -1,6 +1,6 @@
 # roles/firewall/templates/infra-fw.nft.j2
 
-account1_service_restricted 호스트는 SSH의 Bastion 전용 분기와 Front 80/443·Backend별 8000 분기를 사용하며 일반 firewall_rules를 중복 적용하지 않는다. 다른 계정의 렌더링은 기존 규칙과 동일하다.
+account1_service_restricted 호스트는 SSH의 Bastion 전용 분기와 Front 80/443·Backend별 8000(해당 Front·상대 Backend 사설 IP) 분기를 사용하며 일반 firewall_rules를 중복 적용하지 않는다. 다른 계정의 렌더링은 기존 규칙과 동일하다.
 
 [탐색 시작점](../../../../ROUTING-README.md) · [영역 안내](../README.md) · [원본 파일](../../../../../roles/firewall/templates/infra-fw.nft.j2)
 
@@ -19,6 +19,9 @@ account1_service_restricted 호스트는 SSH의 Bastion 전용 분기와 Front 8
 | ssh_ips &#124; unique &#124; join(', ') |
 | proxy_client_cidrs &#124; join(', ') |
 | proxy_port |
+| edge_https_allowed_cidrs &#124; join(', ') |
+| front_ips &#124; join(', ') |
+| peer_ips &#124; unique &#124; join(', ') |
 | g |
 | ips &#124; unique &#124; join(', ') |
 | rule.tcp_ports_from_anywhere &#124; join(', ') |
@@ -35,4 +38,6 @@ account1_service_restricted 호스트는 SSH의 Bastion 전용 분기와 Front 8
 
 ## Edge HTTPS 추가
 
-edge 그룹은 HTTP80을 모든 출처에 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.
+이전 edge 그룹은 일반 firewall_rules의 HTTP80 규칙과 edge_https_allowed_cidrs가 있는 경우의 HTTPS443 규칙을 사용한다. 목록이 없으면 이 분기에서 443을 열지 않는다. 현재 account1_service_restricted인 game_frontend·ad_frontend는 별도 분기에서 80·443을 허용한다. Nginx의 CIDR 검사와 HTTP 응답은 [edge 템플릿](../../edge/templates/nginx.conf.j2.md)에서 확인한다. edge_http_redirect=true이면 ACME 경로 외 요청을 HTTPS로 308 리다이렉트하고 false이면 404를 반환한다. 생성 Front 인벤토리는 true를 사용한다.
+
+Backend의 peer_ips는 상대 Backend 그룹의 실제 사설 IP를 합쳐 중복 제거한 값이다. 이 규칙은 해당 노드에서 Backend 8000으로 시작하는 새 연결을 허용한다. 응답 패킷은 체인 상단의 established,related에서 허용하므로 이 규칙을 응답용 역방향 허용으로 해석하지 않는다. 포트 허용만으로 TLS나 API 인증을 설정하지 않는다. AWS SG 변경은 [workload](../../../../../../../aws-infra/docs/infra-routing/terraform/stacks/workload.md)와 함께 대조한다.

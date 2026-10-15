@@ -87,7 +87,7 @@ $topologyConfig.topology.accounts.account1.ami_id
 
 ## 3. 테스트용 공인 IP 조회와 게임 접속 허용 설정
 
-현재 게임·광고 Front는 각각 TCP 80·443을 0.0.0.0/0에 공개한다. 공인 IP가 바뀌어도 웹 접속용 허용 목록을 갱신할 필요가 없다. Nginx·Certbot의 실제 설치와 Backend 응답은 [Front별 HTTPS 설치](deployment-runbook.md#front별-https-설치)에서 별도로 확인한다.
+현재 게임·광고 Front는 TCP 80을 0.0.0.0/0에 공개하고 TCP 443은 public_http_cidrs의 222.112.208.66~72, 7개 /32로 제한한다. 접속 출발지 공인 IP가 바뀌면 HTTPS 허용 목록 갱신이 필요하다. Nginx·Certbot의 실제 설치와 Backend 응답은 [Front별 HTTPS 설치](deployment-runbook.md#front별-https-설치)에서 별도로 확인한다.
 
 아래는 현재 PC의 공인 IPv4를 확인하는 명령이다. 설정 파일을 변경하지 않는다.
 
@@ -149,9 +149,29 @@ SSH 도달 실패는 전원 제어 결과와 별도로 경고하고 EC2를 유�
 
 필요한 EC2 권한은 DescribeInstances·DescribeInstanceStatus와 사용할 동작의 StartInstances·StopInstances다. Restart에는 두 변경 권한이 모두 필요하다. 함수와 예외 처리의 위치는 [배스천 라우팅 문서](infra-routing/scripts/bastion.ps1.md)에 정리했다.
 
+### Bastion에 고정 공인 IP 적용
+
+코드 수정만으로 AWS 주소가 바뀌지는 않는다. 기존 배포와 같은 구성 경로로 Bastion 단계의 새 Plan을 생성하고, EC2 교체 없이 EIP 생성·연결만 변경되는지 확인한 뒤 Apply한다. 다음은 profiles/current로 배포한 경우다.
+
+```powershell
+Set-Location C:\third-project\aws\aws-infra
+# 먼저 계획만 생성하고 기존 Bastion 교체·다른 변경이 없는지 확인한다.
+.\infra\scripts\deploy.ps1 -ProfileDirectory .\infra\config\profiles\current -Account account1 -Stage bastion -Action Plan
+```
+
+검토한 계획을 적용하고 현재 주소를 확인한다.
+
+```powershell
+# Apply가 실제 EIP 할당·연결을 수행한다.
+.\infra\scripts\deploy.ps1 -ProfileDirectory .\infra\config\profiles\current -Account account1 -Stage bastion -Action Apply
+.\infra\scripts\bastion.ps1 -Action Status
+```
+
+전체 인프라를 내릴 필요는 없다. 최초 연결 시 공인 IP가 바뀌므로 기존 SSH·터널이 끊길 수 있다. 새 주소로 재접속하고 같은 프로필의 Inventory를 갱신한다. EIP는 중지 중에도 할당을 유지하며, Bastion Delete/전체 삭제 시 함께 반환한다. 기존 IP 재사용·삭제 후 동일 IP 보존 기능은 아니다. 이전 비용 기록은 당시 자동 공인 IPv4 구성 기준이며, 적용 후 비용은 EIP 보유 시간을 기준으로 확인한다.
+
 ### 4.1 배스천 주소가 바뀐 뒤 다시 연결
 
-중지·시작 또는 재생성 뒤 공인·사설 주소가 바뀌었다면 Windows PowerShell에서 선택한 구성의 인벤토리를 갱신한다.
+Bastion EIP 적용 후 중지·시작에는 고정 공인 IP를 유지한다. 최초 EIP 전환이나 삭제 후 재생성으로 공인·사설 주소가 바뀌었다면 Windows PowerShell에서 선택한 구성의 인벤토리를 갱신한다.
 
 ```powershell
 # 현재 EC2 주소를 읽어 선택한 구성의 인벤토리를 다시 만든다.
@@ -303,7 +323,7 @@ Windows PowerShell과 배스천·프라이빗 EC2의 터미널을 먼저 구분�
 
 EC2 재생성이나 배스천 재시작 뒤에는 [4절 상태 확인](#4-배스천-상태-조회와-중지시작)과 [4.1절 주소 갱신](#41-배스천-주소가-바뀐-뒤-다시-연결)을 먼저 한다. 현재 PC가 다른 네트워크에 있다면 관리자 공인 IP 허용 범위를 대조한다.
 
-현재 Front 웹 80·443은 전체 공개이고, Bastion SSH는 admin_public_cidrs로 제한한다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과와 선택한 traffic의 관리자 목록을 대조하고, 변경 시 영향을 받는 계정 workload의 새 Plan을 검토한다. Account 1 네 서비스 SSH는 Bastion 경유를 유지한다.
+현재 Front 웹 80은 전체 IPv4 공개, 443은 222.112.208.66~72의 7개 /32로 제한하고, Bastion SSH는 admin_public_cidrs로 제한한다. [공인 IP 확인](#3-테스트용-공인-ip-조회와-게임-접속-허용-설정) 결과와 선택한 traffic의 관리자 목록을 대조하고, 변경 시 영향을 받는 계정 workload의 새 Plan을 검토한다. Account 1 네 서비스 SSH는 Bastion 경유를 유지한다.
 
 파일·권한·네트워크를 확인했는데 실제 등록 키 전환이 필요한 경우에만 [5절 키 전환](#5-계정별-새-ssh-키-준비와-기존-서버-등록)을 따른다. 복구 뒤 [WSL 접속 검사](deployment-runbook.md#73-wsl-실행-환경과-인벤토리-확인)에서 ping을 다시 확인한다.
 

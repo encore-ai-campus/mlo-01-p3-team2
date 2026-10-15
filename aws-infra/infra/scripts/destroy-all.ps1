@@ -48,17 +48,13 @@ $awsCommand = (Get-Command aws -CommandType Application -ErrorAction Stop | Sele
 $null = New-Item -ItemType Directory -Path $runsRoot -Force
 # 같은 PC에서 계획·삭제 작업이 겹치지 않게 한다. S3 상태 잠금은 Terraform이 별도로 사용한다.
 $operationLock = [IO.File]::Open((Join-Path $runsRoot 'operation.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
-$savedEnvironment = @{}
 $names = @('AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_SECURITY_TOKEN',
     'AWS_PROFILE','AWS_DEFAULT_PROFILE','AWS_REGION','AWS_DEFAULT_REGION','AWS_ROLE_ARN','AWS_WEB_IDENTITY_TOKEN_FILE',
     'AWS_ROLE_SESSION_NAME','AWS_CONTAINER_CREDENTIALS_RELATIVE_URI','AWS_CONTAINER_CREDENTIALS_FULL_URI',
     'AWS_CONTAINER_AUTHORIZATION_TOKEN','AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE','AWS_EC2_METADATA_DISABLED',
     'AWS_ENDPOINT_URL','AWS_ENDPOINT_URL_EC2','AWS_ENDPOINT_URL_STS','AWS_ENDPOINT_URL_S3','AWS_ENDPOINT_URL_ELASTIC_LOAD_BALANCING_V2',
     'AWS_IGNORE_CONFIGURED_ENDPOINT_URLS','AWS_PAGER','AWS_CLI_AUTO_PROMPT','AWS_MAX_ATTEMPTS')
-foreach ($name in $names) {
-    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
-}
+$savedEnvironment = Save-InfraEnvironment $names
 function Save-DestroyRun {
     # 중단되더라도 마지막으로 완성된 진행 기록을 읽을 수 있게 교체한다.
     $temporary = Join-Path $runPath 'run.tmp.json'
@@ -270,7 +266,7 @@ try {
             Save-DestroyRun
         }
     } finally {
-        foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process') }
+        Restore-InfraEnvironment $names $savedEnvironment
         $operationLock.Dispose()
     }
     if ($null -ne $restoreError) { throw $restoreError }

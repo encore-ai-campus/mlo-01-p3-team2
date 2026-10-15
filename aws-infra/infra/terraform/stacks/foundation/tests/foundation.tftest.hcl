@@ -12,7 +12,7 @@ run "account1_proxy" {
     error_message = "Proxy 기본값은 NAT 0개, Account 1 서브넷 4개여야 합니다."
   }
   assert {
-    condition     = toset(keys(output.foundation.sg_ids)) == toset(["ad", "bastion", "game_frontend", "ad_frontend", "game"])
+    condition     = toset(keys(output.foundation.sg_ids)) == toset(["ad", "bastion", "game_frontend", "ad_frontend", "game", "consumer"])
     error_message = "Account 1의 역할 SG가 잘못되었습니다."
   }
 }
@@ -24,8 +24,8 @@ run "account2_private" {
     error_message = "Account 2 기본 구성은 Private A·C만 만듭니다."
   }
   assert {
-    condition     = toset(keys(output.foundation.sg_ids)) == toset(["mongo", "spark", "consumer"])
-    error_message = "Account 2에는 mongo·spark와 평탄화 노드의 consumer SG가 있어야 합니다."
+    condition     = toset(keys(output.foundation.sg_ids)) == toset(["mongo", "spark"])
+    error_message = "Account 2에는 mongo·spark SG만가 있어야 합니다."
   }
 }
 run "nat_per_az" {

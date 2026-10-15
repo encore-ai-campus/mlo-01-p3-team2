@@ -14,7 +14,7 @@ function New-ConsoleDeleteTestPlan {
         resource_changes = @([pscustomobject]@{
             address = $Address
             mode = 'managed'
-            type = 'aws_vpc_security_group_ingress_rule'
+            type = $(if ($Address -like 'aws_vpc_security_group_egress_rule.*') { 'aws_vpc_security_group_egress_rule' } else { 'aws_vpc_security_group_ingress_rule' })
             change = [pscustomobject]@{
                 actions = @($Action)
                 before = [pscustomobject]@{
@@ -62,12 +62,25 @@ foreach ($role in @('ad', 'frontend', 'game', 'mysql', 'mongo', 'kafka', 'spark'
 }
 Assert-ConsoleDeleteTestAccepted 'aws_vpc_security_group_ingress_rule.bastion_console_ssh[0]'
 
+# 현재 workload가 관리하는 두 Front의 송신 규칙도 삭제할 수 있어야 한다.
+foreach ($role in @('game_frontend', 'ad_frontend')) {
+    $frontAddress = 'aws_vpc_security_group_egress_rule.front_all["' + $role + '"]'
+    Assert-ConsoleDeleteTestAccepted $frontAddress
+    Assert-ConsoleDeleteTestRejected (New-ConsoleDeleteTestPlan $frontAddress -Owner account2) '삭제 대상의 프로젝트·계정·관리 태그가 다릅니다:'
+    Assert-ConsoleDeleteTestRejected (New-ConsoleDeleteTestPlan $frontAddress -Action update) '삭제 계획에 생성·수정·교체·import가 포함됐습니다:'
+    Assert-ConsoleDeleteTestRejected (New-ConsoleDeleteTestPlan $frontAddress) '삭제 단계 밖의 자원입니다:' -Stage foundation
+}
+
 # 이름이 비슷한 다른 자원·잘못된 키·추가 주소·다른 단계까지 허용하지 않는다.
 foreach ($address in @(
     'aws_vpc_security_group_ingress_rule.service_console_ssh_backup["ad"]',
     'aws_vpc_security_group_ingress_rule.service_console_ssh[0]',
     'aws_vpc_security_group_ingress_rule.service_console_ssh["ad"].unrelated',
-    'aws_s3_bucket.unrelated'
+    'aws_s3_bucket.unrelated',
+    'aws_vpc_security_group_egress_rule.front_all["mysql"]',
+    'aws_vpc_security_group_egress_rule.front_all[0]',
+    'aws_vpc_security_group_egress_rule.front_all_backup["ad_frontend"]',
+    'aws_vpc_security_group_egress_rule.front_all["ad_frontend"].unrelated'
 )) {
     Assert-ConsoleDeleteTestRejected (New-ConsoleDeleteTestPlan $address) '삭제 단계 밖의 자원입니다:'
 }

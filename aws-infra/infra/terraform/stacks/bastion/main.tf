@@ -31,6 +31,6 @@ output "bastion" {
     condition = (local.node.account == var.account_key && local.node.role == "bastion" &&
       local.node.subnet_tier == "public" && local.node.az == "a" &&
     local.account.public_subnets && local.node.public_ip && length(local.node.data_disks) == 0)
-    error_message = "Bastion은 Account 1 Public A·자동 공인 IP·OS 디스크만 사용하는 구성이어야 합니다."
+    error_message = "Bastion은 Account 1 Public A·공인 IP 활성화·OS 디스크만 사용하는 구성이어야 합니다. 공인 주소는 전용 EIP로 고정합니다."
   }
 }

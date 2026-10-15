@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# 다른 디스크나 루트 파일시스템의 빈 DB로 기동하는 것을 방지한다.
+expected={{ mysql_recovery_disk.stdout | trim | quote }}
+test "$(findmnt -n -M {{ mysql_recovery_data_mount | quote }} -o UUID)" = "$expected"
+mountpoint -q /var/lib/mysql
+test "$(findmnt -n -T /var/lib/mysql -o UUID)" = "$expected"

@@ -45,6 +45,13 @@ table inet infra_fw {
 {% if front_ips | length > 0 %}
     ip saddr { {{ front_ips | join(', ') }} } tcp dport 8000 accept
 {% endif %}
+    # 상대 Backend의 API 요청만 허용한다. DB·Kafka 응답은 established로 처리한다.
+{% set peer_group = 'ad' if 'game' in group_names else 'game' %}
+{% set peer_hosts = groups.get(peer_group, []) %}
+{% set peer_ips = peer_hosts | map('extract', hostvars, 'ip') | list %}
+{% if peer_ips | length > 0 %}
+    ip saddr { {{ peer_ips | unique | join(', ') }} } tcp dport 8000 accept
+{% endif %}
 {% endif %}
 {% endif %}
 {% for g in group_names if g in firewall_rules and not restricted %}

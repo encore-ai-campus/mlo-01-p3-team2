@@ -54,7 +54,7 @@ override_data {
 run "account1_default_closed" {
   state_key = "account1"
   command   = apply
-  # Front의 공개 80/443은 ALB 및 기존 사용자 CIDR과 독립적이다.
+  # 빈 허용 목록이면 HTTPS는 닫고 인증서 검증용 HTTP만 허용한다.
   variables {
     traffic = merge(var.traffic, { admin_public_cidrs = [], game_client_cidrs = ["203.0.113.10/32"], public_http_cidrs = [] })
   }
@@ -64,9 +64,10 @@ run "account1_default_closed" {
     error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
   }
   assert {
-    condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server"]) &&
-    length(module.rules.public_ingress) == 4 && alltrue([for rule in values(module.rules.public_ingress) : contains([80, 443], rule.port) && rule.cidr == "0.0.0.0/0"]))
-    error_message = "Account 1 서비스 4대와 Front별 공개 80/443만 유지해야 합니다."
+    condition = (toset(keys(output.inventory.instances)) == toset(["front-a", "front-b", "game-server", "ad-server", "flatten-1"]) &&
+      toset(keys(module.rules.public_ingress)) == toset(["game_frontend/80/0.0.0.0/0", "ad_frontend/80/0.0.0.0/0"]) &&
+    alltrue([for rule in values(module.rules.public_ingress) : rule.port == 80 && rule.cidr == "0.0.0.0/0"]))
+    error_message = "Account 1 서비스 5대는 유지하고 빈 허용 목록에서는 인증서 검증용 Front 80번만 공개해야 합니다."
   }
   # 기존 foundation 상태에 ALB SG가 남아 있어도 ALB와 전용 연결은 생성하지 않는다.
   assert {
@@ -86,12 +87,12 @@ run "account1_default_closed" {
     error_message = "Front에서 게임·광고로 전달하는 기존 TCP 8000 연결은 유지해야 합니다."
   }
   assert {
-    condition = (module.rules.egress["account1/game/account3/kafka/9092"].peer_id ==
-    "${var.topology.accounts.account3.id}/${jsondecode(file("../../../tests/fixtures.json")).foundations.account3.sg_ids.kafka}")
+    condition = (module.rules.egress["account1/game/account4/kafka/9092"].peer_id ==
+    "${var.topology.accounts.account4.id}/${jsondecode(file("../../../tests/fixtures.json")).foundations.account4.sg_ids.kafka}")
     error_message = "game→Kafka는 해당 계정의 Kafka SG를 참조해야 합니다."
   }
 }
-run "account2_three_nodes" {
+run "account2_two_nodes" {
   state_key = "account2"
   command   = apply
   variables { account_key = "account2" }
@@ -101,12 +102,12 @@ run "account2_three_nodes" {
     error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
   }
   assert {
-    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2", "flatten-1"]) &&
+    condition = (toset(keys(output.inventory.instances)) == toset(["mongo-1", "spark-2"]) &&
     output.inventory.alb_dns_name == null)
     error_message = "Account 2의 서버 배치 또는 ALB 범위가 잘못되었습니다."
   }
 }
-run "account3_four_nodes" {
+run "account3_three_nodes" {
   state_key = "account3"
   command   = apply
   variables { account_key = "account3" }
@@ -116,11 +117,11 @@ run "account3_four_nodes" {
     error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
   }
   assert {
-    condition     = toset(keys(output.inventory.instances)) == toset(["kafka-1", "mysql-1", "spark-1", "mongo-2"])
+    condition     = toset(keys(output.inventory.instances)) == toset(["mysql-1", "spark-1", "mongo-2"])
     error_message = "Account 3의 서버 배치가 잘못되었습니다."
   }
 }
-run "account4_three_nodes" {
+run "account4_four_nodes" {
   state_key = "account4"
   command   = apply
   variables { account_key = "account4" }
@@ -130,8 +131,18 @@ run "account4_three_nodes" {
     error_message = "모든 서비스 노드는 논리 A(apne2-az1)를 사용해야 합니다."
   }
   assert {
-    condition     = toset(keys(output.inventory.instances)) == toset(["kafka-2", "spark-3", "mysql-3"])
+    condition     = toset(keys(output.inventory.instances)) == toset(["kafka-1", "kafka-2", "spark-3", "mysql-3"])
     error_message = "Account 4의 서버 배치가 잘못되었습니다."
+  }
+  # 같은 계정의 브로커 두 대가 SG를 공유해도 broker·controller 통신을 허용한다.
+  assert {
+    condition = (
+      module.rules.ingress["account4/kafka/account4/kafka/9092"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account4.sg_ids.kafka &&
+      module.rules.ingress["account4/kafka/account4/kafka/9093"].peer_id == jsondecode(file("../../../tests/fixtures.json")).foundations.account4.sg_ids.kafka &&
+      !contains(module.model.roles["account3"], "kafka") &&
+      !contains(module.model.roles["account2"], "consumer")
+    )
+    error_message = "Account 4 Kafka 자체 통신을 유지하고 이전 계정의 Kafka·Consumer 역할을 제거해야 합니다."
   }
 }
 run "account5_three_nodes" {
@@ -171,8 +182,8 @@ run "account1_without_alb_sg" {
     }) } }
   }
   assert {
-    condition     = length(module.alb) == 0 && output.inventory.alb_dns_name == null && length(output.inventory.instances) == 4
-    error_message = "ALB SG 제거 후에도 서비스 서버 4대를 유지해야 합니다."
+    condition     = length(module.alb) == 0 && output.inventory.alb_dns_name == null && length(output.inventory.instances) == 5
+    error_message = "ALB SG 제거 후에도 서비스 서버 5대를 유지해야 합니다."
   }
 }
 

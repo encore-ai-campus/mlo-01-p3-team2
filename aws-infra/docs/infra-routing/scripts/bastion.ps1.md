@@ -1,5 +1,7 @@
 # infra/scripts/bastion.ps1
 
+환경 변수 저장·복원은 infra-common.ps1의 Save-InfraEnvironment / Restore-InfraEnvironment를 사용한다. Invoke-BastionAws의 출력 수집은 Invoke-InfraCapturedCommand가 담당하며, 기존 제한 시간·DryRun 판정·오류 메시지는 이 실행기에 유지한다.
+
 [탐색 시작점](../ROUTING-README.md) · [원본 스크립트](../../../infra/scripts/bastion.ps1) · [실행 안내](../../operations-recovery.md#4-배스천-상태-조회와-중지시작) · [전용 Terraform 단계](../terraform/stacks/bastion.md)
 
 ## 역할과 입력
@@ -66,6 +68,6 @@ PowerShell 5.1과 7.6에서 실제 AWS CLI를 가짜 응답 함수로 대체한 
 
 위 모의 실행·루프백 결과는 기존 문서의 기록이다. 이번 문서 대조에서는 다시 실행하지 않았고, 검증용 추가 파일이 보관돼 있지 않아 그 기록을 독립적으로 재확인한 결과로 취급하지 않는다. 현재 함수·매개변수·태그 선택·상태 처리 구조는 원본 PowerShell과 직접 대조했다.
 
-현재 admin_public_cidrs에는 관리자 CIDR 한 항목이 있고, workload에는 Bastion SG의 콘솔 접속용 EC2 Instance Connect 접두사 목록 TCP 22 규칙도 있다. 이 스크립트는 SSH 규칙을 직접 추가하지 않는다. workload는 Bastion EC2를 제외한다. Stop은 같은 EC2를 중지하고 OS 디스크를 유지한다. EC2·OS 디스크·전용 키페어를 제거하려면 PlanDelete 검토 후 Delete를 사용한다. 자동 공인 IP이므로 생성·재생성·중지 후 시작마다 현재 주소를 확인한다. Proxy 설치와 팀원 공개키 추가는 새 서버에 다시 준비해야 한다.
+현재 admin_public_cidrs에는 관리자 CIDR 한 항목이 있고, workload에는 Bastion SG의 콘솔 접속용 EC2 Instance Connect 접두사 목록 TCP 22 규칙도 있다. 이 스크립트는 SSH 규칙을 직접 추가하지 않는다. workload는 Bastion EC2를 제외한다. Stop은 같은 EC2를 중지하고 OS 디스크를 유지한다. EC2·OS 디스크·전용 키페어·EIP를 제거하려면 PlanDelete 검토 후 Delete를 사용한다. EIP 적용 후에는 중지·시작 동안 주소를 유지한다. 최초 EIP 전환 및 Delete 후 재생성 시에는 현재 주소를 확인한다. Proxy 설치와 팀원 공개키 추가는 새 서버에 다시 준비해야 한다.
 
 스크립트 실행법은 위 실행 안내에서 관리한다. 실제 AWS 기동·중지, IAM 권한, SSH 연결 및 Proxy 복구는 별도 운영 검증 대상이다.

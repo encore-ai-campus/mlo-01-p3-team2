@@ -1,5 +1,7 @@
 # 계정별 SSH 키 준비·등록
 
+infra-common.ps1을 로드하고 Invoke-KeyAws에서 Invoke-InfraCapturedCommand로 CLI 출력·종료 코드를 수집한다. 프로필·리전·제한 시간과 오류 메시지·JSON 변환은 Invoke-KeyAws가 담당한다.
+
 대상 코드는 [account-keys.ps1](../../../infra/scripts/account-keys.ps1)이다. PowerShell 5.1 이상에서 실행한다. 실제 AWS 등록 성공을 기록한 문서는 아니다.
 
 ## 입력과 키 배치

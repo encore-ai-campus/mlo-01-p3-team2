@@ -6,6 +6,10 @@ PowerShell 5.1 공통 함수 모음이다. 아래 선언은 원본 PowerShell을
 
 | 함수 | param 선언 | 역할 |
 | --- | --- | --- |
+| Save-InfraEnvironment | ([string[]]$Names) | 지정한 프로세스 환경 변수의 기존 값을 보관하고 해제. 호출부별 목록·순서를 유지 |
+| Restore-InfraEnvironment | ([string[]]$Names, [hashtable]$Saved) | 호출부의 finally에서 기존 환경 복원 |
+| Invoke-InfraCapturedCommand | ([string]$Command, [string[]]$Arguments) | 네이티브 stdout·stderr를 Text로 모으고 ExitCode와 반환. 오류 판정·JSON 변환은 호출부 담당 |
+| Read-InfraTerraformPlan | ([string]$Command, [string]$Directory, [string]$Path, [string]$FailureMessage) | terraform show -json 실행·종료 코드 확인·JSON 변환. 호출마다 재조회하고 호출부 오류 메시지 유지 |
 | Read-InfraJson | ([string]$Path) | 파일을 읽어 ConvertFrom-Json 결과 반환 |
 | Get-InfraFileHash | ([string]$Path) | 파일 바이트의 SHA-256을 계산하고 스트림·알고리즘 객체 정리 |
 | Write-InfraJson | ([string]$Path, $Value) | 깊이 30의 JSON을 UTF-8 BOM 없이 저장 |
@@ -15,6 +19,13 @@ PowerShell 5.1 공통 함수 모음이다. 아래 선언은 원본 PowerShell을
 | Get-InfraWorkPath | ([string]$Root, [string]$Account, [string]$Stage, [string]$ConfigurationDirectory) | 기본 경로는 유지하고 별도 구성의 로컬 Plan·출력 경로를 구성 경로 해시로 분리 |
 | Get-InfraFingerprint | ([string]$Root, [string]$PublicKeyPath, [string]$ConfigurationDirectory) | 배포 입력 파일 목록과 각 해시를 합쳐 전체 fingerprint 생성 |
 | Assert-InfraBastionPlan | ($Plan, [ValidateSet('Create','Delete')][string]$Mode, [string]$Account, [string]$Project) | Bastion 전용 자원·변경 종류·기존 자원 태그 검사 |
+
+## 공통 처리 호출 관계
+
+- 환경 저장·복원: infra.ps1, bastion.ps1, destroy-all.ps1. 각 실행기의 환경 변수 목록과 finally 시점은 호출부가 결정한다.
+- CLI 출력 수집: Invoke-BastionAws, Invoke-PowerAws, Invoke-KeyAws, Invoke-InfraDestroyAws. 명령 인수·제한 시간·DryRunOperation·허용된 없음 오류·오류 메시지는 각 래퍼가 결정한다.
+- 저장 계획 읽기: Get-SavedDeleteSummary, Assert-SavedBastionPlan, Assert-SavedEdgePlan. Plan 직후와 Apply 직전 검사를 모두 유지하며 캐시하지 않는다.
+- 회귀 검사: [test_common.ps1](../../../../infra/tests/test_common.ps1). 환경 복원, 네이티브 오류 수집, 계획 재읽기를 로컬에서 검사한다.
 
 ## 설정 검사의 범위
 
@@ -36,7 +47,7 @@ Markdown, 로컬 상태·계획·캐시, .tftest.hcl, prepare-key.sh, 설치 스
 
 ## Bastion 저장 계획 검사
 
-Assert-InfraBastionPlan은 planned_values·prior_state와 resource_changes를 대조한다. 허용하는 managed 주소는 module.model.terraform_data.configuration, module.bastion.aws_instance.this, module.bastion.aws_key_pair.this뿐이다. Create는 no-op/create/update, Delete는 no-op/delete만 허용하고 교체·import·deferred 변경은 거부한다. 기존 EC2·키페어의 Project·Account·Stage=bastion 태그도 검사한다.
+Assert-InfraBastionPlan은 planned_values·prior_state와 resource_changes를 대조한다. 허용하는 managed 주소는 module.model.terraform_data.configuration, module.bastion.aws_instance.this, module.bastion.aws_key_pair.this, module.bastion.aws_eip.this, module.bastion.aws_eip_association.this다. Create는 no-op/create/update, Delete는 no-op/delete만 허용하고 교체·import·deferred 변경은 거부한다. 기존 EC2·키페어·EIP의 Project·Account·Stage=bastion 태그도 검사한다.
 
 실제 AWS에서 전용 상태 밖의 기존 Bastion을 찾는 검사는 호출자인 [infra.ps1](../infra.ps1.md)의 Assert-SavedBastionPlan이 담당한다. 기존 workload 자원의 자동 이관 기능은 아니다.
 

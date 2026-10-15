@@ -6,15 +6,17 @@
 
 mongodb 그룹. 첫 번째 노드에서 초기화와 계정 작업을 한다.
 
-커널 처리, 저장소, keyfile, 계정, 복제 초기화 문제를 찾을 때 사용한다.
+커널 처리, 저장소, 데이터 디렉터리 쓰기 권한, keyfile, 계정, 복제 초기화 문제를 찾을 때 사용한다.
 
 ## 현재 작업 흐름
 
-Secret·내부 값 → OS 변수·Ubuntu 커널 조건 → 저장소·설치 → keyfile·mongod 설정 → 초기화·계정 → 노드·복제 검증
+Secret·내부 값 → OS 변수·Ubuntu 커널 조건 → 저장소·설치 → 데이터 디렉터리 소유권·0755 설정 → keyfile·mongod 설정 → 초기화·계정 → 노드·복제 검증
 
 ## 구현 조건
 
 문서상 지원은 1 또는 3대지만 코드 분기는 그룹 크기 > 1이다. 커널 변경·재부팅은 Ubuntu에서 현재 커널이 mongodb_kernel_blocked_from 이상일 때만 수행한다. 외부 호환성 주장 자체는 이번 작업에서 검증하지 않았다.
+
+별도 EBS는 먼저 mongodb_data_dir에 마운트한다. 역할은 해당 디렉터리의 소유자·그룹을 OS별 MongoDB 서비스 계정으로 맞추지만 포맷·마운트·데이터 이전은 하지 않는다. 하위 파일의 소유권도 재귀적으로 변경하지 않는다. 작업 위치와 조건은 [main.yml의 데이터 경로 안내](tasks/main.yml.md#데이터-경로와-ebs-경계)에서 확인한다.
 
 ## 경로별 문서
 
@@ -23,7 +25,7 @@ Secret·내부 값 → OS 변수·Ubuntu 커널 조건 → 저장소·설치 →
 | roles/mongodb/defaults/main.yml | [main.yml](defaults/main.yml.md) | MongoDB 설치·인증·Replica Set의 기본 변수다. 인벤토리 또는 실행 변수에서 조정할 값을 찾는다. |
 | roles/mongodb/handlers/main.yml | [main.yml](handlers/main.yml.md) | notify로 요청한 서비스 reload/restart를 처리한다. 호출 작업의 flush_handlers 위치도 함께 확인한다. |
 | roles/mongodb/tasks/kernel-debian.yml | [kernel-debian.yml](tasks/kernel-debian.yml.md) | 현재 커널이 기본 기준 6.19 이상이면 GA 커널 패키지를 설치하고 기존 HWE 커널을 제거한 뒤 재부팅·재확인한다. |
-| roles/mongodb/tasks/main.yml | [main.yml](tasks/main.yml.md) | Secret·RAM 캐시·URI를 계산하고 OS별 설치·인증·초기화·계정·검증을 연결한다. |
+| roles/mongodb/tasks/main.yml | [main.yml](tasks/main.yml.md) | Secret·RAM 캐시·URI 계산, OS별 설치, 데이터 디렉터리 권한, 인증·초기화·계정·검증을 연결한다. |
 | roles/mongodb/tasks/repo-debian.yml | [repo-debian.yml](tasks/repo-debian.yml.md) | MongoDB APT 저장소·GPG 키로 pkg/apt_repo를 호출한다. |
 | roles/mongodb/tasks/repo-redhat.yml | [repo-redhat.yml](tasks/repo-redhat.yml.md) | MongoDB RPM 키 등록 여부를 확인하고 Yum 저장소를 등록한다. |
 | roles/mongodb/tasks/verify.yml | [verify.yml](tasks/verify.yml.md) | 모든 노드의 인증·계정 권한과 첫 노드의 Replica Set 멤버 상태·실제 복제를 확인한다. |

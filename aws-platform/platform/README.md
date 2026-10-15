@@ -10,7 +10,7 @@
 
 MySQL 역할은 전체 mysql 그룹 3~9대의 단일 Primary InnoDB Cluster를 구축한다. Group Replication의 MYSQL 통신 스택(기본 3306)과 자동 Primary 선출을 사용하며, game·spark·backend의 기존 서버에 로컬 MySQL Router를 설치·bootstrap·서비스 실행한다. 앱의 읽기·쓰기 접속은 기본 127.0.0.1:6446, 읽기 전용은 6447이다. 공유 설정은 [MySQL·Router 변수 지도](docs/platform-routing/inventory/group_vars/all/mysql.yml.md)에 있다. 설치 경계는 [MySQL 역할](docs/platform-routing/roles/mysql/README.md)과 [backend 역할의 Router](docs/platform-routing/roles/backend/README.md)를 따른다.
 
-기본 및 `profiles/current` 배포 프로필에는 MySQL EC2 3대(mysql-1/account3, mysql-2/account5, mysql-3/account4)가 정의되어 있고 서비스 EC2는 총 17대다. 선택 Bastion은 별도다. 다만 현재 `inventory/hosts.current.yml`은 이전 생성본이라 mysql-1·mysql-2만 포함한다. 최신 `deploy.ps1 -Action Inventory` 갱신은 kafka-1이 실행 중이 아니라는 검사에서 중단되어 아직 새 인벤토리를 만들지 못했다. [배포 절차의 Inventory 단계](../../aws-infra/docs/deployment-runbook.md#6-현재-ec2-주소로-인벤토리-생성)를 완료한 뒤 `mysql` 그룹에 세 노드가 모두 있는지 확인하기 전에는 Cluster 역할을 실행하지 않는다. 프로필의 3대 구성은 실제 MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. 기존 ReplicaSet의 데이터 이전은 별도 계획으로 진행하며 이 역할은 기존 메타데이터를 삭제해 자동 전환하지 않는다.
+기본 및 `profiles/current` 배포 프로필에는 MySQL EC2 3대(mysql-1/account3, mysql-2/account5, mysql-3/account4)가 정의되어 있고 서비스 EC2는 총 17대다. 선택 Bastion은 별도다. 2026-10-13 로컬 확인 기준으로 `inventory/hosts.current.yml`에는 mysql-1·mysql-2·mysql-3와 Front별 그룹 `game_frontend`·`ad_frontend`가 포함되어 있다. `ansible.cfg`는 이 파일을 기본 인벤토리로 사용한다. 서버를 생성·교체하거나 주소가 바뀌면 [배포 절차의 Inventory 단계](../../aws-infra/docs/deployment-runbook.md#6-현재-ec2-주소로-인벤토리-생성)로 갱신하고 대상 그룹과 접속을 확인한다. 인벤토리 등록은 실제 EC2 가동·MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. 기존 ReplicaSet의 데이터 이전은 별도 계획으로 진행하며 이 역할은 기존 메타데이터를 삭제해 자동 전환하지 않는다.
 
 MySQL 설치 후 Router 역할을 실행한다. 아래 명령은 운영자가 준비 조건을 확인한 뒤 실행하는 명령이며 이번 작업에서는 EC2에 실행하지 않았다.
 
@@ -34,7 +34,7 @@ Spark 연동 테스트는 MYSQL_HOST=127.0.0.1과 MYSQL_PORT=6446을 사용한�
 
 ## 구현 상태와 과거 검증
 
-아래 표는 기존 구현 당시의 실험 기록이다. 현재 aws-infra에서 생성한 서버의 설치 완료를 뜻하지 않으며, 2026-10-10의 Proxy·Spark 포트 변경을 원격 재검증한 결과도 아니다. 기본 배포 프로필은 MySQL 3·MongoDB 3·Kafka 3·Spark/ZooKeeper 3·Front 2·game 1·ad 1·평탄화 Consumer 1로 서비스 EC2 17대를 정의한다. 선택 Bastion은 별도이며 backend·monitoring 그룹은 생성 인벤토리에 없을 수 있다. 현재 로컬 인벤토리가 이 프로필을 아직 반영하지 못한 상태는 아래 최신 검증 기록을 따른다.
+아래 표는 기존 구현 당시의 실험 기록이다. 현재 aws-infra에서 생성한 서버의 설치 완료를 뜻하지 않으며, 2026-10-10의 Proxy·Spark 포트 변경을 원격 재검증한 결과도 아니다. 기본 배포 프로필은 MySQL 3·MongoDB 3·Kafka 3·Spark/ZooKeeper 3·Front 2·game 1·ad 1·평탄화 Consumer 1로 서비스 EC2 17대를 정의한다. 선택 Bastion은 별도이며 backend·monitoring 그룹은 생성 인벤토리에 없을 수 있다. 로컬 인벤토리와 문법 검사의 최신 확인 범위는 [검증 기록](docs/platform-routing/verification.md)을 따른다.
 
 | 단계 | 상태 |
 |---|---|
@@ -51,7 +51,7 @@ Spark 연동 테스트는 MYSQL_HOST=127.0.0.1과 MYSQL_PORT=6446을 사용한�
 
 ## 실행
 
-운영 PC의 WSL에서 준비한 Ansible 가상환경을 활성화한다. 생성한 인벤토리는 해당 배포 프로필의 파일을 선택한다. 수동 인벤토리를 쓰면 [예시](inventory/hosts.example.yml)를 참고해 hosts.yml을 별도로 작성한다.
+운영 PC의 WSL에서 준비한 Ansible 가상환경을 활성화한다. `ansible.cfg`의 기본 인벤토리는 `inventory/hosts.current.yml`이다. 이 파일이 없는 새 체크아웃에서는 먼저 해당 프로필의 Inventory를 생성한다. 다른 프로필·팀 접속용·수동 인벤토리를 쓰면 `-i`로 파일을 명시한다. 수동 인벤토리는 [예시](inventory/hosts.example.yml)를 참고해 별도로 작성하되 MySQL 3~9대와 HTTPS 대상 그룹 `edge`·`game_frontend`·`ad_frontend`를 구성한다. 기존 `hosts.yml`은 자동으로 읽지 않는다.
 
 ```bash
 cd /mnt/c/third_project/aws-platform/platform
@@ -75,7 +75,7 @@ ansible-playbook -i "$inventoryFile" site.yml --tags zookeeper,spark --limit spa
 ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --limit 'game:spark:backend' --ask-vault-pass
 ```
 
-각 실행의 failed=0·unreachable=0과 역할별 DB 복제·Kafka 송수신·ZooKeeper ensemble·Spark Worker 등록·작업 검증을 확인한다. 전체 실행은 MySQL 3~9대와 인벤토리의 역할·방화벽을 모두 준비한 경우에만 `ansible-playbook -i "$inventoryFile" site.yml --ask-vault-pass`로 진행한다. game·ad 앱과 flatten-1 Consumer 프로그램은 별도 배포한다. 기본 프로필에는 MySQL 세 대가 정의되어 있지만, 현재 인벤토리를 갱신하고 세 노드가 확인되기 전에는 MySQL Cluster 작업을 실행하지 않는다.
+각 실행의 failed=0·unreachable=0과 역할별 DB 복제·Kafka 송수신·ZooKeeper ensemble·Spark Worker 등록·작업 검증을 확인한다. 전체 실행은 MySQL 3~9대와 인벤토리의 역할·방화벽을 모두 준비한 경우에만 `ansible-playbook -i "$inventoryFile" site.yml --ask-vault-pass`로 진행한다. game·ad 앱과 flatten-1 Consumer 프로그램은 별도 배포한다. MySQL Cluster 작업 전에는 선택한 인벤토리의 전체 mysql 그룹과 실제 서버 접속 상태를 확인한다.
 
 ## 알아 둘 것
 
@@ -148,6 +148,8 @@ bash /mnt/c/third_project/aws-platform/platform/scripts/setup-proxy.sh \
 ~~~
 
 대상 확인·문법 검사 → SSH 확인 → 새 배스천의 Squid 설치와 접근 규칙 → 배스천 APT·방화벽 → 대상 서버의 APT·다운로드 검사 순서다. 대상 그룹에 배스천을 넣지 않아도 공용 배스천은 준비한다. 실패하면 다음 단계로 넘어가지 않는다.
+
+암호화된 Vault 변수를 사용하면 위 명령에 `--ask-vault-pass`를 추가한다. PowerShell의 `deploy.ps1 -Action Proxy` 또는 `-Action Deploy`에서는 `-AskVaultPass`를 추가한다. 각 Ansible 명령에서 Vault 암호를 입력하며, 스크립트는 암호를 저장하지 않는다. 옵션을 생략하면 기존 Ansible Vault 설정을 사용한다.
 
 계정별 서버 수·EC2 크기·배치를 바꾸고 생성부터 연결하려면 [배포 실행 안내](../../aws-infra/README.md)의 deploy.ps1을 사용한다. 구성별 topology·traffic과 플랫폼 연결 설정을 선택하고, 현재 IP로 만든 hosts.구성이름.yml을 이 스크립트에 전달한다.
 

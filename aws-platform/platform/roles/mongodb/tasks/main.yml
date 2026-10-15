@@ -46,6 +46,15 @@
     pkg_names: "{{ mongodb_packages }}"
 
 # --- 설정과 시작 ---
+# 별도 EBS를 미리 마운트한 경우에도 MongoDB가 데이터 경로에 쓸 수 있어야 한다.
+- name: 데이터 디렉터리 소유권 설정
+  ansible.builtin.file:
+    path: "{{ mongodb_data_dir }}"
+    state: directory
+    owner: "{{ mongodb_user }}"
+    group: "{{ mongodb_group }}"
+    mode: "0755"
+
 - name: keyfile 배포
   ansible.builtin.copy:
     content: "{{ vault_mongodb_keyfile }}"

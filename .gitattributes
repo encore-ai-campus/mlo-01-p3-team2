@@ -1,3 +1,6 @@
-# Windows에서 체크아웃해도 WSL과 Ubuntu가 실행할 두 스크립트는 LF를 유지한다.
+# Windows에서 체크아웃해도 WSL과 Ubuntu가 실행할 셸 스크립트는 LF를 유지한다.
 /aws-platform/platform/scripts/setup-proxy.sh text eol=lf
 /aws-platform/platform/scripts/install-squid.sh text eol=lf
+/aws-platform/platform/roles/monitoring/files/*.sh text eol=lf
+/aws-platform/platform/roles/mysql_recovery/files/*.js text eol=lf
+/aws-platform/platform/roles/mysql_recovery/templates/*.j2 text eol=lf
