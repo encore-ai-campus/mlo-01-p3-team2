@@ -17,25 +17,23 @@ class SingleLoginSocketTests(TransactionTestCase):
             await old.receive_json_from()
             await old_tab.receive_json_from()
             await observer.receive_json_from()
-            await old.receive_json_from()  # tab join
-            await old.receive_json_from()  # observer join
+            self.assertEqual((await old.receive_output())["code"],4409)
             await old_tab.receive_json_from()
             position = self.movement(x=1720.25, y=455.5)
-            await old.send_json_to(position)
-            await old_tab.receive_json_from()
+            await old_tab.send_json_to(position)
             await observer.receive_json_from()
-            await old.send_json_to({"type": "ping"})
-            await old.receive_json_from()
+            await old_tab.send_json_to({"type": "ping"})
+            await old_tab.receive_json_from()
 
             new = Client()
             response = await database_sync_to_async(new.post)("/accounts/login/", {
                 "username": "alice", "password": "Test!River4820",
             })
             self.assertEqual(response.status_code, 302)
-            for ws in (old, old_tab):
+            for ws in (old_tab,):
                 self.assertEqual(await ws.receive_json_from(), {"type": "session_expired", "reason": "replaced"})
                 self.assertEqual((await ws.receive_output())["code"], 4401)
-            for _ in range(2):
+            for _ in range(1):
                 self.assertEqual((await observer.receive_json_from())["type"], "leave")
             stale_key = self.a.cookies["campus_sessionid"].value
             self.assertFalse(await database_sync_to_async(Session.objects.filter(pk=stale_key).exists)())

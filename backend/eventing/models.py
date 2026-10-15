@@ -3,6 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from config.fields import LosslessJSONField
 
 
 class ClassGroup(models.Model):
@@ -91,9 +92,9 @@ class EventOutbox(models.Model):
     event_type = models.CharField(max_length=64)
     topic = models.CharField(max_length=64)
     message_key = models.UUIDField()
-    raw_data = models.JSONField()
+    raw_data = LosslessJSONField()
     occurred_at = models.DateTimeField()
-    payload_json = models.JSONField(null=True, blank=True)
+    payload_json = LosslessJSONField(null=True, blank=True)
     retry_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     published_at = models.DateTimeField(null=True, blank=True)

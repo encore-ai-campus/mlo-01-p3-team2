@@ -84,3 +84,12 @@ class SurveyAttempt(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=("event", "user"), name="raffle_one_survey_per_account")]
         indexes = [models.Index(fields=("event", "status"), name="raffle_pending_surveys")]
+
+
+class WinnerContact(models.Model):
+    """One private contact image shared by prize winners; never a public static asset."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    image_png = models.BinaryField(editable=False)
+    byte_count = models.PositiveIntegerField(default=0, editable=False)
+    version = models.UUIDField(default=uuid4, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)

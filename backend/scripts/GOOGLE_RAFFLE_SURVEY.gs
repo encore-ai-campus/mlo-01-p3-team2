@@ -7,6 +7,13 @@
  */
 const RAFFLE_FORM_ID = '117DNOSfnLfgmBkv-DkWruqjXKeuFQe--UbeeEg2L34c';
 const RAFFLE_TOKEN_TITLE = '이벤트 참가 확인 코드';
+const RAFFLE_EMAIL_TITLE = '1. 귀하의 이메일을 입력하세요';
+
+function prepareWinnerOnlyContact_(form) {
+  // Only remove the verified prize-delivery question; keep other items and token identity.
+  form.setCollectEmail(false);
+  form.getItems().filter(item => item.getTitle().trim() === RAFFLE_EMAIL_TITLE).forEach(item => form.deleteItem(item));
+}
 
 function setupRaffleSurvey() {
   const lock = LockService.getScriptLock();
@@ -14,6 +21,7 @@ function setupRaffleSurvey() {
   try {
     const properties = PropertiesService.getScriptProperties();
     const form = FormApp.openById(RAFFLE_FORM_ID);
+    prepareWinnerOnlyContact_(form);
     const savedItem = properties.getProperty('RAFFLE_TOKEN_ITEM_ID');
     let item = savedItem ? form.getItems(FormApp.ItemType.TEXT).find(x => String(x.getId()) === savedItem) : null;
     if (!item) item = form.getItems(FormApp.ItemType.TEXT).find(x => x.getTitle() === RAFFLE_TOKEN_TITLE);
@@ -22,7 +30,7 @@ function setupRaffleSurvey() {
     item.setValidation(FormApp.createTextValidation().requireTextMatchesPattern('^[A-Za-z0-9_-]{43}$').setHelpText('플랫폼의 이벤트 부저에서 설문을 열어 주세요.').build());
     form.moveItem(item.getIndex(), 0);
     form.setAllowResponseEdits(false);
-    form.setConfirmationMessage('설문 제출이 완료됐습니다. 플랫폼으로 돌아오면 잠시 후 이벤트 참가 명단에 자동 등록됩니다.');
+    form.setConfirmationMessage('설문 제출이 완료됐습니다. 플랫폼으로 돌아오면 잠시 후 이벤트 참가 명단에 자동 등록됩니다. 당첨된 계정에는 이벤트 창에서 카카오톡 오픈채팅 QR 수령 안내가 표시됩니다.');
     const sample = form.createResponse().withItemResponse(item.createResponse('R'.repeat(43))).toPrefilledUrl();
     const match = sample.match(/[?&](entry\.\d+)=R{43}(?:&|$)/);
     if (!match) throw new Error('참가 확인 코드 자동 입력 주소를 찾지 못했습니다.');

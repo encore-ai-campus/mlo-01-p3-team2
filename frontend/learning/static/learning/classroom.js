@@ -3,7 +3,7 @@
   'use strict';
   function create({onOpen=()=>{},onExit=()=>{},getPlayer,getControl,onPoke=()=>{}}) {
     const dialog=document.getElementById('classroomDialog'),canvas=document.getElementById('classroomCanvas');
-    const ctx=canvas.getContext('2d'),keys=new Set();
+    const ctx=canvas.getContext('2d'),keys=new Set(),suppressedKeys=new Set();
     const areaHint=document.getElementById('classroomAreaHint'),prompt=document.getElementById('classroomPrompt');
     const movementKeys=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
     const guidedSubjects=new Set(),reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -16,6 +16,8 @@
       }
       const opening=!dialog.open||subject!==state.subject;
       if(opening){
+        suppressedKeys.clear();
+        for(const key of getControl().inputKeys||[])if(movementKeys.has(key))suppressedKeys.add(key);
         subject=state.subject;map=window.CampusClassroomMap.forSubject(subject);
         guideUntil=guidedSubjects.has(subject)?0:performance.now()+4500;guidedSubjects.add(subject);
         renderer=window.CampusIsometric.create({data:map.data});
@@ -32,7 +34,8 @@
       activeType=nearby?.contentType||null;
       if(activeType)guideUntil=0;
       if(areaHint.hidden!==inside)areaHint.hidden=inside;
-      const instruction=nearby?.id==='classroom-exit'?'메타버스로 나가기':'상호작용';
+      const cooldown=Math.ceil(Math.max(0,state.exitCooldownMs||0)/1000);
+      const instruction=nearby?.id==='classroom-exit'?(cooldown?`나가기 · ${cooldown}초 후`:'메타버스로 나가기'):'상호작용';
       if(prompt.textContent!==instruction)prompt.textContent=instruction;
     }
     async function activate(){
@@ -43,15 +46,16 @@
       }catch(error){window.CampusApp?.toast(error.message);}
     }
     document.addEventListener('keydown',event=>{
-      if(!dialog.open||window.CampusSession?.ending||window.CampusLearning?.blocking||event.isComposing||event.target.closest?.('input,textarea,[contenteditable="true"]'))return;
-      const key=event.key.toLowerCase();
+      if(!dialog.open||window.CampusSession?.ending||window.CampusLearning?.blocking||(event.isComposing&&!window.CampusKeyboard.isGameKey(event))||event.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
+      const key=window.CampusKeyboard.key(event);
+      if(suppressedKeys.has(key)){event.preventDefault();return;}
       if(movementKeys.has(key)){event.preventDefault();keys.add(key);}
       else if(key==='e'&&!event.repeat){event.preventDefault();event.stopImmediatePropagation?.();activate();}
       else if(key==='z'&&!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();event.stopImmediatePropagation?.();onPoke();}
       else if(key==='enter')event.preventDefault();
     });
-    document.addEventListener('keyup',event=>keys.delete(event.key.toLowerCase()));
-    window.addEventListener('blur',()=>{keys.clear();getControl().setInput([]);});
+    document.addEventListener('keyup',event=>{const key=window.CampusKeyboard.key(event);keys.delete(key);suppressedKeys.delete(key);});
+    window.addEventListener('blur',()=>{keys.clear();suppressedKeys.clear();getControl().setInput([]);});
     canvas.addEventListener('pointerdown',focus);
     dialog.addEventListener('cancel',event=>event.preventDefault());
     dialog.addEventListener('close',()=>keys.clear());

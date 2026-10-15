@@ -1,6 +1,6 @@
 # 프론트·백엔드 실행 가이드
 
-기준일: 2026-10-14. 아래 명령은 저장소 루트에서 시작하는 PowerShell 기준임.
+기준일: 2026-10-15. 아래 명령은 저장소 루트에서 시작하는 PowerShell 기준임.
 
 ## 함께 실행
 
@@ -68,7 +68,7 @@ python manage.py runserver 0.0.0.0:8004
 | 백엔드 | `DJANGO_CSRF_TRUSTED_ORIGINS` | HTTPS 프론트 등 신뢰할 공개 origin |
 | 백엔드 | `DJANGO_DEBUG`, `DJANGO_SECRET_KEY` | 개발/배포 설정 |
 | 백엔드 | `CAMPUS_DATA_DIR` | 기본 backend 폴더 |
-| 백엔드 | `DATABASE_ENGINE` | 기본 sqlite; mysql 선택 가능 |
+| 백엔드 | `DATABASE_ENGINE` | 로컬 기본 sqlite; AWS 운영 mysql |
 | 백엔드 | `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT` | 팀 운영 DB 연결 시 설정 |
 | 백엔드 | `CAMPUS_LOGIN_MAX_AGE_SECONDS` | 28800: 최대 8시간 |
 | 백엔드 | `CAMPUS_LOGIN_IDLE_TIMEOUT_SECONDS` | 1800: 비활동 30분 |
@@ -103,6 +103,27 @@ HTTP 중계는 로그인 쿠키·CSRF·Origin·원래 Host를 백엔드에 전�
 - 우상단 보유 포인트를 누르면 본인의 적립 내역을 최근순 10건씩 표시하고 **더 보기**로 이전 내역을 조회함. 읽기만 수행하며 추가 지급하지 않음. 네트워크 오류 시 다시 불러오기를 제공함.
 - 게임 카드 총 16종. 업데이트 후 백엔드 `migrate --noinput`으로 추가 8종의 기준정보를 등록함. 기존 콘텐츠 UUID·운영자가 수정한 항목을 덮어쓰지 않음.
 - 옥상 콘텐츠 부스와 학습교실 표현을 개선하고 이벤트 이미지를 높은 벽면으로 옮김. 광고용 게시판과 광고 서버 연결은 별도 구성임.
+- 한글·영문·IME 상태의 WASD·E·Z는 물리 키 위치를 사용함. 입력창·텍스트 선택·브라우저 단축키는 별도로 처리함.
+- 통신이 끊기면 WebSocket 재접속을 시도함. 같은 세션의 새 연결이 이전 연결을 교체하며 현재 위치·개인 학습교실을 복원함. 교체된 이전 탭은 새로고침으로 다시 연결할 수 있음.
+- 학습교실 진입 방향키를 계속 누르고 있어도 바로 퇴장하지 않음. 키를 놓고 다시 입력하거나 2초 뒤 나가기 버튼을 사용함. 개인 교실 사용자는 공용 지도·유리문 충돌에서 제외함.
+- 유튜브 부스 중앙에서 상호작용하면 YouTube 홈페이지를 별도 팝업으로 열고, 차단되면 부스의 **YouTube 열기** 링크로 다시 시도함.
+- 관리자 **이벤트 관리 → 당첨자 수령 안내**에서 PNG·JPG·WEBP 오픈채팅 QR 이미지를 등록함. 2MB 이하, 한 변 80~2048px를 지원하며 업로드 메타데이터를 제거하고 PNG로 저장함. 백엔드 `migrate --noinput`으로 `raffle.0003_winnercontact`를 적용해야 함.
+- 당첨자는 이벤트 창·추첨 결과의 QR을 확인하고, 다른 계정은 같은 닉네임이어도 해당 QR API에 접근하지 못함. QR은 공개 정적 파일로 배포하지 않음. 관리자만 관리용 미리보기에 접근함.
+- Google 연결 스크립트의 `setupRaffleSurvey`를 실행하면 기존 배송용 이메일 질문·이메일 자동 수집을 제거하고 참가 확인 코드와 나머지 설문을 유지함. 스크립트 파일 배포와 실제 Google Apps Script 적용은 별도 작업임.
+
+## AWS 운영 반영
+
+프론트 `playdata-frontend`, 백엔드 `playdata-backend` 서비스를 사용함. 소스 반영 전 DB와 변경 파일을 백업하고 추가 마이그레이션·정적 파일 수집·서비스 재시작을 수행함. 실패 시 기존 소스와 설정으로 복구할 수 있도록 백업을 유지함.
+
+공개 호스트는 프론트 `FRONTEND_ALLOWED_HOSTS`, 백엔드 `DJANGO_ALLOWED_HOSTS`와 필요한 `DJANGO_CSRF_TRUSTED_ORIGINS`로 설정함. 배포 시 기존 `.env`, DB, 식단 캐시, 설문 연결 키를 덮어쓰지 않음.
+
+2026-10-15 AWS 운영 DB를 MySQL로 전환함. Router `127.0.0.1:6446`의 쓰기 연결로 전용 `playdata_campus` DB를 사용하며, 문자 비교는 기존 아이디 중복 검사와 맞는 `utf8mb4_0900_as_ci`임. 3대 모두 ONLINE 상태와 데이터 복제를 확인함. Kafka 3대·7개 토픽·실제 메시지 조회와 Outbox 대기 0건도 확인함. 비밀번호·Vault·개인키·운영 DB는 Git이나 소스 배포 묶음에 포함하지 않음.
+
+위치·Raw Outbox 정밀도 보존에는 `accounts.0007_preserve_json_precision`, `eventing.0009_preserve_json_precision` 마이그레이션이 필요함. MySQL에서만 JSON 원문을 LONGTEXT + JSON_VALID 검사로 보존하고 SQLite 동작은 유지함. Kafka payload와 fingerprint의 재조회 일치를 회귀 검증함.
+
+전환 전 SQLite·설정을 비공개 배포 백업에 보관하고 전체 ORM 데이터 1,908건을 마이크로초·좌표 정밀도까지 동일하게 대조함. SQLite 백업은 전환 시점 데이터이며, 이후 복구 시에는 MySQL에서 추가된 데이터도 함께 보존해야 함.
+
+분리된 임시 QA 사본과 테스트 DB에서 MySQL 회귀 444개를 실행해 통과함. 이 중 SQLite 전용 동시 처리 6개는 MySQL용으로 별도 실행해 모두 통과함. 로컬 SQLite 이동·JSON 회귀 24개도 통과함. 합성 테스트 계정에는 테스트용 해시를 사용했고 운영 비밀번호 해시는 변경하지 않음.
 
 ## 검증
 
@@ -127,4 +148,4 @@ node learning/tests/test-kafka-ui.cjs
 
 JavaScript 검증에는 Node.js가 필요함. 마지막 학습 UI 검증은 Playwright와 Chrome을 사용하고 API 응답을 대체해 실제 사용자 데이터에 영향을 주지 않음. 실제 두 서비스의 브라우저 확인은 별도 데이터 폴더·포트로 수행해야 함. 테스트 설정의 좌표 수신 호환 모드는 기존 회귀 검증용이며, 운영 서버는 키 입력 기반 서버 판정을 사용함.
 
-실제 Kafka·MySQL·MongoDB 및 운영 광고 서비스까지의 연결은 해당 팀 환경에서 별도 검증이 필요함.
+AWS MySQL 저장·복제와 Kafka 발행 측을 확인함. 수신 측 처리·MongoDB 및 운영 광고 서비스 연결은 해당 팀 환경에서 별도 검증이 필요함.

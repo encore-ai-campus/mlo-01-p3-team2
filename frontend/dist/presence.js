@@ -14,6 +14,7 @@
       const pending = new Map();
       const allowedKeys = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
       let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastInput = '';
+      let lastReceived = 0;
       const floorBounds = floors || {campus:{width,height}};
       const doorIds = new Set((floors?.campus?.objects||[]).filter(o=>(o.type==='glass-door'||(o.type==='sliding-door'&&o.interactiveDoor===true))).map(o=>o.id));
       const colors = new Set(['#dfa34d', '#4e9b91', '#8a78bb', '#cb7773', '#648eb5']);
@@ -42,11 +43,12 @@
           && (p.floor===undefined||typeof p.floor==='string') && bounds
           && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.x <= bounds.width && p.y >= 0 && p.y <= bounds.height
           && colors.has(p.color) && directions.has(p.dir) && typeof p.moving === 'boolean'
+          && (p.inClassroom === undefined || typeof p.inClassroom === 'boolean')
           && (p.avatar === undefined || avatars.has(p.avatar));
       }
       function upsert(p) {
         if (!validPeer(p) || p.id === selfId) return false;
-        p = {...p,floor:p.floor||'campus',avatar:p.avatar||'male-1'};
+        p = {...p,floor:p.floor||'campus',avatar:p.avatar||'male-1',inClassroom:p.inClassroom===true};
         const now = performance.now(), peer = peers.get(p.id);
         if (!peer) {
           peers.set(p.id, {...p, targetX: p.x, targetY: p.y, receivedAt: now});
@@ -56,7 +58,7 @@
         // Room navigation teleports instead of drawing a trip through walls.
         if (peer.floor!==p.floor||Math.hypot(peer.x - p.x, peer.y - p.y) > 180) {peer.x = p.x; peer.y = p.y;}
         Object.assign(peer, {targetX: p.x, targetY: p.y, dir: p.dir, color: p.color,
-          moving: p.moving, nickname: p.nickname, avatar:p.avatar, floor:p.floor, receivedAt: now});
+          moving: p.moving, nickname: p.nickname, avatar:p.avatar, floor:p.floor, inClassroom:p.inClassroom, receivedAt: now});
         return renamed;
       }
       function publish(t, force = false) {
@@ -94,7 +96,15 @@
         const floor=p.floor||'campus';
         applyIdentity(p);
         if(player.floor!==floor||!Number.isFinite(player.targetX)||Math.hypot(player.x-p.x,player.y-p.y)>80){player.x=p.x;player.y=p.y;}
-        Object.assign(player,{floor,targetX:p.x,targetY:p.y,dir:p.dir,moving:p.moving,receivedAt:performance.now()});
+        Object.assign(player,{floor,targetX:p.x,targetY:p.y,dir:p.dir,moving:p.moving,inClassroom:p.inClassroom===true,receivedAt:performance.now()});
+      }
+      function reconnectNow() {
+        if(closed)return;
+        const previous=socket;socket=null;
+        rejectPending();ready=false;peers.clear();roster.replaceChildren();
+        clearInterval(heartbeat);clearTimeout(retry);
+        previous?.close(4000,'Reconnecting');
+        connect();
       }
       function connect() {
         if (closed) return;
@@ -109,6 +119,7 @@
           if (current !== socket || closed) return;
           let message;
           try {message = JSON.parse(event.data);} catch {return;}
+          lastReceived=performance.now();
           if (message.type === 'welcome' && Array.isArray(message.players)) {
             window.CampusSession?.receive(message.session);
             if(message.raffle)onRaffle(message.raffle);
@@ -122,8 +133,10 @@
             updateRoster(); publish(performance.now());
             clearInterval(heartbeat);
             heartbeat = setInterval(() => {
-              if (current.readyState === WebSocket.OPEN) current.send(JSON.stringify({type: 'ping'}));
-            }, 15000);
+              if(current!==socket||closed||current.readyState!==WebSocket.OPEN)return;
+              if(!document.hidden&&performance.now()-lastReceived>10000){reconnectNow();return;}
+              current.send(JSON.stringify({type: 'ping'}));
+            }, 5000);
           } else if (ready && message.type === 'control_state' && validPeer(message.state?.main)) {
             onState(message.state);acceptSelf(message.state.main);
           } else if (ready && message.type === 'control_event' && message.event) {
@@ -170,6 +183,10 @@
           if (current !== socket) return;
           rejectPending();ready = false; peers.clear(); roster.replaceChildren(); clearInterval(heartbeat);
           if (closed) return;
+          if(event.code===4409){
+            closed=true;setStatus('새 연결로 전환됨 · 이 창에서 계속하려면 새로고침하세요','disconnected');
+            return;
+          }
           if (event.code === 4401) {
             closed = true; setStatus('로그인이 필요해요', 'disconnected');
             onAuthExpired();
@@ -206,13 +223,17 @@
       });
       document.getElementById('campusLogoutForm')?.addEventListener('submit', close);
       document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && !closed && socket?.readyState === WebSocket.CLOSED) connect();
+        if (!document.hidden && !closed && (socket?.readyState === WebSocket.CLOSED||performance.now()-lastReceived>10000)) reconnectNow();
+      });
+      window.addEventListener('online',()=>{
+        if(!closed&&(!ready||performance.now()-lastReceived>10000))reconnectNow();
       });
       connect();
       return {
         peers, close, setInput, setPoking, command,
         get connected() {return ready;},
         get selfId() {return selfId;},
+        get inputKeys() {return [...inputKeys];},
         joinRaffle(eventId, {resume=false}={}) {
           if(!ready||socket?.readyState!==WebSocket.OPEN||typeof eventId!=='string')return false;
           publish(performance.now(),true);socket.send(JSON.stringify({type:'raffle_enter',eventId}));return true;

@@ -118,7 +118,7 @@
     render(t);requestAnimationFrame(update);
   }
   function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,2800);}
-  function visibleActors(){return [player,...[...presence.peers.values()].filter(peer=>(peer.floor||'campus')===D.id)];}
+  function visibleActors(){return [player,...[...presence.peers.values()].filter(peer=>(peer.floor||'campus')===D.id&&peer.inClassroom!==true)];}
   function restorePosition(position,refresh=true){
     if(!validPosition(position))return;
     keys.clear();hover=nearby=null;lastRoom='';
@@ -273,14 +273,14 @@
   $('followBtn').onclick=()=>{if(!isAdmin)return;camera.follow=!camera.follow;press=null;hover=null;if(camera.follow)focusPlayer();updateZoom();};
   nav();updateFloorUI();updateZoom();new ResizeObserver(resize).observe(viewport);
   document.addEventListener('keydown',e=>{
-    const k=e.key.toLowerCase();
+    const k=window.CampusKeyboard.key(e);
     if(floorTransition.blocking){
       if(movementKeys.has(k))suppressedKeys.add(k);
       if(movementKeys.has(k)||['e','z','escape','enter','+','=','-'].includes(k))e.preventDefault();
       return;
     }
     if(suppressedKeys.has(k)){e.preventDefault();return;}
-    if(e.isComposing||isDialogOpen()||e.target.closest?.('input,textarea,[contenteditable="true"]'))return;
+    if((e.isComposing&&!window.CampusKeyboard.isGameKey(e))||isDialogOpen()||e.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
     if(k==='escape'&&!e.repeat){e.preventDefault();social.openSettings();}
     else if(k==='enter'&&!e.repeat){if(social.focusChat())e.preventDefault();}
     else if(movementKeys.has(k)){e.preventDefault();keys.add(k);}
@@ -289,7 +289,7 @@
     else if(k==='+'||k==='='){e.preventDefault();zoomBy(1.2);}
     else if(k==='-'){e.preventDefault();zoomBy(1/1.2);}
   });
-  document.addEventListener('keyup',e=>{const k=e.key.toLowerCase();keys.delete(k);suppressedKeys.delete(k);});
+  document.addEventListener('keyup',e=>{const k=window.CampusKeyboard.key(e);keys.delete(k);suppressedKeys.delete(k);});
   window.addEventListener('blur',()=>{keys.clear();suppressedKeys.clear();});
   $('zoomIn').onclick=()=>zoomBy(1.25);$('zoomOut').onclick=()=>zoomBy(1/1.25);
   $('fullscreenBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.map-shell').requestFullscreen();}catch{toast('현재 창에서는 전체 화면을 사용할 수 없습니다.');}};

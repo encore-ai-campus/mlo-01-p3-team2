@@ -51,6 +51,9 @@ def snapshot(user=None):
                 "canManage": bool(user and user.is_staff), "popupGraceSeconds": 60}
         from .survey import view_state
         data["survey"] = view_state(user, event.pk if event else None)
+        from .winner_contact import personal_state, manager_state
+        data["winnerContact"] = personal_state(user)
+        data["winnerContactConfig"] = manager_state(user)
         if event is None:
             return data
         entries = list(event.entries.all())

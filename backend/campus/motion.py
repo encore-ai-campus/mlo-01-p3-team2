@@ -12,6 +12,7 @@ LOOK_DIRECTIONS = {(0, -1): 'up', (0, 1): 'down', (-1, 0): 'left', (1, 0): 'righ
                    (-1, -1): 'up-left', (1, -1): 'up-right',
                    (-1, 1): 'down-left', (1, 1): 'down-right'}
 SPEED = 125 * 1.25
+CLASSROOM_TRANSITION_DELAY = 2.0
 
 class ControlError(ValueError):
     pass
@@ -167,6 +168,7 @@ class MotionController:
         self.poke_diagonal_at=-math.inf
         self.keys=set();self.last_input=-math.inf;self.last_portal=time.monotonic()
         self.ignored_portal=None;self.pending_transfer=None;self.interior=None;self.route=[]
+        self.last_classroom_transition=-math.inf;self.classroom_exit_armed=False
         self.world=world(position['floor'])
         entrance=self.world.data.get('entrance')
         outside=entrance and inside(entrance,position['x'],position['y'])
@@ -184,6 +186,8 @@ class MotionController:
         if not isinstance(keys,list) or len(keys)>8 or any(not isinstance(key,str) or key not in KEYS for key in keys):
             raise ControlError('이동 입력을 확인해 주세요.')
         self.keys=set(keys);self.last_input=time.monotonic() if now is None else now
+        if self.interior and 'arrowdown' not in self.keys:
+            self.classroom_exit_armed=True
         dx=int('d' in self.keys or 'arrowright' in self.keys)-int('a' in self.keys or 'arrowleft' in self.keys)
         dy=int('s' in self.keys or 'arrowdown' in self.keys)-int('w' in self.keys or 'arrowup' in self.keys)
         if dx or dy:
@@ -228,7 +232,8 @@ class MotionController:
         if self.interior:
             near=self.private_near()
             interior={'subject':self.interior['subject'],'actor':dict(self.interior['actor']),
-                      'nearby':{key:near[key] for key in ('id','name','contentType') if key in near} if near else None}
+                      'nearby':{key:near[key] for key in ('id','name','contentType') if key in near} if near else None,
+                      'exitCooldownMs':math.ceil(max(0,CLASSROOM_TRANSITION_DELAY-(time.monotonic()-self.last_classroom_transition))*1000)}
         return {'main':dict(self.pose),'hints':self.hints(doors),'interior':interior}
 
     def tick(self, seconds, doors=None, now=None):
@@ -239,8 +244,9 @@ class MotionController:
         active_world=world(self.interior['subject']) if self.interior else self.world
         was_moving=actor['moving'];actor['moving']=False
         previous=dict(self.pose)
-        if self.interior and 'arrowdown' in keys and (near:=self.private_near()) and near['id']=='classroom-exit':
-            self.leave_classroom(doors);keys=set();actor=self.pose;active_world=self.world
+        if (self.interior and self.classroom_exit_armed and now-self.last_classroom_transition>=CLASSROOM_TRANSITION_DELAY
+                and 'arrowdown' in keys and (near:=self.private_near()) and near['id']=='classroom-exit'):
+            self.leave_classroom(doors,now=now);keys=set();actor=self.pose;active_world=self.world
         if not self.pending_transfer:
             dx=int('d' in keys or 'arrowright' in keys)-int('a' in keys or 'arrowleft' in keys)
             dy=int('s' in keys or 'arrowdown' in keys)-int('w' in keys or 'arrowup' in keys)
@@ -260,7 +266,7 @@ class MotionController:
                     distance=min(length,SPEED*seconds)
                     active_world.move(actor,dx/length*distance,dy/length*distance,doors)
         if not self.interior:
-            if self.pose['floor']=='campus':
+            if self.pose['floor']=='campus' and now-self.last_classroom_transition>=CLASSROOM_TRANSITION_DELAY:
                 for gate in geometry()['gates']:
                     if not (doors or {}).get(gate['doorId']) or previous['y']>=gate['y'] or self.pose['y']<gate['y']:
                         continue
@@ -269,7 +275,8 @@ class MotionController:
                     if gate['left']<x<gate['right'] and inside(gate['room'],self.pose['x'],self.pose['y']):
                         spawn=world(gate['subject']).data['spawn']
                         self.interior={'subject':gate['subject'],'gate':gate,'actor':{'x':spawn[0],'y':spawn[1],'dir':'up','moving':False}}
-                        self.pose['moving']=False;self.keys=set();break
+                        self.pose['moving']=False;self.keys=set();self.route=[]
+                        self.last_classroom_transition=now;self.classroom_exit_armed=False;break
             entrance=self.world.data.get('entrance')
             if entrance and self.pose['y']<=entrance['y']-12 and any(inside(row,self.pose['x'],self.pose['y']) for row in self.world.data['rooms']):
                 self.exit_return={'x':self.pose['x'],'y':self.pose['y']}
@@ -292,13 +299,17 @@ class MotionController:
         self.pending_transfer=obj;self.keys=set();self.route=[];self.pose['moving']=False
         return {'type':'transfer_offer','objectId':obj['id'],'floor':obj['toFloor'],'confirm':obj.get('confirmTransfer',False)}
 
-    def leave_classroom(self, doors=None):
+    def leave_classroom(self, doors=None, *, now=None):
         if not self.interior:
             raise ControlError('학습교실에서 이용해 주세요.')
+        now=time.monotonic() if now is None else now
+        if now-self.last_classroom_transition<CLASSROOM_TRANSITION_DELAY:
+            raise ControlError('입장 후 2초 뒤에 나갈 수 있어요.')
         gate=self.interior['gate'];target=self.world.closest((gate['left']+gate['right'])/2,gate['y']-18,doors)
         if target is None:
             raise ControlError('교실 출입구를 확인해 주세요.')
         self.pose.update(target,moving=False);self.interior=None;self.keys=set()
+        self.route=[];self.last_classroom_transition=now;self.classroom_exit_armed=False
         self.poke_direction=self.pose['dir']
 
     def command(self, action, data, doors=None):

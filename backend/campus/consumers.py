@@ -1,5 +1,6 @@
 """Authenticated presence and live chat for the single-process campus prototype."""
 import asyncio
+from copy import copy, deepcopy
 from contextlib import suppress
 from importlib import import_module
 import json
@@ -35,6 +36,8 @@ class CampusRoom:
         self.players = {}
         self.channels = {}
         self.interiors = set()
+        self.sessions = {}
+        self.controllers = {}
         self.doors = {door_id: False for door_id in DOORS}
         self.lock = asyncio.Lock()
 
@@ -123,9 +126,46 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 await self.channel_layer.group_discard(self.session_group, self.channel_name)
                 await self.close(code=4401)
                 return
+            previous_id = room.sessions.get(self.session_key)
+            if previous_id and previous_id in room.players:
+                # A lost TCP connection may outlive a Wi-Fi change. Replace its
+                # presence immediately; a delayed disconnect must not touch us.
+                previous = room.players.pop(previous_id)
+                previous_controller = room.controllers.pop(previous_id, None)
+                if self.server_control and previous_controller is not None:
+                    self.controller = copy(previous_controller)
+                    self.controller.pose = previous_controller.pose.copy()
+                    self.controller.interior = deepcopy(previous_controller.interior)
+                    self.controller.exit_return = previous_controller.exit_return.copy()
+                    self.controller.keys = set();self.controller.route = []
+                    self.controller.last_input = -math.inf;self.controller.pending_transfer = None
+                    self.controller.pose["moving"] = False
+                    if self.controller.interior:self.controller.interior["actor"]["moving"] = False
+                    self.state.update(self.controller.pose)
+                else:
+                    self.state.update({key:previous[key] for key in ("floor","x","y","dir")})
+                self.state["moving"] = False
+                live_position = session_registry.latest(self.session_key, self.user.pk)
+                if live_position:
+                    self.position_changed_at = live_position[1]
+                    self.position_dirty = True
+                session_registry.unregister(previous_id)
+                previous_channel = room.channels.pop(previous_id, None)
+                room.interiors.discard(previous_id)
+                if previous_channel:
+                    await self.channel_layer.group_discard(room.group, previous_channel)
+                    await self.channel_layer.group_discard(self.session_group, previous_channel)
+                    with suppress(ChannelFull):
+                        await self.channel_layer.send(previous_channel, {"type":"presence.replaced"})
+                await self.broadcast({"type":"leave", "id":previous_id})
             session_registry.register(self.player_id, self.session_key, self.user.pk)
+            self.state["inClassroom"] = bool(self.controller and self.controller.interior)
             room.players[self.player_id] = self.state.copy()
             room.channels[self.player_id] = self.channel_name
+            room.sessions[self.session_key] = self.player_id
+            if self.controller:
+                room.controllers[self.player_id] = self.controller
+                if self.controller.interior:room.interiors.add(self.player_id)
             await self.accept()
             raffle = await database_sync_to_async(raffle_service.snapshot)(self.user)
             await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "raffle": raffle, "serverControl": self.server_control})
@@ -204,6 +244,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 await self.receive_movement(data)
 
     async def receive_movement(self, data, final=False, authoritative=False):
+        if self.player_id not in room.players:
+            return
         floor = data.get("floor", self.state["floor"])
         position = validate_position({**data, "floor": floor})
         if (position is None or type(data.get("color")) is not str
@@ -214,8 +256,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
             self.last_seen = now
         previous_floor = self.state["floor"]
         floor_changed = floor != previous_floor
-        publish = not authoritative or final or floor_changed or now - self.last_move >= 0.1
-        if not authoritative and not final and not floor_changed and now - self.last_move < 0.045:
+        in_classroom = bool(getattr(self, "controller", None) and self.controller.interior)
+        visibility_changed = self.state.get("inClassroom", False) != in_classroom
+        publish = not authoritative or final or floor_changed or visibility_changed or now - self.last_move >= 0.1
+        if not authoritative and not final and not floor_changed and not visibility_changed and now - self.last_move < 0.045:
             return
         if publish:
             self.last_move = now
@@ -226,7 +270,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if floor_changed:
             self.pending_floor_transfer = (previous_floor, floor)
         # Identity is always taken from the session, never from the message.
-        self.state.update(**position, color=data["color"], moving=False if final else data["moving"])
+        self.state.update(**position, color=data["color"], moving=False if final else data["moving"], inClassroom=in_classroom)
         session_registry.update(self.player_id, self.state, self.position_changed_at)
         async with room.lock:
             if self.player_id in room.players:
@@ -458,7 +502,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 await self.send_packet(payload)
                 return
             target = door_footprint(geometry, opened)
-            if any(player["floor"] == "campus" and door_distance(target, player) < 6 for player in room.players.values()):
+            if any(player_id not in room.interiors and player["floor"] == "campus" and door_distance(target, player) < 6
+                   for player_id, player in room.players.items()):
                 await self.send_packet({"type": "door_error", "message": "문이 움직일 자리에 캐릭터가 있어요. 조금 비켜서 다시 눌러 주세요."})
                 return
             room.doors[door_id] = opened
@@ -649,6 +694,12 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.send_packet({"type": "identity", "player": self.state.copy()})
 
     async def leave(self):
+        if self.player_id not in room.players:
+            session_registry.unregister(self.player_id)
+            if self.session_group:
+                await self.channel_layer.group_discard(self.session_group, self.channel_name)
+            await self.channel_layer.group_discard(room.group, self.channel_name)
+            return
         self.poke_requested = False
         await self.stop_poke()
         await self.checkpoint(force=True)
@@ -658,9 +709,17 @@ class CampusConsumer(AsyncWebsocketConsumer):
         async with room.lock:
             room.interiors.discard(self.player_id)
             room.channels.pop(self.player_id, None)
+            room.controllers.pop(self.player_id, None)
+            session_key = getattr(self, "session_key", None)
+            if room.sessions.get(session_key) == self.player_id:
+                room.sessions.pop(session_key, None)
             if self.player_id and room.players.pop(self.player_id, None) is not None:
                 await self.channel_layer.group_discard(room.group, self.channel_name)
                 await self.broadcast({"type": "leave", "id": self.player_id})
+
+    async def presence_replaced(self, event):
+        await self.leave()
+        await self.close(code=4409)
 
     async def session_expired(self, event):
         if self.player_id not in room.players:

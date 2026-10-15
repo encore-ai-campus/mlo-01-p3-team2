@@ -2,6 +2,7 @@ from django.conf import settings
 import uuid
 
 from django.db import models
+from config.fields import LosslessJSONField
 
 from .avatars import AVATAR_CHOICES, AVATAR_IDS, DEFAULT_AVATAR
 from .cohorts import COHORT_CHOICES, course_for_cohort
@@ -17,7 +18,7 @@ class Profile(models.Model):
     cohort = models.CharField(max_length=6, choices=COHORT_CHOICES, blank=True, default="")
     # Existing accounts keep their current identity; signup explicitly starts incomplete.
     setup_complete = models.BooleanField(default=True)
-    last_position = models.JSONField(null=True, blank=True)
+    last_position = LosslessJSONField(null=True, blank=True)
     last_position_at = models.DateTimeField(null=True, blank=True)
 
     @property
