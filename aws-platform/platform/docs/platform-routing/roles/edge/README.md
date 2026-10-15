@@ -43,7 +43,7 @@ HTTP ACME 경로는 검증 파일을 제공한다. 현재 Front의 나머지 HTT
 
 현재 Front 모드는 목적지가 정확히 하나여야 한다. 이전 호출에서 Front 목록이 비어 있으면 정적 준비 화면을 제공하므로 애플리케이션 배포 완료를 의미하지 않는다. 목록을 지정하면 least_conn과 수동 장애 감지(max_fails=2, fail_timeout=10s)를 사용하고 HTTP/WebSocket 요청을 전달한다. CPU·메모리 사용량을 측정하는 분산 방식은 아니다. 진입 EC2 자체의 이중화는 제공하지 않는다.
 
-매시간(최대15분 무작위 지연) systemd timer가 해당 인증서의 certbot renew를 실행한다. 유효한 인증서를 매시간 새로 발급하지 않는다. 갱신 성공 후 deploy hook은 nginx -t 성공 시에만 reload한다. IP 인증서의 약160시간 수명에 맞춘 자동 갱신이며, 실패는 journalctl -u edge-certbot-renew.service에서 확인한다. EIP가 유지되는 동안 사용자 출발지 CIDR 변경은 인증서 재발급 사유가 아니다.
+매시간(임의 지연 없음) systemd timer가 해당 인증서의 certbot renew를 실행한다. 유효한 인증서를 매시간 새로 발급하지 않는다. 갱신 성공 후 deploy hook은 nginx -t 성공 시에만 reload한다. IP 인증서의 약160시간 수명에 맞춘 자동 갱신이며, 실패는 journalctl -u edge-certbot-renew.service에서 확인한다. EIP가 유지되는 동안 사용자 출발지 CIDR 변경은 인증서 재발급 사유가 아니다.
 
 ## 소스 지도
 

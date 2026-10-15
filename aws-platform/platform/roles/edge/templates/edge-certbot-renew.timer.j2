@@ -4,7 +4,8 @@ Description=Check short-lived edge certificate every hour
 [Timer]
 # 약 6일짜리 인증서는 매시간 필요 여부를 확인한다. 유효하면 발급을 반복하지 않는다.
 OnCalendar=hourly
-RandomizedDelaySec=15m
+# 부팅 후 놓친 갱신 점검에 임의 대기를 추가하지 않는다.
+RandomizedDelaySec=0
 Persistent=true
 
 [Install]
