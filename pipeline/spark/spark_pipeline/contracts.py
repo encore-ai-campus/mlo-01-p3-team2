@@ -8,12 +8,21 @@ FACT_TABLES = {
     "post_activity_fact": ["post_uuid", "action", "revision", "zone_uuid"],
     "comment_activity_fact": ["comment_uuid", "post_uuid", "parent_comment_uuid", "action", "revision"],
     "content_activity_fact": ["content_uuid", "category_uuid", "domain", "content_kind", "action", "zone_uuid"],
-    "quiz_attempt_fact": ["attempt_uuid", "question_uuid", "content_uuid", "choice_uuid", "is_correct"],
+    "quiz_attempt_fact": ["attempt_uuid", "question_uuid", "content_uuid", "question_type", "choice_uuid", "is_correct"],
     "movement_fact": ["floor_uuid", "zone_uuid", "x", "y", "input_kind"],
     "floor_transfer_fact": ["from_floor_uuid", "to_floor_uuid", "zone_uuid"],
     "point_grant_fact": ["ledger_uuid", "attempt_uuid", "delta", "balance_after"],
 }
 COMMON_FACT_FIELDS = ["event_uuid", "occurred_at", "user_uuid", "class_group_uuid", "session_uuid"]
+
+
+def fact_defaults(spec):
+    """Map fields absent from legacy Std without changing its fingerprinted data."""
+    if spec["event_type"] == "SESSION_STARTED":
+        return {"end_reason": None}
+    if spec["event_type"] == "QUIZ_ANSWERED" and spec["version"] == "1.0":
+        return {"question_type": "MULTIPLE_CHOICE"}
+    return {}
 
 
 def target_table(event):
@@ -56,6 +65,8 @@ def compile_contracts(source):
                 fields.append({"name": name, "domain": term.get("std_domain", term["domain"]), "nullable": False})
         spec = {"event_type": event, "version": contract["std_schema_version"], "fields": fields,
                 "constants": contract["constants"], "table": target_table(event)}
+        if contract.get("conditional_rules"):
+            spec["conditional_rules"] = contract["conditional_rules"]
         if key in result["schemas"] and result["schemas"][key] != spec:
             raise ValueError(f"Different contracts for the same Std version: {key}")
         result["schemas"][key] = spec
@@ -81,10 +92,27 @@ def validate_registry(registry):
         if len(names) != len(set(names)) or any(field["domain"] not in registry["domains"] for field in spec["fields"]):
             raise ValueError("Invalid Std fields")
         needed = set(COMMON_FACT_FIELDS + FACT_TABLES[spec["table"]])
-        if spec["event_type"] == "SESSION_STARTED":
-            needed.discard("end_reason")
+        needed.difference_update(fact_defaults(spec))
         if not needed.issubset(names):
             raise ValueError("Missing fact field in Std schema")
+        rules = spec.get("conditional_rules", [])
+        if type(rules) is not list:
+            raise ValueError("Invalid Std conditional rules")
+        for rule in rules:
+            if (type(rule) is not dict or not {"when"}.issubset(rule)
+                    or set(rule) - {"when", "not_null", "null"}
+                    or type(rule["when"]) is not dict or not rule["when"]
+                    or not set(rule["when"]).issubset(names)):
+                raise ValueError("Invalid Std conditional rule")
+            constrained = []
+            for operation in ("not_null", "null"):
+                fields = rule.get(operation, [])
+                if (type(fields) is not list or any(type(name) is not str for name in fields)
+                        or len(set(fields)) != len(fields) or not set(fields).issubset(names)):
+                    raise ValueError("Invalid Std conditional field")
+                constrained.extend(fields)
+            if not constrained or len(set(constrained)) != len(constrained):
+                raise ValueError("Invalid Std conditional constraints")
 
 
 def load_registry(path):

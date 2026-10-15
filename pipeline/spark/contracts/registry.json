@@ -1,6 +1,7 @@
 {
   "parser_versions": [
-    "1.0.0"
+    "1.0.0",
+    "1.1.0"
   ],
   "domains": {
     "UUID_V4_JSON": {
@@ -32,6 +33,13 @@
     },
     "BOOLEAN": {
       "type": "boolean"
+    },
+    "QUESTION_TYPE": {
+      "type": "enum",
+      "values": [
+        "MULTIPLE_CHOICE",
+        "FILL_BLANK"
+      ]
     },
     "FINITE_DOUBLE": {
       "type": "number"
@@ -927,6 +935,94 @@
       },
       "table": "quiz_attempt_fact"
     },
+    "QUIZ_ANSWERED|1.1": {
+      "event_type": "QUIZ_ANSWERED",
+      "version": "1.1",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "attempt_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "question_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "content_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "question_type",
+          "domain": "QUESTION_TYPE",
+          "nullable": false
+        },
+        {
+          "name": "choice_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "is_correct",
+          "domain": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "QUIZ_ANSWERED"
+      },
+      "table": "quiz_attempt_fact",
+      "conditional_rules": [
+        {
+          "when": {
+            "question_type": "MULTIPLE_CHOICE"
+          },
+          "not_null": [
+            "choice_uuid"
+          ]
+        },
+        {
+          "when": {
+            "question_type": "FILL_BLANK"
+          },
+          "null": [
+            "choice_uuid"
+          ]
+        }
+      ]
+    },
     "SESSION_ENDED|1.0": {
       "event_type": "SESSION_ENDED",
       "version": "1.0",
@@ -1023,7 +1119,8 @@
     ],
     "standardized.content_usage": [
       "CONTENT_OPEN_REQUESTED|1.0",
-      "QUIZ_ANSWERED|1.0"
+      "QUIZ_ANSWERED|1.0",
+      "QUIZ_ANSWERED|1.1"
     ],
     "standardized.movement": [
       "FLOOR_TRANSFERRED|1.0",
@@ -1078,6 +1175,7 @@
       "attempt_uuid",
       "question_uuid",
       "content_uuid",
+      "question_type",
       "choice_uuid",
       "is_correct"
     ],

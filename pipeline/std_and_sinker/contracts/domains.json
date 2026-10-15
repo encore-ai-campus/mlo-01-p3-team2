@@ -29,6 +29,13 @@
   "BOOLEAN": {
     "type": "boolean"
   },
+  "QUESTION_TYPE": {
+    "type": "enum",
+    "values": [
+      "MULTIPLE_CHOICE",
+      "FILL_BLANK"
+    ]
+  },
   "FINITE_DOUBLE": {
     "type": "number"
   },

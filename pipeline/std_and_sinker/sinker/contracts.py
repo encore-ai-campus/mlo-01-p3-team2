@@ -65,6 +65,19 @@ class ContractRegistry:
                 raise ValueError(f"Unsupported constant field: {key}")
             if any(name not in names for name in contract.get("double_fields", [])):
                 raise ValueError(f"Unknown DOUBLE field: {key}")
+            for rule in contract.get("conditional_rules", []):
+                if (type(rule) is not dict or not set(rule).issubset({"when", "null", "not_null"})
+                        or type(rule.get("when")) is not dict or not rule["when"]
+                        or not set(rule["when"]).issubset(names)):
+                    raise ValueError(f"Invalid conditional rule: {key}")
+                targets = []
+                for constraint in ("null", "not_null"):
+                    fields = rule.get(constraint, [])
+                    if type(fields) is not list or any(name not in names for name in fields):
+                        raise ValueError(f"Invalid conditional field: {key}")
+                    targets.extend(fields)
+                if not targets or len(targets) != len(set(targets)):
+                    raise ValueError(f"Invalid conditional constraints: {key}")
         if not self.contracts:
             raise ValueError("No event contracts found")
         for name, term in self.terms.items():
@@ -147,6 +160,13 @@ class ContractRegistry:
         self.validate_fields(manifest, self.common["manifest_fields"], "raw_manifest")
         verify_fingerprint(data, manifest)
         self.validate_fields(data, self.common["data_fields"] + contract["fields"], "raw_data")
+        for rule in contract.get("conditional_rules", []):
+            if not all(data[name] == value for name, value in rule["when"].items()):
+                continue
+            for constraint, required_null in (("null", True), ("not_null", False)):
+                for name in rule.get(constraint, []):
+                    if (data[name] is None) != required_null:
+                        raise DataError("INVALID_VALUE", "raw_data." + name)
         result = {
             "event_uuid": envelope["event_uuid"],
             "occurred_at": utc_string(manifest["occurred_at"]),

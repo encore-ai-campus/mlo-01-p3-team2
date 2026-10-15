@@ -10,7 +10,7 @@ sys.path.insert(0, str(STD))
 
 from sinker.contracts import ContractRegistry
 from sinker.dummy import load_cases
-from spark_pipeline.contracts import compile_contracts, load_registry
+from spark_pipeline.contracts import compile_contracts, fact_defaults, load_registry, validate_registry
 from spark_pipeline.validation import canonical_bytes, fingerprint, validate_std
 
 
@@ -39,6 +39,16 @@ class ValidationTests(unittest.TestCase):
         return validate_std(message["topic"], message["key"], json.dumps(message["envelope"]).encode(),
                             message["headers"], self.registry)
 
+    def quiz_message(self, question_type="MULTIPLE_CHOICE", choice=True, is_correct=True):
+        message = deepcopy(self.messages["success_quiz_answered"])
+        data, manifest = message["envelope"]["std_data"], message["envelope"]["std_manifest"]
+        data.update(question_type=question_type, is_correct=is_correct)
+        if not choice:
+            data["choice_uuid"] = None
+        manifest.update(std_schema_version="1.1", parser_version="1.1.0", fingerprint=fingerprint(data))
+        message["headers"][1]["value"] = b"1.1"
+        return message
+
     def test_all_fifteen_events_map_to_nine_tables(self):
         outcomes = [self.check_message(message) for message in self.messages.values()]
         self.assertTrue(all(outcome["error_code"] is None for outcome in outcomes))
@@ -47,6 +57,45 @@ class ValidationTests(unittest.TestCase):
 
     def test_committed_contract_artifact_matches_upstream(self):
         self.assertEqual(load_registry(ROOT / "contracts/registry.json"), self.registry)
+
+    def test_quiz_versions_keep_legacy_contract_and_parser_order(self):
+        legacy = self.registry["schemas"]["QUIZ_ANSWERED|1.0"]
+        current = self.registry["schemas"]["QUIZ_ANSWERED|1.1"]
+        self.assertNotIn("question_type", {field["name"] for field in legacy["fields"]})
+        self.assertEqual(fact_defaults(legacy), {"question_type": "MULTIPLE_CHOICE"})
+        self.assertEqual(fact_defaults(current), {})
+        self.assertIn("QUIZ_ANSWERED|1.0", self.registry["routes"]["standardized.content_usage"])
+        self.assertIn("QUIZ_ANSWERED|1.1", self.registry["routes"]["standardized.content_usage"])
+        self.assertEqual(self.registry["parser_versions"], ["1.0.0", "1.1.0"])
+        self.assertIsNone(self.check_message(self.messages["success_quiz_answered"])["error_code"])
+
+    def test_quiz_1_1_accepts_both_types_and_answer_results(self):
+        for question_type, choice in (("MULTIPLE_CHOICE", True), ("FILL_BLANK", False)):
+            for correct in (True, False):
+                with self.subTest(question_type=question_type, correct=correct):
+                    self.assertIsNone(self.check_message(self.quiz_message(question_type, choice, correct))["error_code"])
+
+    def test_quiz_1_1_rejects_choice_uuid_inconsistent_with_type(self):
+        for question_type, choice in (("MULTIPLE_CHOICE", False), ("FILL_BLANK", True)):
+            outcome = self.check_message(self.quiz_message(question_type, choice))
+            self.assertEqual(outcome["error_code"], "INVALID_VALUE")
+            self.assertEqual(outcome["error_detail"], "std_data.choice_uuid")
+
+    def test_quiz_1_1_requires_question_type_enum_and_explicit_choice_field(self):
+        for value in (None, "FILL_IN_BLANK", "", True):
+            message = self.quiz_message(value)
+            self.assertEqual(self.check_message(message)["error_code"], "INVALID_VALUE")
+        for missing in ("question_type", "choice_uuid"):
+            message = self.quiz_message("FILL_BLANK", False)
+            del message["envelope"]["std_data"][missing]
+            message["envelope"]["std_manifest"]["fingerprint"] = fingerprint(message["envelope"]["std_data"])
+            self.assertEqual(self.check_message(message)["error_code"], "MISSING_FIELD")
+
+    def test_registry_rejects_invalid_conditional_field_references(self):
+        registry = deepcopy(self.registry)
+        registry["schemas"]["QUIZ_ANSWERED|1.1"]["conditional_rules"][0]["not_null"] = ["unknown_column"]
+        with self.assertRaisesRegex(ValueError, "conditional"):
+            validate_registry(registry)
 
     def test_missing_duplicate_and_invalid_utf8_headers(self):
         for headers in ([], [{"key": "event_type", "value": b"CHAT_SENT"}],

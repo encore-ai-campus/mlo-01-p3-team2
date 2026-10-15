@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from .contracts import COMMON_FACT_FIELDS, FACT_TABLES, envelope_schema, load_registry
+from .contracts import COMMON_FACT_FIELDS, FACT_TABLES, envelope_schema, fact_defaults, load_registry
 from .mysql_sink import MySQLWriter
 from .package import package_code
 from .validation import validate_std
@@ -48,9 +48,10 @@ class BatchProcessor:
                                                                    {"mode": "FAILFAST"}))
                 table = spec["table"]
                 columns = []
+                defaults = fact_defaults(spec)
                 for name in COMMON_FACT_FIELDS + FACT_TABLES[table]:
-                    if name == "end_reason" and spec["event_type"] == "SESSION_STARTED":
-                        value = F.lit(None).cast("string")
+                    if name in defaults:
+                        value = F.lit(defaults[name]).cast("string")
                     else:
                         value = F.col("parsed.std_data." + name)
                     if name.endswith("_uuid"):
