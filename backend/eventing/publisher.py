@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 _worker = None
 _worker_lock = threading.Lock()
 _stop = threading.Event()
+_wakeup = threading.Event()
+
+
+def notify_outbox_ready():
+    """Wake the local worker only after an outbox transaction has committed."""
+    _wakeup.set()
+
+
+def _wait_for_work(stop, seconds):
+    deadline = time.monotonic() + seconds
+    while not stop.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or _wakeup.wait(min(remaining, 0.25)):
+            return
 
 
 def producer_config():
@@ -60,26 +74,21 @@ def _deliver(producer, topic, key, value):
         raise RuntimeError(str(result["error"]))
 
 
-def _publisher_loop(stop):
-    try:
-        from confluent_kafka import Producer
-    except ImportError:
-        logger.error("Kafka publisher is disabled: install project requirements to enable confluent-kafka")
-        return
-    try:
-        producer = Producer(producer_config())
-    except Exception:
-        logger.exception("Could not configure Kafka producer")
-        return
-
+def _publish_pending(producer, stop):
+    idle_delay = 0.25
+    max_idle_delay = settings.CAMPUS_OUTBOX_IDLE_POLL_SECONDS
     while not stop.is_set():
+        # Clear before reading: a commit during the read must still wake the wait.
+        _wakeup.clear()
         close_old_connections()
         try:
             row = EventOutbox.objects.filter(published_at__isnull=True).order_by("created_at", "event_uuid").first()
             if row is None:
-                producer.poll(0.25)
-                stop.wait(0.25)
+                producer.poll(0)
+                _wait_for_work(stop, min(idle_delay, max_idle_delay))
+                idle_delay = min(idle_delay * 2, max_idle_delay)
                 continue
+            idle_delay = 0.25
             if row.payload_json is None:
                 row.payload_json = build_envelope(row.event_uuid, row.event_type, row.occurred_at, row.raw_data)
                 if row.payload_json is None:
@@ -103,14 +112,43 @@ def _publisher_loop(stop):
                 published_at=timezone.now()
             )
         except Exception:
+            connections.close_all()
             logger.exception("Raw event publisher loop failed; pending events will be retried")
             stop.wait(1)
+
+
+def _publisher_loop(stop):
+    try:
+        from confluent_kafka import Producer
+    except ImportError:
+        logger.error("Kafka publisher is disabled: install project requirements to enable confluent-kafka")
+        return
+    try:
+        producer = Producer(producer_config())
+    except Exception:
+        logger.exception("Could not configure Kafka producer")
+        return
+
+    database = connections["default"]
+    original_options = database.settings_dict
+    if database.vendor == "mysql":
+        # DatabaseWrapper is thread-local. Copy its options so only this one
+        # background worker retains a connection; ASGI requests keep max age 0.
+        database.settings_dict = {
+            **original_options,
+            "CONN_MAX_AGE": settings.CAMPUS_OUTBOX_CONNECTION_MAX_AGE_SECONDS,
+            "CONN_HEALTH_CHECKS": True,
+        }
+    try:
+        _publish_pending(producer, stop)
+    finally:
+        try:
+            producer.flush(5)
+        except Exception:
+            logger.exception("Kafka producer could not flush during shutdown")
         finally:
             connections.close_all()
-    try:
-        producer.flush(5)
-    except Exception:
-        logger.exception("Kafka producer could not flush during shutdown")
+            database.settings_dict = original_options
 
 
 def start_outbox_publisher():

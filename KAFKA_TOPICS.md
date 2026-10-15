@@ -197,6 +197,8 @@
 
 주요 서비스 변경과 Outbox 기록을 같은 DB 트랜잭션으로 저장함. Kafka의 전송 성공 응답을 받은 뒤 전송 완료로 표시함.
 
+저장 트랜잭션이 커밋되면 같은 프로세스의 발행기에 즉시 알림. 롤백된 기록은 알리지 않음. 빈 Outbox는 조회 간격을 0.25초부터 최대 5초까지 늘리며, 다른 프로세스가 기록한 이벤트도 주기 조회로 발견함. MySQL 발행기 스레드만 기본 60초 동안 연결 하나를 재사용하고, 연결 상태 확인·만료·오류·종료 시 정리함. 사용자 HTTP·WebSocket의 연결 정책과 이벤트 계약은 유지함.
+
 Producer는 `acks=all`, `enable.idempotence=True`를 사용함. Kafka 전송 성공 직후 서버가 종료되면 같은 이벤트가 다시 전송될 수 있으므로, 소비자에서도 `event_uuid` 기준 중복 제거가 필요함.
 
 로컬 개발 기본 DB는 SQLite이며 2026-10-15 기준 AWS 운영 Outbox는 MySQL에 저장함. Kafka 연결 정보가 없어도 이동 체크포인트를 포함한 모든 이벤트는 발생 시 Outbox에 기록됨. 브로커 주소가 없으면 실제 Kafka 전송은 시작하지 않고, 설정 후 발행기를 실행하면 기존 미발행 이벤트부터 전송함.
@@ -206,6 +208,7 @@ Producer는 `acks=all`, `enable.idempotence=True`를 사용함. Kafka 전송 성
 - 연결 정보는 `backend/.env`에서 설정함. 예시는 `backend/.env.example`에 있음.
 - `KAFKA_BOOTSTRAP_SERVERS`가 발행기 시작에 필요하며, 인증을 사용하는 환경에서는 `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`도 설정함.
 - 기본 출처는 `CAMPUS_RAW_SOURCE=platform_server_1`임.
+- 빈 조회 최대 간격은 `CAMPUS_OUTBOX_IDLE_POLL_SECONDS=5`, MySQL 발행기 연결 재사용 수명은 `CAMPUS_OUTBOX_CONNECTION_MAX_AGE_SECONDS=60`으로 조정함. 변경 후 백엔드를 재시작함.
 - `run-campus.py`와 `manage.py runserver` 모두 실제 서비스 프로세스에서 발행기를 시작함. 자동 재시작을 감시하는 부모 프로세스에서는 시작하지 않으며, 마이그레이션·검사·테스트 명령도 발행기를 시작하지 않음.
 - 토픽 생성, 파티션·복제 수 설정과 수신 서비스 구독은 별도로 관리함. 토픽·이벤트 코드가 구현되었다는 사실과 실제 브로커 송수신 확인을 구분함.
 

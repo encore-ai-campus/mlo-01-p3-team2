@@ -169,7 +169,7 @@ def enqueue_event(event_type, user, session_uuid, attributes, *, occurred_at=Non
     event_uuid = uuid.uuid4()
     occurred_at = occurred_at or timezone.now()
     payload = build_envelope(event_uuid, event_type, occurred_at, raw_data)
-    return EventOutbox.objects.create(
+    row = EventOutbox.objects.create(
         event_uuid=event_uuid,
         event_type=event_type,
         topic=TOPIC_BY_TYPE[event_type],
@@ -178,6 +178,9 @@ def enqueue_event(event_type, user, session_uuid, attributes, *, occurred_at=Non
         occurred_at=occurred_at,
         payload_json=payload,
     )
+    from .publisher import notify_outbox_ready
+    transaction.on_commit(notify_outbox_ready, robust=True)
+    return row
 
 
 def start_platform_session(user, session, *, now=None):
