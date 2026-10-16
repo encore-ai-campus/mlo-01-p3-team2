@@ -49,7 +49,11 @@
       if(drawing)poly([a,d,E,A],side);else poly([b,c,C,B],side);poly([d,c,C,E],front);poly([A,B,C,E],top);
     }
     function ellipse(x,y,rx,ry,color){g.beginPath();g.ellipse(x,y,rx,ry,0,0,Math.PI*2);g.fillStyle=color;g.fill();}
-    function shadow(o,z=0){plane(o.x+4,o.y+5,o.w,o.h,z+.2,'#493c3021',null);}
+    // Contact shadow: anchored at the footprint so objects sit on the floor, spreading slightly toward the viewer.
+    function shadow(o,z=0){
+      if(!['stool','ottoman'].includes(o.type)){plane(o.x,o.y,o.w+3,o.h+4,z+.2,'#493c3021',null);return;}
+      const cx=o.x+o.w/2+1.5,cy=o.y+o.h/2+2;poly(Array.from({length:24},(_,i)=>p(cx+Math.cos(i*Math.PI/12)*(o.w/2+1.5),cy+Math.sin(i*Math.PI/12)*(o.h/2+1.5),z+.2)),'#493c3021',null);
+    }
     function label(value,x,y,size=13,fg='#4e5d56',bg='#fffaf0ee',z=0) {
       const q=p(x,y,z);g.font=`600 ${size}px ${font}`;const w=g.measureText(value).width+20;
       g.fillStyle=bg;g.beginPath();g.roundRect(q.x-w/2,q.y-10,w,22,5);g.fill();
@@ -427,7 +431,7 @@
         const back=o.dir==='up'?{x,y:y+h-4,w,h:4}:o.dir==='down'?{x,y,w,h:4}:o.dir==='left'?{x:x+w-4,y,w:4,h}:{x,y,w:4,h};
         box(back.x,back.y,back.w,back.h,base+12,13,c||'#7f9393','#647c80','#526b6f');
       } else if(['stool','ottoman'].includes(type)) {
-        const q=p(x+w/2,y+h/2,base),rx=(w+h)*.28,ry=rx*.56;
+        const q=p(x+w/2,y+h/2,base),rx=(w+h)/4,ry=rx*P.tilt;// the projected floor circle, so the seat stays inside its footprint
         g.fillStyle=c||'#b89b70';g.fillRect(q.x-rx,q.y-13,rx*2,13);ellipse(q.x,q.y,rx,ry,c||'#b89b70');
         ellipse(q.x,q.y-13,rx,ry,c||'#b89b70');ellipse(q.x-2,q.y-15,rx*.65,ry*.65,'#ffffff16');
       } else if(['sofa','bench'].includes(type)) {
@@ -822,6 +826,8 @@
       const support=objects.find(s=>supportTypes.has(s.type)&&o.x+o.w/2>=s.x&&o.x+o.w/2<=s.x+s.w&&o.y+o.h/2>=s.y&&o.y+o.h/2<=s.y+s.h);
       if(support){support.children.push(o);attached.add(o.id);}
     }
+    // Items on one tabletop are painted back to front, not in the order the map lists them.
+    for(const o of objects)o.children.sort((a,b)=>a.x+a.w/2+a.y+a.h/2-(b.x+b.w/2+b.y+b.h/2));
     const floorCanvas=makeCanvas(P.width*resolution,P.height*resolution);g=floorCanvas.getContext('2d');g.scale(resolution,resolution);
     const floors=D.surfaces||[...D.rooms,...(D.entrance?[D.entrance]:[])];
     const floorColors={wood:'#e3cda8',class:'#ebeade',hall:'#f2ede2',office:'#e3e6dc',meeting:'#dfc8a5',stone:'#d5ddd5',orange:'#f2d9c2',yellow:'#f4e9be',roof:'#eeeade'};
@@ -897,8 +903,22 @@
         }
       } else sprites.push(cacheSprite(o,()=>furniture(o,groundHeight(o.x+o.w/2,o.y+o.h/2))));
     }
+    const wallTop=w=>w.topZ??w.height??D.wallHeight??35;
+    // An end that butts into an equal or taller wall stops at its face, so the caps meet flush.
+    // At an L corner only the y-axis wall gives way; otherwise both would paint a face inside the other.
+    const wallReach=(wall,x,y)=>{const alongY=wall.x1===wall.x2,inside=(a,b,v,open)=>open?v>Math.min(a,b)&&v<Math.max(a,b):v>=Math.min(a,b)&&v<=Math.max(a,b);
+      return D.walls.some(w=>w!==wall&&wallTop(w)>=wallTop(wall)&&(w.y1===w.y2?y===w.y1&&inside(w.x1,w.x2,x,!alongY):x===w.x1&&inside(w.y1,w.y2,y,true)))?-5:5;};
+    // Segments only exist for depth sorting: paint them without their own end outlines so a wall reads as one piece.
+    function wallBox(x,y,w,h,z,height,[top,front,side],alongX,first,last) {
+      const a=p(x,y,z),b=p(x+w,y,z),c=p(x+w,y+h,z),d=p(x,y+h,z),A=p(x,y,z+height),B=p(x+w,y,z+height),C=p(x+w,y+h,z+height),E=p(x,y+h,z+height);
+      poly([b,c,C,B],side,side,.8);poly([d,c,C,E],front,front,.8);poly([A,B,C,E],top,top,.8);
+      const ink='#67584670',edge=(m,n)=>line(m,n,ink,.65);
+      if(alongX){edge(A,B);edge(E,C);edge(d,c);if(first){edge(A,E);edge(d,E);}if(last){edge(b,c);edge(c,C);edge(b,B);}}
+      else{edge(A,E);edge(B,C);edge(b,c);if(first){edge(A,B);edge(b,B);}if(last){edge(d,c);edge(c,C);edge(d,E);}}
+    }
     for(const wall of D.walls) {
       const dx=wall.x2-wall.x1,dy=wall.y2-wall.y1,cuts=new Set([0,1]);
+      const alongX=dy===0,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len,reach=[wallReach(wall,wall.x1,wall.y1),wallReach(wall,wall.x2,wall.y2)];
       // Split at terrain boundaries so wall feet meet each tread exactly.
       if(Number.isFinite(wall.topZ))for(const surface of D.surfaces||[]){
         const edges=dy===0?[surface.x,surface.x+surface.w]:dx===0?[surface.y,surface.y+surface.h]:[];
@@ -911,8 +931,13 @@
           const a=start+(end-start)*i/steps,b=start+(end-start)*(i+1)/steps;
           const x1=wall.x1+dx*a,y1=wall.y1+dy*a,x2=wall.x1+dx*b,y2=wall.y1+dy*b;
           const z=groundHeight((x1+x2)/2,(y1+y2)/2),h=Number.isFinite(wall.topZ)?wall.topZ-z:wall.height??D.wallHeight??35;
-          const o={type:'wall',x:Math.min(x1,x2)-5,y:Math.min(y1,y2)-5,w:Math.abs(x2-x1)+10,h:Math.abs(y2-y1)+10,renderHeight:h+14,occludes:wall.occludes};
-          sprites.push(cacheSprite(o,()=>{if(D.wallShadows!==false)shadow(o,z);box(o.x,o.y,o.w,o.h,z,h,wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387');box(o.x,o.y,o.w,o.h,z+h,4,D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449');},true));
+          // Inner cuts overlap by half a unit only, enough to hide anti-aliasing hairlines.
+          const e1=a===0?reach[0]:.5,e2=b===1?reach[1]:.5,X1=x1-ux*e1,Y1=y1-uy*e1,X2=x2+ux*e2,Y2=y2+uy*e2;
+          const fx=alongX?0:5,fy=alongX?5:0,forward=ux+uy>0,first=forward?a===0:b===1,last=forward?b===1:a===0;
+          const o={type:'wall',x:Math.min(X1,X2)-fx,y:Math.min(Y1,Y2)-fy,w:Math.abs(X2-X1)+fx*2,h:Math.abs(Y2-Y1)+fy*2,renderHeight:h+14,occludes:wall.occludes};
+          const ends=[first&&reach[forward?0:1]>0,last&&reach[forward?1:0]>0],trim=first?0:.5,foot={x:o.x+(alongX?trim:0),y:o.y+(alongX?0:trim),w:o.w-(alongX?trim+(last?0:3.5):0),h:o.h-(alongX?0:trim+(last?0:4.5))};
+          const body=[wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387'],cap=[D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449'];
+          sprites.push(cacheSprite(o,()=>{if(D.wallShadows!==false)shadow(foot,z);wallBox(o.x,o.y,o.w,o.h,z,h,body,alongX,...ends);wallBox(o.x,o.y,o.w,o.h,z+h,4,cap,alongX,...ends);},true));
         }
       }
     }
@@ -947,7 +972,26 @@
       const a=sprite.r,b=support.r;
       if(a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y)sprite.depth=Math.max(sprite.depth,support.depth+.01);
     }
-    sprites.sort((a,b)=>a.depth-b.depth);
+    // Centre depth alone misorders long or touching props, letting a prop cover one that stands in front of it.
+    // Keep depth order as the tie-break, but draw a sprite after every overlapping sprite whose footprint lies
+    // wholly behind it, and after anything it explicitly occludes.
+    function orderSprites(){
+      sprites.sort((a,b)=>a.depth-b.depth);
+      const n=sprites.length,next=sprites.map(()=>[]),need=new Array(n).fill(0),index=new Map(sprites.map((s,i)=>[s.o.id,i]));
+      const edge=(i,j)=>{next[i].push(j);need[j]++;};
+      const behind=(A,B)=>(B.x>=A.x+A.w&&B.y<A.y+A.h&&B.y+B.h>A.y)||(B.y>=A.y+A.h&&B.x<A.x+A.w&&B.x+B.w>A.x);
+      for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(i!==j&&overlaps(sprites[i].b,sprites[j].b)&&behind(sprites[i].r,sprites[j].r))edge(i,j);
+      sprites.forEach((s,j)=>{for(const id of s.o.occludes||[])if(index.has(id))edge(index.get(id),j);});
+      // ponytail: O(n²) pairs and an O(n) scan per pick; fine for a few hundred sprites, use a heap if maps grow.
+      const done=new Array(n).fill(false),order=[];
+      for(let k=0;k<n;k++){
+        let pick=-1;for(let i=0;i<n;i++)if(!done[i]&&need[i]===0){pick=i;break;}
+        if(pick<0)pick=done.indexOf(false);// a cycle: fall back to depth order
+        done[pick]=true;order.push(sprites[pick]);for(const j of next[pick])need[j]--;
+      }
+      sprites.splice(0,n,...order);
+    }
+    orderSprites();
     const hitSprites=objects.filter(o=>o.name).map(o=>sprites.find(s=>s.o.id===o.id)||cacheSprite(o,()=>{
       furniture(o,groundHeight(o.x,o.y)+27);
       if(o.portalGlow){const glow=sprites.find(s=>s.o.id===o.id+'-glow');if(glow)compactPortalBase(glow.o);}
@@ -1013,7 +1057,7 @@
       if(!door||!sprite||typeof open!=='boolean')return false;
       door.open=sprite.o.open=open;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(door.x,door.y))));
       orderSlidingLeaves();
-      sprites.sort((a,b)=>a.depth-b.depth);hitSprites.sort((a,b)=>b.depth-a.depth);repaintScene();return true;
+      orderSprites();hitSprites.sort((a,b)=>b.depth-a.depth);repaintScene();return true;
     }
     function drawActor(ctx,actor,t,zoom,labelText,self) {
       const q=projectActor(actor);ctx.save();ctx.translate(q.x,q.y);
@@ -1037,14 +1081,24 @@
     function drawName(ctx,actor,zoom,labelText,self,t=performance.now()) {
       const q=projectActor(actor),scale=1/Math.max(zoom,.55);ctx.save();ctx.translate(q.x,q.y-(window.CampusJump?.height(actor,t)||0)-(window.CampusAvatars?.size||40)-12*scale);ctx.scale(scale,scale);ctx.font=`600 11px ${font}`;const w=Math.min(155,ctx.measureText(labelText).width+16);ctx.fillStyle='#ffffffec';ctx.beginPath();ctx.roundRect(-w/2,-9,w,18,5);ctx.fill();ctx.fillStyle=self?'#256b59':'#3e5764';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(labelText,0,0,w-8);ctx.restore();
     }
-    function compare(a,b) {
-      if(Boolean(a.actor)!==Boolean(b.actor)) {
-        const actor=a.actor?a:b,prop=a.actor?b:a,r=prop.r;
-        const front=actor.actor.x>r.x+r.w||actor.actor.y>r.y+r.h;
-        const back=actor.actor.x<r.x||actor.actor.y<r.y;
-        if(front!==back)return (a.actor?1:-1)*(front?1:-1);
-      }
-      return a.depth-b.depth;
+    // Sorting actors into the sprite list with a pairwise rule is not transitive, so a long prop could end up in
+    // front of someone standing behind it. Instead slot each actor right after the last sprite on screen with it
+    // that lies behind it, judged at the prop's floor point nearest the actor rather than at its centre.
+    function placeActors(visible,actors){
+      const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
+      const slots=actors.map(actor=>{
+        const q=projectActor(actor),area={x:q.x-14,y:q.y-50,w:28,h:54},depth=p(actor.x,actor.y).y;let at=0;
+        visible.forEach((s,i)=>{
+          if(!overlaps(s.b,area))return;
+          const r=s.r,inside=actor.x>=r.x&&actor.x<=r.x+r.w&&actor.y>=r.y&&actor.y<=r.y+r.h;
+          if(inside?s.depth<=depth:p(clamp(actor.x,r.x,r.x+r.w),clamp(actor.y,r.y,r.y+r.h)).y<depth)at=i+1;
+        });
+        return {actor,at,depth};
+      }).sort((a,b)=>a.at-b.at||a.depth-b.depth);
+      const entities=[];let k=0;
+      visible.forEach((s,i)=>{while(k<slots.length&&slots[k].at===i)entities.push(slots[k++]);entities.push(s);});
+      while(k<slots.length)entities.push(slots[k++]);
+      return entities;
     }
     function draw(ctx,{camera,actors,t=0,path=[],hover,nearby,viewportWidth,viewportHeight,showNicknames=true,floorOverlay}) {
       city?.draw(ctx);
@@ -1054,7 +1108,7 @@
       if(path.length){ctx.strokeStyle='#2586789c';ctx.lineWidth=1.5/camera.zoom;ctx.setLineDash([4/camera.zoom,5/camera.zoom]);ctx.beginPath();let q=projectGround(actors[0].x,actors[0].y);ctx.moveTo(q.x,q.y);for(const a of path){q=projectGround(a.x,a.y);ctx.lineTo(q.x,q.y);}ctx.stroke();ctx.setLineDash([]);}
       const focused=hover||nearby;if(focused&&focused.type!=='stairs'&&focused.type!=='floor-portal'){const r=footprint(focused);plane(r.x-3,r.y-3,r.w+6,r.h+6,groundHeight(r.x+r.w/2,r.y+r.h/2)+.5,'#37a29022','#258876');}
       const visible=sprites.filter(s=>{const b=s.b;return b.x*camera.zoom+camera.x<viewportWidth&&b.y*camera.zoom+camera.y<viewportHeight&&(b.x+b.w)*camera.zoom+camera.x>0&&(b.y+b.h)*camera.zoom+camera.y>0;});
-      const entities=[...visible,...actors.map(actor=>({actor,depth:p(actor.x,actor.y).y}))].sort(compare);
+      const entities=placeActors(visible,actors);
       for(const e of entities){
         if(e.actor){drawActor(ctx,e.actor,t,camera.zoom);continue;}
         const blocked=e.isWall&&actors.some(a=>{const q=projectActor(a),b=e.b;return q.x>b.x+10&&q.x<b.x+b.w-10&&q.y>b.y+55&&q.y<b.y+b.h+7&&q.y<e.depth+20;});

@@ -4,7 +4,7 @@
   const campus=window.CampusData;
   campus.id='campus';campus.name='18F 캠퍼스';campus.spawn=[campus.entrance.x+campus.entrance.w/2,campus.entrance.y-36];
   const stairs=campus.objects.find(o=>o.type==='stairs');
-  Object.assign(stairs,{id:'campus-roof-stairs',name:'옥상으로 올라가기',roomId:'stairs',toFloor:'rooftop',stairDirection:'up',stairSteps:8,stairRise:4,stairRun:52,stairEntrySide:'left',stairRails:false,portalGlow:true,renderHeight:100,arrival:[2325,1565],approach:[stairs.x+stairs.w/2,stairs.y+stairs.h*.12],description:'라운지 쪽 옆문으로 평평한 발판에 들어와 계단 위쪽으로 걸어 올라가거나 가까이에서 E를 누르면 옥상 광장으로 이동합니다.',tags:['옥상 연결','유튜브 · 심리 테스트 · 게임 부스']});
+  Object.assign(stairs,{id:'campus-roof-stairs',name:'옥상으로 올라가기',roomId:'stairs',toFloor:'rooftop',stairDirection:'up',stairSteps:6,stairRise:8,stairRun:52,stairEntrySide:'left',stairRails:false,portalGlow:true,renderHeight:100,arrival:[2325,1565],approach:[stairs.x+stairs.w/2,stairs.y+stairs.h*.12],description:'라운지 쪽 옆문으로 평평한 발판에 들어와 계단 위쪽으로 걸어 올라가거나 가까이에서 E를 누르면 옥상 광장으로 이동합니다.',tags:['옥상 연결','유튜브 · 심리 테스트 · 게임 부스']});
   stairs.portalAnchor=[stairs.x+stairs.w/2,stairs.y+stairs.stairRun*.7];
   const extinguisher=campus.objects.find(o=>o.id==='extinguisher-meeting2');
   const lounge2=campus.rooms.find(r=>r.id==='lounge2');
@@ -40,7 +40,7 @@
   for(const y of [520,1590]){planter(750,y,130);obj('terrace-bench',825,y+60,26,70);}
   for(let i=0;i<terrace.levels;i++){
     const x=terrace.x+i*step;
-    for(const y of [310,650,1040,1400])obj('terrace-bench',x+11,y,22,y===650?230:240);
+    for(const [y,h] of [[310,240],[670,210],[1040,200],[1400,240]])obj('terrace-bench',x+11,y,22,h);
     for(const y of [590,1310]){obj('planter',x+10,y,24,74);if(i%2===0)tree(x+2,y+15);}
     if(i%2===1)for(const [y,c] of [[1250,'#e6b451'],[1650,'#8bb5ac']])obj('ottoman',x+11,y,23,23,{color:c});
   }
@@ -49,9 +49,10 @@
   function booth(x,roomId,platform,color,title){
     const y=200,w=280,h=300,r=rooms.find(r=>r.id===roomId);
     obj('rug',x,y,w,h,{solid:false,color:platform==='youtube'?'#f8e6e6':platform==='psych'?'#eee9f8':platform==='game'?'#e0e7f6':'#ebe9dc'});
-    obj('exhibition-booth',x,y,w,h,{name:r.name,roomId,platform,title,color,entrance:'bottom',solid:false,collision:{x:0,y:0,w,h:10},renderHeight:175,description:r.description,tags:r.tags});
+    const backdrop=obj('exhibition-booth',x,y,w,h,{name:r.name,roomId,platform,title,color,entrance:'bottom',solid:false,collision:{x:0,y:0,w,h:10},renderHeight:175,description:r.description,tags:r.tags});
     obj('booth-collider',x,y,w,10,{solid:true});
-    for(const sx of [x,x+w-10])obj('booth-side',sx,y,10,h,{solid:true,color,renderHeight:70});
+    // The side panels stand in front of the backdrop they touch, so someone between them is drawn in the right layer.
+    for(const sx of [x,x+w-10])obj('booth-side',sx,y,10,h,{solid:true,color,renderHeight:70,occludes:[backdrop.id]});
   }
   booth(1440,'festival-youtube','youtube','#ed383b','YouTube');
   booth(1755,'festival-instagram','psych','#8171b6','PSYCHOLOGY TEST');

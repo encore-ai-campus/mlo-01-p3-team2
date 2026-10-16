@@ -37,7 +37,7 @@ test('enlarged map merges classroom 3/4 with only glass doors and a mounted boar
   assert.ok(support.height>=board.mountHeight+board.panelHeight);
   const printer=D.objects.find(o=>o.type==='printer'&&o.roomId==='lounge1'),frontY=84*D.spaceScale;
   assert.ok(D.walls.filter(w=>w.y1===frontY&&w.y2===frontY).every(w=>w.x2<=printer.x||w.x1>=printer.x+printer.w));
-  const printerSide=D.walls.find(w=>w.x1===2043&&w.x2===2043&&w.y1===36);assert.ok(printerSide.y2<=printer.y+printer.h);
+  const printerSide=D.walls.find(w=>w.x1===2043&&w.x2===2043&&w.y1===36);assert.ok(printerSide.x1>=printer.x+printer.w);assert.equal(printerSide.y2,frontY);
   const worktable=D.objects.find(o=>o.id==='lounge1-worktable');assert.equal(worktable.w,42);assert.equal(worktable.h,172.5);
   assert.equal(D.objects.filter(o=>o.workSeat).length,4);
   assert.equal(D.rooms.find(r=>r.id==='lounge1').target[0],1893);

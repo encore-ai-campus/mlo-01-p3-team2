@@ -86,13 +86,16 @@
         const q=p(bx,y+18,base+149);ellipse(q.x,q.y,3,1.7,'#f8e6aa');
       }
     }else if(o.type==='booth-side'){
-      block(x,y,w,h,0,31,cream);
-      block(x,y,w,h,31,5,['#d8bf9a','#b8a183','#9b8c75']);
-      for(const by of [y+1,y+h-11]){
-        block(x,by,w,10,0,58,wood);block(x-1,by-1,w+2,12,58,3,cream);
-      }
-      // A thin accent strip makes the shared timber frame belong to its zone.
-      plane(x+.5,y+13,w-1,h-26,base+36.3,theme.soft,null);
+      // Same body and cap colours as the campus walls, so the long face reads as a wall rather than a grey sheet.
+      // The panel butts onto the backdrop's corner post (8 wide, 12 deep) and shares its outer face,
+      // so it continues the post instead of stepping out beside it.
+      const outer=x<140?x:x+w-8,py=y+12,ph=h-12;
+      block(outer,py,8,ph,0,31,['#eee5d0','#c8b99a','#b4a387']);
+      block(outer,py,8,ph,31,5,['#8d775b','#917656','#786449']);
+      // A thin accent strip makes the shared timber frame belong to its zone; the post is painted over its end.
+      plane(outer+.5,py+.5,7,ph-13.5,base+36.3,theme.soft,null);
+      // Only the open front end has a post, a unit proud of the panel on both faces so it reads as a post.
+      block(x-1,y+h-11,w+2,10,0,58,wood);block(x-2,y+h-12,w+4,12,58,3,cream);
     }else if(o.type==='creator-screen'){
       for(const bx of [x+17,x+w-23])block(bx,y+5,6,8,0,39,['#78877e','#586a64','#3f5350']);
       verticalPanel(x,y+h,w,66,base+35,'#374b4f');screen(x+5,y+h,w-10,55,42,'edit');

@@ -35,3 +35,22 @@ test('consultation tables, monitors and chairs fit inside their rooms with separ
   for(const chair of D.objects.filter(o=>o.type==='chair'&&o.x>=room.x&&o.x<room.x+room.w&&o.y>=room.y&&o.y<room.y+room.h))assert.equal(overlap(chair,desk),false);
  }
 });
+
+test('solid campus furniture neither overlaps other furniture nor sinks into a wall',()=>{
+ const onTop=new Set(['monitor','laptop','notebook','water','coffee-machine','bin','rug','floor-arrow']);
+ // Wall-mounted or wall-like pieces are allowed to touch walls.
+ const wallLike=new Set(['woodwall','glass-wall','pillar','stairs','fire-extinguisher']);
+ const items=D.objects.filter(o=>o.solid!==false&&!o.mounted&&!onTop.has(o.type)&&!context.window.CampusDoors.isDoor(o));
+ for(const [i,a] of items.entries())for(const b of items.slice(i+1))assert.equal(overlap(a,b),false,`${a.id} ${a.type} / ${b.id} ${b.type}`);
+ const k=D.spaceScale;
+ for(const o of items.filter(o=>!wallLike.has(o.type)))for(const w of D.walls){
+  const band={x:Math.min(w.x1,w.x2)-5*k,y:Math.min(w.y1,w.y2)-5*k,w:Math.abs(w.x2-w.x1)+10*k,h:Math.abs(w.y2-w.y1)+10*k};
+  assert.equal(overlap(o,band),false,`${o.id} ${o.type} in wall ${w.x1},${w.y1}`);
+ }
+});
+
+test('back-to-back chairs keep a visible aisle between them',()=>{
+ const gap=(a,b)=>Math.max(b.x-(a.x+a.w),a.x-(b.x+b.w),b.y-(a.y+a.h),a.y-(b.y+b.h));
+ const chairs=D.objects.filter(o=>o.type==='chair');
+ for(const [i,a] of chairs.entries())for(const b of chairs.slice(i+1))assert.ok(gap(a,b)>=6*D.spaceScale,`${a.id} / ${b.id}`);
+});
