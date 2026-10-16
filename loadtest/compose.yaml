@@ -81,11 +81,15 @@ services:
     volumes:
       - ../frontend:/app:ro
     environment:
-      BACKEND_URL: http://backend:9003
+      BACKEND_URL: ${FRONTEND_BACKEND_URL:-http://backend:9003}  # 여러 프로세스면 nginx:8000(운영 front-a 가 game-server :8000 에 붙는 것과 같다)
       FRONTEND_ALLOWED_HOSTS: ${FRONTEND_HOSTS:-localhost,127.0.0.1}
       FRONTEND_DEBUG: "1"  # 정적 파일을 runserver 가 내준다(운영은 nginx)
     ports:
       - "${FRONTEND_BIND:-127.0.0.1}:8004:8004"
+    # 중계 측정(계획 M6)에서는 운영 코어 하나로 묶는다(run.py --via-frontend). 평소 개발 서버는 제한 없음
+    cpuset: "0-7"
+    cpu_period: 10000
+    cpu_quota: ${FRONTEND_CPU_QUOTA:-100000}
     command: python manage.py runserver 0.0.0.0:8004 --noreload
 
   # 여러 프로세스(계획 M4·M5): 소켓 프로세스는 backend 를 --scale 로 늘리고(BACKEND_RUN=daphne …),
