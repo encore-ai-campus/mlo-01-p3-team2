@@ -7,6 +7,7 @@ CATALOG_IDS = {
     ("class-group", "mlo-3"): UUID("2cc41077-6fe6-402f-8be4-9e6a534059ca"),
     ("class-group", "skn-34"): UUID("fa054023-6ca8-46a7-9d49-87ac49be7cc6"),
     ("class-group", "skn-36"): UUID("03fb0fa9-26a1-4865-b434-0aaebc83b5c8"),
+    ("class-group", "aio-4"): UUID("c25cbb3b-c4df-4234-a0e6-f1385ea7fb94"),
     ("class-group", "unassigned"): UUID("31a2cc4c-ddd8-4c6a-bcd0-846dbe774f32"),
     ("floor", "campus"): UUID("e389216d-067b-4716-aebd-43173921983a"),
     ("floor", "rooftop"): UUID("b4845343-2701-481f-8cb3-1ce4290fea3f"),
@@ -53,6 +54,7 @@ CLASS_GROUPS = (
     ("mlo-3", "MLO 3기"),
     ("skn-34", "SKN 34기"),
     ("skn-36", "SKN 36기"),
+    ("aio-4", "AIO 4기"),
     ("unassigned", "미지정"),
 )
 FLOORS = (
