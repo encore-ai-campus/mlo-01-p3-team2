@@ -15,6 +15,7 @@ import asyncio
 import json
 import math
 import multiprocessing as mp
+import os
 import random
 import time
 import urllib.request
@@ -23,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from autobahn.asyncio.websocket import WebSocketClientFactory, WebSocketClientProtocol
 
-HOST, PORT = "backend", 9003
+# 여러 프로세스 시험(계획 M5)은 nginx(세션 고정 배정)로 붙는다: CAMPUS_HOST=nginx CAMPUS_PORT=8000
+HOST, PORT = os.environ.get("CAMPUS_HOST", "backend"), int(os.environ.get("CAMPUS_PORT", "9003"))
 MOVE_KEYS = (["d"], ["a"], ["w"], ["s"], ["d", "w"], ["a", "s"])
 POLLS = ("/accounts/session/status/", "/api/messages/status/")  # 추첨(/api/raffle/)은 기능을 없앴다(2026-10-16)
 ACTIVITY = "/accounts/session/activity/"

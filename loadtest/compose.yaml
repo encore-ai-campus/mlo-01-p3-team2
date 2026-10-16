@@ -5,6 +5,25 @@ x-image: &image
   build: .
   image: campus-load:py312
 
+x-backend-env: &backend-env
+  DJANGO_DEBUG: "0"
+  DJANGO_SECRET_KEY: load-test-only-not-a-secret-0123456789abcdefghij
+  DJANGO_ALLOWED_HOSTS: ${BACKEND_HOSTS:-backend,localhost}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${CSRF_ORIGINS:-}
+  DATABASE_ENGINE: mysql
+  MYSQL_HOST: mysql
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: campus
+  MYSQL_USER: campus
+  MYSQL_PASSWORD: campus
+  CAMPUS_DATA_DIR: /data
+  DJANGO_SETTINGS_MODULE: ${SETTINGS:-config.settings}  # 실험용 덮어쓰기(settings_*.py)만 바꾼다
+  PYTHONPATH: /load
+  CAMPUS_DM_ENABLED: "1"
+  CAMPUS_REDIS_URL: ${CAMPUS_REDIS_URL:-}  # 비우면 한 프로세스 메모리 계층(지금 운영과 같다)
+  # 운영처럼 브로커 주소는 있지만 닿지 않는다(outbox 에 쌓이고 전송기는 연결을 계속 시도한다)
+  KAFKA_BOOTSTRAP_SERVERS: 10.255.255.1:9092
+
 services:
   mysql:
     image: mysql:8.4
@@ -36,24 +55,7 @@ services:
       - ../backend:/app:ro
       - .:/load:ro
       - data:/data
-    environment:
-      DJANGO_DEBUG: "0"
-      DJANGO_SECRET_KEY: load-test-only-not-a-secret-0123456789abcdefghij
-      DJANGO_ALLOWED_HOSTS: ${BACKEND_HOSTS:-backend,localhost}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${CSRF_ORIGINS:-}
-      DATABASE_ENGINE: mysql
-      MYSQL_HOST: mysql
-      MYSQL_PORT: "3306"
-      MYSQL_DATABASE: campus
-      MYSQL_USER: campus
-      MYSQL_PASSWORD: campus
-      CAMPUS_DATA_DIR: /data
-      DJANGO_SETTINGS_MODULE: ${SETTINGS:-config.settings}  # 실험용 덮어쓰기(settings_*.py)만 바꾼다
-      PYTHONPATH: /load
-      CAMPUS_DM_ENABLED: "1"
-      CAMPUS_REDIS_URL: ${CAMPUS_REDIS_URL:-}  # 비우면 한 프로세스 메모리 계층(지금 운영과 같다)
-      # 운영처럼 브로커 주소는 있지만 닿지 않는다(outbox 에 쌓이고 전송기는 연결을 계속 시도한다)
-      KAFKA_BOOTSTRAP_SERVERS: 10.255.255.1:9092
+    environment: *backend-env
     cap_add: [NET_ADMIN, SYS_PTRACE]  # SYS_PTRACE: 원인을 볼 때 py-spy 로 들여다보려고
     # 운영 t3.2xlarge 는 vCPU 8개지만 이 프로세스는 GIL 때문에 코어 하나 분량이 한계다.
     # cpu_quota/cpu_period = 운영 코어 하나의 속도에 맞춘 비율(corebench.py 로 측정, run.py 가 넣는다).
@@ -64,7 +66,7 @@ services:
     command: >
       sh -c "tc qdisc replace dev eth0 root netem delay ${NET_DELAY_US:-250}us &&
              python manage.py migrate --noinput -v 0 &&
-             exec python -u run-campus.py --port 9003 --bind 0.0.0.0 --noreload"
+             exec ${BACKEND_RUN:-python -u run-campus.py --port 9003 --bind 0.0.0.0 --noreload}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9003/')"]
       interval: 2s
@@ -86,6 +88,47 @@ services:
       - "${FRONTEND_BIND:-127.0.0.1}:8004:8004"
     command: python manage.py runserver 0.0.0.0:8004 --noreload
 
+  # 여러 프로세스(계획 M4·M5): 소켓 프로세스는 backend 를 --scale 로 늘리고(BACKEND_RUN=daphne …),
+  # 백그라운드 작업은 jobs 하나, 앞에서 nginx 가 세션 쿠키로 고정 배정한다(운영 deploy/campus-multiprocess 와 같은 구조)
+  jobs:
+    <<: *image
+    profiles: [multi]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - ../backend:/app:ro
+      - .:/load:ro
+      - data:/data
+    environment: *backend-env
+    command: python -u manage.py campus_jobs
+
+  nginx:
+    image: nginx:1.24.0  # 운영 game-server 에 apt 로 설치할 판(Ubuntu 24.04)
+    profiles: [multi]
+    depends_on:
+      backend: {condition: service_healthy}
+    volumes:
+      - ./nginx-backend.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # 두 프로세스 확인(계획 M4): 소켓 프로세스 둘과 작업 하나를 이 안에 띄워 프로세스 사이 기능을 확인한다
+  cluster-check:
+    <<: *image
+    profiles: [check]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - ../backend:/app:ro
+      - .:/load:ro
+      - data:/data
+    environment:
+      <<: *backend-env
+      CAMPUS_REDIS_URL: redis://redis:6379/0
+      DJANGO_ALLOWED_HOSTS: localhost
+    working_dir: /app
+    command: sh -c "python manage.py migrate --noinput -v 0 && exec python -u /load/cluster_check.py"
+
   load:
     <<: *image
     profiles: [load]
@@ -94,6 +137,9 @@ services:
     volumes:
       - .:/load:ro
       - data:/data
+    environment:
+      CAMPUS_HOST: ${CAMPUS_HOST:-backend}  # 여러 프로세스면 nginx
+      CAMPUS_PORT: ${CAMPUS_PORT:-9003}
     working_dir: /load
     cpuset: "8-11"
 
