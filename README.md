@@ -2,15 +2,11 @@
   <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="800">
 </p>
 
-# PLAYDATA 캠퍼스 메타버스
+<h1 align="center">🚀 2026년 10월 19일(월) 오픈 예정!</h1>
 
-**함께 배우고, 이야기하고, 즐기는 우리 캠퍼스.**
-
-부트캠프 수강생을 위한 온라인 캠퍼스입니다.
-내 캐릭터로 동료들을 만나고, Python·SQL을 학습하며, 쉬는 시간에는 게임과 이벤트를 즐길 수 있습니다.
-학습부터 소통과 휴식까지, 캠퍼스의 일상을 한 공간에서 경험해보세요.
-
-**[캠퍼스 접속하기 →](https://43.203.25.153/accounts/login/)**
+<p align="center">
+  <strong>다음 주 월요일, PLAYDATA 캠퍼스 메타버스에서 만나요!</strong>
+</p>
 
 ## 시연 영상
 
