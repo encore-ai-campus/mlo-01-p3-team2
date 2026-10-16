@@ -3,3 +3,4 @@
 Django~=6.1.2
 python-dotenv~=1.2.4     # 로컬 .env 로드 (config/settings.py)
 whitenoise~=6.12.0       # 정적 파일(/static/ — 콘솔·운영 화면·Django admin 의 CSS·JS)을 프론트가 서빙
+gunicorn~=26.2.0         # 운영 WSGI 서버 (백엔드와 같다, 6-20)
