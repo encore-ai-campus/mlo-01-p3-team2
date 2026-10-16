@@ -61,8 +61,14 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = []  # Presentation data only; HTML belongs to frontend.
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
-# Local prototype: one server process shares presence and movement in memory.
-CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+# Redis 주소가 있으면 여러 프로세스가 채널 계층·공유 상태를 Redis 로 나눈다(계획 M2·M3).
+# 없으면 지금처럼 한 프로세스의 메모리로 돈다(로컬 개발·시험·되돌리기).
+CAMPUS_REDIS_URL = os.environ.get("CAMPUS_REDIS_URL", "").strip()
+if CAMPUS_REDIS_URL:
+    # 방송 한 번이 PUBLISH 한 번이다(기본 계층은 방송마다 Redis 를 네 번 오간다). 비교는 loadtest/settings_redis_core.py
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer", "CONFIG": {"hosts": [CAMPUS_REDIS_URL]}}}
+else:
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
 DATABASE_ENGINE = os.environ.get("DATABASE_ENGINE", "sqlite").strip().lower()
 if DATABASE_ENGINE == "mysql":

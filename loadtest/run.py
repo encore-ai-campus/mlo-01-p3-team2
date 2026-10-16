@@ -20,8 +20,8 @@ def compose(*args, env=None, **kwargs):
     return subprocess.run([*COMPOSE, *args], check=True, text=True, env=env, **kwargs)
 
 
-def cpu_stat():
-    out = compose("exec", "-T", "backend", "cat", "/sys/fs/cgroup/cpu.stat", capture_output=True).stdout
+def cpu_stat(service="backend"):
+    out = compose("exec", "-T", service, "cat", "/sys/fs/cgroup/cpu.stat", capture_output=True).stdout
     return {k: int(v) for k, v in (line.split() for line in out.splitlines())}
 
 
@@ -32,8 +32,14 @@ def db_status():
     return {k: int(v) for k, v in (line.split("\t") for line in out.splitlines())}
 
 
-def snapshot():
-    return {"t": time.monotonic(), "cpu": cpu_stat(), "db": db_status()}
+def redis_commands():
+    out = compose("exec", "-T", "redis", "redis-cli", "INFO", "stats", capture_output=True).stdout
+    return int(next(line.split(":")[1] for line in out.splitlines() if line.startswith("total_commands_processed:")))
+
+
+def snapshot(redis=False):
+    return {"t": time.monotonic(), "cpu": cpu_stat(), "db": db_status(),
+            **({"redis_cpu": cpu_stat("redis"), "redis_commands": redis_commands()} if redis else {})}
 
 
 def main():
@@ -42,7 +48,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--users", type=int, default=100)
     parser.add_argument("--moving", type=float, default=0.2)
-    parser.add_argument("--client", choices=("current", "new"), default="current")
+    parser.add_argument("--client", choices=("current", "new"), default="new", help="new = 지금 브라우저(1c: 키가 있을 때만 input). current = 1c 이전")
     parser.add_argument("--polls", type=float, default=15)
     parser.add_argument("--ramp", type=float, default=30)
     parser.add_argument("--warmup", type=float, default=20)
@@ -50,8 +56,10 @@ def main():
     parser.add_argument("--quota", type=int, default=5000, help="cpu_quota/10000 (운영 코어 하나 = 5000)")
     parser.add_argument("--delay-us", type=int, default=250)
     parser.add_argument("--settings", default="config.settings", help="실험용 설정(loadtest/settings_*.py)")
+    parser.add_argument("--redis", action="store_true", help="Redis 채널 계층(계획 M2). 없으면 한 프로세스 메모리 계층")
     args = parser.parse_args()
-    env = {**os.environ, "BACKEND_CPU_QUOTA": str(args.quota), "NET_DELAY_US": str(args.delay_us), "SETTINGS": args.settings}
+    env = {**os.environ, "BACKEND_CPU_QUOTA": str(args.quota), "NET_DELAY_US": str(args.delay_us), "SETTINGS": args.settings,
+           "CAMPUS_REDIS_URL": "redis://redis:6379/0" if args.redis else ""}
 
     compose("up", "-d", "--wait", "--force-recreate", "backend", env=env, capture_output=True)
     compose("exec", "-T", "mysql", "mysql", "-uroot", "-pload", "-e", "FLUSH STATUS", capture_output=True)  # Max_used_connections 를 이번 실행부터 센다
@@ -67,7 +75,7 @@ def main():
     for line in generator.stdout:
         line = line.strip()
         if line in ("MEASURE_START", "MEASURE_END"):
-            marks[line] = snapshot()
+            marks[line] = snapshot(args.redis)
         elif line.startswith("{"):
             summary = json.loads(line)
     generator.wait()
@@ -81,10 +89,13 @@ def main():
         "db_per_s": {k: round((end["db"][k] - start["db"][k]) * 1e6 / wall_us, 1) for k in STATUS},
         "db_threads_connected_end": end["db"]["Threads_connected"], "db_max_used_connections": end["db"]["Max_used_connections"],
     }
+    if args.redis:  # 맥 코어 하나 ≈ 운영 코어 둘(corebench.py): Redis 는 CPU 제한이 없어 운영 코어로 바꿔 적는다
+        server["redis_prod_core_pct"] = round(100 * (end["redis_cpu"]["usage_usec"] - start["redis_cpu"]["usage_usec"]) / (wall_us * 5000 / 10000), 1)
+        server["redis_commands_per_s"] = round((end["redis_commands"] - start["redis_commands"]) * 1e6 / wall_us, 1)
     logs = compose("logs", "--no-color", "--since", since, "backend", capture_output=True).stdout
     server["log"] = {name: logs.count(text) for name, text in
                      (("traceback", "Traceback"), ("channel_full", "ChannelFull"), ("db_error", "OperationalError"))}
-    result = {"label": args.label, "quota": args.quota, "delay_us": args.delay_us, "settings": args.settings, "server": server, "client": summary}
+    result = {"label": args.label, "quota": args.quota, "delay_us": args.delay_us, "settings": args.settings, "redis": args.redis, "server": server, "client": summary}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{args.label}.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")

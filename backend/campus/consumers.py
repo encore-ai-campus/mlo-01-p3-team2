@@ -211,7 +211,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     await self.channel_layer.group_discard(self.session_group, previous_channel)
                     with suppress(ChannelFull):
                         await self.channel_layer.send(previous_channel, {"type":"presence.replaced"})
-                await self.broadcast({"type":"leave", "id":previous_id})
+                await self.tell_local({"type":"leave", "id":previous_id})
             session_registry.register(self.player_id, self.session_key, self.user.pk)
             self.state["inClassroom"] = bool(self.controller and self.controller.interior)
             room.players[self.player_id] = self.state.copy()
@@ -226,7 +226,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.accept()
             await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "session": self.policy_status, "serverControl": self.server_control})
             self.seen_by_peers = self.state.copy()
-            await self.broadcast({"type": "join", "player": self.state.copy()})
+            await self.tell_local({"type": "join", "player": self.state.copy()})
         if settings.CAMPUS_DM_ENABLED:
             self.direct_message_group = direct_message_group(self.user.pk)
             await self.channel_layer.group_add(self.direct_message_group, self.channel_name)
@@ -696,6 +696,20 @@ class CampusConsumer(AsyncWebsocketConsumer):
     async def send_packet(self, payload):
         await self.send(text_data=json.dumps(payload, ensure_ascii=False, allow_nan=False))
 
+    async def tell_local(self, payload):
+        """입장·퇴장은 이 프로세스의 소켓에 바로 보낸다(계획 M2·M3).
+
+        채널 계층(Redis)을 거치면 늦게 도착해, 막 붙은 소켓이 welcome 과 join 을 모두 놓칠 수 있다.
+        다른 프로세스는 묶음 흐름(cluster)으로 알게 되어 자기 소켓에 알린다.
+        """
+        text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        for player_id, socket in list(room.sockets.items()):
+            if player_id != self.player_id:
+                try:
+                    await socket.send(text_data=text)
+                except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 소식을 막지 않는다
+                    logging.getLogger(__name__).debug("Could not send a presence change", exc_info=True)
+
     async def broadcast(self, payload):
         await self.channel_layer.group_send(room.group, {
             "type": "presence.packet", "sender": self.player_id, "payload": payload,
@@ -854,7 +868,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 room.sessions.pop(session_key, None)
             if self.player_id and room.players.pop(self.player_id, None) is not None:
                 await self.channel_layer.group_discard(room.group, self.channel_name)
-                await self.broadcast({"type": "leave", "id": self.player_id})
+                await self.tell_local({"type": "leave", "id": self.player_id})
 
     async def close(self, code=None, reason=None):
         if code not in (None, 1000):
