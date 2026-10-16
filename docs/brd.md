@@ -169,9 +169,8 @@
 
 **작성 근거**
 
-2차 프로젝트 BRD의 10개 항목 구성을 참고하되 이번 프로젝트의 내용으로 작성했다. 기능·계약·제약은 아래 자료의 작성 시점 내용을 기준으로 하며 운영 상태는 별도 점검이 필요하다.
+기능·계약·제약은 아래 자료의 작성 시점 내용을 기준으로 하며 운영 상태는 별도 점검이 필요하다.
 
-- [참고: 2차 프로젝트 BRD](https://github.com/encore-ai-campus/mlo-01-p2-team2/blob/main/docs/brd.md)
 - [3차 프로젝트 README](https://github.com/encore-ai-campus/mlo-01-p3-team2/blob/8c27c107b53ee9573ba93af2d2e51ccb8af30c2b/README.md)
 - [플랫폼 이벤트·포인트 계약](https://github.com/encore-ai-campus/mlo-01-p3-team2/blob/8c27c107b53ee9573ba93af2d2e51ccb8af30c2b/KAFKA_TOPICS.md)
 - [광고 서버 설계](https://github.com/encore-ai-campus/mlo-01-p3-team2/blob/8c27c107b53ee9573ba93af2d2e51ccb8af30c2b/docs/ads-server/ads-server-design.md)
