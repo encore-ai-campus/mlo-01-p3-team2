@@ -7,7 +7,7 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
   const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
-  const raffleStates = [], raffleEntries = [], raffleErrors = [];
+  const raffleStates = [], raffleEntries = [], raffleErrors = [], events = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
     if (!elements.has(id)) elements.set(id, {
@@ -26,9 +26,9 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
     receive(data) {this.onmessage({data: JSON.stringify(data)});}
   }
   const protocol = secure ? 'https:' : 'http:';
-  const context = vm.createContext({URL, WebSocket: Socket, performance: {now: () => clock},
+  const context = vm.createContext({URL, Event, WebSocket: Socket, performance: {now: () => clock},
     window: {location: {protocol, href: protocol + '//127.0.0.1:8000/', assign(url) {redirected = url;}},
-      addEventListener(name, callback) {listeners.set('window:' + name, callback);}},
+      addEventListener(name, callback) {listeners.set('window:' + name, callback);}, dispatchEvent(event) {events.push(event.type);}},
     document: {getElementById: element, createElement: () => ({textContent: ''}),
       addEventListener(name, callback) {listeners.set('document:' + name, callback);}},
     setTimeout(callback, delay) {const id = ++nextTimer; timers.set(id, {callback, delay}); return id;},
@@ -48,7 +48,7 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors, raffleStates, raffleEntries, raffleErrors,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors, raffleStates, raffleEntries, raffleErrors,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
@@ -88,6 +88,13 @@ test('batched moves update known people only, so a late batch cannot bring back 
  assert.ok(f.presence.peers.get('peer').x>1200&&f.presence.peers.get('peer').moving);assert.equal(f.presence.peers.has('stranger'),false);
  f.sockets[0].receive({type:'leave',id:'peer'});f.sockets[0].receive({type:'moves',players:[f.peer({x:1240})]});
  assert.equal(f.presence.peers.has('peer'),false);assert.equal(f.element('presenceStatus').textContent,'전체 접속 1명');f.presence.close();
+});
+test('the same avatar and nickname do not redraw the avatar panel; a real change does once',()=>{
+ const f=app({floors});f.welcome();const avatar=()=>f.events.filter(type=>type==='campus:avatar').length;const first=avatar();
+ for(let i=0;i<5;i++)f.sockets[0].receive({type:'control_state',state:{main:f.peer({id:'self',nickname:'내 이름',x:1400+i})}});
+ assert.equal(avatar(),first);
+ f.sockets[0].receive({type:'control_state',state:{main:f.peer({id:'self',nickname:'내 이름',avatar:'male-1'})}});
+ assert.equal(avatar(),first+1);f.presence.close();
 });
 test('chat validation, shared door changes and raffle requests stay routed to the server',()=>{
  const f=app({floors});f.welcome();assert.equal(f.presence.sendChat('가'.repeat(201)),false);assert.equal(f.presence.sendChat('   '),false);

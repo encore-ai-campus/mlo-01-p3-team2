@@ -209,10 +209,11 @@
       }
       function applyIdentity(p) {
         if (!validPeer(p) || p.id !== selfId) return;
-        player.avatar = p.avatar || 'male-1';
+        const avatar = p.avatar || 'male-1', changed = player.avatar !== avatar || player.nickname !== p.nickname;
+        player.avatar = avatar;
         player.nickname = p.nickname;
         if (window.CampusAvatars) player.color = window.CampusAvatars.definitions[player.avatar].color;
-        window.dispatchEvent?.(new Event('campus:avatar'));
+        if (changed) window.dispatchEvent?.(new Event('campus:avatar'));  // 아바타·닉네임이 바뀌었을 때만 화면을 다시 그린다(계획 5단계)
       }
       function close() {
         if (closed) return;
