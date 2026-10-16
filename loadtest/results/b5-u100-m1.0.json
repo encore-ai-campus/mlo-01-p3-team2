@@ -1,0 +1,113 @@
+{
+ "label": "b5-u100-m1.0",
+ "quota": 5000,
+ "delay_us": 250,
+ "settings": "config.settings",
+ "redis": true,
+ "backends": 5,
+ "server": {
+  "prod_core_pct": 30.4,
+  "throttled_period_pct": 14.8,
+  "db_per_s": {
+   "Questions": 298.9,
+   "Com_select": 185.3,
+   "Com_insert": 11.5,
+   "Com_update": 31.2,
+   "Com_delete": 0.0,
+   "Connections": 7.1
+  },
+  "db_threads_connected_end": 7,
+  "db_max_used_connections": 10,
+  "redis_prod_core_pct": 2.9,
+  "redis_commands_per_s": 338.6,
+  "backends_prod_core_pct": [
+   31.0,
+   42.4,
+   41.0,
+   32.8,
+   27.3
+  ],
+  "busiest_prod_core_pct": 42.4,
+  "backends_total_prod_cores": 1.75,
+  "jobs_prod_core_pct": 0.1,
+  "nginx_prod_core_pct": 18.8,
+  "connections_per_backend": [
+   17,
+   29,
+   25,
+   16,
+   13
+  ],
+  "log": {
+   "traceback": 0,
+   "channel_full": 0,
+   "db_error": 0
+  }
+ },
+ "client": {
+  "users": 100,
+  "moving": 1.0,
+  "client": "new",
+  "welcomed": 100,
+  "recv_per_s": {
+   "control_event": 0.1,
+   "control_state": 1066.8,
+   "moves": 963.6,
+   "pong": 20.0
+  },
+  "recv_total_per_s": 2050.5,
+  "sent_per_s": {
+   "input": 1058.3,
+   "ping": 20.0
+  },
+  "own_state_gap_ms": {
+   "n": 62556,
+   "p50": 34.3,
+   "p95": 38.2,
+   "p99": 50.6,
+   "max": 3075.8
+  },
+  "input_to_moving_ms": {
+   "n": 988,
+   "p50": 19.7,
+   "p95": 35.6,
+   "p99": 66.5,
+   "max": 1626.2
+  },
+  "peer_move_gap_ms": {
+   "n": 114376,
+   "p50": 102.8,
+   "p95": 121.2,
+   "p99": 206.1,
+   "max": 311.8
+  },
+  "http_per_s": 6.7,
+  "http_ms": {
+   "n": 400,
+   "p50": 53.4,
+   "p95": 110.2,
+   "p99": 157.3,
+   "max": 302.1
+  },
+  "http_ms_by_path": {
+   "/accounts/session/activity/": {
+    "n": 400,
+    "p50": 53.4,
+    "p95": 110.2,
+    "p99": 157.3,
+    "max": 302.1
+   }
+  },
+  "http_status": {
+   "/accounts/session/activity/ 200": 400
+  },
+  "closes": {},
+  "generator_loop_lag_ms": {
+   "n": 2380,
+   "p50": 0.8,
+   "p95": 1.5,
+   "p99": 2.1,
+   "max": 3.7
+  }
+ }
+}

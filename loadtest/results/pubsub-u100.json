@@ -1,0 +1,94 @@
+{
+ "label": "pubsub-u100",
+ "quota": 5000,
+ "delay_us": 250,
+ "settings": "config.settings",
+ "redis": true,
+ "server": {
+  "prod_core_pct": 67.1,
+  "throttled_period_pct": 48.8,
+  "db_per_s": {
+   "Questions": 244.0,
+   "Com_select": 155.4,
+   "Com_insert": 7.5,
+   "Com_update": 25.7,
+   "Com_delete": 0.0,
+   "Connections": 5.7
+  },
+  "db_threads_connected_end": 4,
+  "db_max_used_connections": 8,
+  "redis_prod_core_pct": 1.5,
+  "redis_commands_per_s": 14.8,
+  "log": {
+   "traceback": 0,
+   "channel_full": 0,
+   "db_error": 0
+  }
+ },
+ "client": {
+  "users": 100,
+  "moving": 0.2,
+  "client": "new",
+  "welcomed": 100,
+  "recv_per_s": {
+   "control_event": 0.0,
+   "control_state": 209.2,
+   "moves": 920.0,
+   "pong": 20.0
+  },
+  "recv_total_per_s": 1149.2,
+  "sent_per_s": {
+   "input": 214.3,
+   "ping": 20.0
+  },
+  "own_state_gap_ms": {
+   "n": 12076,
+   "p50": 34.7,
+   "p95": 58.3,
+   "p99": 86.0,
+   "max": 846.4
+  },
+  "input_to_moving_ms": {
+   "n": 294,
+   "p50": 1.2,
+   "p95": 42.8,
+   "p99": 78.3,
+   "max": 333.3
+  },
+  "peer_move_gap_ms": {
+   "n": 30136,
+   "p50": 103.5,
+   "p95": 139.5,
+   "p99": 221.3,
+   "max": 291.5
+  },
+  "http_per_s": 5.2,
+  "http_ms": {
+   "n": 310,
+   "p50": 100.9,
+   "p95": 353.6,
+   "p99": 491.6,
+   "max": 633.7
+  },
+  "http_ms_by_path": {
+   "/accounts/session/activity/": {
+    "n": 310,
+    "p50": 100.9,
+    "p95": 353.6,
+    "p99": 491.6,
+    "max": 633.7
+   }
+  },
+  "http_status": {
+   "/accounts/session/activity/ 200": 310
+  },
+  "closes": {},
+  "generator_loop_lag_ms": {
+   "n": 2362,
+   "p50": 1.2,
+   "p95": 4.1,
+   "p99": 6.7,
+   "max": 11.1
+  }
+ }
+}
