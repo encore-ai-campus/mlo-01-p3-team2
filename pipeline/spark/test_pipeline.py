@@ -22,7 +22,7 @@ from pymongo import MongoClient
 
 from sinker.config import Settings as RawSettings
 from sinker.worker import run_worker
-from spark_pipeline.contracts import COMMON_FACT_FIELDS, compile_contracts
+from spark_pipeline.contracts import COMMON_FACT_FIELDS, compile_contracts, fact_defaults
 from spark_pipeline.mysql_sink import connect
 from spark_pipeline.validation import fingerprint, utc_time
 
@@ -95,8 +95,9 @@ def assert_exact_facts(config, registry, messages):
         data, manifest = envelope["std_data"], envelope["std_manifest"]
         spec = registry["schemas"][f"{manifest['event_type']}|{manifest['std_schema_version']}"]
         target = {}
+        defaults = fact_defaults(spec)
         for name in COMMON_FACT_FIELDS + registry["fact_tables"][spec["table"]]:
-            value = data.get(name)
+            value = defaults[name] if name in defaults else data.get(name)
             if name.endswith("_uuid") and value is not None:
                 value = uuid.UUID(value).hex
             elif name == "occurred_at":
@@ -161,7 +162,7 @@ def main():
     check(database.startswith("stds_test_"), "Unexpected test resource prefix")
     registry = compile_contracts(STD / "contracts")
     registry["routes"] = {database + "." + topic: keys for topic, keys in registry["routes"].items()}
-    registry["parser_versions"].append("1.1.0")
+    registry["parser_versions"].append("1.2.0")
     (folder / "registry.json").write_text(json.dumps(registry))
     mysql_host_config = {"host": "127.0.0.1", "port": 33306, "user": "pipeline", "password": "local-pipeline-test",
                          "database": database, "charset": "utf8mb4", "autocommit": False}
@@ -234,7 +235,7 @@ def main():
         execute(spark_command("stream.py", ["--env-file", spark_env, "--available-now", "--report", container_folder + "/conflict.json"]), folder / "spark-conflict.log")
         assert_exact_facts(mysql_host_config, registry, initial_messages)
         higher = deepcopy(conflict)
-        higher["std_manifest"]["parser_version"] = "1.1.0"
+        higher["std_manifest"]["parser_version"] = "1.2.0"
         publish(producer, seed["topic"], higher, seed["key"])
         publish(producer, seed["topic"], seed["value"], seed["key"])
         execute(spark_command("stream.py", ["--env-file", spark_env, "--available-now", "--report", container_folder + "/versions.json"]), folder / "spark-versions.log")

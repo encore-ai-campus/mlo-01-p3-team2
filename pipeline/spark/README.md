@@ -15,7 +15,7 @@ Spark `4.2.0`이 성공 Std Kafka를 여러 토픽에서 읽고, header·본문�
 | `spark_pipeline/mysql_sink.py` | 파티션별 연결, 트랜잭션, 버전·지문 검사, 오류 격리 |
 | `contracts/registry.json` | Driver가 읽는 독립 Std 계약 산출물 |
 | `build_contracts.py` | Std and Sinker JSON에서 Spark 계약을 빌드 |
-| `migrations/001_facts.sql`, `migrate.py` | 9개 사실 테이블·오류 테이블 초기 생성 |
+| `migrations/001_facts.sql`, `migrations/002_quiz_question_type.sql`, `migrate.py` | 초기 생성·기존 퀴즈 테이블의 명시적 스키마 확장 |
 | `runtime_lock.json`, `prepare_jars.py` | 지정 버전·JAR SHA-256 고정 및 확인 |
 | `kafka/node.properties` | Docker 통합 테스트에서 실제 사용하는 Kafka 설정 |
 | `docker-compose.test.yml`, `Dockerfile` | Kafka·MongoDB·MySQL·Spark Driver/Worker 3개 로컬 구성 |
@@ -23,7 +23,7 @@ Spark `4.2.0`이 성공 Std Kafka를 여러 토픽에서 읽고, header·본문�
 | `runtime_probe.py` | JVM 버전, MySQL JDBC 실연결, Mongo Spark 커넥터 읽기 확인 |
 | `run_native_tests.py` | Docker가 불가한 macOS 환경의 격리된 직접 실행 테스트 |
 
-Spark 실행기는 Std and Sinker Python 모듈을 import하지 않는다. 계약 빌드 단계만 `../std_and_sinker/contracts`를 읽고 결과를 이 디렉터리에 저장한다. JSON을 바꾸면 계약을 다시 빌드하고 양쪽 프로세스를 재시작한다. Driver가 Python 애플리케이션 모듈을 ZIP으로 묶어 `SparkContext.addPyFile()`로 분배하므로 Executor가 Driver의 소스 경로를 직접 읽을 필요가 없다. 바이너리 라이브러리·Python 의존성·JAR은 각 Executor 환경에 배포한다. 현재 공통 배포 파서 버전은 `1.0.0`이며 테스트의 `1.1.0`은 테스트 레지스트리에만 추가한다.
+Spark 실행기는 Std and Sinker Python 모듈을 import하지 않는다. 계약 빌드 단계만 `../std_and_sinker/contracts`를 읽고 결과를 이 디렉터리에 저장한다. JSON을 바꾸면 계약을 다시 빌드하고 양쪽 프로세스를 재시작한다. Driver가 Python 애플리케이션 모듈을 ZIP으로 묶어 `SparkContext.addPyFile()`로 분배하므로 Executor가 Driver의 소스 경로를 직접 읽을 필요가 없다. 바이너리 라이브러리·Python 의존성·JAR은 각 Executor 환경에 배포한다. 공통 배포 파서 버전은 `1.1.0`이며 기존 `1.0.0` 입력도 지원한다. 통합 테스트의 `1.2.0`은 테스트 레지스트리에만 추가한다.
 
 ## 설치와 단위 테스트
 
@@ -39,6 +39,12 @@ python3 pipeline/spark/prepare_jars.py
 ```
 
 JAR 10개의 경로·SHA-256은 [runtime_lock.json](runtime_lock.json)에 사용자가 지정한 값으로 등록되어 있다. 다른 버전을 자동으로 대체하지 않는다. 지문은 Std and Sinker와 같은 벡터로 대조하고, MySQL UUID는 `CHAR(32)`, 시각은 UTC `DATETIME(6)`로 저장한다. Spark timestamp가 Python의 로컬 시간대로 변환되지 않도록 적재 전에 UTC 문자열로 표현한다.
+
+## 퀴즈 1.0·1.1과 기존 MySQL 테이블
+
+`QUIZ_ANSWERED` Std `1.0`은 기존 형식 그대로 검증하며, 새로 적재하는 사실 행의 `question_type`만 `MULTIPLE_CHOICE`로 매핑한다. Std `1.1`은 `question_type`이 필수이며 값은 `MULTIPLE_CHOICE` 또는 `FILL_BLANK`다. 객관식의 `choice_uuid`는 필수 UUID이고 빈칸형은 명시적 `null`이어야 한다. 계약의 `conditional_rules`를 원본 JSON 검증에 적용한 뒤 버전별 스키마로 파싱하므로 두 버전이 같은 배치에 들어와도 각 버전의 행만 해당 스키마로 처리한다.
+
+새 DB의 [001_facts.sql](migrations/001_facts.sql)은 nullable `question_type`·`choice_uuid`를 포함한다. 기존 DB는 새 Writer 배포 전에 [002_quiz_question_type.sql](migrations/002_quiz_question_type.sql)을 한 번 적용한다. 이 ALTER는 기존 행의 값·파서 순서·지문을 수정하지 않고 새 `question_type`을 `NULL`로 둔다. `migrate.py --migration <SQL 경로>`로 명시적으로 실행할 수 있다. 기본 `migrate.py`와 `stream.py --migrate`는 초기 `CREATE TABLE IF NOT EXISTS`만 실행하므로 기존 테이블에 이 ALTER를 적용하지 않는다.
 
 ## Docker 전체 통합 테스트
 
@@ -93,13 +99,19 @@ pipeline/spark/.venv/bin/python pipeline/spark/run_native_tests.py
 | `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_JAAS_CONFIG` | Kafka Java 클라이언트 인증 |
 | `KAFKA_SSL_TRUSTSTORE_LOCATION`, `KAFKA_SSL_TRUSTSTORE_PASSWORD`, `MYSQL_SSL_CA` | Kafka truststore·MySQL TLS 설정 |
 
-환경변수가 `.env`보다 우선한다. 파일·checkpoint 상대 경로는 `.env` 위치 기준이다. Kafka SASL/SSL 설정은 Executor에서도 유효해야 한다. 초기 기본 구독은 현재 플랫폼의 6개 Std 토픽이며 `standardized.points`는 실제 발행 준비 후 추가한다.
+환경변수가 `.env`보다 우선한다. 파일·checkpoint 상대 경로는 `.env` 위치 기준이다. Kafka SASL/SSL 설정은 Executor에서도 유효해야 한다. 기본 구독은 `standardized.points`를 포함한 7개 Std 토픽이며, `POINT_GRANTED` 이벤트는 `point_grant_fact`에 적재한다. 기존 설정을 사용하는 경우 `SPARK_INPUT_TOPICS`에 `standardized.points`를 추가하고 작업을 재시작한다.
 
 ```bash
 cp pipeline/spark/.env.example pipeline/spark/.env
 ```
 
 배포한 Spark 4.2.0 환경의 `spark-submit --master spark://<master>:7077 --deploy-mode client ... pipeline/spark/stream.py --env-file <설정경로> --migrate`로 시작한다. `--available-now`는 현재 데이터 처리 후 종료하는 테스트·배치 실행 옵션이다. 지속 실행에는 해당 옵션을 생략한다. Driver가 작업을 조정하고 Executor가 검증·변환·MySQL 쓰기를 수행한다.
+
+### EC2 상시 서비스
+
+실제 EC2 배포는 `spark-1/2` Master와 `spark-1/2/3` Worker, `spark-1` Driver로 구성한다. 기존 Corretto Java 17과 Python 3.12 환경을 사용한다. Java 17은 [Spark 4.2.0 공식 지원 런타임](https://spark.apache.org/docs/4.2.0/)이며, 위 Java 21은 로컬 검증 기준이다. Executor는 각 1 core·2 GiB, Driver는 1 GiB로 실행한다.
+
+`spark-1`의 `spark-pipeline.service`가 `client` 모드 작업을 제출하고 자동 재시작한다. 각 Executor는 로컬 MySQL Router의 쓰기 포트 `127.0.0.1:6446`으로 `analysis_user`에 적재한다. 비밀번호는 systemd 암호화 자격 증명으로 보관하며 일반 설정 파일에 넣지 않는다. 구체적인 제출 명령·서비스 관리·격리 검증 절차는 [EC2 배포 안내](deploy/README.md)를 참고한다.
 
 ## 복구 경계
 

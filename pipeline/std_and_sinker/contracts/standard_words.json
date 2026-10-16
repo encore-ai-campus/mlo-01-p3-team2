@@ -121,7 +121,7 @@
   },
   "question": {
     "ko": "문제",
-    "definition": "4지선다 문제"
+    "definition": "객관식 또는 빈칸 문제"
   },
   "choice": {
     "ko": "선택지",

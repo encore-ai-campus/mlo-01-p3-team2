@@ -126,6 +126,15 @@
       "uuid"
     ]
   },
+  "question_type": {
+    "ko": "문제 유형",
+    "definition": "객관식 또는 빈칸 답안 유형",
+    "domain": "QUESTION_TYPE",
+    "words": [
+      "question",
+      "type"
+    ]
+  },
   "choice_uuid": {
     "ko": "선택지 식별자",
     "definition": "선택지 식별자",

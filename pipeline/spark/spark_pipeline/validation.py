@@ -157,6 +157,14 @@ def validate_std(topic, key, value, headers, registry):
                 continue
             if not valid_domain(current, registry["domains"][field["domain"]]):
                 raise InvalidStd("INVALID_VALUE", "std_data." + field["name"])
+        for rule in spec.get("conditional_rules", []):
+            if all(data[name] == expected for name, expected in rule["when"].items()):
+                for name in rule.get("not_null", []):
+                    if data[name] is None:
+                        raise InvalidStd("INVALID_VALUE", "std_data." + name)
+                for name in rule.get("null", []):
+                    if data[name] is not None:
+                        raise InvalidStd("INVALID_VALUE", "std_data." + name)
         for name, expected in spec["constants"].items():
             if data.get(name) != expected:
                 raise InvalidStd("INVALID_VALUE", "std_data." + name)
