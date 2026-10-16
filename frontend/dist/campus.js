@@ -22,7 +22,8 @@
   const communityUI=window.CampusCommunity.create({onBack:()=>showBoardChoices()});
   const lunchWheel=window.CampusLunchWheel?.create();
   let menuRequest=null,menuVersion=0;
-  const isDialogOpen=(includeClassroom=true)=>(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusGuide?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
+  let directMessages=null;
+  const isDialogOpen=(includeClassroom=true)=>directMessages?.blocking||(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusGuide?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -58,6 +59,9 @@
   const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
   const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
   const jump=window.CampusJump.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,isBlocked:()=>isDialogOpen(false),notify:toast});
+  directMessages=window.CampusMessages.create({config:JSON.parse($('campusViewConfig')?.textContent||'{}').privateMessages||{},
+    onOpen(){keys.clear();player.moving=false;presence.setInput([]);},
+    onClose(){keys.clear();canvas.focus({preventScroll:true});},notify:toast});
   const spaceGuide=window.CampusSpaceGuide.create({onSelect:room=>showDetail(room),isBlocked:()=>isDialogOpen(),
     onOpen(){keys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);},focusMap:()=>canvas.focus({preventScroll:true})});
   spaceGuide.setWorld(D,serverHints.roomId);

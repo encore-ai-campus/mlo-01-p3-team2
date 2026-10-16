@@ -27,6 +27,7 @@ from . import session_registry, poke
 from .motion import MotionController, ControlError, geometry, world
 from .doors import DOORS, distance as door_distance, footprint as door_footprint
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
+from direct_messages.live import user_group as direct_message_group
 
 
 class CampusRoom:
@@ -64,6 +65,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.control_lock = asyncio.Lock()
         self.server_control = not getattr(settings, "CAMPUS_TEST_LEGACY_MOVEMENT", False) or b"control=server" in self.scope.get("query_string", b"")
         self.session_group = None
+        self.direct_message_group = None
         self.policy_status = None
         self.last_activity_write = -math.inf
         self.position_dirty = False
@@ -172,6 +174,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
             raffle = await database_sync_to_async(raffle_service.snapshot)(self.user)
             await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "raffle": raffle, "serverControl": self.server_control})
             await self.broadcast({"type": "join", "player": self.state.copy()})
+        if settings.CAMPUS_DM_ENABLED:
+            self.direct_message_group = direct_message_group(self.user.pk)
+            await self.channel_layer.group_add(self.direct_message_group, self.channel_name)
         self.guard_task = asyncio.create_task(self.check_session_loop())
         if self.server_control:
             await self.send_control_state()
@@ -645,6 +650,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if self.player_id in room.players and (event["sender"] != self.player_id or payload["type"] in {"chat", "door_state", "poke", "poke_state", "poke_hit", "jump"}):
             await self.send_packet(payload)
 
+    async def direct_message(self, event):
+        if self.player_id in room.players and settings.CAMPUS_DM_ENABLED:
+            await self.send_packet({"type":"private_message", "conversationId":event["conversationId"]})
+
     @database_sync_to_async
     def current_identity(self):
         user = self.session_user()
@@ -720,6 +729,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.send_packet({"type": "identity", "player": self.state.copy()})
 
     async def leave(self):
+        if getattr(self, "direct_message_group", None):
+            await self.channel_layer.group_discard(self.direct_message_group, self.channel_name)
         if self.player_id not in room.players:
             session_registry.unregister(self.player_id)
             if self.session_group:

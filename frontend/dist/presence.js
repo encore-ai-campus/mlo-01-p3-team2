@@ -150,6 +150,8 @@
             if(task){pending.delete(message.requestId);clearTimeout(task.timer);if(message.error)task.reject(new Error(message.error));else task.resolve(message.result);}
           } else if (ready && message.type === 'control_error' && typeof message.message === 'string') {
             onDoorError(message.message);
+          } else if (ready && message.type === 'private_message' && typeof message.conversationId === 'string') {
+            window.dispatchEvent(new CustomEvent('campus:private-message',{detail:{conversationId:message.conversationId}}));
           } else if (message.type === 'session_expired') {
             window.CampusSession?.expire(message.reason);
           } else if (ready && message.type === 'identity') {

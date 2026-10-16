@@ -9,6 +9,7 @@
   <title>PLAYDATA · 캠퍼스 메타버스</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23167d79'/%3E%3Cpath d='M9 24V8h8a6 6 0 0 1 0 12h-4v4zm4-8h4a2 2 0 0 0 0-4h-4z' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="messages.css">
   <link rel="stylesheet" href="campus-guide.css">
   <link rel="stylesheet" href="avatars.css">
   <link rel="stylesheet" href="social.css">
@@ -45,6 +46,7 @@
         <div class="map-status-tools">
           <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
           <div class="map-view-tools">
+            <button id="privateMessagesOpen" type="button" aria-haspopup="dialog" aria-controls="privateMessagesDialog" hidden>쪽지함 <span id="dmBadge" hidden>0</span></button>
             <div class="map-controls" hidden><button id="zoomIn" aria-label="지도 확대" disabled>+</button><span id="zoomLabel">150%</span><button id="zoomOut" aria-label="지도 축소" disabled>−</button></div>
             <div class="map-wallet-anchor">
               <button id="mapWallet" type="button" class="map-wallet" data-state="loading" aria-expanded="false" aria-controls="mapWalletHistory" aria-label="보유 포인트를 불러오는 중, 적립 내역">
@@ -81,6 +83,21 @@
         <div id="interactionPrompt" class="interaction-prompt" hidden><kbd>E</kbd><span></span><button aria-label="가까운 시설 안내 보기">보기</button></div>
         <div id="toast" class="toast" role="status" hidden></div>
       </div>
+      <dialog id="privateMessagesDialog" aria-labelledby="dmTitle">
+        <header class="dm-header"><div><span class="eyebrow">PRIVATE MAILBOX</span><h2 id="dmTitle">쪽지함</h2><p>실시간 채팅과 별도로 보관되는 나만의 쪽지함</p></div><button id="dmClose" type="button" aria-label="쪽지함 닫기">×</button></header>
+        <div class="dm-layout">
+          <aside class="dm-sidebar" aria-label="대화 목록">
+            <section id="dmNewConversation"><label for="dmRecipientSearch">받는 사람 찾기</label><input id="dmRecipientSearch" type="search" maxlength="40" autocomplete="off" placeholder="닉네임으로 검색"><div id="dmRecipientResults" aria-live="polite"></div></section>
+            <h3>내 대화</h3><p id="dmEmptyInbox">아직 주고받은 쪽지가 없습니다.</p><nav id="dmConversations" aria-label="쪽지 대화"></nav>
+          </aside>
+          <section class="dm-main" aria-label="선택한 대화">
+            <div class="dm-recipient"><h3 id="dmRecipientName">누구에게 보낼까요?</h3><p id="dmRecipientHint">닉네임으로 검색해 받는 사람을 선택하세요.</p></div>
+            <ol id="dmHistory" aria-label="대화 내용" aria-live="polite" aria-relevant="additions" tabindex="0"></ol>
+            <form id="dmCompose" hidden><label for="dmBody" class="sr-only">쪽지 내용</label><textarea id="dmBody" maxlength="2000" rows="3" placeholder="메시지를 입력하세요" required></textarea><div class="dm-compose-actions"><span id="dmBodyCount">0/2000</span><button id="dmSend" type="submit">보내기</button></div></form>
+            <p id="dmStatus" role="status">닉네임으로 상대를 찾아 쪽지를 보내세요. 오프라인이어도 전달됩니다.</p>
+          </section>
+        </div>
+      </dialog>
       <dialog id="settingsDialog" aria-labelledby="settingsTitle">
         <div class="dialog-top"><div><span class="eyebrow">CAMPUS SETTINGS</span><h2 id="settingsTitle">설정</h2></div><button id="closeSettings" type="button" class="close-button" aria-label="설정 닫기">×</button></div>
         <div class="settings-content">
@@ -354,6 +371,7 @@
   <!-- learning-assets -->
   <script src="campus-guide.js"></script>
   <script src="campus-space-guide.js"></script>
+  <script src="messages.js"></script>
   <script src="campus.js"></script>
 </body>
 </html>

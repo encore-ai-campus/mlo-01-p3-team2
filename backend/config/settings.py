@@ -34,6 +34,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 INSTALLED_APPS = [
+    "direct_messages.apps.DirectMessagesConfig",
     "daphne",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -161,3 +162,6 @@ if any(not 0 <= amount < 2**63 for amount in LEARNING_POINTS_BY_DIFFICULTY.value
 
 # The local frontend forwards the original public scheme for CSRF origin checks.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Private messages are enabled explicitly for each environment.
+CAMPUS_DM_ENABLED = os.environ.get("CAMPUS_DM_ENABLED", "0") == "1"
