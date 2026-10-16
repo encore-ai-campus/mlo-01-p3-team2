@@ -1,0 +1,35 @@
+---
+# 역할(그룹) 간 허용 관계. 방화벽 규칙은 이 데이터에서만 만든다 (docs/platform/infra-automation-design.md 8장).
+# 키는 허용을 받는 그룹이다.
+#   from:  이 그룹의 서버 IP에서 오는 연결을 허용한다 (SSH(22)를 제외한 모든 포트)
+#   self:  같은 그룹의 노드끼리 허용한다 (SSH(22)를 제외한 모든 포트)
+#   tcp_ports_from_anywhere: 모든 출처에 열 TCP 포트
+# SSH(22)는 포트를 지정하지 않은 규칙에서 제외하고, 아래 firewall_ssh_sources(와 Bastion의 전체 허용)로만 연다.
+firewall_ssh_sources: [bastion, monitoring]
+
+firewall_rules:
+  # HTTP는 인증서 검증용이며, HTTPS는 아래 CIDR 전용 규칙에서 허용한다.
+  edge:
+    tcp_ports_from_anywhere: [80]
+  frontend:
+    tcp_ports_from_anywhere: [80, 443]
+  backend:
+    from: [frontend, spark, bastion]
+  # API 수신 출처를 허용한다. 목적지 포트는 AWS SG에서 TCP 8000으로 제한한다.
+  game:
+    from: [frontend, ad, bastion]
+  ad:
+    from: [frontend, game, bastion]
+  mysql:
+    from: [game, ad, backend, spark, bastion]
+    self: true
+  mongodb:
+    from: [ad, consumer, backend, spark, bastion]
+    self: true
+  kafka:
+    # 앱·평탄화·MySQL 서버의 Kafka 연결을 허용한다. AWS SG에서는 TCP 9092로 제한한다.
+    from: [game, ad, mysql, backend, spark, bastion, consumer]
+    self: true
+  spark:
+    from: [backend, bastion]
+    self: true

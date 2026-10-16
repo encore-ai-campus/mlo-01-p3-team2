@@ -1,0 +1,28 @@
+# 운영자별 인벤토리와 Vault는 프로젝트 루트에서 관리한다.
+.vault*
+platform/inventory/*.yml
+platform/inventory/*.yaml
+platform/inventory/*.json
+!platform/inventory/hosts.example.yml
+platform/inventory/group_vars/all/vault.yml
+
+# 플랫폼 프로젝트 어디에서도 개인 환경설정과 인증 파일을 등록하지 않는다.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+
+# 실행·편집 부산물
+.venv/
+venv/
+*.retry
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# 로컬 에이전트 작업 규칙은 공유하지 않는다.
+AGENTS.md

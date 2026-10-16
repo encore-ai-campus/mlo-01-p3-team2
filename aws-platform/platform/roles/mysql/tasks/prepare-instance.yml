@@ -1,0 +1,46 @@
+---
+# 메타데이터가 없는 인스턴스만 로컬 관리 계정과 Cluster 요구 설정을 준비한다.
+- name: 가입 전 관리 계정 SQL 계산
+  ansible.builtin.set_fact:
+    mysql_admin_sql: "{{ lookup('ansible.builtin.template', 'admin-accounts.sql.j2') }}"
+  no_log: "{{ mysql_no_log }}"
+
+- name: 가입 전 관리 계정 SQL 해시 조회
+  ansible.builtin.slurp:
+    src: "{{ mysql_admin_accounts_stamp }}"
+  register: mysql_admin_stamp_current
+  failed_when: false
+
+- name: 가입 전 관리 계정 준비
+  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }}
+  args:
+    stdin: "{{ mysql_admin_sql }}"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  when: (mysql_admin_stamp_current.content | default('') | b64decode) != (mysql_admin_sql | hash('sha256'))
+  changed_when: true
+  no_log: "{{ mysql_no_log }}"
+
+- name: 가입 전 관리 계정 SQL 해시 기록
+  ansible.builtin.copy:
+    content: "{{ mysql_admin_sql | hash('sha256') }}"
+    dest: "{{ mysql_admin_accounts_stamp }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Cluster 인스턴스 사전 구성
+  ansible.builtin.command: mysqlsh --js --no-wizard --quiet-start=2
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'configure-instance.js.j2') }}"
+  register: mysql_configure
+  changed_when: "'INFRA_CONFIGURED' in mysql_configure.stdout"
+  no_log: "{{ mysql_no_log }}"
+
+- name: 사전 구성 후 mysqld 응답 대기
+  ansible.builtin.command: mysqladmin -S {{ mysql_socket }} ping
+  register: mysql_configured_ping
+  until: mysql_configured_ping.rc == 0
+  retries: 40
+  delay: 3
+  changed_when: false

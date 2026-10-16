@@ -1,0 +1,56 @@
+---
+- name: Nginx 설정 검증
+  ansible.builtin.command: /usr/sbin/nginx -t
+  changed_when: false
+
+- name: 발급 인증서의 IP 일치 검증
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/openssl
+      - x509
+      - -in
+      - "/etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem"
+      - -noout
+      - -checkip
+      - "{{ edge_public_ip }}"
+  register: edge_certificate_identity
+  changed_when: false
+  failed_when: edge_certificate_identity.rc != 0 or 'does match certificate' not in edge_certificate_identity.stdout
+
+- name: 발급 인증서 잔여 수명 검증
+  ansible.builtin.command:
+    argv: [/usr/bin/openssl, x509, -in, "/etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem", -noout, -checkend, '3600']
+  changed_when: false
+
+# EIP를 SAN으로 검증하면서 로컬 리스너에 연결한다. 임의 인증서 허용은 하지 않는다.
+- name: 신뢰 가능한 HTTPS 연결 검증
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import socket, ssl, sys
+        with socket.create_connection(('127.0.0.1', 443), timeout=10) as raw:
+            with ssl.create_default_context().wrap_socket(raw, server_hostname=sys.argv[1]) as tls:
+                print(tls.version())
+      - "{{ edge_public_ip }}"
+  changed_when: false
+
+- name: HTTP 일반 요청 처리 확인
+  ansible.builtin.uri:
+    url: http://127.0.0.1/
+    status_code: "{{ 308 if edge_http_redirect | bool else 404 }}"
+    follow_redirects: none
+    use_proxy: false
+  changed_when: false
+
+- name: 갱신 타이머 상태 확인
+  ansible.builtin.command: systemctl is-active edge-certbot-renew.timer
+  changed_when: false
+
+- name: 현재 서비스 연결 범위 안내
+  ansible.builtin.debug:
+    msg: >-
+      {{ '이 서버의 HTTPS와 지정한 전달 대상을 구성했다. 앱 정상 동작은 별도 검증한다.'
+         if edge_frontend_upstreams | length > 0
+         else 'HTTPS 준비 화면만 제공한다. Front와 게임·광고 앱 연결은 아직 구성하지 않았다.' }}

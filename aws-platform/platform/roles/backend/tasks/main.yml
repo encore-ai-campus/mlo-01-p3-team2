@@ -1,0 +1,145 @@
+---
+- name: Router 입력 확인
+  ansible.builtin.assert:
+    that:
+      - groups.get('mysql', []) | length >= 3
+      - group_names | intersect(mysql_router_source_groups) | length > 0
+      - mysql_router_rw_port | int > 0 and mysql_router_rw_port | int <= 65532
+      - mysql_router_ro_port | int == mysql_router_rw_port | int + 1
+      - backend_router_config == '/etc/mysqlrouter/mysqlrouter.conf'
+      - vault_mysql_passwords.router | length > 0
+      - vault_mysql_passwords.dev | length > 0
+      - vault_mysql_passwords.router is not search('[\r\n]')
+    fail_msg: Router 대상 그룹·MySQL 3대·Vault 계정·연속된 RW/RO 포트를 확인한다.
+  no_log: true
+
+- name: MySQL 저장소 등록
+  ansible.builtin.include_role:
+    name: mysql
+    tasks_from: repo
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ backend_packages }}"
+
+- name: Router 시스템 그룹
+  ansible.builtin.group:
+    name: "{{ backend_router_user }}"
+    system: true
+
+- name: Router 시스템 사용자
+  ansible.builtin.user:
+    name: "{{ backend_router_user }}"
+    group: "{{ backend_router_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Router 설정 디렉터리
+  ansible.builtin.file:
+    path: /etc/mysqlrouter
+    state: directory
+    owner: root
+    group: "{{ backend_router_user }}"
+    mode: "0750"
+
+- name: 기존 Router 설정 확인
+  ansible.builtin.stat:
+    path: "{{ backend_router_config }}"
+  register: backend_router_config_stat
+
+- name: 기존 Router 설정 읽기
+  ansible.builtin.slurp:
+    src: "{{ backend_router_config }}"
+  register: backend_router_existing_config
+  when: backend_router_config_stat.stat.exists
+  no_log: "{{ backend_no_log }}"
+
+- name: Router 초기 설정 해시 조회
+  ansible.builtin.slurp:
+    src: "{{ backend_router_stamp }}"
+  register: backend_router_stamp_current
+  failed_when: false
+  no_log: "{{ backend_no_log }}"
+
+- name: 기존 Router 관리 범위 확인
+  ansible.builtin.assert:
+    that:
+      - >-
+        backend_router_stamp_current.content is defined or
+        not ((backend_router_existing_config.content | default('') | b64decode) is search('(?m)^\[metadata_cache:'))
+    fail_msg: 초기 설정된 기존 Router에 관리 해시가 없다. 기존 연결 대상과 keyring을 점검한 뒤 별도로 인계한다.
+
+- name: Router 초기 설정 입력 계산
+  ansible.builtin.set_fact:
+    backend_router_bootstrap_hash: >-
+      {{ [mysql_cluster_name, mysql_port, mysql_router_bind_address, mysql_router_rw_port,
+          mysql_router_ro_port, backend_router_user, backend_router_config,
+          vault_mysql_passwords.router, groups['mysql'] | map('extract', hostvars, 'ip') | list] | to_json | hash('sha256') }}
+  no_log: "{{ backend_no_log }}"
+
+- name: Router 재구성 여부 계산
+  ansible.builtin.set_fact:
+    backend_router_needs_bootstrap: >-
+      {{ not backend_router_config_stat.stat.exists or
+         (backend_router_stamp_current.content | default('') | b64decode) != backend_router_bootstrap_hash }}
+  no_log: "{{ backend_no_log }}"
+
+# 기존 관리 대상의 재구성은 서비스를 멈춘 뒤 수행하고, 성공한 경우에만 해시를 기록한다.
+- name: 재구성 전 Router 중지
+  ansible.builtin.service:
+    name: "{{ backend_router_service }}"
+    state: stopped
+  when: backend_router_needs_bootstrap
+
+- name: MySQL Router 초기 설정
+  ansible.builtin.command:
+    argv:
+      - mysqlrouter
+      - "--bootstrap=router@{{ hostvars[groups['mysql'][0]].ip }}:{{ mysql_port }}"
+      - --account=router
+      - --account-create=never
+      - --strict
+      - "--user={{ backend_router_user }}"
+      - "--conf-bind-address={{ mysql_router_bind_address }}"
+      - "--conf-base-port={{ 0 if mysql_router_rw_port | int == 6446 else mysql_router_rw_port }}"
+      - --disable-rest
+      - --disable-rw-split
+      - --force
+    stdin: "{{ vault_mysql_passwords.router }}\n{{ vault_mysql_passwords.router }}\n"
+    stdin_add_newline: false
+  when: backend_router_needs_bootstrap
+  changed_when: true
+  no_log: "{{ backend_no_log }}"
+
+- name: Router 초기 설정 해시 기록
+  ansible.builtin.copy:
+    content: "{{ backend_router_bootstrap_hash }}"
+    dest: "{{ backend_router_stamp }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: backend_router_needs_bootstrap
+
+- name: Router systemd 서비스 배포
+  ansible.builtin.template:
+    src: mysqlrouter.service.j2
+    dest: "/etc/systemd/system/{{ backend_router_service }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  register: backend_router_unit
+
+- name: Router 서비스 활성화
+  ansible.builtin.systemd_service:
+    name: "{{ backend_router_service }}"
+    state: "{{ 'restarted' if backend_router_unit.changed else 'started' }}"
+    enabled: true
+    daemon_reload: "{{ backend_router_unit.changed }}"
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

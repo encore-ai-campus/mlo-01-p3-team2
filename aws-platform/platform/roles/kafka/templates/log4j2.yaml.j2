@@ -1,0 +1,13 @@
+# Ansible로 관리한다 (roles/kafka). 파일 한 개(server.log)에 쓰고, 회전은 logrotate가 맡는다.
+Configuration:
+  Appenders:
+    File:
+      name: kafkaAppender
+      fileName: "${sys:kafka.logs.dir}/server.log"
+      PatternLayout:
+        pattern: "[%d] %p %m (%c)%n"
+  Loggers:
+    Root:
+      level: INFO
+      AppenderRef:
+        - ref: kafkaAppender

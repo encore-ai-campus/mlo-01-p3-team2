@@ -1,0 +1,11 @@
+[Unit]
+Description=Check MySQL cluster after boot and periodically
+
+[Timer]
+OnBootSec={{ mysql_recovery_boot_delay }}
+OnUnitInactiveSec={{ mysql_recovery_interval }}
+AccuracySec=5s
+Unit=mysql-cluster-recovery.service
+
+[Install]
+WantedBy=timers.target

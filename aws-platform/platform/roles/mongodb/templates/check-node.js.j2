@@ -1,0 +1,25 @@
+// mongosh 스크립트 (roles/mongodb). 모든 노드에서 이 서버의 mongod를 직접 확인한다. 실패하면 비정상 종료한다.
+try {
+  const uri = 'mongodb://127.0.0.1:{{ mongodb_port }}/admin';
+  // 로그인 없이는 아무것도 못 한다.
+  let anonymous = true;
+  try { connect(uri).adminCommand({listDatabases: 1}); } catch (e) { anonymous = false; }
+  if (anonymous) throw new Error('로그인 없이 조회된다');
+  // monitor: 상태 조회는 되고 쓰기는 안 된다.
+  const m = connect(uri);
+  m.auth('monitor', process.env.MONGO_MONITOR_PASSWORD);
+  if (m.adminCommand({serverStatus: 1}).ok !== 1) throw new Error('monitor가 serverStatus를 못 읽는다');
+  let monitorWrote = true;
+  try { m.getSiblingDB('infra_check').ping.insertOne({_id: 'x'}); } catch (e) { monitorWrote = false; }
+  if (monitorWrote) throw new Error('monitor가 쓸 수 있다');
+  // dev: 로그인은 되고 계정 정보(admin.system.users)는 못 읽는다.
+  const d = connect(uri);
+  d.auth('dev', process.env.MONGO_DEV_PASSWORD);
+  let devReadUsers = true;
+  try { d.getSiblingDB('admin').system.users.findOne(); } catch (e) { devReadUsers = false; }
+  if (devReadUsers) throw new Error('dev가 계정 정보를 읽을 수 있다');
+  print('INFRA_NODE_OK');
+} catch (e) {
+  print(String(e));
+  quit(1);
+}

@@ -1,0 +1,126 @@
+---
+# 먼저 이 파일만 실행해 APT와 원격 다운로드를 준비한다. 서비스 설치는 site.yml이 담당한다.
+- name: 프록시를 사용하는 Ubuntu 설치 환경 준비
+  hosts: all
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tags: [proxy]
+  environment: "{{ proxy_environment }}"
+  tasks:
+    - name: 프록시 사용 구성
+      when: proxy_enabled | default(false) | bool
+      block:
+        - name: 배스천과 프록시 입력 확인
+          ansible.builtin.assert:
+            that:
+              - groups.get('bastion', []) | length == 1
+              - proxy_port | int >= 1 and proxy_port | int <= 65535
+              - proxy_client_cidrs | length > 0
+              - hostvars[proxy_bastion_host].ip is defined
+            fail_msg: 배스천 1대의 사설 ip, 프록시 포트와 허용 VPC CIDR을 확인하세요.
+          tags: [proxy_verify]
+
+        - name: OS 정보 수집
+          ansible.builtin.setup:
+            gather_subset: [min]
+
+        - name: 지원하는 기본 Ubuntu 이미지 확인
+          ansible.builtin.assert:
+            that:
+              - ansible_facts.distribution == 'Ubuntu'
+              - ansible_facts.distribution_version == '24.04'
+              - ansible_facts.architecture == 'x86_64'
+            fail_msg: 프록시 APT 준비는 Ubuntu 24.04 amd64 기본 이미지용입니다.
+
+        - name: Ubuntu 기본 저장소 파일 확인
+          ansible.builtin.stat:
+            path: /etc/apt/sources.list.d/ubuntu.sources
+          register: proxy_ubuntu_sources
+
+        - name: 기본 deb822 저장소가 있는지 검사
+          ansible.builtin.assert:
+            that: proxy_ubuntu_sources.stat.isreg | default(false)
+            fail_msg: ubuntu.sources가 없습니다. 사용자 정의 저장소 구성은 먼저 확인해야 합니다.
+
+        # 구성 요소, 배포판, Signed-By는 보존하고 공식 Ubuntu 저장소의 URI만 바꾼다.
+        - name: Ubuntu 공식 저장소를 HTTPS로 전환
+          ansible.builtin.replace:
+            path: /etc/apt/sources.list.d/ubuntu.sources
+            regexp: "{{ item.regexp }}"
+            replace: "{{ item.replacement }}"
+            backup: true
+          loop:
+            - regexp: '(?m)^(URIs:[ \t]+)https?://(?:[a-zA-Z0-9-]+\.)*archive\.ubuntu\.com/ubuntu/?[ \t]*$'
+              replacement: '\1https://archive.ubuntu.com/ubuntu/'
+            - regexp: '(?m)^(URIs:[ \t]+)http://security\.ubuntu\.com/ubuntu/?[ \t]*$'
+              replacement: '\1https://security.ubuntu.com/ubuntu/'
+          loop_control:
+            label: "{{ item.replacement }}"
+
+        - name: 전환한 Ubuntu 저장소 읽기
+          ansible.builtin.slurp:
+            src: /etc/apt/sources.list.d/ubuntu.sources
+          register: proxy_sources_after
+
+        - name: Ubuntu 저장소의 HTTP 주소가 남아 있는지 검사
+          # check 모드에서는 replace가 실제 파일을 바꾸지 않으므로 적용 후 검사를 생략한다.
+          when: not ansible_check_mode
+          ansible.builtin.assert:
+            that:
+              - (proxy_sources_after.content | b64decode | regex_findall('(?m)^URIs:[ \t]+.+')) | length > 0
+              - (proxy_sources_after.content | b64decode | regex_findall('(?m)^URIs:[^\n]*http://')) | length == 0
+            fail_msg: 기본 저장소에 처리하지 않은 HTTP 주소가 있습니다. 외부 443 경로에 맞는 저장소를 확인하세요.
+
+        - name: APT 전용 프록시 설정
+          ansible.builtin.copy:
+            dest: /etc/apt/apt.conf.d/90-project-proxy
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              // Ansible prepare-proxy.yml에서 관리한다. 배스천은 HTTPS로 직접 접속한다.
+              Acquire::http::Proxy "{{ proxy_url if proxy_is_client | bool else 'DIRECT' }}";
+              Acquire::https::Proxy "{{ proxy_url if proxy_is_client | bool else 'DIRECT' }}";
+
+        - name: HTTPS 연결과 Ansible 다운로드 검사
+          tags: [proxy_verify]
+          when: not ansible_check_mode
+          block:
+            - name: 원격 HTTPS 연결 확인
+              ansible.builtin.uri:
+                url: "{{ proxy_check_url }}"
+                method: HEAD
+                status_code: 200
+                timeout: 20
+                use_proxy: "{{ proxy_is_client | bool }}"
+
+            - name: 다운로드 검사 임시 파일
+              ansible.builtin.tempfile:
+                state: file
+                suffix: .project-proxy-check
+              register: proxy_probe_file
+              changed_when: false
+
+            - name: 원격 root 작업으로 Ubuntu 서명 목록 다운로드
+              ansible.builtin.get_url:
+                url: "{{ proxy_check_download_url }}"
+                dest: "{{ proxy_probe_file.path }}"
+                mode: "0600"
+                timeout: 20
+                force: true
+                use_proxy: "{{ proxy_is_client | bool }}"
+              changed_when: false
+          always:
+            - name: 다운로드 검사 임시 파일 정리
+              ansible.builtin.file:
+                path: "{{ proxy_probe_file.path }}"
+                state: absent
+              when: proxy_probe_file.path is defined
+              changed_when: false
+
+        - name: HTTPS 저장소로 APT 목록 갱신
+          ansible.builtin.apt:
+            update_cache: true
+            lock_timeout: 300
+            update_cache_retries: 2

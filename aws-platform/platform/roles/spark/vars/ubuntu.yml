@@ -1,0 +1,4 @@
+---
+# Ubuntu 24.04: 시스템 python3가 이미 3.12다. 설치할 패키지가 없다.
+spark_packages: []
+spark_python: /usr/bin/python3

@@ -1,0 +1,7 @@
+---
+ansible_host: "{{ ip }}"
+
+# Bastion이 있으면 Bastion 공인 IP를 경유한다. ProxyJump은 -i 키를 경유지에 넘기지 못해 ProxyCommand를 쓴다.
+# Bastion이 없는 인벤토리(작은 구성 테스트)는 직접 접속한다.
+ansible_ssh_common_args: >-
+  {% if groups.get('bastion') %}-o ProxyCommand="ssh -W %h:%p -i {{ ansible_ssh_private_key_file }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new {{ ansible_user }}@{{ hostvars[groups['bastion'][0]].public_ip }}"{% endif %}

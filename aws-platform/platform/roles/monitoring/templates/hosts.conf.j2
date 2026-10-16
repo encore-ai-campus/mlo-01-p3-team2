@@ -1,0 +1,9 @@
+# Ansible로 관리한다 (roles/monitoring). 수집 대상: 이름|IP|서비스 로그 경로(쉼표)|DB 비밀번호 종류
+{% for h in groups['all'] %}
+{% set paths = [] %}
+{% for g in hostvars[h].group_names if g in monitor_log_paths %}
+{% set _ = paths.extend(monitor_log_paths[g]) %}
+{% endfor %}
+{% set secret = 'mysql' if 'mysql' in hostvars[h].group_names else ('mongodb' if 'mongodb' in hostvars[h].group_names else 'none') %}
+{{ h }}|{{ hostvars[h].ip }}|{{ paths | join(',') }}|{{ secret }}
+{% endfor %}

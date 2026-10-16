@@ -1,0 +1,50 @@
+{# 업무 계정은 실제 Primary에서만 생성해 모든 Cluster 멤버로 복제한다. #}
+{% set pw = vault_mysql_passwords %}
+{% set node_ips = [] %}
+{% for h in groups['mysql'] %}
+{% set _ = node_ips.append(hostvars[h].ip) %}
+{% endfor %}
+{% set dev_hosts = ['localhost'] %}
+{% for g in mysql_dev_source_groups %}
+{% for h in groups.get(g, []) %}
+{% set _ = dev_hosts.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% macro account(user, host, password) %}
+CREATE USER IF NOT EXISTS '{{ user }}'@'{{ host }}' IDENTIFIED BY '{{ password }}';
+ALTER USER '{{ user }}'@'{{ host }}' IDENTIFIED BY '{{ password }}';
+{% endmacro %}
+
+{# 멤버 추가 후에도 모든 노드의 관리 접속 출처가 같도록 Primary에서 복제한다. #}
+{% set admin_hosts = node_ips[:] %}
+{% for g in mysql_failover_extra_source_groups %}
+{% for h in groups.get(g, []) %}
+{% set _ = admin_hosts.append(hostvars[h].ip) %}
+{% endfor %}
+{% endfor %}
+{% for h in admin_hosts | unique %}
+{{ account('failover', h, pw.failover) }}
+GRANT ALL PRIVILEGES ON *.* TO 'failover'@'{{ h }}' WITH GRANT OPTION;
+{% endfor %}
+
+{# dev: 개발자와 애플리케이션용 (관리 권한 없음) #}
+{% for h in dev_hosts | unique %}
+{{ account('dev', h, pw.dev) }}
+GRANT {{ mysql_dev_privileges }}, SHOW DATABASES ON *.* TO 'dev'@'{{ h }}';
+{# 업무 DB는 아직 정해지지 않아 전역으로 부여하고, 시스템 스키마(계정·권한 정보 포함)는 부분 revoke(partial_revokes)로 뺀다. #}
+{% for schema in mysql_system_schemas %}
+REVOKE {{ mysql_dev_privileges }} ON {{ schema }}.* FROM 'dev'@'{{ h }}';
+{% endfor %}
+{% endfor %}
+
+{# replication: 기존 계정 형식을 유지한다. Group Replication 복구 계정은 AdminAPI가 별도로 관리한다. #}
+{% for h in node_ips | unique %}
+{{ account('replication', h, pw.replication) }}
+GRANT REPLICATION SLAVE ON *.* TO 'replication'@'{{ h }}';
+{% endfor %}
+
+{# monitor: 모니터링용 읽기 전용. Monitoring이 SSH로 서버에 들어와 서버 안에서 조회하므로 localhost만 허용한다. #}
+{{ account('monitor', 'localhost', pw.monitor) }}
+GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitor'@'localhost';
+GRANT SELECT ON performance_schema.* TO 'monitor'@'localhost';
+GRANT SELECT ON sys.* TO 'monitor'@'localhost';

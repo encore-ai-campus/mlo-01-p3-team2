@@ -1,0 +1,65 @@
+---
+# 설치 출처: Apache 배포 tarball. 앞의 미러부터 시도한다(dlcdn → downloads → archive) (roles/kafka/defaults 참고). 어느 쪽에서 받아도 아래 sha512로 검증한다.
+spark_version: 4.2.0
+spark_urls:
+  - "https://dlcdn.apache.org/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop3.tgz"
+  - "https://downloads.apache.org/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop3.tgz"
+  - "https://archive.apache.org/dist/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop3.tgz"
+# 배포처의 .sha512 파일 값. 버전을 바꾸면 같이 바꾼다.
+spark_sha512: 3a6559e8546ff387db8fe7a04b8fe4008853b467b972c2e343df8e14a81450534777719fc5d4998dd96519a86fdf9de140cee753c61e2e94db044d5f9555ddc4
+
+spark_user: spark
+spark_install_dir: "/opt/spark-{{ spark_version }}-bin-hadoop3"
+spark_home: /opt/spark
+spark_config_dir: /etc/spark
+spark_data_dir: /var/lib/spark
+spark_log_dir: /var/log/spark
+
+spark_master_port: 7077
+spark_master_webui_port: 8080
+spark_worker_port: 7100
+spark_worker_webui_port: 8081
+# Driver와 BlockManager는 시작 포트부터 16번까지 다음 포트로 재시도한다.
+# AWS traffic의 spark_driver_end=7094, spark_block_end=7095와 함께 관리한다.
+spark_driver_port: 7078
+spark_block_manager_port: 7079
+spark_port_max_retries: 16
+# YAML 순서의 앞 spark_master_count 대가 Master, 전체가 Worker다.
+spark_master_count: 2
+
+# Python: PySpark용 (OS별 값은 vars/<배포판>.yml)
+
+# 메모리: Master, Worker, ZooKeeper가 한 VM에 함께 올라간다.
+# Worker 메모리 = 전체 RAM - OS 몫 - 데몬(Master, Worker) 메모리 - ZooKeeper heap
+spark_os_reserve_mb: 1024
+spark_daemon_mb: 512
+spark_worker_min_mb: 512
+
+# 커넥터 JAR (Spark 4.2.0 기준). 구축할 때 받아 두어 작업 제출 때 --packages로 Maven에서 받지 않아도 된다.
+# 전이 의존 중 Spark 배포판에 이미 있는 것(scala-parallel-collections, slf4j, lz4, snappy 등)은 뺐다.
+spark_maven_url: https://repo1.maven.org/maven2
+spark_connector_jars:
+  # Kafka 커넥터
+  - { path: org/apache/spark/spark-sql-kafka-0-10_2.13/4.2.0/spark-sql-kafka-0-10_2.13-4.2.0.jar, sha256: 64539c45e5d39f7ddb747312c239f38f5208d08c1a0ddf7d70beb2fbd9373705 }
+  - { path: org/apache/spark/spark-token-provider-kafka-0-10_2.13/4.2.0/spark-token-provider-kafka-0-10_2.13-4.2.0.jar, sha256: 641c7947afc8aa1189e433b7c2d305293993c8691bc1c2062d6d4f513b12518c }
+  - { path: org/apache/kafka/kafka-clients/3.9.2/kafka-clients-3.9.2.jar, sha256: 014b4ef36884478a932641818b080c36a8f8e2e92dc771e800c9d2694f4f83d8 }
+  - { path: org/apache/commons/commons-pool2/2.13.1/commons-pool2-2.13.1.jar, sha256: f77a5060d6936a9144023584232f9de3f2248f1abfe156e9d31795f18770674f }
+  # MongoDB Spark 커넥터와 드라이버 (5.1.x)
+  - { path: org/mongodb/spark/mongo-spark-connector_2.13/11.1.0/mongo-spark-connector_2.13-11.1.0.jar, sha256: 35f189464f3895855a93c2b71529cca120d94bee98bc337f34ab2ffd998d3d80 }
+  - { path: org/mongodb/mongodb-driver-sync/5.1.4/mongodb-driver-sync-5.1.4.jar, sha256: 341880078296edd762756440e9d6b1d6d2bf4d6b91975c2638e3da611f28b1c2 }
+  - { path: org/mongodb/mongodb-driver-core/5.1.4/mongodb-driver-core-5.1.4.jar, sha256: ae3dbfd439d5afe9e0d6abbd61ef27d858ca2d38083bb7361f69e243aff31dec }
+  - { path: org/mongodb/bson/5.1.4/bson-5.1.4.jar, sha256: bba556a8acd4e87545c1b9a1cb25c12ce9587ed5bf01685f236c5d92abf1e676 }
+  - { path: org/mongodb/bson-record-codec/5.1.4/bson-record-codec-5.1.4.jar, sha256: 698b2b9a10fdd49a3ed99ad2b7bcc8e797639c8c4a5c974de7f6fc8654bda655 }
+  # MySQL JDBC 드라이버
+  - { path: com/mysql/mysql-connector-j/9.7.0/mysql-connector-j-9.7.0.jar, sha256: 0353648eaa1c91e0f4020c959abf756bc866ffd583df22ae6b6f6e0cbd43eb44 }
+
+# 검증 작업이 클래스 로딩으로 확인하는 커넥터 클래스
+spark_check_classes:
+  - org.apache.spark.sql.kafka010.KafkaSourceProvider
+  - org.apache.spark.kafka010.KafkaTokenUtil
+  - org.apache.kafka.clients.consumer.KafkaConsumer
+  - org.apache.commons.pool2.impl.GenericObjectPool
+  - com.mongodb.spark.sql.connector.MongoTableProvider
+  - com.mongodb.client.MongoClients
+  - org.bson.BsonDocument
+  - com.mysql.cj.jdbc.Driver

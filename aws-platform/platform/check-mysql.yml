@@ -1,0 +1,51 @@
+---
+# 현재 Ubuntu 배포의 MySQL 인증과 복제 상태를 읽기 전용으로 확인한다.
+# Vault 암호만 입력하면 DB 비밀번호는 Ansible이 전달하며 출력하지 않는다.
+- name: MySQL Vault 인증과 클러스터 상태 확인
+  hosts: mysql
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Vault root 비밀번호 입력 확인
+      ansible.builtin.assert:
+        that:
+          - vault_mysql_passwords is defined
+          - vault_mysql_passwords.root is defined
+          - vault_mysql_passwords.root | length > 0
+      no_log: true
+
+    # 설치 코드와 같은 소켓을 사용한다. SQL은 조회만 수행한다.
+    - name: Vault 비밀번호로 서버와 클러스터 조회
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - -uroot
+          - -S
+          - /var/run/mysqld/mysqld.sock
+          - --batch
+          - -e
+          - >-
+            SELECT @@hostname AS server_host, CURRENT_USER() AS authenticated_as;
+            SELECT MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
+            FROM performance_schema.replication_group_members;
+      environment:
+        MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+      register: mysql_access_check
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    # 원본 오류나 비밀번호 대신 확인된 오류 종류만 표시한다.
+    - name: 자동 인증 결과 확인
+      ansible.builtin.assert:
+        that:
+          - mysql_access_check.rc | default(-1) == 0
+        fail_msg: >-
+          {{ 'Vault 값을 자동 전달해도 MySQL ERROR 1045가 발생했습니다. 수동 비밀번호 입력 없이도 인증이 거부되는 상태입니다.'
+             if 'ERROR 1045' in (mysql_access_check.stderr | default(''))
+             else 'MySQL 조회에 실패했습니다. 서비스 실행 여부와 /var/run/mysqld/mysqld.sock 소켓을 확인해야 합니다.' }}
+
+    - name: 비밀번호를 제외한 조회 결과 표시
+      ansible.builtin.debug:
+        var: mysql_access_check.stdout_lines

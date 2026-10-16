@@ -1,0 +1,14 @@
+---
+# 각 Front에서 독립 인증서와 Nginx를 구성한다. SSH 경유는 인벤토리를 따른다.
+- name: 진입 서버 HTTPS 구축
+  hosts: edge:game_frontend:ad_frontend
+  become: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: 직접 설치용 Ubuntu HTTPS 저장소 준비
+      ansible.builtin.import_tasks: roles/edge/tasks/prepare-os.yml
+      tags: [always]
+  roles:
+    - { role: common, tags: [common] }
+    - { role: firewall, tags: [firewall] }
+    - { role: edge, tags: [edge] }

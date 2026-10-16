@@ -1,0 +1,33 @@
+---
+# 실제 Primary에서만 계정을 변경한다. 해시가 같으면 SQL과 Router 계정 재설정을 생략한다.
+- name: 계정 SQL 계산
+  ansible.builtin.set_fact:
+    mysql_accounts_sql: "{{ lookup('ansible.builtin.template', 'accounts.sql.j2') }}"
+  no_log: "{{ mysql_no_log }}"
+
+- name: 적용된 계정 SQL 해시 조회
+  ansible.builtin.slurp:
+    src: "{{ mysql_accounts_stamp }}"
+  register: mysql_accounts_stamp_current
+  failed_when: false
+
+- name: 계정 생성과 권한 부여
+  ansible.builtin.command: mysql -uroot -S {{ mysql_socket }}
+  args:
+    stdin: "{{ mysql_accounts_sql }}"
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  when: (mysql_accounts_stamp_current.content | default('') | b64decode) != (mysql_accounts_sql | hash('sha256'))
+  changed_when: true
+  no_log: "{{ mysql_no_log }}"
+
+- name: 적용한 계정 SQL 해시 기록
+  ansible.builtin.copy:
+    content: "{{ mysql_accounts_sql | hash('sha256') }}"
+    dest: "{{ mysql_accounts_stamp }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Router 공통 메타데이터 계정 준비
+  ansible.builtin.import_tasks: router-accounts.yml

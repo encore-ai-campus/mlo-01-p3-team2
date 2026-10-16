@@ -1,0 +1,10 @@
+# Ansible로 관리한다 (roles/monitoring). collector.sh와 archive.sh가 읽는다.
+DATA_DIR={{ monitor_data_dir }}
+ARCHIVE_DIR={{ monitor_archive_dir }}
+KEY={{ monitor_config_dir }}/id_ed25519
+REMOTE_DIR={{ monitor_remote_dir }}
+RESOURCE_INTERVAL={{ monitor_resource_interval }}
+SERVICE_EVERY={{ monitor_service_every }}
+FAIL_LIMIT={{ monitor_fail_limit }}
+COLLECT_KEEP_DAYS={{ monitor_collect_keep_days }}
+ARCHIVE_KEEP_DAYS={{ monitor_archive_keep_days }}

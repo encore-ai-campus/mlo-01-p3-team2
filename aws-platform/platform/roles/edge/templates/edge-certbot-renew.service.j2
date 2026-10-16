@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew edge IP certificate and reload Nginx
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ edge_certbot_venv }}/bin/certbot renew --cert-name {{ edge_cert_name }} --non-interactive --quiet --no-random-sleep-on-renew

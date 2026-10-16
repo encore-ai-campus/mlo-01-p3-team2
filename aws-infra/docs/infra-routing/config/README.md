@@ -1,0 +1,213 @@
+# 설정 파일 지도
+
+## 2026-10-13 현재 Account 1 구성
+
+기본 및 profiles/current의 front-a는 game_frontend, front-b는 ad_frontend이며 둘 다 Public A·t3.small·EIP다. game-server와 ad-server는 Private A·t3.large·공인 IP 없음이다. edge-1과 edge_front 연결, SSH·Proxy·인터넷 송신 목록의 edge 항목을 제거했다. 노드 키·디스크·다른 계정·공통 A/C 서브넷은 유지한다.
+
+front_game은 game_frontend→game, front_ad는 ad_frontend→ad TCP 8000으로 나뉜다. admin_nodes·forward_proxy는 새 Front 역할을 참조한다. Account 1의 외부 공개/SSH 및 추가 Backend 수신 제한은 workload에서 적용한다. 다른 계정 규칙 보존을 위해 traffic에 남은 MySQL→Backend 송신 선언을 지우지 않는다. 현행 표는 이 구성을 따르며 별도로 표시한 이전 기록만 과거 구성을 설명한다.
+
+[탐색 시작점](../ROUTING-README.md) · [model 검증](../terraform/README.md#model) · [공통 입력 검사](../scripts/lib/infra-common.ps1.md)
+
+## 파일별 책임
+
+| 파일 | 주요 키 | 읽는 곳 |
+| --- | --- | --- |
+| [infra/config/topology.tfvars.json](../../../infra/config/topology.tfvars.json) | topology.project / region / az_ids / accounts / nodes / peerings / alb | 실행기 및 네 stack의 model |
+| [infra/config/traffic.tfvars.json](../../../infra/config/traffic.tfvars.json) | traffic.admin_public_cidrs / game_client_cidrs / public_http_cidrs / ports / connections / internet_https_roles | 실행기·model·workload |
+| [infra/config/backend.json](../../../infra/config/backend.json) | bucket / region / profile / key_prefix | 실행기의 init, connectivity/workload/bastion의 원격 상태 조회 |
+| [account1.pub](../../../infra/config/keys/account1.pub), [account2.pub](../../../infra/config/keys/account2.pub), [account3.pub](../../../infra/config/keys/account3.pub), [account4.pub](../../../infra/config/keys/account4.pub), [account5.pub](../../../infra/config/keys/account5.pub) | 계정별 OpenSSH 공개키 | 각 계정 workload의 aws_key_pair, Account 1 bastion의 전용 aws_key_pair |
+
+JSON에는 주석이나 AWS 액세스 키·시크릿 키를 넣지 않는다. 공개키 상대 경로의 기준은 **infra/**다.
+
+## topology
+
+2026-10-14 계정 재배치: 기본 설정과 profiles/current에서 flatten-1의 account를 account1, kafka-1의 account를 account4로 변경했다. ad-server는 account1에 유지한다. Kafka는 account4에 두 대, account5에 한 대이며 같은 계정의 두 노드는 Kafka SG를 공유한다. 서버 사양·디스크·AZ·역할·traffic 연결 선언은 유지한다. 이 기록은 코드 변경이며 AWS 적용이나 Ansible 인벤토리 재생성을 뜻하지 않는다.
+
+비용별로 편집할 복사본은 [deploy.ps1 NewProfile](../scripts/deploy.ps1.md)로 infra/config/profiles/구성이름 아래에 만든다. topology·traffic·platform.json을 함께 보관하며 이 폴더는 Git에서 제외한다. 구성별 EC2 배치·사양을 선택해 기존 동일 원격 상태에 반영하고, backend.json과 공개키 상대 경로의 infra 기준은 유지한다. 현재 infra/config의 원본 파일은 NewProfile이 수정하지 않는다.
+
+[프로젝트 .gitignore](../../../.gitignore)는 .local/·Terraform 작업 폴더·상태·계획, 개인키와 로컬 설정·구성 프로필을 제외한다. Python 검사 도구가 만드는 __pycache__/와 *.py[cod], 로컬 AGENTS.md도 제외한다. 하위 infra/.gitignore는 상위 파일에 통합했으며, infra/config의 로컬 설정·프로필 경로는 프로젝트 루트 기준으로 지정한다. Terraform 의존성 잠금 파일 .terraform.lock.hcl과 config/keys/*.pub 공개키는 이 규칙의 제외 대상이 아니다.
+
+| 키 | 의미·현재 값 |
+| --- | --- |
+| project / region | aws-infra / ap-northeast-2 |
+| az_ids | 논리 a = apne2-az1, c = apne2-az3. 계정 콘솔의 AZ 끝 글자와 구분 |
+| accounts | id, profile, vpc_cidr, public_subnets, egress, ami_id, ssh_public_key_path, key_pair_name |
+| nodes | 고정 서버 키별 account, role, az, subnet_tier, instance_type, root_gib, public_ip, data_disks |
+| nodes.*.data_disks | 디스크 키별 size_gib, type, device_name. 현재 gp3 |
+| peerings | account1-account2 같은 정렬된 계정 쌍 10개 |
+| alb | enabled, account, frontend_role, game_role, ad_role, static_path, ad_path, frontend_health_path, game_health_path, ad_health_path. certificate_arn은 공통 타입에 남아 있으나 현재 HTTP 배포에는 사용하지 않음 |
+
+| 계정 | VPC | 현재 노드 | Public 서브넷 / egress |
+| --- | --- | --- | --- |
+| account1 | 10.10.0.0/16 | bastion, front-a, front-b, game-server, ad-server, flatten-1 | true / proxy |
+| account2 | 10.20.0.0/16 | mongo-1, spark-2 | false / proxy |
+| account3 | 10.30.0.0/16 | mysql-1, spark-1, mongo-2 | false / proxy |
+| account4 | 10.40.0.0/16 | kafka-1, kafka-2, mysql-3, spark-3 | false / proxy |
+| account5 | 10.50.0.0/16 | mysql-2, mongo-3, kafka-3 | false / proxy |
+
+노드명과 data_disks의 키는 Terraform for_each 식별자다. 이름 변경이나 계정·AZ 이동은 단순 표시 변경이 아니며 생성·교체·이전 계획을 확인해야 한다. 세부 노드 사양표는 [기존 실행 안내](../../../infra/scripts/scripts.md)에 있다.
+
+nodes.bastion은 Account 1의 Public A, t3a.small, root_gib=20, public_ip=true를 유지한다. 이 정의는 foundation의 Bastion SG와 통신 역할 계산에 필요하지만 workload EC2에서는 role != bastion 조건으로 제외한다. [Bastion 전용 단계](../terraform/stacks/bastion.md)는 전용 EIP를 생성·연결한다. 중지·시작 시 고정 주소를 유지하고 Bastion 삭제 시 EIP도 반환한다. EC2 삭제 시 OS 디스크도 삭제한다. 게임·광고 Front 두 대의 EIP는 workload에서, Bastion의 EIP는 bastion 상태에서 관리한다. game-server는 Private A, t3.large, public_ip=false다. 노드별 enabled 필드는 없다. [bastion.ps1](../scripts/bastion.ps1.md)은 생성·삭제와 기존 중지·시작을 구분해 제공한다.
+
+광고 서버는 account1의 Private A에 배치하며 role=ad, t3.large, root_gib=20, public_ip=false, data_disks={}를 유지한다. ALB 설정은 ad_role=ad, ad_path=/ads/*, ad_health_path=/이다. ALB는 비활성 상태다. 현재 광고 Front는 모든 경로를 원래 경로 그대로 광고 Backend로 전달한다.
+
+flatten-1은 account1의 Private A(apne2-az1), t3a.medium, root_gib=20, public_ip=false, data_disks={}다. role=consumer로 전용 SG와 인벤토리 그룹을 만들고 Kafka·Spark 서비스 설치 대상과 분리한다. 기본 설정과 profiles/current 복사본을 함께 갱신했다.
+
+## 모든 서버의 A 배치 — 2026-10-13
+
+기본 topology와 로컬 profiles/current의 모든 nodes.*.az는 a다. 논리 A의 물리 AZ ID는 apne2-az1이며, 이번 설정 변경에서 C에서 A로 옮긴 대상은 다음 다섯 노드다.
+
+| 계정 | 노드 | 변경 후 서브넷 |
+| --- | --- | --- |
+| account1 | front-b | Public A |
+| account3 | mongo-2 | Private A |
+| account4 | spark-3 | Private A |
+| account5 | mysql-2 | Private A |
+| account5 | kafka-3 | Private A |
+
+나머지 노드와 선택 Bastion은 기존 A 배치를 유지한다. az_ids는 a=apne2-az1, c=apne2-az3로 유지하고 foundation의 Public/Private C 서브넷도 제거하지 않는다. 서버 수·역할·subnet_tier·public_ip·사양·디스크·ALB·traffic 설정은 이 변경에 포함하지 않는다.
+
+AWS 적용은 실행하지 않았다. 기존 저장 Plan은 다시 만들고, 영향 계정의 workload Plan에서 EC2와 AZ에 종속된 데이터 EBS의 교체 범위를 확인한다. 적용 후 Inventory를 재생성해 새 사설 IP를 서버 접속·방화벽·앱 설정에 반영한다. 다른 로컬 프로필은 자동으로 변경되지 않는다.
+
+## traffic
+
+| 외부 접속 설정 | 현재 값과 소비 위치 |
+| --- | --- |
+| admin_public_cidrs | 기본·current 모두 222.112.208.69/32. Bastion·Account 1 Consumer·Account 2~5 Private 역할의 SSH 22. Account 1 네 서비스는 Bastion SG만 허용 |
+| public_http_cidrs | 222.112.208.66/32~222.112.208.72/32의 7개 IP. 현재 두 Front의 TCP 443, 이전 frontend 및 선택적 ALB의 HTTP 80에 사용. 현재 두 Front의 TCP 80은 별도로 전체 IPv4 허용 |
+| game_client_cidrs | 222.112.208.69/32. 기존 edge HTTPS 443 및 public_http_cidrs 누락 시 HTTP 대체값 |
+
+public_http_cidrs는 model의 선택 입력이다. workload에서 누락·null이면 game_client_cidrs를 사용하고 빈 목록이면 해당 HTTP CIDR 규칙을 만들지 않는다. CIDR 형식은 model과 infra-common.ps1에서 검사한다. Private SSH 규칙은 인터넷 경로나 OS 방화벽 설정을 만들지 않는다.
+
+consumer_kafka는 consumer → kafka TCP 9092, consumer_mongo는 consumer → mongo TCP 27017이다. admin_nodes의 대상과 forward_proxy의 출발 역할에도 consumer를 포함한다. Consumer의 MySQL·Kafka Controller·직접 인터넷 HTTPS 송신은 허용하지 않는다.
+
+connections는 소스 역할 목록·대상 역할 목록·시작 포트인 port를 지정한다. port와 선택 항목 port_end는 모두 ports의 키다. port_end를 생략하면 포트 하나만 허용하고, 지정하면 시작부터 끝까지 포함한 범위를 허용한다. 끝 포트는 시작 포트 이상이어야 한다. model이 이를 계정/역할 SG 쌍으로 펼치고 workload가 해당 계정의 입출력 규칙을 만든다. 이 설정은 통신 허용이며 애플리케이션의 처리 경로를 강제하지 않는다.
+
+| 연결 키 | 소스 → 대상 | 현재 TCP 포트 |
+| --- | --- | --- |
+| admin_nodes | bastion → 게임·광고 Front를 포함한 서비스 역할 | 22 |
+| game_kafka / spark_kafka | game·ad / spark → kafka | 9092 |
+| kafka_replication / kafka_controller | kafka → kafka | 9092 / 9093 |
+| mongo_replication / mysql_replication | mongo → mongo / mysql → mysql | 27017 / 3306 |
+| spark_mongo / spark_mysql | spark → mongo / mysql | 27017 / 3306 |
+| game_mysql | game → mysql | 3306 |
+| front_game | game_frontend → game | 8000 |
+| front_ad | ad_frontend → ad | 8000 |
+| game_ad | game → ad | 8000 |
+| ad_game | ad → game | 8000 |
+| consumer_mongo | consumer → mongo | 27017 |
+| ad_mongo | ad → mongo | 27017 |
+| ad_mysql | ad → mysql | 3306 |
+| mysql_kafka | mysql → kafka | 9092 |
+| spark_master / spark_driver / spark_block | spark → spark | 7077 / 7078–7094 / 7079–7095 |
+| spark_worker / spark_master_ui | spark → spark | 7100 / 8080 |
+| zookeeper_client / zookeeper_peer / zookeeper_election | spark → spark | 2181 / 2888 / 3888 |
+| forward_proxy | game_frontend·ad_frontend·game·mongo·spark·ad·kafka·mysql·consumer → bastion | 3128 |
+
+admin_public_cidrs는 Bastion·Account 1 Consumer·Account 2~5 Private 역할의 SSH에 사용한다. 현재 두 Front의 80은 전체 IPv4에 허용하고 443은 workload에서 public_http_cidrs의 7개 IP로 제한한다. public_http_cidrs는 기존 frontend 및 선택 ALB의 HTTP 규칙에 사용한다. CIDR은 서버 EIP가 아니라 접속 출발지다.
+
+internet_https_roles에는 bastion만 남아 외부 TCP 443 egress를 만든다. 현재 두 Front는 별도 front_all 규칙으로 전체 IPv4 송신을 허용한다. 이는 송신 규칙이며 HTTPS 리스너를 설치하거나 다른 Private 서버를 인터넷에 연결하지 않는다.
+
+ZooKeeper 세 포트는 Spark 노드의 클라이언트 접속·동기화·리더 선출에 사용한다. 기본 traffic과 현재 로컬 profiles/current/traffic 모두에 spark → spark 연결을 추가했다. model이 Spark 역할이 배치된 계정의 SG 쌍으로 펼치므로 현재 적용 대상은 account2·account3·account4의 workload다. 외부 CIDR 허용을 추가하는 설정이 아니며, 로컬 파일 변경 후 해당 구성의 새 Plan을 검토하고 Apply해야 AWS에 반영된다.
+
+Spark는 platform 역할의 Worker RPC 7100, Master UI 8080, Driver 시작 포트 7078, BlockManager 시작 포트 7079와 맞춘다. 작업의 spark.port.maxRetries=16에 맞춰 Driver는 7094, BlockManager는 7095까지 허용한다. 같은 서버의 Driver·Executor가 BlockManager 시작 포트를 함께 쓰면 다음 허용 포트로 재시도한다. 이 두 범위는 일부 겹치며 기존 규칙의 시작 포트와 Terraform 주소는 유지한다. Master·Worker 데몬은 별도로 포트 재시도를 0으로 설정해 지정 포트를 벗어나지 않는다. 포트를 바꾸면 aws-platform/platform/roles/spark/defaults/main.yml과 선택한 구성의 traffic을 함께 맞춰야 한다. 두 신규 연결도 Spark SG끼리만 허용한다.
+
+대응하는 [Spark 기본 변수](../../../../aws-platform/platform/docs/platform-routing/roles/spark/defaults/main.yml.md)와 [데몬·작업 통신 포트](../../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트), 인프라의 [포트 범위 테스트](../tests/README.md#spark-포트-범위)를 함께 확인한다. 기본 파일을 고쳐도 기존 NewProfile 복사본은 자동 갱신되지 않으므로 선택한 구성 폴더의 traffic도 대조해야 한다.
+
+## backend와 계정별 배포 입력
+
+현재 로컬 backend의 bucket은 `aws-infra-tfstate-541308265856`으로 복원됐고 region은 ap-northeast-2, profile은 account1, key_prefix는 aws-infra-v2다. 버킷 이름을 채운 것만으로 실제 버전 관리와 접근 권한이 검증됐다는 뜻은 아니다. Plan·Apply·Output에는 버전 관리가 켜진 기존 S3 버킷과 접근 권한이 필요하다.
+
+현재 로컬 설정의 다섯 계정 ami_id는 모두 `ami-0c713e716602facc2`다. 각 ssh_public_key_path는 config/keys/account1.pub부터 config/keys/account5.pub까지 계정별 파일을 가리킨다. 해당 계정 workload Plan·Apply에는 AMI와 실제 공개키 파일이 필요하다. 문서가 입력을 자동으로 채우거나 AWS 값을 조회하지 않는다.
+
+ALB certificate_arn은 빈 문자열이지만 현재 HTTP 배포의 차단 사유가 아니다. 이 키는 model의 공통 객체 타입에 아직 남아 있으므로 설정에서 임의로 삭제하면 타입 입력이 달라질 수 있다. 현재 실행기와 ALB 모듈은 ACM ARN을 검사하지 않고, workload는 그 값을 ALB 모듈에 전달하지 않는다.
+
+| 변경 종류 | 확인할 단계 |
+| --- | --- |
+| Bastion 사양·AMI·공개키 | account1 bastion의 PlanCreate 검토. 교체가 필요한 계획은 현재 보호 검사에서 거부 |
+| 사양·같은 AZ의 데이터 디스크 용량 | 해당 계정 workload. 파일시스템 확장은 별도 |
+| 서버 계정·AZ·역할·VPC·송신 방식 | 관련 foundation → connectivity → workload, 데이터 이전 검토 |
+| 관리자 IP·서비스 연결·포트 | 규칙 양끝 계정 workload. 프로그램 포트도 별도 조정 |
+| ALB 경로·대상 역할·활성화 | ALB 계정 workload. 역할 집합이 바뀌면 foundation도 확인 |
+| backend 버킷·prefix | 상태 위치와 이관 검토. 값을 바꿔도 기존 상태가 자동 이전되지 않음 |
+
+Bastion 전용 키페어 이름은 Account 1의 key_pair_name에 -bastion을 붙인 aws-infra-account1-bastion이다. 서비스 키페어와 구분하며, Bastion을 삭제해도 서비스 키페어는 삭제하지 않는다. 팀원 키 준비·기존 서버 등록 경로는 [계정별 SSH 키 문서](../scripts/account-keys.ps1.md)에 있다. 콘솔 SSH 접두사 목록 규칙은 traffic JSON 항목이 아니라 [workload 선언](../terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위)이 관리한다.
+
+## mysql-3 증설
+
+기본 topology.tfvars.json과 로컬 profiles/current/topology.tfvars.json의 nodes.mysql-3를 함께 추가했다. account4, role=mysql, az=a, subnet_tier=private, t3a.small, root_gib=20, public_ip=false이며 data_disks.data는 gp3 100GiB·/dev/sdf다. mysql-1(account3 A)·mysql-2(account5 C)의 설정은 유지했다.
+
+foundation은 노드 역할 집합에서 account4/mysql SG를 추가하고, workload의 local.nodes와 compute의 for_each가 새 EC2·데이터 볼륨·연결을 생성한다. 기존 mysql_replication·spark_mysql·game_mysql·admin_nodes·forward_proxy를 새 SG까지 확장하므로 traffic에 새 연결이나 외부 허용을 추가하지 않았다. MYSQL 통신 스택의 멤버 포트는 3306이며 Router의 loopback 6446·6447을 원격 SG에 열지 않는다.
+
+2026-10-10 실제 반영은 current 프로필과 기존 aws-infra-v2 원격 상태를 사용했다. [검증 결과](../verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에 EC2·EBS·SG와 계정별 적용 수를 기록했다. 이전에 만든 다른 프로필은 자동 갱신되지 않는다. 당시에는 alb.enabled=true를 유지했으나 아래 ALB 비활성화 변경으로 기본 및 current 설정에서 재생성을 막았다. 다른 기존 프로필은 자동 갱신되지 않는다.
+
+
+| consumer_kafka | consumer → kafka | 9092 |
+
+
+## 평탄화 Consumer 변경 연결
+
+flatten-1은 account1 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account1_proxy, workload의 account1_default_closed·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 2026-10-11 로컬 모의 검증 결과는 [애플리케이션 통신 검사](../tests/README.md#애플리케이션-통신-검사)에 기록했다.
+
+## 애플리케이션 통신 확장
+
+2026-10-15 기본 및 current에서 kafka_game·kafka_ad·mysql_game·mysql_ad를 제거했다. Backend API 8000은 해당 Front와 상대 Backend만 허용한다. DB·Kafka의 응답은 클라이언트가 시작한 연결로 받는다.
+
+2026-10-11 기본 traffic과 로컬 profiles/current/traffic에 위 연결 10종류를 추가했다. 5개 계정의 SG 조합으로는 새 연결 28쌍이며 기존 연결·외부 CIDR·공개 포트는 유지한다. 각 쌍의 소스 workload는 egress, 대상 workload는 ingress를 생성한다. 다른 배포 프로필은 자동으로 변경되지 않는다.
+
+Kafka→Spark·Consumer 데이터 전달과 Spark·Consumer→Kafka 발행은 클라이언트가 시작한 Kafka 9092 연결을 사용한다. 역방향 신규 수신 규칙은 만들지 않는다. mysql_game·mysql_ad는 제거했으며 DB 조회 응답은 기존 MySQL 3306 연결로 반환한다. MySQL 자체에 전송 프로그램을 설치한 것은 아니다.
+
+Front→게임·광고 8000 연결을 허용했지만 외부 사용자→Front 443, Nginx·인증서 배포는 이번 변경 범위에 포함하지 않았다. 실제 적용은 다섯 계정 workload의 새 Plan 검토·Apply와 플랫폼 firewall 역할 적용이 필요하다. 이번에는 로컬 검증만 수행했다.
+
+## ALB 비활성화
+
+기본 및 profiles/current의 topology.alb.enabled=false이며 traffic.connections에서 alb_front·alb_game·alb_ad를 제거했다. ALB 비활성화 직후 connections는 30개였으며 Front→게임·광고 8000을 포함한 나머지 연결과 CIDR·포트·인터넷 송신 설정은 그대로다. model은 활성 역할만 허용하므로 ALB를 다시 사용할 프로필에서는 enabled=true와 연결 3개를 함께 복원한다. certificate_arn 등 공통 객체 필드는 유지한다.
+
+당시 ALB 비활성화 변경은 ALB 없는 설정만 준비했다. 2026-10-12에는 외부→Front HTTP 80 SG 규칙을 추가했다. Front 443·인증서 설치는 이 변경에 포함하지 않았으며 원격 Nginx 적용은 별도로 확인해야 한다. 기존 ALB·연결 규칙과 foundation의 SG를 정리할 때는 [적용 순서](../../../docs/deployment-runbook.md#alb-비활성화-적용-순서)를 따른다. AWS 적용은 실행하지 않았다.
+
+## 진입용 edge-1
+
+아래는 과거 도입 기록이다. 2026-10-13에 edge-1과 edge_front를 제거했으며 현재 생성 대상이 아니다.
+
+기본 및 profiles/current에 nodes.edge-1(account1, role=edge, Public A, t3a.small, root_gib=20, public_ip=true, data_disks={})을 추가했다. 기존 compute가 EIP를 생성·연결하며 기존 Front EIP 두 개는 유지한다. edge_front는 edge→frontend TCP 80이고 admin_nodes.targets·forward_proxy.sources에도 edge를 추가해 SSH 22와 Proxy 3128을 준비한다. 전체 connections는 31개, 역할 SG는 18개다. 새 EC2가 사용할 AMI·공개키는 기존 account1 설정을 따른다.
+
+edge의 외부 80은 ACME 검증, 443은 game_client_cidrs, 22는 admin_public_cidrs에 연결한다. 전용 edge SG는 게임·광고·DB에 직접 연결하지 않는다. Inventory는 edge 그룹에 public_ip와 edge_https_allowed_cidrs를 포함한다. Nginx·인증서·OS 방화벽은 플랫폼 설정과 맞춘다. 기존 ALB가 남아 있으면 [전환 순서](../../../docs/deployment-runbook.md#진입용-edge-1-추가)를 먼저 확인한다.
+
+## 2026-10-12 학원 접속 범위
+
+이전 정책 기록이다. 2026-10-13부터 Account 1 네 서비스의 관리자 CIDR·콘솔 SSH는 제외하고 Bastion SSH만 허용한다. 2026-10-15부터 두 Front의 80은 전체 IPv4에 허용하고 443은 public_http_cidrs의 7개 IP로 제한한다.
+
+- 학원 공인 IP는 `222.112.208.69/32`다. 앞서 전달된 `.72`는 사용하지 않는다.
+- `admin_public_cidrs`: 학원 IP. Bastion SSH 22 및 Private 서버의 역할별 SG에 학원 IP의 SSH 22를 허용한다.
+- `public_http_cidrs`: `0.0.0.0/0`. Public Front의 HTTP 80만 전체 공개한다. 필드가 없는 이전 프로필은 game_client_cidrs로 동작한다.
+- `game_client_cidrs`: 학원 IP. 기존 edge HTTPS 443 범위를 전체 공개로 확대하지 않는다.
+- Bastion의 EC2 Instance Connect 콘솔 SSH 출처 규칙은 생성하지 않는다. 기존 규칙이 있다면 다음 workload Plan에 해당 규칙 삭제가 표시된다. 서비스 서버의 기존 콘솔 SSH 규칙은 유지한다.
+- Private SSH CIDR 규칙은 인터넷 경로를 만들지 않는다. Bastion 경유 시 목적 서버에는 Bastion 사설 IP가 출처로 보이므로 기존 Bastion→서버 SG 규칙도 유지한다. OS 방화벽·접속 경로의 실제 성공은 별도다.
+- 기존 저장 Plan은 다시 만들어야 한다. 코드만 수정했으며 AWS Apply는 실행하지 않았다.
+
+
+## 2026-10-15 Front 웹 접속 IP 제한
+
+기본·current의 public_http_cidrs는 222.112.208.66/32~222.112.208.72/32의 7개다. 현재 front_https_ingress는 80에 0.0.0.0/0을, 443에 이 목록을 사용한다. 두 Front × (HTTP 규칙 1개 + HTTPS 규칙 7개) = 웹 수신 규칙 16개다. 기존 전체 공개 규칙 4개는 제거하고 새 키의 규칙을 생성한다. 80의 허용 범위는 유지되며 443만 제한된다.
+
+이 필드는 기존 frontend 역할과 선택적 ALB HTTP에도 사용한다. 현재 ALB는 비활성화다. 빈 목록이면 Front 443 수신 규칙을 생성하지 않고 80 전체 공개는 유지하며 필드 누락·null은 기존 game_client_cidrs 대체 정책을 따른다. 관리자 SSH, Backend·DB 통신, Front 전체 송신은 변경하지 않았다.
+
+사용자에 따르면 현재 AWS에 자원이 운영 중이다. 이번 변경은 로컬 설정·코드·문서만 반영했으며 실제 AWS Plan·Apply·조회·원격 접속 테스트는 하지 않았다. SG 제한은 배포 후 적용된다. 운영 상태의 변경 필요 여부는 새 실제 Plan에서 별도로 확인해야 한다.
+
+80은 HTTP-01 인증서 발급·갱신용으로 전체 IPv4에 허용한다. SG는 HTTP 경로를 구분하지 않으며 Nginx가 ACME 검증 경로를 처리하고 다른 HTTP 요청을 HTTPS로 리다이렉트한다. 443의 외부 출처 제한은 AWS SG가 담당한다. 인증서 발급·갱신 성공은 이 규칙 선언만으로 보증하지 않는다.
+
+
+## 2026-10-15 Backend API 역방향 연결 제거
+
+기본·current traffic.connections에서 kafka_game, kafka_ad, mysql_game, mysql_ad를 제거했다. Kafka·MySQL SG의 Backend 8000 송신과 Backend SG의 대응 수신이 제거 대상이다. workload의 Backend 8000 출처 필터도 해당 Front·상대 Backend로 제한했다.
+
+게임·광고→Kafka 9092, 게임·광고→MySQL 3306, 광고→MongoDB 27017은 유지한다. 광고는 MongoDB에 저장·조회 요청을 보내고 같은 연결로 결과를 받는다. Front→해당 Backend 8000 및 게임↔광고 8000도 유지한다. DB·Kafka 응답용으로 Backend 8000을 열 필요는 없다.
+
+플랫폼 nftables의 Account 1 제한 분기에서 Kafka·MySQL의 Backend API 출처를 제거했고 일반 game/ad from 목록에서도 MySQL을 제거했다. 기존 established,related 응답 허용과 DB·Kafka·MongoDB 수신 정책은 유지한다. 위 과거 적용 기록은 당시 이력이며 현재 로컬 선언과 구분한다.
+
+이번 작업은 로컬 코드·설정·문서 수정이다. 실제 AWS 조회·Plan·Apply·원격 Ansible·접속 테스트는 실행하지 않았다. 운영 SG와 OS 방화벽은 배포 전까지 변경되지 않는다.
+
+
+## 2026-10-15 관리자 SSH 허용 IP 정리
+
+current의 admin_public_cidrs에서 집 공인 IP 211.117.107.63/32를 제거했다. 기본·current 모두 222.112.208.69/32만 남는다. Front 웹 허용 목록 222.112.208.66~72의 7개 /32와 서비스 연결은 유지한다. 과거 기록의 집 IP는 당시 이력으로 보존한다. 이 변경은 로컬 설정에만 반영했으며 실제 AWS SG 적용·조회는 하지 않았다.

@@ -1,0 +1,5 @@
+---
+# Ubuntu 24.04: sshd 서비스 이름은 ssh(소켓 활성화 포함), chrony는 chrony. chrony와 sudo는 기본으로 설치되어 있다.
+common_ssh_service: ssh
+common_chrony_service: chrony
+common_packages: [chrony, sudo]

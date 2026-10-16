@@ -1,0 +1,18 @@
+# Ansible로 관리한다 (roles/mysql).
+[mysqld]
+bind-address = {{ ip }}
+port = {{ mysql_port }}
+report_host = {{ ip }}
+skip-name-resolve = ON
+server-id = {{ mysql_server_id }}
+gtid_mode = ON
+enforce_gtid_consistency = ON
+log_bin = mysql-bin
+binlog_format = ROW
+log_replica_updates = ON
+replica_preserve_commit_order = ON
+# Group Replication의 동적 설정은 AdminAPI가 mysqld-auto.cnf에 저장한다.
+# 이 파일에는 group_replication_*를 고정하지 않아 재실행 때 저장된 설정을 보존한다.
+partial_revokes = ON
+plugin-load-add = mysql_clone.so
+innodb_buffer_pool_size = {{ mysql_buffer_pool_mb }}M

@@ -1,0 +1,189 @@
+---
+- name: Edge 필수 입력 확인
+  ansible.builtin.assert:
+    that:
+      - edge_public_ip is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+      - edge_https_allowed_cidrs | length > 0
+      - edge_https_allowed_cidrs is not string
+      - edge_frontend_upstreams is not string
+      - not (edge_frontend_mode | bool) or edge_frontend_upstreams | length == 1
+      - edge_certbot_version is version('5.4.0', '>=')
+    fail_msg: 실제 EIP와 허용할 사용자 IPv4 CIDR, Certbot 5.4 이상을 지정한다.
+
+- name: IP와 CIDR 형식 확인
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import ipaddress, json, sys
+        address = ipaddress.ip_address(sys.argv[1])
+        assert address.version == 4 and address.is_global, 'Public IPv4 EIP required'
+        for cidr in json.loads(sys.argv[2]):
+            assert ipaddress.ip_network(cidr, strict=False).version == 4, 'IPv4 CIDR required'
+      - "{{ edge_public_ip }}"
+      - "{{ edge_https_allowed_cidrs | to_json }}"
+  changed_when: false
+
+- name: Front 목적지 형식 확인
+  ansible.builtin.assert:
+    that:
+      - item.host is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+      - item.port | default(80) | int > 0
+      - item.port | default(80) | int < 65536
+    fail_msg: Front 사설 IPv4와 서비스 포트를 지정한다.
+  loop: "{{ edge_frontend_upstreams }}"
+
+- name: Ubuntu 설치 저장소 준비
+  ansible.builtin.import_tasks: prepare-os.yml
+
+- name: Nginx와 Certbot 실행 패키지 설치
+  ansible.builtin.apt:
+    name: [nginx, python3-venv, python3-packaging, ca-certificates, openssl]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: l
+
+# OS Python에 pip 패키지를 섞지 않고 고정 버전의 Certbot을 설치한다.
+- name: Certbot 가상환경 설치
+  ansible.builtin.pip:
+    name: "certbot=={{ edge_certbot_version }}"
+    virtualenv: "{{ edge_certbot_venv }}"
+    virtualenv_command: /usr/bin/python3 -m venv
+
+- name: 인증서 검증과 준비 화면 디렉터리
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ edge_acme_webroot }}/.well-known/acme-challenge"
+    - "{{ edge_setup_root }}"
+    - /etc/letsencrypt/renewal-hooks/deploy
+
+- name: Front 연결 전 준비 화면 배포
+  ansible.builtin.copy:
+    dest: "{{ edge_setup_root }}/index.html"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      <!doctype html><html lang="ko"><meta charset="utf-8">
+      <title>HTTPS 진입 서버 준비</title>
+      <h1>HTTPS 진입 서버가 준비되었습니다.</h1>
+      <p>Front 서버와 애플리케이션 연결은 아직 구성하지 않았습니다.</p></html>
+
+- name: 기존 인증서 확인
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem"
+    follow: true
+  register: edge_certificate_before
+
+- name: 최초 HTTP 또는 기존 HTTPS 설정 선택
+  ansible.builtin.set_fact:
+    edge_tls_ready: "{{ edge_certificate_before.stat.exists }}"
+
+# 인증서가 없으면 HTTP 검증 경로만 열고, 재실행이면 기존 HTTPS를 유지한다.
+- name: 인증서 발급 전 Nginx 설정
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nginx -t -c %s
+  notify: Edge Nginx 재적용
+
+- name: Nginx 시작
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: HTTP 검증 경로 적용
+  ansible.builtin.meta: flush_handlers
+
+- name: 인증서 갱신 후 Nginx 재적용 스크립트
+  ansible.builtin.template:
+    src: reload-nginx.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/deploy/edge-nginx
+    owner: root
+    group: root
+    mode: '0750'
+
+# 무인 발급은 ACME 이용약관에 동의한다. 이메일이 없으면 연락처 없이 등록한다.
+- name: IP 인증서 요청 인자 준비
+  ansible.builtin.set_fact:
+    edge_certbot_argv: >-
+      {{ [edge_certbot_venv ~ '/bin/certbot', 'certonly', '--non-interactive',
+          '--agree-tos', '--webroot', '--webroot-path', edge_acme_webroot,
+          '--ip-address', edge_public_ip, '--required-profile', 'shortlived',
+          '--cert-name', edge_cert_name, '--keep-until-expiring']
+         + (['--email', edge_acme_email] if edge_acme_email | length > 0
+            else ['--register-unsafely-without-email']) }}
+
+# 최초 실행에만 staging에서 검증한다. 시험 인증서를 운영 경로에 저장하지 않는다.
+- name: 최초 IP 인증서 발급 사전 검증
+  ansible.builtin.command:
+    argv: "{{ edge_certbot_argv + ['--dry-run'] }}"
+  when: edge_acme_preflight | bool and not edge_certificate_before.stat.exists
+  changed_when: false
+
+- name: 공인 IP용 단기 인증서 발급 또는 유효 인증서 유지
+  ansible.builtin.command:
+    argv: "{{ edge_certbot_argv + ['--server', edge_acme_server] }}"
+  changed_when: false
+
+- name: 발급된 인증서 확인
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem"
+    follow: true
+  register: edge_certificate_after
+  changed_when: >-
+    not edge_certificate_before.stat.exists or
+    edge_certificate_after.stat.mtime | default(0) != edge_certificate_before.stat.mtime | default(0)
+  failed_when: not edge_certificate_after.stat.exists
+
+- name: HTTPS 설정 활성화
+  ansible.builtin.set_fact:
+    edge_tls_ready: true
+
+- name: HTTPS와 Front 분산 설정
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nginx -t -c %s
+  notify: Edge Nginx 재적용
+
+- name: 인증서 갱신 서비스와 타이머 배포
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: [edge-certbot-renew.service, edge-certbot-renew.timer]
+  notify: Edge 갱신 타이머 재시작
+
+- name: 자동 갱신 타이머 활성화
+  ansible.builtin.systemd_service:
+    name: edge-certbot-renew.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: 변경 설정 반영
+  ansible.builtin.meta: flush_handlers
+
+- name: HTTPS 설치 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

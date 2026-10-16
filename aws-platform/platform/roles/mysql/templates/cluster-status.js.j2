@@ -1,0 +1,3 @@
+// 인벤토리 순서와 무관하게 AdminAPI가 보고하는 현재 Primary와 멤버 상태를 출력한다.
+shell.connect({user: 'failover', password: {{ vault_mysql_passwords.failover | to_json }}, host: {{ ip | to_json }}, port: {{ mysql_port }}});
+print(JSON.stringify(dba.getCluster({{ mysql_cluster_name | to_json }}).status()));

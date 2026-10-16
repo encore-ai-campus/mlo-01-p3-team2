@@ -1,0 +1,43 @@
+---
+# Ubuntu 전용: MongoDB 8.0은 Linux 커널 6.19 이상에서 시작을 거부한다 (SERVER-121912, 수정 버전 없음).
+# Ubuntu 24.04 AWS 이미지는 `linux-aws`가 HWE 커널(7.0)을 가리키므로, 24.04의 GA 커널 계열(`linux-aws-lts-24.04`, 6.8)로 바꾼다.
+# 커널이 이미 기준 미만이면 아무것도 하지 않는다 (재실행은 변경 없음).
+- name: 커널 버전 확인
+  ansible.builtin.set_fact:
+    mongodb_kernel_blocked: "{{ ansible_facts['kernel'].split('-')[0] is version(mongodb_kernel_blocked_from, '>=') }}"
+
+- name: GA 커널(linux-aws-lts-24.04) 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: [linux-aws-lts-24.04]
+  when: mongodb_kernel_blocked
+
+# 실행 중인 커널을 지우려면 noninteractive여야 확인 질문 없이 통과한다 (linux-check-removal).
+# 새 커널만 남아야 재부팅 후 GRUB이 그 커널로 부팅한다.
+- name: 새 커널을 막는 HWE 커널 제거
+  ansible.builtin.apt:
+    name: "{{ (['linux-aws', 'linux-image-aws', 'linux-headers-aws', 'linux-tools-aws']
+               + ['linux-image-', 'linux-headers-', 'linux-modules-', 'linux-modules-extra-', 'linux-tools-'] | map('regex_replace', '$', ansible_facts['kernel']) | list)
+              | intersect(ansible_facts.packages.keys()) }}"
+    state: absent
+    purge: true
+    autoremove: true
+    lock_timeout: 300
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: l
+  when: mongodb_kernel_blocked
+
+- name: 재부팅 (새 커널로)
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: mongodb_kernel_blocked
+
+- name: 커널 확인
+  ansible.builtin.command: uname -r
+  register: mongodb_kernel_now
+  changed_when: false
+  failed_when: mongodb_kernel_now.stdout.split('-')[0] is version(mongodb_kernel_blocked_from, '>=')
+  when: mongodb_kernel_blocked

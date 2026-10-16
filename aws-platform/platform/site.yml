@@ -1,0 +1,113 @@
+---
+# 프록시를 켠 인벤토리는 첫 패키지 설치 전에 HTTPS 저장소와 APT 접속을 준비한다.
+- ansible.builtin.import_playbook: prepare-proxy.yml
+
+# 공통 보안: Bastion을 먼저 설정해, 나머지 서버가 Bastion을 경유하는 도중에 접속이 끊기지 않는지 확인한다.
+- name: 공통 보안 (Bastion)
+  hosts: bastion
+  become: true
+  any_errors_fatal: true  # Bastion 설정이 실패하면 Bastion을 경유하는 나머지 서버로 진행하지 않는다.
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: common, tags: [common] }
+
+- name: 공통 보안 (나머지 서버)
+  hosts: all:!bastion
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: common, tags: [common] }
+
+# 방화벽: Bastion이 SSH를 먼저 열어 둔 상태에서 나머지 서버에 적용한다.
+- name: 방화벽 (Bastion)
+  hosts: bastion
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: firewall, tags: [firewall] }
+
+- name: 방화벽 (나머지 서버)
+  hosts: all:!bastion
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: firewall, tags: [firewall] }
+
+- name: MySQL
+  hosts: mysql
+  become: true
+  strategy: linear  # 모든 노드의 준비 작업이 끝난 뒤 첫 노드가 Cluster를 생성한다.
+  any_errors_fatal: true  # 일부 노드 준비가 실패하면 Cluster 생성과 후속 Router 구축을 중단한다.
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: mysql, tags: [mysql] }
+
+- name: MongoDB
+  hosts: mongodb
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: mongodb, tags: [mongodb] }
+
+- name: Kafka
+  hosts: kafka
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: kafka, tags: [kafka] }
+
+# ZooKeeper는 Spark 노드에 함께 올라간다 (Spark Master 이중화용). Spark보다 먼저 올린다.
+- name: ZooKeeper와 Spark
+  hosts: spark
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: zookeeper, tags: [zookeeper] }
+    - { role: spark, tags: [spark] }
+
+# Router만 실행해도 현재 Primary에서 대상 출처의 계정을 먼저 준비한다.
+- name: MySQL Router 접속 계정 준비
+  hosts: mysql
+  become: true
+  strategy: linear
+  any_errors_fatal: true
+  tags: [backend, mysql_router]
+  tasks:
+    - name: Router 공통 계정 준비
+      ansible.builtin.import_role:
+        name: mysql
+        tasks_from: router-access
+
+# 광고·게임·Spark·MySQL 서버에 같은 로컬 Router 역할을 적용한다.
+- name: MySQL Router
+  hosts: game:ad:spark:mysql:backend
+  become: true
+  any_errors_fatal: true
+  environment: "{{ proxy_environment }}"
+  pre_tasks:
+    # --limit ad처럼 계정 준비 play가 제외되면 패키지 설치 전에 중단한다.
+    - name: Router 계정 준비 완료 확인
+      ansible.builtin.assert:
+        that: hostvars[item].mysql_router_access_ready | default(false) | bool
+        fail_msg: MySQL 계정 준비가 생략됐습니다. --limit 없이 실행하거나 mysql 그룹을 함께 포함하세요.
+      loop: "{{ groups.get('mysql', []) }}"
+      run_once: true
+      tags: [backend, mysql_router]
+  roles:
+    - { role: backend, tags: [backend, mysql_router] }
+
+- name: 진입 서버 HTTPS
+  hosts: edge:game_frontend:ad_frontend
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: edge, tags: [edge] }
+
+# Monitoring: 모든 서버에 읽기 전용 수집 설정을 하고, Monitoring 서버에 수집 루프를 올린다. 서비스가 모두 올라간 뒤에 적용한다.
+- name: Monitoring
+  hosts: all
+  become: true
+  environment: "{{ proxy_environment }}"
+  roles:
+    - { role: monitoring, tags: [monitoring], when: "groups['monitoring'] | default([]) | length > 0" }
