@@ -28,10 +28,16 @@ def table(urlpatterns):
 
 class FrontendSyncTests(Cases, SimpleTestCase):
     def case_frontend_routes_match_the_backend(self):
-        """프론트의 경로 표 = 백엔드의 콘솔·운영 경로(양쪽 모두 빠짐없이), 관리 사이트는 관리 템플릿이 거는 이름의 경로가 같다."""
+        """프론트의 경로 표 = 백엔드의 콘솔·운영 경로(양쪽 모두 빠짐없이), 관리 사이트는 관리 템플릿·운영 화면이 거는 이름의 경로가 같다."""
         self.assertEqual(sorted(routes.CONSOLE), table(console_urls.urlpatterns))
         self.assertEqual(sorted(routes.OPERATOR), table(operator_urls.urlpatterns))
-        site = {p.name: str(p.pattern) for p in admin.site.get_urls() if getattr(p, "name", None)}  # 모델별 하위 경로(URLResolver)는 이름이 없다
+        site = {}
+        for p in admin.site.get_urls():
+            if getattr(p, "name", None):
+                site[p.name] = str(p.pattern)
+            for q in getattr(p, "url_patterns", ()):  # 모델별 하위 경로(이름 없는 URLResolver) 안의 이름 — 비밀번호 초기화 등
+                if getattr(q, "name", None):
+                    site[q.name] = str(p.pattern) + str(q.pattern)
         for route, name in routes.ADMIN:
             self.assertEqual(site[name], route, name)
 
