@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="320">
+  <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="800">
 </p>
 
 # PLAYDATA 캠퍼스 메타버스
@@ -37,6 +37,8 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 - **코드 빈칸 문제**: 답을 직접 작성하며 배운 내용을 적용합니다.
 - **결과와 오답 복습**: 성적과 해설을 확인하고, 틀린 문제를 다시 살펴봅니다.
 
+![객관식과 코드 빈칸 학습 영역이 있는 Python 학습교실](docs/readme/learning-classroom.png)
+
 ## 학습의 보상으로 쌓이는 포인트
 
 학습교실에서 정답을 맞히면 포인트가 적립됩니다.
@@ -51,7 +53,7 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 옥상에는 게임 부스, 심리 테스트 존, YouTube 스튜디오가 마련돼 있습니다.
 분수와 쉼터가 있는 광장을 둘러보며 원하는 콘텐츠를 골라보세요.
 
-![게임·심리 테스트·YouTube 부스가 있는 옥상 화면 예시](frontend/dist/assets/guide/rooftop.jpg)
+![분수와 쉼터가 있는 PLAYDATA 메타버스 옥상 광장](docs/readme/rooftop-fountain.png)
 
 ## 함께 참여하는 캠퍼스 이벤트
 
@@ -88,9 +90,9 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 | 이름 | 작업 | GitHub 주소 |
 |---|---|---|
 | 신동엽 | 데이터 파이프라인 | [sdyeob](https://github.com/sdyeob) |
-| 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
-| 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
-| 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
 | 강한솔 | 플랫폼 | [hansolsmart](https://github.com/hansolsmart) |
+| 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
+| 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
+| 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
 
 ![PLAYDATA METAVERSE 팀 소개](docs/readme/team-members.png)
