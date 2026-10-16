@@ -3,7 +3,6 @@ import math
 
 from django.test import SimpleTestCase
 
-from .doors import DOORS, distance, footprint
 from .motion import ControlError, MotionController, SPEED, geometry, world
 from .positions import DEFAULT_POSITION
 
@@ -71,11 +70,10 @@ class ServerMotionTests(SimpleTestCase):
     def test_open_classroom_gate_enters_its_subject_without_door_state(self):
         for gate in geometry()['gates']:
             x = (gate['left'] + gate['right']) / 2
-            doors = {}
-            self.assertTrue(world('campus').walkable(x, gate['y']+4.5, doors))
-            controller = MotionController({'floor': 'campus', 'x': x, 'y': gate['y']-1, 'dir': 'down'}, doors)
+            self.assertTrue(world('campus').walkable(x, gate['y']+4.5))
+            controller = MotionController({'floor': 'campus', 'x': x, 'y': gate['y']-1, 'dir': 'down'})
             controller.input(['s'], now=10)
-            controller.tick(.04, doors, now=10)
+            controller.tick(.04, now=10)
             self.assertEqual(controller.interior['subject'], gate['subject'])
 
     def test_each_painted_learning_zone_selects_the_correct_type_on_the_server(self):
@@ -90,16 +88,25 @@ class ServerMotionTests(SimpleTestCase):
             with self.assertRaises(ControlError):
                 controller.command('interact', {})
 
+    def test_storage_doorway_is_always_open(self):
+        # 창고 문은 없앴다(계획 M1): 앞벽의 틈을 늘 지나가고, 길찾기로 창고 안(target)까지 들어간다
+        campus = world('campus')
+        self.assertTrue(campus.clear({'x': 2112.75, 'y': 150}, {'x': 2112.75, 'y': 100}))
+        controller = MotionController({'floor': 'campus', 'x': 2112.75, 'y': 160, 'dir': 'up'})
+        controller.command('navigate', {'x': 2113.5, 'y': 99})
+        for n in range(150):
+            controller.tick(.04, now=100 + n * .04)
+        self.assertLess(math.hypot(controller.pose['x'] - 2113.5, controller.pose['y'] - 99), 3)
+
     def test_exit_requires_the_classroom_doorway(self):
         controller = self.controller()
         gate = geometry()['gates'][0]
-        doors = {}
         controller.interior = {'subject': gate['subject'], 'gate': gate,
             'actor': {'x': 320, 'y': 280, 'dir': 'down', 'moving': False}}
         with self.assertRaises(ControlError):
-            controller.command('interact', {}, doors)
+            controller.command('interact', {})
         controller.interior['actor']['y'] = 478
-        controller.command('interact', {}, doors)
+        controller.command('interact', {})
         self.assertIsNone(controller.interior)
         self.assertLess(controller.pose['y'], gate['y'])
 
@@ -151,11 +158,3 @@ class ServerMotionTests(SimpleTestCase):
             with self.assertRaises(ControlError):
                 controller.command('navigate', point)
 
-    def test_sliding_door_parks_along_the_wall_and_clears_its_threshold(self):
-        door = DOORS['door-storage']
-        closed, opened = footprint(door, False), footprint(door, True)
-        player = {'x': closed['x'] + closed['w']/2, 'y': closed['y'] + closed['h']/2}
-        self.assertEqual(distance(closed, player), 0)
-        self.assertGreater(distance(opened, player), 5.5)
-        self.assertEqual(closed['w'], opened['w'])
-        self.assertEqual(closed['h'], opened['h'])

@@ -15,7 +15,7 @@ class JumpControlTests(SimpleTestCase):
         self.room = consumers.CampusRoom()
         self.consumer = consumers.CampusConsumer()
         self.consumer.player_id = 'self'
-        self.consumer.controller = MotionController({'floor':'campus','x':130,'y':100,'dir':'right'}, {})
+        self.consumer.controller = MotionController({'floor':'campus','x':130,'y':100,'dir':'right'})
         self.consumer.state = {'id':'self', **self.consumer.controller.pose}
         self.consumer.control_lock = asyncio.Lock()
         self.consumer.last_jump = -math.inf

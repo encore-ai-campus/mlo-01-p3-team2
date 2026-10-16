@@ -1,10 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const context=vm.createContext({window:{}});
-for(const name of ['classroom-doors.js','map-data.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist',name),'utf8'),context);
-const D=context.window.CampusData,door=D.objects.find(o=>o.id==='door-storage');
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist/map-data.js'),'utf8'),context);
+const D=context.window.CampusData;
 const overlap=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
-test('storage threshold is clear of boxes, cabinets and the printer partition',()=>{
- const threshold=context.window.CampusDoors.footprint(door,false);
+test('storage doorway stays open and clear of boxes, cabinets and the printer partition',()=>{
+ // 창고 문은 없앴다(계획 M1): 앞벽(y=126)의 틈이 늘 열린 출입구다
+ const storage=D.rooms.find(r=>r.id==='storage'),front=D.walls.filter(w=>w.y1===126&&w.y2===126).sort((a,b)=>a.x1-b.x1);
+ const gap=front.slice(1).map((w,i)=>[front[i].x2,w.x1]).find(([a,b])=>b-a>=40&&a>=storage.x&&b<=storage.x+storage.w);
+ assert.ok(gap,'storage front wall keeps its doorway');assert.ok(!D.objects.some(o=>o.id==='door-storage'));
+ const threshold={x:gap[0],y:126-4.5,w:gap[1]-gap[0],h:9};
  for(const o of D.objects.filter(o=>['cabinet','box'].includes(o.type)))assert.equal(overlap(o,threshold),false);
  const walls=D.walls.filter(w=>w.y1===126&&w.y2===126);
  assert.ok(walls.every(w=>w.x2<=threshold.x||w.x1>=threshold.x+threshold.w));
@@ -40,7 +44,7 @@ test('solid campus furniture neither overlaps other furniture nor sinks into a w
  const onTop=new Set(['monitor','laptop','notebook','water','coffee-machine','bin','rug','floor-arrow']);
  // Wall-mounted or wall-like pieces are allowed to touch walls.
  const wallLike=new Set(['woodwall','glass-wall','pillar','stairs','fire-extinguisher']);
- const items=D.objects.filter(o=>o.solid!==false&&!o.mounted&&!onTop.has(o.type)&&!context.window.CampusDoors.isDoor(o));
+ const items=D.objects.filter(o=>o.solid!==false&&!o.mounted&&!onTop.has(o.type));
  for(const [i,a] of items.entries())for(const b of items.slice(i+1))assert.equal(overlap(a,b),false,`${a.id} ${a.type} / ${b.id} ${b.type}`);
  const k=D.spaceScale;
  for(const o of items.filter(o=>!wallLike.has(o.type)))for(const w of D.walls){

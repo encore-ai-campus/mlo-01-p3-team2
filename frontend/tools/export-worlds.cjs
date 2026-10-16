@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const FRONTEND = path.join(__dirname, '..');
 const TARGET = path.join(FRONTEND, '../backend/campus/data/worlds.json');
-const SOURCES = ['dist/classroom-doors.js', 'dist/map-data.js', 'dist/rooftop-data.js', 'dist/stair-motion.js', 'dist/avatars.js', 'learning/static/learning/classroom-map.js'];
+const SOURCES = ['dist/map-data.js', 'dist/rooftop-data.js', 'dist/stair-motion.js', 'dist/avatars.js', 'learning/static/learning/classroom-map.js'];
 // 교실 소품에는 solid 표시가 없다: 책상 위 물건과 출입구 문턱만 지나간다
 const CLASSROOM_PASSABLE = new Set(['laptop', 'monitor', 'door-threshold']);
 // 학습교실 입장 구역: 교실 윗벽의 틈
@@ -16,10 +16,9 @@ const GATES = [['python', 'class1'], ['sql', 'class2']];
 function build(root = FRONTEND) {
   const context = vm.createContext({Image: class { set src(value) {} }, window: {}});
   for (const file of SOURCES) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
-  const w = context.window, isDoor = o => w.CampusDoors.isDoor(o);
+  const w = context.window;
   const rect = r => ({x: r.x, y: r.y, w: r.w, h: r.h});
-  const footprint = o => isDoor(o) ? w.CampusDoors.footprint(o)
-    : o.collision ? {x: o.x + o.collision.x, y: o.y + o.collision.y, w: o.collision.w, h: o.collision.h} : o;
+  const footprint = o => o.collision ? {x: o.x + o.collision.x, y: o.y + o.collision.y, w: o.collision.w, h: o.collision.h} : o;
   const object = o => {
     const row = {id: o.id, type: o.type};
     if (o.name) row.name = o.name;
@@ -27,10 +26,9 @@ function build(root = FRONTEND) {
     row.confirmTransfer = o.confirmTransfer === true;
     if (o.interactionPoint) row.interactionPoint = o.interactionPoint;
     row.footprint = rect(footprint(o));
-    row.door = isDoor(o);
     return row;
   };
-  const solid = data => data.objects.filter(o => o.solid !== false && !isDoor(o) && !(o.classroomAsset && CLASSROOM_PASSABLE.has(o.type)))
+  const solid = data => data.objects.filter(o => o.solid !== false && !(o.classroomAsset && CLASSROOM_PASSABLE.has(o.type)))
     .map(o => ({...rect(footprint(o)), pad: 0}));
   const base = (data, radius) => ({id: data.id, name: data.name, width: data.width, height: data.height,
     angle: data.angle ?? Math.PI / 4, tilt: data.tilt ?? .58, privateRoom: data.privateRoom === true, radius, rooms: data.rooms});

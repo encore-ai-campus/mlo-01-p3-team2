@@ -119,24 +119,11 @@ window.CampusData = (() => {
   for(const [x,id] of [[1297,'consult-b'],[1352,'consult-a']]){desk(x+20,654,20,28,{inFrontOfWalls:true,oval:true,name:'상담 테이블',roomId:id});obj('monitor',x+22,655,15,11,{solid:false});obj('chair',x+5,656,12,16,{dir:'right',color:'#aaa797'});chair(x+20,690,'up','#aaa797');}
   obj('fire-extinguisher',761,280,16,22,{id:'extinguisher-corridor',name:'소화기',roomId:'corridor',description:'복도 위쪽, 통합 강의실 앞 벽면에 배치한 소화기입니다.',tags:['소화기','통합 강의실 앞']});
   obj('floor-arrow',530,305,28,16,{solid:false});obj('floor-arrow',972,305,28,16,{solid:false});
-  // Hinged glass leaves open into their classrooms, keeping the corridor clear.
-  for(const [roomId,x,y,w,h,orientation,swing] of [
-    ['class4',475,264,43,6,'horizontal',-1],['class3',1006,264,43,6,'horizontal',-1],
-    ['class2',475,366,43,6,'horizontal',1],['class1',1006,366,43,6,'horizontal',1],
-    ['left-top',245,146,6,38,'vertical',-1],['left-middle',245,344,6,38,'vertical',-1],
-    ['left-bottom',245,554,6,38,'vertical',-1],
-  ])obj('glass-door',x,y,w,h,{id:'door-'+roomId,roomId,orientation,swing,open:false,name:rooms.find(r=>r.id===roomId).name+' 유리문'});
-  // The storage leaf slides along its front wall, leaving the original threshold clear.
-  obj('sliding-door',1320,81,33,6,{id:'door-storage',roomId:'storage',orientation:'horizontal',slide:1,interactiveDoor:true,open:false,name:'창고 슬라이드문',renderHeight:60});
-  // Merge after generating fixtures so other furniture and shared door IDs stay stable.
+  // Merge after generating fixtures so other furniture IDs stay stable.
   const combinedClassroomIds=new Set(['class3','class4']);
   const combinedIndex=rooms.findIndex(r=>r.id==='class4');
   rooms.splice(combinedIndex,2,{id:'class3-4',name:'강의실 3·4',x:456,y:24,w:611,h:243,floor:'class',target:[758,145],label:false,info:false});
   for(const r of rooms.filter(r=>r.floor==='class'))Object.assign(r,{label:false,info:false});
-  for(const o of objects)if(o.type==='glass-door'&&combinedClassroomIds.has(o.roomId)){
-    o.name='통합 강의실 '+(o.roomId==='class4'?'왼쪽':'오른쪽')+' 유리문';
-    o.roomId='class3-4';
-  }
   // A wall-mounted board sits on the inner face of the long rear wall.
   obj('noticeboard',591.5,27,340,1,{id:'class3-4-noticeboard',name:'PLAYDATA 대형 게시판',roomId:'class3-4',mounted:true,solid:false,panelHeight:100,mountHeight:12,renderHeight:132,description:'통합 강의실의 긴 벽 가운데에 달린 대형 게시판입니다. 가까이서 E를 누르거나 클릭하면 구내식당 메뉴·엔코아 타임 카드를 선택할 수 있습니다.'});
   // Leave clearance from the wall's visible thickness so the entire freestanding bookcase stays in front.
@@ -145,12 +132,12 @@ window.CampusData = (() => {
   objects.push(...learningSigns);
   for(const r of rooms)if(!r.id.startsWith('left-')){r.x+=layoutShiftX;r.target[0]+=layoutShiftX;}
   entrance.x+=layoutShiftX;entrance.target[0]+=layoutShiftX;
-  for(const o of objects)if(o.type==='glass-door'||!o.roomId?.startsWith('left-'))o.x+=layoutShiftX;
+  for(const o of objects)if(!o.roomId?.startsWith('left-'))o.x+=layoutShiftX;
   for(const w of walls){if(w.x1>=248)w.x1+=layoutShiftX;if(w.x2>=248)w.x2+=layoutShiftX;}
   // The world grows; the avatar and interaction range keep their existing size.
   const spaceScale=1.5;
   for(const r of [...rooms,entrance]){for(const key of ['x','y','w','h'])r[key]*=spaceScale;r.target=r.target.map(v=>v*spaceScale);}
   for(const o of objects){for(const key of ['x','y','w','h'])o[key]*=spaceScale;if(o.collision)for(const key of ['x','y','w','h'])o.collision[key]*=spaceScale;}
   for(const w of walls)for(const key of ['x1','y1','x2','y2'])w[key]*=spaceScale;
-  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>o.type!=='glass-door'&&o.type!=='board'&&!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
+  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>o.type!=='board'&&!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
 })();

@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 function app({authenticated = true, secure = false, floors, restore = false, session} = {}) {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
-  const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
+  const chats = [], chatErrors = [], connectionChanges = [], restores = [], controlErrors = [];
   const events = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
@@ -41,19 +41,19 @@ function app({authenticated = true, secure = false, floors, restore = false, ses
   const presence = context.window.CampusPresence.create({player, width: 1632, height: 820, floors, onAuthExpired() {expired++;},
     onRestore(position) {restores.push(position);if(restore)Object.assign(player,position);},
     onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);},
-    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);}});
+    onControlError(message) {controlErrors.push(message);}});
   const peer = (changes = {}) => ({id: 'peer', nickname: '조원 이름', avatar: 'female-2', x: 1200, y: 437,
     dir: 'down', color: '#4e9b91', moving: false, ...changes});
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, controlErrors,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
 
 const test = require('node:test');
-const floors={campus:{width:2448,height:1230,objects:[{id:'door-class1',type:'glass-door'},{id:'door-storage',type:'sliding-door',interactiveDoor:true}]},rooftop:{width:2448,height:1800}};
+const floors={campus:{width:2448,height:1230,objects:[]},rooftop:{width:2448,height:1800}};
 const plain=value=>JSON.parse(JSON.stringify(value));
 test('standalone creates no socket; authenticated connections negotiate server control and WSS',()=>{
  const offline=app({authenticated:false});offline.tick(200);assert.equal(offline.sockets.length,0);
@@ -95,13 +95,13 @@ test('the same avatar and nickname do not redraw the avatar panel; a real change
  f.sockets[0].receive({type:'control_state',state:{main:f.peer({id:'self',nickname:'내 이름',avatar:'male-1'})}});
  assert.equal(avatar(),first+1);f.presence.close();
 });
-test('chat validation and shared door changes stay routed to the server',()=>{
+test('chat validation stays routed to the server; door messages are gone and control errors still reach the toast',()=>{
  const f=app({floors});f.welcome();assert.equal(f.presence.sendChat('가'.repeat(201)),false);assert.equal(f.presence.sendChat('   '),false);
  assert.equal(f.presence.sendChat('  안녕  '),true);assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'chat',text:'안녕'});
  const message={id:'m1',playerId:'peer',nickname:'조원',floor:'rooftop',text:'안녕',sentAt:'2026-10-13T01:00:00Z'};
  f.sockets[0].receive({type:'chat',message});f.sockets[0].receive({type:'chat',message:{...message,floor:'unknown'}});assert.equal(f.chats.length,1);
- assert.equal(f.presence.requestDoor('door-storage',true),true);assert.equal(f.presence.requestDoor('invalid',true),false);
- f.sockets[0].receive({type:'door_state',doorId:'door-storage',open:true});assert.equal(f.doorChanges.length,1);
+ assert.equal('requestDoor' in f.presence,false);f.sockets[0].receive({type:'door_state',doorId:'door-storage',open:true});  // 문은 없앴다(계획 M1)
+ f.sockets[0].receive({type:'control_error',message:'잠시 후 다시 시도해 주세요.'});assert.deepEqual(f.controlErrors,['잠시 후 다시 시도해 주세요.']);
  f.presence.close();
 });
 test('control results match request IDs and disconnect rejects pending actions',async()=>{

@@ -415,7 +415,7 @@
         return;
       }
       const {x,y,w,h,type}=o,c=o.color;
-      if(!o.mounted&&!window.CampusDoors.isDoor(o)&&!['monitor','laptop','notebook','festival-banner','stair-handrail','stair-rail','stairs','glass-door','floor-portal'].includes(type))shadow(o,base);
+      if(!o.mounted&&!['monitor','laptop','notebook','festival-banner','stair-handrail','stair-rail','stairs','floor-portal'].includes(type))shadow(o,base);
       if(['desk','coffee','roundtable'].includes(type)) {
         for(const [lx,ly] of [[x+3,y+3],[x+w-6,y+3],[x+3,y+h-6],[x+w-6,y+h-6]])leg(lx,ly,base,17);
         box(x,y,w,h,base+17,4,c||(['coffee','roundtable'].includes(type)?'#f8f5e9':'#e4c99b'),'#bea37c','#a48a63');
@@ -787,25 +787,6 @@
         stairTreads(o);stairRail(o,'left');stairRail(o,'right');
       } else if(type==='stair-rail') {
         stairRail(o.stairFlight,o.side);
-      } else if(window.CampusDoors.isDoor(o)) {
-        const opening=window.CampusDoors.leaf(o,false),leaf=window.CampusDoors.leaf(o),height=46;
-        const along=t=>({x:leaf.start.x+leaf.dx*t,y:leaf.start.y+leaf.dy*t});
-        const a=leaf.start,b=leaf.end;
-        poly([p(a.x,a.y,base+2),p(b.x,b.y,base+2),p(b.x,b.y,base+height),p(a.x,a.y,base+height)],o.type==='sliding-door'?'#c6d7ceaa':'#9bcfd169','#739e9d',1.4);
-        if(o.type==='sliding-door'){
-          const track=window.CampusDoors.leaf(o,true);
-          line(p(opening.start.x,opening.start.y,base+49),p(track.end.x,track.end.y,base+49),'#8ca59a',3.5);
-          line(p(opening.start.x,opening.start.y,base+1),p(track.end.x,track.end.y,base+1),'#a9bdb3',1.4);
-        }
-        for(const point of [opening.start,opening.end])line(p(point.x,point.y,base),p(point.x,point.y,base+49),'#9cadab',2.5);
-        line(p(opening.start.x,opening.start.y,base+49),p(opening.end.x,opening.end.y,base+49),'#c2d3cf',3);
-        for(const point of [a,b])line(p(point.x,point.y,base+2),p(point.x,point.y,base+height),'#688d8c',1.8);
-        for(const z of [2,height])line(p(a.x,a.y,base+z),p(b.x,b.y,base+z),'#92b9b6',2);
-        const l=along(.12),r=along(.88),handle=along(.82);
-        poly([p(l.x,l.y,base+19),p(r.x,r.y,base+19),p(r.x,r.y,base+27),p(l.x,l.y,base+27)],'#e4f3ee8c',null);
-        line(p(l.x,l.y,base+7),p(r.x,r.y,base+39),'#f6fffdaf',1);
-        line(p(handle.x,handle.y,base+15),p(handle.x,handle.y,base+30),'#425e60',3);
-        for(const z of [10,36])line(p(a.x,a.y,base+z-2),p(a.x,a.y,base+z+2),'#4e7374',3);
       } else if(type==='glass-wall'||type==='sliding-door') {
         const span=type==='sliding-door'?Math.min(w,28):Math.max(w,h),axis=w>=h?'x':'y';
         const sx=type==='sliding-door'?x-span:x,sy=y+(axis==='x'?h*.5:0);
@@ -818,7 +799,7 @@
       }
       for(const child of o.children||[])furniture(child,base+(type==='counter'||type==='bar'?27:21));
     }
-    function footprint(o){if(window.CampusDoors.isDoor(o))return window.CampusDoors.footprint(o);return o.collision?{x:o.x+o.collision.x,y:o.y+o.collision.y,w:o.collision.w,h:o.collision.h}:o;}
+    function footprint(o){return o.collision?{x:o.x+o.collision.x,y:o.y+o.collision.y,w:o.collision.w,h:o.collision.h}:o;}
     const supportTypes=new Set(['desk','counter','bar','coffee','roundtable']);
     const supportedTypes=new Set(['monitor','laptop','notebook','water','coffee-machine','bin']);
     const objects=D.objects.map(o=>({...o,children:[]})),attached=new Set();
@@ -872,7 +853,7 @@
     }
     D.paintFloor?.({g,P});
     function cacheSprite(o,paint,isWall=false) {
-      const r=footprint(o),area=window.CampusDoors.isDoor(o)?window.CampusDoors.bounds(o):o,corners=[[area.x-12,area.y-12],[area.x+area.w+12,area.y-12],[area.x+area.w+12,area.y+area.h+12],[area.x-12,area.y+area.h+12]].map(([x,y])=>p(x,y));
+      const r=footprint(o),area=o,corners=[[area.x-12,area.y-12],[area.x+area.w+12,area.y-12],[area.x+area.w+12,area.y+area.h+12],[area.x-12,area.y+area.h+12]].map(([x,y])=>p(x,y));
       const b={x:Math.floor(Math.min(...corners.map(q=>q.x))-7),y:Math.floor(Math.min(...corners.map(q=>q.y))-groundHeight(o.x+o.w/2,o.y+o.h/2)-(o.renderHeight||110))};
       b.w=Math.ceil(Math.max(...corners.map(q=>q.x))-b.x+7);b.h=Math.ceil(Math.max(...corners.map(q=>q.y))-b.y+10+(o.renderDepth||0));
       if(o.type==='plaza-display') {
@@ -961,12 +942,6 @@
       if(behind)sprite.depth=Math.max(sprite.depth,behind.depth+.01);
     }
     }
-    function orderSlidingLeaves(){
-      for(const leaf of sprites.filter(s=>s.o.type==='sliding-door'&&s.o.interactiveDoor&&s.o.open)){
-        for(const wall of sprites.filter(s=>s.isWall))if(overlaps(leaf.r,wall.r))leaf.depth=Math.max(leaf.depth,wall.depth+.02);
-      }
-    }
-    orderSlidingLeaves();
     // Draw mounted panels after every supporting wall segment so the wall cannot cover half of a wide board.
     for(const sprite of sprites.filter(s=>s.o.mounted))for(const support of sprites.filter(s=>s.isWall)){
       const a=sprite.r,b=support.r;
@@ -1052,13 +1027,6 @@
     function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);city?.draw(sg);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites){drawSprite(sg,s);if(s.o.type==='fountain'){g=sg;fountainWater(s.o,0);}if(s.o.type==='floor-portal'){g=sg;if(s.o.portalStyle==='compact')compactPortalEnergy(s.o);else portalEnergy(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2));}else if(s.o.type==='stair-portal'||(s.o.type==='fire-extinguisher'&&s.o.portalGlow)){g=sg;compactPortalEnergy(s.o);}}for(const sprite of sprites.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(sg,sprite);drawLabels(sg);}
     repaintScene();
     function setDisplayImage(id,image){const s=sprites.find(s=>s.o.id===id&&(s.o.type==='plaza-display'||s.o.type==='wall-poster'));if(!s)return false;const depth=s.depth;displayImages.set(id,image);Object.assign(s,cacheSprite(s.o,()=>furniture(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2))));s.depth=depth;repaintScene();return true;}
-    function setDoorState(id,open){
-      const door=D.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o)),sprite=sprites.find(s=>s.o.id===id);
-      if(!door||!sprite||typeof open!=='boolean')return false;
-      door.open=sprite.o.open=open;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(door.x,door.y))));
-      orderSlidingLeaves();
-      orderSprites();hitSprites.sort((a,b)=>b.depth-a.depth);repaintScene();return true;
-    }
     function drawActor(ctx,actor,t,zoom,labelText,self) {
       const q=projectActor(actor);ctx.save();ctx.translate(q.x,q.y);
       const jumpHeight=window.CampusJump?.height(actor,t)||0,jumpScale=window.CampusJump?.squash(actor,t)||1;
@@ -1130,7 +1098,7 @@
       const v=o.displayAxis==='y'?P.vector(0,-1):{x:1,y:0};
       return [[-sw/2,-44-sh],[sw/2,-44-sh],[sw/2,-44],[-sw/2,-44]].map(([x,y])=>({x:q.x+v.x*x,y:q.y+v.y*x+y}));
     }
-    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,displayPolygon};
+    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,displayPolygon};
   }
   window.CampusIsometric={createProjection,create};
 })();

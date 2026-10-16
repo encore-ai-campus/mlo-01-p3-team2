@@ -60,7 +60,7 @@
     onJump:()=>jump.trigger(),
     onExit(){keys.clear();focusPlayer();canvas.focus({preventScroll:true});}
   })||{blocking:false,applyState(){},tick(){}};
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value),onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message)});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value),onControlError:message=>toast(message)});
   const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
   const jump=window.CampusJump.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,isBlocked:()=>isDialogOpen(false),notify:toast});
   directMessages=window.CampusMessages.create({config:JSON.parse($('campusViewConfig')?.textContent||'{}').privateMessages||{},
@@ -131,7 +131,7 @@
     focusPlayer();
     const r=D.rooms.find(room=>room.id===serverHints.roomId);if(r&&r.id!==lastRoom){lastRoom=r.id;spaceGuide.setRoom(r.id);$('currentRoom').textContent=r.name;for(const b of document.querySelectorAll('[data-room]')){b.classList.toggle('active',b.dataset.room===r.id);b.setAttribute('aria-current',b.dataset.room===r.id?'location':'false');}}
     nearby=D.objects.find(object=>object.id===serverHints.nearbyId)||null;
-    $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent=window.CampusDoors.isDoor(nearby)?(nearby.open?'닫기':'열기'):'보기';}
+    $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent='보기';}
     render(t);requestAnimationFrame(update);
   }
   function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,2800);}
@@ -225,7 +225,6 @@
     if(floorTransition.blocking||window.CampusSession?.ending)return;
     if(item.id==='roof-ad-board'){window.CampusAds?.clickRoof();return;}
     if(item.info===false)return;
-    if(window.CampusDoors.isDoor(item)){toggleDoor(item);return;}
     if(item.action==='booth'){presence.command('open_booth',{objectId:item.id}).then(()=>boothUI.open(item)).catch(error=>toast(error.message));return;}
     if(item.toFloor&&(keyboard||item.confirmTransfer)){useStairs(item);return;}
     if(item.type==='noticeboard'){showBoard();return;}
@@ -242,17 +241,6 @@
     showBoardChoices(false);
     for(const card of boardCards){card.setAttribute('aria-pressed','false');card.querySelector('.board-card-state').textContent='선택하기';}
     $('boardSelection').textContent='';boardDialog.showModal();$('boardMenuCard').focus({preventScroll:true});
-  }
-  function applyDoorState(id,open){
-    const door=worlds.campus.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o));
-    if(!door||typeof open!=='boolean'||door.open===open)return;
-    door.open=open;const view=renderers.get('campus');view?.setDoorState(id,open);
-  }
-  function toggleDoor(door){
-    if(isDialogOpen())return;
-    keys.clear();presence.setInput([]);
-    if(!presence.requestDoor(door.id,!door.open))toast('연결된 뒤 문을 열고 닫을 수 있어요.');
-    canvas.focus({preventScroll:true});
   }
   function cancelMenuRequest(){lunchWheel?.cancel();menuRequest?.abort();menuRequest=null;menuVersion++;$('boardMenuImage').onload=$('boardMenuImage').onerror=null;$('boardMenuImage').removeAttribute('src');}
   function showBoardChoices(focus=true){

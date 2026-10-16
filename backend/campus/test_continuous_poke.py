@@ -24,7 +24,7 @@ class ContinuousPokeTests(SimpleTestCase):
         self.room = consumers.CampusRoom()
         self.consumer = c = consumers.CampusConsumer()
         c.player_id = "self"
-        c.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"}, {})
+        c.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"})
         c.state = {"id": "self", **c.controller.pose}
         c.server_control = True
         c.control_lock = asyncio.Lock()

@@ -33,17 +33,17 @@ class PokeGeometryTests(SimpleTestCase):
                 pose = {**self.pose, "dir": direction}
                 targets = [self.target(150 - x * 32, 150 - y * 32, "behind"),
                            self.target(150 + x * 32, 150 + y * 32)]
-                self.assertEqual(poke.find_target(pose, targets, self.world, {}), "target")
+                self.assertEqual(poke.find_target(pose, targets, self.world), "target")
 
     def test_distance_sideways_and_coincident_targets_miss(self):
         for x, y in [(223, 150), (182, 187), (222, 160), (150, 150)]:
             with self.subTest(x=x, y=y):
-                self.assertIsNone(poke.find_target(self.pose, [self.target(x, y)], self.world, {}))
+                self.assertIsNone(poke.find_target(self.pose, [self.target(x, y)], self.world))
 
     def test_extended_distance_and_width_hit(self):
         for x, y in [(214, 150), (210, 182)]:
             with self.subTest(x=x, y=y):
-                self.assertEqual(poke.find_target(self.pose, [self.target(x, y)], self.world, {}), "target")
+                self.assertEqual(poke.find_target(self.pose, [self.target(x, y)], self.world), "target")
 
     def test_rotated_world_matches_screen_facing_for_all_eight_directions(self):
         angled = World({**self.data, "angle": math.pi / 4, "tilt": .58})
@@ -52,24 +52,24 @@ class PokeGeometryTests(SimpleTestCase):
                 dx, dy = poke.direction_vector(angled, direction)
                 self.assertAlmostEqual(math.hypot(dx, dy), 1)
                 target = self.target(150 + dx * 64, 150 + dy * 64)
-                self.assertEqual(poke.find_target(self.pose, [target], angled, {}, direction), "target")
+                self.assertEqual(poke.find_target(self.pose, [target], angled, direction), "target")
                 beyond = self.target(150 + dx * 73, 150 + dy * 73)
-                self.assertIsNone(poke.find_target(self.pose, [beyond], angled, {}, direction))
+                self.assertIsNone(poke.find_target(self.pose, [beyond], angled, direction))
 
     def test_one_nearest_target_reacts(self):
         targets = [self.target(192, 150, "far"), self.target(179, 150, "near")]
-        self.assertEqual(poke.find_target(self.pose, targets, self.world, {}), "near")
+        self.assertEqual(poke.find_target(self.pose, targets, self.world), "near")
 
     def test_wall_blocks_a_poke(self):
         blocked = World({**self.data, "colliders": [{"x": 165, "y": 125, "w": 3, "h": 50, "pad": 0}]})
-        self.assertIsNone(poke.find_target(self.pose, [self.target(190, 150)], blocked, {}))
+        self.assertIsNone(poke.find_target(self.pose, [self.target(190, 150)], blocked))
 
     def test_seated_resident_can_react_in_each_subject(self):
         for subject in ["python", "sql"]:
             with self.subTest(subject=subject):
                 pose = {"x": 154, "y": 239, "dir": "left"}
                 self.assertTrue(world(subject).walkable(pose["x"], pose["y"]))
-                self.assertEqual(poke.find_target(pose, poke.classroom_targets(subject), world(subject), {}),
+                self.assertEqual(poke.find_target(pose, poke.classroom_targets(subject), world(subject)),
                                  "resident-student-0-0-chair")
 
 
@@ -78,7 +78,7 @@ class PokeControlTests(SimpleTestCase):
         self.room = consumers.CampusRoom()
         self.consumer = consumers.CampusConsumer()
         self.consumer.player_id = "self"
-        self.consumer.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"}, {})
+        self.consumer.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"})
         self.consumer.state = {"id": "self", **self.consumer.controller.pose}
         self.consumer.control_lock = asyncio.Lock()
         self.consumer.last_poke = -math.inf
@@ -238,7 +238,7 @@ class PokeSocketTests(TransactionTestCase):
 
 class PokeFacingTests(SimpleTestCase):
     def setUp(self):
-        self.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"}, {})
+        self.controller = MotionController({"floor": "campus", "x": 130, "y": 100, "dir": "right"})
 
     def test_all_keyboard_pairs_and_aliases_keep_a_separate_eight_direction_facing(self):
         for keys, direction in [(['w', 'a'], 'up-left'), (['w', 'd'], 'up-right'),
@@ -257,7 +257,7 @@ class PokeFacingTests(SimpleTestCase):
         self.controller.input([])
         self.assertEqual(self.controller.interior['poke_direction'], 'up-left')
         self.assertEqual(self.controller.poke_direction, 'right')
-        state = self.controller.snapshot({})
+        state = self.controller.snapshot()
         self.assertEqual(state['interior']['actor']['dir'], 'left')
         self.assertNotIn('poke_direction', state['main'])
         self.assertNotIn('poke_direction', state['interior']['actor'])
