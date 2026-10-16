@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from types import SimpleNamespace
@@ -147,8 +148,10 @@ class PrivateSocketTests(TransactionTestCase):
             await get_channel_layer().group_send(user_group(user_id),{'type':'direct.message','conversationId':conversation_id})
             received=(await self.packets(right,{'private_message'}))['private_message']
             self.assertEqual(received,{'type':'private_message','conversationId':conversation_id})
-            for _ in range(4):
-                self.assertNotEqual((await left.receive_json_from(timeout=2))['type'],'private_message')
+            # 가만히 있는 소켓에는 메시지가 오지 않는다(계획 1a·1b): 그동안 쌓인 것만 본다
+            await asyncio.sleep(.5)
+            while not await left.receive_nothing(timeout=0):
+                self.assertNotEqual((await left.receive_json_from())['type'],'private_message')
         finally:
             for socket in (left,right):
                 if not socket.future.done():await socket.disconnect()

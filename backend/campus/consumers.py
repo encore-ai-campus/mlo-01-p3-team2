@@ -10,7 +10,7 @@ import time
 from types import SimpleNamespace
 from uuid import uuid4
 
-from channels.db import database_sync_to_async
+from channels.consumer import get_handler_name
 from channels.exceptions import ChannelFull
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
@@ -23,8 +23,8 @@ from accounts.session_policy import check_session
 from eventing.events import ensure_platform_session, record_chat, record_floor_transfer, touch_platform_session
 from raffle import live as raffle_live, service as raffle_service
 from raffle import survey as raffle_survey
-from . import session_registry, poke
-from .motion import MotionController, ControlError, geometry, world
+from . import session_registry, poke, socket_db
+from .motion import CLASSROOM_TRANSITION_DELAY, MotionController, ControlError, geometry, world
 from .doors import DOORS, distance as door_distance, footprint as door_footprint
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
 from direct_messages.live import user_group as direct_message_group
@@ -41,9 +41,44 @@ class CampusRoom:
         self.controllers = {}
         self.doors = {door_id: False for door_id in DOORS}
         self.lock = asyncio.Lock()
+        self.sockets = {}  # player_id → 소켓(묶음을 채널 계층 없이 바로 쓴다)
+        self.pending_moves = {}  # 다음 묶음에 실을 최신 상태(사람마다 하나)
+        self.flusher = None
 
 
 room = CampusRoom()
+MOVES_INTERVAL = 0.1
+REST_TICK = 0.5  # 가만히 있는 사람의 이동 틱 간격(시간으로 바뀌는 것 — 포탈 대기 등 — 을 살피는 상한)
+
+
+async def flush_moves(campus):
+    """0.1초마다 바뀐 사람들의 위치를 한 메시지(`moves`)로 모두에게 보낸다(계획 1d).
+
+    받는 쪽 메시지 수가 '걷는 사람 수'에서 1 로 준다. 직렬화는 한 번이고 채널 계층(복사·전체 훑기)을 거치지 않는다.
+    브라우저는 이미 아는 사람만 갱신하므로, 떠난 뒤 늦게 도착한 묶음이 그 사람을 되살리지 않는다.
+    """
+    try:
+        while campus.players:
+            await asyncio.sleep(MOVES_INTERVAL)
+            if not campus.pending_moves:
+                continue
+            text = json.dumps({"type": "moves", "players": list(campus.pending_moves.values())}, ensure_ascii=False, allow_nan=False)
+            campus.pending_moves.clear()
+            for socket in list(campus.sockets.values()):
+                try:
+                    await socket.send(text_data=text)
+                except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 묶음을 막지 않는다
+                    logging.getLogger(__name__).debug("Could not send a moves batch", exc_info=True)
+    finally:
+        campus.flusher = None
+SLOW_DB_SECONDS = 1.0
+
+
+def note_slow_db(what, started):
+    """DB 를 기다린 시간이 길면 한 줄 남긴다(계획 0d): 이동 끊김이 DB 대기 때문인지 운영 로그로 가린다."""
+    elapsed = time.monotonic() - started
+    if elapsed >= SLOW_DB_SECONDS:
+        logging.getLogger(__name__).warning("campus %s waited %.2fs for the database", what, elapsed)
 
 
 class CampusConsumer(AsyncWebsocketConsumer):
@@ -70,24 +105,25 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_activity_write = -math.inf
         self.position_dirty = False
         self.pending_floor_transfer = None
+        self.seen_by_peers = None  # 다른 사람에게 마지막으로 보낸 내 상태(바뀐 것이 있을 때만 다시 보낸다)
+        self.control_key = None  # 마지막으로 보낸 control_state 의 바탕(같으면 다시 보내지 않는다)
+        self.wake = asyncio.Event()  # 쉬고 있는 이동 틱을 깨운다(입력·명령·문 변경)
         self.user = self.scope["user"]
         if not self.user.is_authenticated or not self.user.is_active:
             await self.close(code=4401)
             return
-        if await database_sync_to_async(needs_profile_setup)(self.user):
+        if await socket_db.run(needs_profile_setup, self.user):
             await self.close(code=4403)
             return
         self.session_key = self.scope["session"].session_key
-        self.policy_status = await database_sync_to_async(check_session)(self.session_key)
+        self.policy_status = await socket_db.run(check_session, self.session_key)
         if not self.policy_status["authenticated"]:
             await self.close(code=4401)
             return
         # check_session may have updated legacy policy fields; do not overwrite
         # them with the session snapshot already read by AuthMiddlewareStack.
         fresh_session = import_module(settings.SESSION_ENGINE).SessionStore(session_key=self.session_key)
-        self.platform_session_uuid = await database_sync_to_async(ensure_platform_session)(
-            self.user, fresh_session
-        )
+        self.platform_session_uuid = await socket_db.run(ensure_platform_session, self.user, fresh_session)
         self.session_group = session_registry.session_group(self.session_key)
         self.player_id = uuid4().hex
         self.last_seen = time.monotonic()
@@ -107,8 +143,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_survey = -math.inf
         self.last_checkpoint = self.last_seen
         self.position_changed_at = None
-        identity = await database_sync_to_async(get_identity)(self.user)
-        position = await database_sync_to_async(get_position)(self.user)
+        identity = await socket_db.run(get_identity, self.user)
+        position = await socket_db.run(get_position, self.user)
         self.state = {
             "id": self.player_id, **identity, **position, "color": "#dfa34d", "moving": False,
         }
@@ -155,6 +191,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     self.position_dirty = True
                 session_registry.unregister(previous_id)
                 previous_channel = room.channels.pop(previous_id, None)
+                room.sockets.pop(previous_id, None)
+                room.pending_moves.pop(previous_id, None)
                 room.interiors.discard(previous_id)
                 if previous_channel:
                     await self.channel_layer.group_discard(room.group, previous_channel)
@@ -166,13 +204,17 @@ class CampusConsumer(AsyncWebsocketConsumer):
             self.state["inClassroom"] = bool(self.controller and self.controller.interior)
             room.players[self.player_id] = self.state.copy()
             room.channels[self.player_id] = self.channel_name
+            room.sockets[self.player_id] = self
             room.sessions[self.session_key] = self.player_id
+            if room.flusher is None:
+                room.flusher = asyncio.create_task(flush_moves(room))
             if self.controller:
                 room.controllers[self.player_id] = self.controller
                 if self.controller.interior:room.interiors.add(self.player_id)
             await self.accept()
-            raffle = await database_sync_to_async(raffle_service.snapshot)(self.user)
+            raffle = await socket_db.run(raffle_service.snapshot, self.user)
             await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "raffle": raffle, "serverControl": self.server_control})
+            self.seen_by_peers = self.state.copy()
             await self.broadcast({"type": "join", "player": self.state.copy()})
         if settings.CAMPUS_DM_ENABLED:
             self.direct_message_group = direct_message_group(self.user.pk)
@@ -182,9 +224,23 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.send_control_state()
             self.motion_task = asyncio.create_task(self.motion_loop())
 
+    async def dispatch(self, message):
+        # Channels 4.2+ 는 핸들러마다 DB 연결 정리(aclose_old_connections)를 위해 DB 스레드를 한 번 왕복한다.
+        # 이 소켓의 DB 접근은 모두 socket_db.run 을 거치고 그것이 호출 전에 연결을 정리하므로, 메시지마다의 왕복은 뺀다(계획 2a)
+        handler = getattr(self, get_handler_name(message), None)
+        if handler is None:
+            raise ValueError(f"No handler for message type {message['type']}")
+        await handler(message)
+
     async def receive(self, text_data=None, bytes_data=None):
         if not self.player_id or self.player_id not in room.players:
             return
+        try:
+            await self.handle_message(text_data)
+        finally:
+            self.wake_motion()  # 반영한 뒤에 깨운다(틱 처리 중에 온 입력도 다음 틱이 바로 본다, 계획 1e)
+
+    async def handle_message(self, text_data):
         if text_data is None or len(text_data) > 4096:
             await self.leave()
             await self.close(code=1009)
@@ -232,7 +288,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             return
         if data.get("type") == "ping":
             self.last_seen = time.monotonic()
-            await database_sync_to_async(touch_platform_session)(self.platform_session_uuid)
+            await socket_db.run(touch_platform_session, self.platform_session_uuid)
             await self.send_packet({"type": "pong"})
             return
         if data.get("type") == "leave":
@@ -268,8 +324,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
         publish = not authoritative or final or floor_changed or visibility_changed or now - self.last_move >= 0.1
         if not authoritative and not final and not floor_changed and not visibility_changed and now - self.last_move < 0.045:
             return
-        if publish:
-            self.last_move = now
         changed = any(self.state[key] != value for key, value in position.items())
         if changed:
             self.position_dirty = True
@@ -278,6 +332,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
             self.pending_floor_transfer = (previous_floor, floor)
         # Identity is always taken from the session, never from the message.
         self.state.update(**position, color=data["color"], moving=False if final else data["moving"], inClassroom=in_classroom)
+        if authoritative and not (final or floor_changed or visibility_changed):
+            publish = self.peers_should_see(now)
+        if publish:
+            self.last_move = now
         session_registry.update(self.player_id, self.state, self.position_changed_at)
         async with room.lock:
             if self.player_id in room.players:
@@ -287,23 +345,68 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 else:
                     room.interiors.discard(self.player_id)
                 if publish:
-                    await self.broadcast({"type": "move", "player": self.state.copy()})
+                    self.seen_by_peers = self.state.copy()
+                    if authoritative:
+                        room.pending_moves[self.player_id] = self.seen_by_peers  # 0.1초마다 묶어 보낸다(계획 1d)
+                    else:
+                        await self.broadcast({"type": "move", "player": self.state.copy()})
         await self.checkpoint(force=final or floor_changed)
         if changed and not final and publish:
             await self.touch_activity()
 
-    async def send_control_state(self):
+    def peers_should_see(self, now):
+        """서버 판정 프레임을 다른 사람에게 보낼지(계획 1a): 다른 사람이 보는 상태가 바뀔 때만 보낸다.
+        정지·방향 전환·이름·아바타 등은 바로, 이동 중 위치만 0.1초 간격이다. 그래서 마지막 정지 위치(`moving=false`)는 반드시 간다."""
+        seen = getattr(self, "seen_by_peers", None)
+        if seen is None or any(seen.get(key) != value for key, value in self.state.items() if key not in ("x", "y")):
+            return True
+        return (seen["x"], seen["y"]) != (self.state["x"], self.state["y"]) and now - self.last_move >= 0.1
+
+    def pose_changed(self):
+        """이번 틱에 상태를 갱신할 일이 있는가: 서버 판정 위치가 바뀌었거나 다른 사람이 아직 못 본 변경(이름 등)이 있다."""
+        pose = self.controller.pose
+        return (any(self.state[key] != pose[key] for key in ("floor", "x", "y", "dir", "moving"))
+                or self.state.get("inClassroom", False) != bool(self.controller.interior) or self.state != getattr(self, "seen_by_peers", None))
+
+    async def send_control_state(self, only_changes=False):
+        controller, interior = self.controller, self.controller.interior
+        key = (tuple(self.state.items()), tuple(controller.pose.items()), interior and (interior["subject"], tuple(interior["actor"].items())),
+               tuple(room.doors.items()))  # 화면에 실리는 것의 바탕: 내 상태·서버 판정 위치·교실·문
+        cooling = bool(interior) and time.monotonic() - controller.last_classroom_transition < CLASSROOM_TRANSITION_DELAY
+        if only_changes and key == getattr(self, "control_key", None) and not cooling:
+            return False  # 화면에 보일 것이 그대로다(가만히 있는 사람, 계획 1b). 교실 출입 대기 시간은 줄어드는 동안 계속 보낸다
+        self.control_key = key
         packet = self.controller.snapshot(room.doors)
         packet["main"] = {**self.state, **packet["main"]}
         if packet["interior"]:
             packet["interior"]["actor"].update(avatar=self.state.get("avatar", "male-1"), color=self.state["color"])
         await self.send_packet({"type": "control_state", "state": packet})
+        return True
+
+    def wake_motion(self):
+        wake = getattr(self, "wake", None)
+        if wake is not None:
+            wake.set()
+
+    def busy(self, now):
+        """입력 없이도 다음 틱에 바뀔 것이 있는가: 키 유효 시간 안·경로 이동·교실 안 걷기·교실 출입 대기·찌르기."""
+        c = self.controller
+        return bool((c.keys and now - c.last_input <= poke.INPUT_LEASE) or c.route  # 키 유효 시간은 motion.tick 과 같은 0.35초
+                    or (c.interior and (c.interior["actor"]["moving"] or now - c.last_classroom_transition < CLASSROOM_TRANSITION_DELAY))
+                    or self.poke_requested or self.poke_started is not None or self.pending_poke_states)
 
     async def motion_loop(self):
-        previous = time.monotonic()
+        previous, resting = time.monotonic(), False
         try:
             while self.player_id in room.players:
-                await asyncio.sleep(1 / 30)
+                if resting:
+                    # 가만히 있으면 30Hz 틱을 돌리지 않는다(계획 1e). 입력·명령·문 변경은 바로 깨우고, 시간으로 바뀌는 것은 REST_TICK 안에 살핀다
+                    with suppress(TimeoutError):
+                        async with asyncio.timeout(REST_TICK):
+                            await self.wake.wait()
+                else:
+                    await asyncio.sleep(1 / 30)
+                self.wake.clear()
                 now = time.monotonic()
                 seconds = now - previous
                 previous = now
@@ -311,13 +414,16 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     if self.player_id not in room.players:
                         return
                     events = self.controller.tick(seconds, room.doors, now)
-                    await self.receive_movement({**self.controller.pose, "color": self.state["color"]}, authoritative=True)
+                    moved = self.pose_changed()
+                    if moved:
+                        await self.receive_movement({**self.controller.pose, "color": self.state["color"]}, authoritative=True)
                     if self.controller.interior and self.controller.interior["actor"]["moving"]:
                         await self.touch_activity()
                     await self.tick_poke()
-                    await self.send_control_state()
+                    sent = await self.send_control_state(only_changes=True)
                     for event in events:
                         await self.send_packet({"type": "control_event", "event": event})
+                    resting = not (moved or events or sent or self.busy(now))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -570,9 +676,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if self.player_id not in room.players:
             return
         try:
-            message_id = await database_sync_to_async(record_chat)(
-                self.user, self.platform_session_uuid, text, self.state["floor"]
-            )
+            message_id = await socket_db.run(record_chat, self.user, self.platform_session_uuid, text, self.state["floor"])
         except DatabaseError:
             logging.getLogger(__name__).exception("Could not store accepted chat message")
             await self.chat_error("메시지를 저장하지 못했어요. 잠시 후 다시 보내 주세요.")
@@ -608,8 +712,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
             event_id = data.get("eventId")
             if not isinstance(event_id, str) or len(event_id) != 36:
                 raise raffle_service.RaffleError("대상 이벤트를 확인해 주세요.", 400)
-            url = await database_sync_to_async(raffle_survey.begin)(self.user, self.state.copy(), event_id)
-            state = await database_sync_to_async(raffle_service.snapshot)(self.user)
+            url = await socket_db.run(raffle_survey.begin, self.user, self.state.copy(), event_id)
+            state = await socket_db.run(raffle_service.snapshot, self.user)
             await self.send_packet({"type": "raffle_survey", "eventId": event_id, "url": url, "state": state})
             await self.touch_activity()
         except raffle_service.RaffleError as error:
@@ -619,14 +723,14 @@ class CampusConsumer(AsyncWebsocketConsumer):
 
     async def raffle_changed(self, event):
         if self.player_id in room.players:
-            state = await database_sync_to_async(raffle_service.snapshot)(self.user)
+            state = await socket_db.run(raffle_service.snapshot, self.user)
             await self.send_packet({"type": "raffle_state", "state": state})
 
     async def touch_activity(self):
         now = time.monotonic()
         if now - self.last_activity_write >= settings.CAMPUS_SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS:
             self.last_activity_write = now
-            state = await database_sync_to_async(check_session)(self.session_key, touch=True)
+            state = await socket_db.run(check_session, self.session_key, touch=True)
             if state.get("reason") != "retry":
                 self.policy_status = state
 
@@ -643,6 +747,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
 
     async def presence_packet(self, event):
         payload = event["payload"]
+        if payload["type"] == "door_state":
+            self.wake_motion()  # 문 위치가 근처 안내(hints)를 바꿀 수 있다
         if payload["type"] in {"poke", "poke_state", "poke_hit", "jump"}:
             interior = getattr(self, "controller", None) and self.controller.interior
             if payload.get("context") == "classroom":
@@ -657,8 +763,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if self.player_id in room.players and settings.CAMPUS_DM_ENABLED:
             await self.send_packet({"type":"private_message", "conversationId":event["conversationId"]})
 
-    @database_sync_to_async
-    def current_identity(self):
+    async def current_identity(self):
+        return await socket_db.run(self.identity_now)
+
+    def identity_now(self):
         user = self.session_user()
         return get_identity(user) if user is not None else None
 
@@ -675,8 +783,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
             return None
         return user
 
-    @database_sync_to_async
-    def store_position(self, position, observed_at, transfer_from=None):
+    async def store_position(self, position, observed_at, transfer_from=None):
+        return await socket_db.run(self.store_position_now, position, observed_at, transfer_from)
+
+    def store_position_now(self, position, observed_at, transfer_from=None):
         user = self.session_user()
         if user is not None:
             if transfer_from:
@@ -693,7 +803,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
         transfer = self.pending_floor_transfer
         transfer_from = transfer[0] if transfer else None
         try:
+            started = time.monotonic()
             await self.store_position(self.state.copy(), observed_at, transfer_from)
+            note_slow_db("position save", started)
         except DatabaseError:
             logging.getLogger(__name__).exception("Could not save the campus position")
         else:
@@ -706,7 +818,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
     async def check_session_loop(self):
         while True:
             await asyncio.sleep(min(self.session_check_interval, self.position_interval))
-            await self.channel_layer.send(self.channel_name, {"type": "presence.check"})
+            try:
+                await self.channel_layer.send(self.channel_name, {"type": "presence.check"})
+            except ChannelFull:
+                pass  # 이 소켓의 큐가 밀려 있다: 이번 확인은 건너뛰고 다음 주기에 다시 한다(감시 작업이 끝나지 않게, 계획 2b)
 
     async def presence_check(self, event):
         if self.player_id not in room.players:
@@ -715,7 +830,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if (getattr(self, "poke_requested", False) and self.poke_started is not None
                 and time.monotonic() - self.controller.last_input <= poke.INPUT_LEASE):
             await self.touch_activity()
+        started = time.monotonic()
         identity = await self.current_identity()
+        note_slow_db("session check", started)
         if identity is None:
             await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})
             return
@@ -728,6 +845,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             self.state.update(identity)
             async with room.lock:
                 room.players[self.player_id] = self.state.copy()
+                self.seen_by_peers = self.state.copy()
                 await self.broadcast({"type": "move", "player": self.state.copy()})
             await self.send_packet({"type": "identity", "player": self.state.copy()})
 
@@ -749,6 +867,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
         async with room.lock:
             room.interiors.discard(self.player_id)
             room.channels.pop(self.player_id, None)
+            room.sockets.pop(self.player_id, None)
+            room.pending_moves.pop(self.player_id, None)
             room.controllers.pop(self.player_id, None)
             session_key = getattr(self, "session_key", None)
             if room.sessions.get(session_key) == self.player_id:
@@ -756,6 +876,13 @@ class CampusConsumer(AsyncWebsocketConsumer):
             if self.player_id and room.players.pop(self.player_id, None) is not None:
                 await self.channel_layer.group_discard(room.group, self.channel_name)
                 await self.broadcast({"type": "leave", "id": self.player_id})
+
+    async def close(self, code=None, reason=None):
+        if code not in (None, 1000):
+            # 서버가 끊는 이유(계획 0c). 브라우저는 4401 이면 로그인 화면으로 가므로 재로그인의 원인을 운영 로그로 가린다
+            logging.getLogger(__name__).warning("campus socket closed by server code=%s policy=%s user=%s",
+                                                code, (self.policy_status or {}).get("reason"), getattr(self.user, "pk", None))
+        await super().close(code=code, reason=reason)
 
     async def presence_replaced(self, event):
         await self.leave()

@@ -235,7 +235,13 @@ class RaffleSocketTests(TransactionTestCase):
             await a.send_json_to(self.movement(**buzzer_position()))
             await self.next_type(b,"move")
             await database_sync_to_async(service.control_event)("draw", event_id)
-            aa,bb = await asyncio.gather(self.next_type(a,"raffle_state"),self.next_type(b,"raffle_state"))
+
+            async def drawn(ws):
+                # 추첨은 두 번 알린다(마감 시각 확정 → 추첨). 소켓은 자기 DB 스레드에서 읽으므로 앞의 알림이 중간 상태를 실을 수 있다
+                while not (packet := await self.next_type(ws, "raffle_state"))["state"]["event"]["winner"]:
+                    pass
+                return packet
+            aa,bb = await asyncio.gather(drawn(a),drawn(b))
             self.assertEqual(aa["state"]["event"]["winner"],bb["state"]["event"]["winner"])
             self.assertEqual(aa["state"]["event"]["drawnAt"],bb["state"]["event"]["drawnAt"])
             self.assertEqual(bb["state"]["event"]["winner"]["nickname"],"조원 하나")

@@ -205,7 +205,7 @@ class CheckpointTimingTests(SimpleTestCase):
         await self.consumer.checkpoint()
         self.assertEqual(self.consumer.store_position.await_count, 2)
         self.assertEqual(self.consumer.store_position.await_args.args[0]["x"], 160)
-        self.assertGreater(self.consumer.broadcast.await_count, 2)
+        self.assertEqual(self.room.pending_moves[self.consumer.player_id]["x"], 160)  # 다른 사람에게는 0.1초 묶음으로 계속 간다(계획 1d)
 
     async def test_stopped_user_saves_final_changed_position_once(self):
         self.clock[0] = 1

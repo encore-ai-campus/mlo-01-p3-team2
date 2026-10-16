@@ -47,8 +47,9 @@ class ClassroomVisibilitySocketTests(TransactionTestCase):
     async def matching_move(self,socket,player_id,hidden):
         for _ in range(100):
             packet=await socket.receive_json_from(timeout=2)
-            if packet['type']=='move' and packet['player']['id']==player_id and packet['player'].get('inClassroom') is hidden:
-                return packet
+            for player in packet['players'] if packet['type']=='moves' else [packet.get('player')] if packet['type']=='move' else []:
+                if player['id']==player_id and player.get('inClassroom') is hidden:
+                    return {'type':'move','player':player}
         self.fail('Expected visibility update was not received')
 
     async def test_enter_and_exit_broadcast_visibility_even_between_movement_frames(self):
