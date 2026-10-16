@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "eventing.apps.EventingConfig",
     "community.apps.CommunityConfig",
     "raffle.apps.RaffleConfig",
+    "ad_bridge.apps.AdBridgeConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -165,3 +166,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Private messages are enabled explicitly for each environment.
 CAMPUS_DM_ENABLED = os.environ.get("CAMPUS_DM_ENABLED", "0") == "1"
+
+# 운영 슬롯을 준비한 환경에서만 광고 요청을 활성화한다.
+ADS_ENABLED = os.environ.get("ADS_ENABLED", "0") == "1"
+ADS_ROOFTOP_SLOT_ID = os.environ.get("ADS_ROOFTOP_SLOT_ID", "")
+ADS_PORTAL_LEFT_SLOT_ID = os.environ.get("ADS_PORTAL_LEFT_SLOT_ID", "")
+ADS_PORTAL_RIGHT_SLOT_ID = os.environ.get("ADS_PORTAL_RIGHT_SLOT_ID", "")

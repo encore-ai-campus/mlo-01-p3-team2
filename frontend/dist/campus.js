@@ -111,6 +111,7 @@
     ctx.save();ctx.translate(camera.x,camera.y);ctx.scale(camera.zoom,camera.zoom);
     const actors=visibleActors();
     renderer.draw(ctx,{camera,actors,t,hover,nearby,viewportWidth:vw,viewportHeight:vh,showNicknames:social.preferences.nicknames});ctx.restore();
+    window.CampusAds?.tick({now:t,floor:D.id,renderer,camera,canvas,width:vw,height:vh,blocked:isDialogOpen()});
     social.render(t,{actors,camera,projectActor:actor=>{const q=renderer.projectActor(actor);return {...q,y:q.y-window.CampusJump.height(actor,t)};},selfId:presence.selfId,floor:D.id,avatarSize:window.CampusAvatars.size});
   }
   function update(t){
@@ -142,15 +143,21 @@
     window.CampusStairs.resetActor(D,player);
     if(refresh){focusPlayer(true);updateFloorUI();updateZoom();loadPlazaDisplays(D,renderer);}
   }
+  let transferStarting=false;
   async function switchFloor(id,objectId){
+    if(transferStarting||floorTransition.blocking)return false;
+    transferStarting=true;
     try{
-      return await floorTransition.run(async()=>{
+      const approval=await presence.command('begin_transfer',{floor:id});
+      const transition=floorTransition.run(async()=>{
         await presence.command('transfer',{floor:id});
         render(performance.now());toast(id==='rooftop'?'옥상 광장에 도착했어요.':'18층 캠퍼스로 내려왔어요.');return true;
       },{from:D.id,to:id,avatar:player.avatar,kind:window.CampusFloorTransition.kindFor(objectId)});
+      window.CampusAds?.startPortal(approval.ads_token);
+      return await transition;
     }catch(error){
       presence.command('cancel_transfer').catch(()=>{});toast(error.message);return false;
-    }
+    }finally{transferStarting=false;}
   }
   function cancelTransfer(){
     pendingTransfer=null;keys.clear();transferDialog.close();
@@ -178,6 +185,7 @@
     const last=displayRefresh.get(data.id)||0;if(Date.now()-last<30000)return;displayRefresh.set(data.id,Date.now());
     await Promise.all(boards.map(async board=>{
       try{
+        if(board.id==='roof-ad-board')return;
         let source=board.imageUrl;
         if(board.source==='menu'){
           const response=await fetch(board.menuEndpoint,{credentials:'same-origin',cache:'no-store'});
@@ -211,6 +219,7 @@
   function showDetail(item,{keyboard=false}={}){
     if(item.action==='learning'){toast(window.CampusClassroom?'학습교실 출입구로 입장해 주세요.':'로그인한 서버 화면에서 학습교실을 이용해 주세요.');return;}
     if(floorTransition.blocking||window.CampusSession?.ending)return;
+    if(item.id==='roof-ad-board'){window.CampusAds?.clickRoof();return;}
     if(item.info===false)return;
     if(window.CampusDoors.isDoor(item)){toggleDoor(item);return;}
     if(item.action==='raffle'){raffleUI.open();return;}

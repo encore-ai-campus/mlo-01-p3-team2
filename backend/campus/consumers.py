@@ -352,6 +352,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     result = await asyncio.to_thread(self.controller.command, action, arguments, room.doors.copy())
                 else:
                     result = self.controller.command(action, arguments, room.doors)
+                if action == "begin_transfer":
+                    from ad_bridge.placements import transfer_token
+                    result["ads_token"] = transfer_token(self.scope["user"].pk, result["transfer_id"])
                 await self.receive_movement({**self.controller.pose, "color": self.state["color"]}, authoritative=True)
                 await self.send_control_state()
                 await self.send_packet({"type": "control_result", "requestId": request_id, "result": result})

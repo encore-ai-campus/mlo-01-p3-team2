@@ -130,6 +130,21 @@ class ServerMotionTests(SimpleTestCase):
         self.assertEqual(controller.pose['floor'], 'rooftop')
         self.assertTrue(controller.world.walkable(controller.pose['x'], controller.pose['y']))
 
+    def test_ad_transfer_approval_is_stable_and_does_not_move_early(self):
+        controller = self.controller()
+        with self.assertRaises(ControlError):
+            controller.command('begin_transfer', {'floor': 'rooftop'})
+        controller.pose.update(x=2280, y=912)
+        controller.command('prepare_transfer', {'objectId': 'campus-roof-stairs'})
+        first = controller.command('begin_transfer', {'floor': 'rooftop'})
+        self.assertEqual(first, controller.command('begin_transfer', {'floor': 'rooftop'}))
+        self.assertEqual(controller.pose['floor'], 'campus')
+        controller.command('cancel_transfer', {})
+        with self.assertRaises(ControlError):
+            controller.command('begin_transfer', {'floor': 'rooftop'})
+        controller.command('prepare_transfer', {'objectId': 'campus-roof-stairs'})
+        self.assertNotEqual(first['transfer_id'], controller.command('begin_transfer', {'floor': 'rooftop'})['transfer_id'])
+
     def test_navigation_rejects_out_of_bounds_or_solid_destinations(self):
         controller = self.controller()
         for point in ({'x': -1, 'y': 100}, {'x': math.inf, 'y': 100}, {'x': True, 'y': 100}, {'x': 0, 'y': 0}):
