@@ -90,9 +90,9 @@
    const active=activeType===zone.type;
    if(!active&&intro<=0)continue;
    g.globalAlpha=active?1:pulse*Math.min(1,intro*3);
-   g.fillStyle=active?'#55d69c20':'#fff9b315';g.fillRect(zone.x,145,200,268);
-   g.strokeStyle=active?'#76e1ad66':zone.edge+'44';g.lineWidth=7;g.strokeRect(zone.x,145,200,268);
-   g.strokeStyle=active?'#119564':zone.edge;g.lineWidth=3;g.strokeRect(zone.x,145,200,268);
+   g.fillStyle=active?(zone.type==='multiple_choice'?'#2984c720':'#55d69c20'):'#fff9b315';g.fillRect(zone.x,145,200,268);
+   g.strokeStyle=active?(zone.type==='multiple_choice'?'#2984c766':'#76e1ad66'):zone.edge+'44';g.lineWidth=7;g.strokeRect(zone.x,145,200,268);
+   g.strokeStyle=active?(zone.type==='multiple_choice'?'#2984c7':'#119564'):zone.edge;g.lineWidth=3;g.strokeRect(zone.x,145,200,268);
   }
   g.restore();
  }

@@ -215,10 +215,24 @@
     return () => run('문제를 불러오는 중...', () => loadQuestion(order), retryQuestionLoad(order));
   }
 
+  async function resumeSelectedDifficulty(difficulty) {
+        const saved=sessionStorage.getItem(`learning:${state.subject}:${state.questionType}`);
+        if(!saved)return false;
+        let session;
+        try{session=await request(`sessions/${saved}/`);}catch(error){if(error.status===404){sessionStorage.removeItem(`learning:${state.subject}:${state.questionType}`);return false;}throw error;}
+        if(session.completed_at){sessionStorage.removeItem(`learning:${state.subject}:${state.questionType}`);return false;}
+        if(session.difficulty!==difficulty)return false;
+        state.sessionId=session.session_id;state.difficulty=session.difficulty;
+        const next=session.questions.find(q=>!q.is_finalized);
+        await loadQuestion(next?next.question_order:session.total_questions);
+        return true;
+  }
+
   function beginSession(difficulty) {
     if (state.busy) return;
     state.difficulty = difficulty;
     run('학습을 준비하는 중...', async () => {
+      if (state.screen === 'difficulty' && await resumeSelectedDifficulty(difficulty)) return;
       const session = await createSession();
       showBalance(session.points_summary?.wallet_balance);
       state.sessionId = session.session_id;sessionStorage.setItem(`learning:${state.subject}:${state.questionType}`,String(session.session_id));
@@ -402,14 +416,7 @@
         const content = await post('content-open/', {subject, question_type:type});
         showBalance(content.wallet_balance);
         descriptions.forEach((node,index)=>{const level=['beginner','intermediate','advanced'][index];node.textContent=`${texts[index]} · 정답 ${content.points_by_difficulty[level]}P`;});
-        const saved=sessionStorage.getItem(`learning:${subject}:${type}`);
-        if(!saved)return;
-        let session;
-        try{session=await request(`sessions/${saved}/`);}catch(error){if(error.status===404){sessionStorage.removeItem(`learning:${subject}:${type}`);return;}throw error;}
-        if(session.completed_at){sessionStorage.removeItem(`learning:${subject}:${type}`);return;}
-        state.sessionId=session.session_id;state.difficulty=session.difficulty;
-        const next=session.questions.find(q=>!q.is_finalized);
-        await loadQuestion(next?next.question_order:session.total_questions);
+
       }, prepare);
       prepare();
     },
