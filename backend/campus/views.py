@@ -20,9 +20,12 @@ from raffle.survey import survey_url
 def map_view(request):
     if needs_profile_setup(request.user):
         return redirect("accounts:setup")
+    profile = getattr(request.user, "campus_profile", None)
     return presentation_response(request, "index.html", {
         "nickname": get_nickname(request.user),
-        "view_config": {"canZoom": request.user.is_staff},
+        "view_config": {"canZoom": request.user.is_staff,
+            "guidePending": bool(profile and not profile.guide_completed),
+            "guideCompleteUrl": reverse("accounts-api:guide-complete")},
         "presence_config": {"socketPath": "/ws/campus/", "loginUrl": reverse("accounts:login"),
             "avatar": get_avatar(request.user), "preferencesKey": f"campus-display-v1:{request.user.pk}",
             "position": get_position(request.user), "raffleSurveyUrl": survey_url()},

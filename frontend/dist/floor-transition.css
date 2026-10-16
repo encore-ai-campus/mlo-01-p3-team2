@@ -1,11 +1,3 @@
-@font-face {
-  font-family: "Campus Arcade";
-  src: url("assets/fonts/PressStart2P-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 #floorTransitionDialog {
   position: fixed;
   inset: 0;
@@ -14,36 +6,28 @@
   max-width: none;
   max-height: none;
   margin: 0;
-  padding: 0;
+  padding: 20px;
   border: 0;
   border-radius: 0;
   outline: 0;
   box-shadow: none;
-  background: #000;
-  color: #fff;
-  overflow: hidden;
+  box-sizing: border-box;
+  background: radial-gradient(ellipse at 50% 40%,#fffaf0 0%,#f2e9d9 62%,#e8dbc4 100%);
+  color: #5c503e;
+  overflow: auto;
 }
 #floorTransitionDialog:not([open]) { display: none; }
-#floorTransitionDialog[open] { display: grid; }
-#floorTransitionDialog::backdrop { background: #000; }
-#floorTransitionContent {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-}
-.floor-transition-label {
-  margin: 0;
-  font: 400 24px/1.6 "Campus Arcade", "Courier New", monospace;
-  font-synthesis: none;
-  letter-spacing: 2px;
-  text-shadow: 3px 3px 0 #36414b;
-}
-
-@media (max-width: 480px) {
-  .floor-transition-label {
-    font-size: 16px;
-    letter-spacing: 1px;
-    text-shadow: 2px 2px 0 #36414b;
-  }
-}
+#floorTransitionDialog[open] { display: grid; place-items: center; }
+#floorTransitionDialog::backdrop { background: #f2e9d9; }
+#floorTransitionContent { display: flex; flex-direction: column; align-items: center; width: min(100%,640px); margin: auto; text-align: center; }
+.floor-transition-eyebrow { margin: 0 0 18px; color: #9c8868; font: 700 10px/1.5 system-ui,sans-serif; letter-spacing: 3px; }
+.floor-transition-route { display: flex; align-items: center; gap: 16px; font: 700 13px/1.5 system-ui,sans-serif; }
+.floor-transition-route span { min-width: 54px; padding: 8px 15px; border-radius: 30px; background: #ffffffa8; border: 1px solid #d9c9ae; }
+.floor-transition-route span:last-child { background: #e3eee4; color: #426e61; border-color: #c7d7c6; }
+.floor-transition-route b { font-weight: 400; color: #a38c69; }
+#floorTransitionCanvas { display: block; width: 100%; height: auto; margin: 5px 0 3px; }
+.floor-transition-label { margin: 0; font: 700 clamp(18px,3vw,23px)/1.6 system-ui,"Malgun Gothic",sans-serif; letter-spacing: -.6px; }
+.floor-transition-subtitle { margin: 7px 0 21px; color: #99866b; font: 400 12px/1.7 system-ui,"Malgun Gothic",sans-serif; }
+.floor-transition-track { width: 120px; height: 4px; overflow: hidden; border-radius: 4px; background: #ded2bc; }
+#floorTransitionProgress { display: block; width: 100%; height: 100%; background: #769c85; transform: scaleX(0); transform-origin: left; border-radius: inherit; }
+@media(max-height:500px) { #floorTransitionContent { width: min(100%,420px); } .floor-transition-eyebrow { display: none; } #floorTransitionCanvas { max-height: 210px; object-fit: contain; } .floor-transition-subtitle { margin-bottom: 10px; } }

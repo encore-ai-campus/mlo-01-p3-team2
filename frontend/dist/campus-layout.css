@@ -1,0 +1,73 @@
+/* Keep the map at the loading screen's size without browser fullscreen state. */
+html,body{width:100%;height:100%;overflow:hidden}
+.workspace{display:block;width:100%;height:100dvh;min-height:0;margin:0;padding:0}
+.map-shell{--map-footer-height:76px;position:fixed;inset:0;display:block;width:100%;height:100dvh;min-height:0;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:#ecf0eb}
+.map-shell>.viewport{position:absolute;inset:0;width:100%;height:100%;min-height:0}
+.map-shell>.map-toolbar{position:absolute;top:18px;left:18px;z-index:5;display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:6px 12px;width:max-content;max-width:calc(100% - 250px);min-height:0;padding:10px 13px;border:1px solid #dbe4da;border-radius:12px;background:#fffdf7;box-shadow:0 4px 18px #23433118}
+.map-shell .map-title{gap:9px;width:auto;min-width:0;font-size:12px}
+.map-brand-mark{display:grid;place-items:center;flex:none;width:31px;height:31px;border-radius:9px;background:var(--teal);color:#fff;font-size:23px;font-weight:850}
+.map-location{display:grid;gap:4px;min-width:0}
+.map-location>strong{font-size:11px;letter-spacing:.7px;white-space:nowrap}
+.map-location .floor-badge{display:block;margin:0;padding:0;border:0;background:transparent;color:#607568;font-size:11px}
+.map-current-room{min-width:0;max-width:190px;padding-left:12px;border-left:1px solid #dfe6da;color:#6b7b70;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.map-shell .map-status-tools{flex-direction:column-reverse;align-items:flex-end;gap:8px}
+.map-shell>.map-footer{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:18px;min-height:76px;padding:10px 20px;border-top:1px solid #dce4d9;background:#fffdf7;color:#68796d}
+.map-shell .map-footer>.map-key-guide{display:flex;flex-wrap:wrap;align-items:center;gap:9px 15px;min-width:0;font-size:11px}
+.map-shell .map-footer .map-key-item{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.map-shell .map-footer .map-key-item>kbd{display:inline-flex;flex:none;height:23px;min-width:23px;padding:0 5px}
+.map-shell .map-footer .map-key-item>span{display:inline;margin:0}
+.map-shell .map-footer .chat-open{margin:0;padding:0;border:0;background:transparent;color:inherit;font-size:11px}
+.map-shell .map-footer .chat-open kbd{height:23px}
+.map-shell .map-footer>.map-player-tools{display:flex;align-items:center;flex:none;gap:14px;min-width:0;padding-left:17px;border-left:1px solid #dce4d9}
+.map-shell .map-footer .map-player{display:flex;align-items:center;gap:9px;min-width:0}
+.map-player .avatar-preview{display:block;width:36px;height:48px;object-fit:contain;image-rendering:pixelated;flex:none}
+.map-shell .map-footer .map-player-copy{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}
+.map-shell .map-footer .map-player-label{display:block;margin:0;color:#7c897e;font-size:10px}
+.map-player .account-nav{display:block;min-width:0;margin:0;padding:0;border:0}
+.map-shell .map-player .account-name{display:block;max-width:180px;margin:0;color:#2e483d;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+.map-shell .map-footer .settings-button{display:flex;align-items:center;justify-content:center;flex:none;gap:6px;min-width:66px;min-height:43px;padding:9px 12px;border:1px solid #dbe4d7;border-radius:10px;background:#fff;color:#416450;font-size:12px}
+.map-shell .map-footer .settings-button>span{display:inline;margin:0}
+.map-shell .map-footer .settings-button>span:first-child{font-size:19px}
+.map-shell .map-footer .settings-button:hover{background:#edf5ed}
+.map-shell .board-shortcut{bottom:calc(var(--map-footer-height) + 18px)}
+.map-shell .chat-panel{bottom:calc(var(--map-footer-height) + 18px)}
+.map-shell .interaction-prompt{bottom:calc(var(--map-footer-height) + 24px);max-width:calc(100% - 36px);white-space:normal;z-index:4}
+.map-shell[data-chat-visible=true] .interaction-prompt{bottom:calc(var(--map-footer-height) + 210px)}
+.map-shell[data-chat-editing=true] .interaction-prompt{bottom:calc(var(--map-footer-height) + 275px)}
+.map-shell .touch-pad{bottom:calc(var(--map-footer-height) + 68px)}
+@media(max-width:900px){
+ .map-shell>.map-toolbar{max-width:calc(100% - 210px)}
+ .map-current-room{display:none}
+ .map-shell>.map-footer{padding:10px 14px;gap:12px}
+ .map-shell .map-footer>.map-key-guide{gap:8px 11px}
+ .map-shell .map-footer>.map-player-tools{gap:10px;padding-left:12px}
+ .map-shell .map-player .account-name{max-width:140px}
+}
+@media(max-width:700px){
+ .map-shell{--map-footer-height:126px}
+ .map-shell>.map-toolbar{top:12px;left:12px;max-width:calc(100% - 176px);padding:9px;gap:6px}
+ .map-shell .map-title{gap:7px}
+ .map-brand-mark{width:26px;height:29px;font-size:20px;border-radius:7px}
+ .map-location>strong{font-size:9px;letter-spacing:.2px}
+ .map-location .floor-badge{font-size:10px}
+ .map-shell>.map-footer{align-items:stretch;flex-direction:column-reverse;gap:9px;min-height:0;padding:9px 13px max(9px,env(safe-area-inset-bottom))}
+ .map-shell .map-footer>.map-player-tools{justify-content:space-between;width:100%;gap:12px;margin:0;padding:0 0 8px;border:0;border-bottom:1px solid #e5eadf}
+ .map-shell .map-footer .map-player{gap:8px}
+ .map-player .avatar-preview{width:28px;height:36px}
+ .map-shell .map-footer .map-player-copy{flex-direction:row;align-items:center;flex-wrap:wrap;gap:3px 9px}
+ .map-shell .map-player .account-name{max-width:160px;font-size:13px}
+ .map-shell .map-footer .settings-button{min-width:66px;min-height:37px;padding:6px 9px;font-size:11px}
+ .map-shell .map-footer .settings-button>span:first-child{font-size:17px}
+ .map-shell .map-footer>.map-key-guide{gap:7px 11px;font-size:10px}
+ .map-shell .map-footer .map-key-item>kbd,.map-shell .map-footer .chat-open kbd{height:21px;min-width:21px;font-size:9px}
+ .map-shell .map-footer .chat-open{font-size:10px}
+ .map-shell .board-shortcut,.map-shell .chat-panel{bottom:calc(var(--map-footer-height) + 12px)}
+ .map-shell[data-board-shortcut-visible=true] .chat-panel{width:min(280px,calc(100% - 24px))}
+ .map-shell[data-chat-visible=true] .board-shortcut{display:none}
+ .map-shell[data-chat-visible=true] .interaction-prompt{bottom:calc(var(--map-footer-height) + 174px)}
+ .map-shell[data-chat-editing=true] .interaction-prompt{bottom:calc(var(--map-footer-height) + 240px)}
+}
+@media(max-width:380px){
+ .map-shell .map-player .account-name{max-width:135px}
+ .map-shell .map-footer .map-player-copy{flex-direction:column;align-items:flex-start;gap:3px}
+}

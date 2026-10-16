@@ -18,7 +18,7 @@
   }
   function create({data:D,font='"Malgun Gothic", system-ui, sans-serif'}) {
     const P=createProjection(D),resolution=1.5;
-    const city=window.CampusRooftopCity?.create({data:D,projection:P});
+    const city=D.id==='campus'?window.CampusBackground?.create({data:D,projection:P}):window.CampusRooftopCity?.create({data:D,projection:P});
     const makeCanvas=(w,h)=>{const c=document.createElement('canvas');c.width=Math.ceil(w);c.height=Math.ceil(h);return c;};
     let g;
     const displayImages=new Map();

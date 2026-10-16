@@ -61,7 +61,7 @@ window.CampusData = (() => {
   const learningSigns=[];
   for(const [id,subject,title,inset] of [['class1','python','Python 학습교실',58],['class2','sql','SQL 학습교실',65]]){
     const r=rooms.find(room=>room.id===id);
-    Object.assign(r,{name:title,label:false,description:title+'입니다. 유리문을 열고 출입구로 입장한 뒤 학습 영역에서 E키를 누르세요.'});
+    Object.assign(r,{name:title,label:false,description:title+'입니다. 출입구로 바로 입장한 뒤 학습 영역에서 E키를 누르세요.'});
     learningSigns.push({type:'wall-sign',x:r.x+inset,y:r.y+5,w:180,h:3,id:subject+'-classroom-wall-sign',roomId:id,solid:false,text:title});
     const monitors=objects.filter(o=>o.roomId===id&&o.type==='monitor');
     for(const [index,kind,name] of [[8,'multiple_choice',subject==='python'?'Python 객관식':'SQL 객관식'],
@@ -152,5 +152,5 @@ window.CampusData = (() => {
   for(const r of [...rooms,entrance]){for(const key of ['x','y','w','h'])r[key]*=spaceScale;r.target=r.target.map(v=>v*spaceScale);}
   for(const o of objects){for(const key of ['x','y','w','h'])o[key]*=spaceScale;if(o.collision)for(const key of ['x','y','w','h'])o.collision[key]*=spaceScale;}
   for(const w of walls)for(const key of ['x1','y1','x2','y2'])w[key]*=spaceScale;
-  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>o.type!=='board'&&!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
+  return {width:width*spaceScale,height:height*spaceScale,layoutShiftX:layoutShiftX*spaceScale,spaceScale,rooms,walls,objects:objects.filter(o=>o.type!=='glass-door'&&o.type!=='board'&&!combinedClassroomIds.has(o.roomId)&&(o.roomId!=='lounge1'||(o.type!=='pillar'&&o.name!=='기둥 책장'&&o.id!=='lounge1-noticeboard'))),entrance};
 })();

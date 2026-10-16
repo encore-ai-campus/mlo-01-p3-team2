@@ -18,6 +18,7 @@ class Profile(models.Model):
     cohort = models.CharField(max_length=6, choices=COHORT_CHOICES, blank=True, default="")
     # Existing accounts keep their current identity; signup explicitly starts incomplete.
     setup_complete = models.BooleanField(default=True)
+    guide_completed = models.BooleanField(default=False)
     last_position = LosslessJSONField(null=True, blank=True)
     last_position_at = models.DateTimeField(null=True, blank=True)
 

@@ -8,13 +8,6 @@ def door(x, y, w, h, orientation, swing):
 
 
 DOORS = {
-    "door-class4": door(475, 264, 43, 6, "horizontal", -1),
-    "door-class3": door(1006, 264, 43, 6, "horizontal", -1),
-    "door-class2": door(475, 366, 43, 6, "horizontal", 1),
-    "door-class1": door(1006, 366, 43, 6, "horizontal", 1),
-    "door-left-top": door(245, 146, 6, 38, "vertical", -1),
-    "door-left-middle": door(245, 344, 6, 38, "vertical", -1),
-    "door-left-bottom": door(245, 554, 6, 38, "vertical", -1),
     "door-storage": {**door(1320, 81, 33, 6, "horizontal", 1), "sliding": True, "slide": 1},
 }
 

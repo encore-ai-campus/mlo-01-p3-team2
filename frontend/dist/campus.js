@@ -22,7 +22,7 @@
   const communityUI=window.CampusCommunity.create({onBack:()=>showBoardChoices()});
   const lunchWheel=window.CampusLunchWheel?.create();
   let menuRequest=null,menuVersion=0;
-  const isDialogOpen=(includeClassroom=true)=>(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
+  const isDialogOpen=(includeClassroom=true)=>(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusGuide?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -35,6 +35,7 @@
   const suppressedKeys=new Set();
   const floorTransition=window.CampusFloorTransition.create({
     onStart(){
+      spaceGuide.close();
       for(const key of keys)suppressedKeys.add(key);
       keys.clear();player.moving=false;player.walkTime=0;press=null;hover=nearby=null;
       $('interactionPrompt').hidden=true;viewport.setAttribute('aria-busy','true');
@@ -55,6 +56,9 @@
   })||{blocking:false,applyState(){},tick(){}};
   const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
   const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
+  const spaceGuide=window.CampusSpaceGuide.create({onSelect:room=>showDetail(room),isBlocked:()=>isDialogOpen(),
+    onOpen(){keys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);},focusMap:()=>canvas.focus({preventScroll:true})});
+  spaceGuide.setWorld(D,serverHints.roomId);
   restorePosition(initialPosition,false);
   function applyControlState(state){
     if(state.main.floor!==D.id)restorePosition(state.main);
@@ -66,7 +70,7 @@
         pendingTransfer=event;keys.clear();
         $('transferDescription').textContent=worlds[event.floor].name+'으로 이동합니다. 예를 누르면 이동하고, 아니오를 누르면 현재 위치에 머뭅니다.';
         if(!transferDialog.open)transferDialog.showModal();$('transferYes').focus({preventScroll:true});
-      }else switchFloor(event.floor);
+      }else switchFloor(event.floor,event.objectId);
     }
   }
   function screenToWorld(x,y){return renderer.unprojectGround((x-camera.x)/camera.zoom,(y-camera.y)/camera.zoom);}
@@ -96,7 +100,7 @@
     if(camera.follow)focusPlayer();else{camera.x+=(vw-oldWidth)/2;camera.y+=(vh-oldHeight)/2;}updateZoom();
   }
   function render(t){
-    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#ecf0eb';ctx.fillRect(0,0,vw,vh);
+    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle=D.id==='campus'?'#eee5d6':'#ecf0eb';ctx.fillRect(0,0,vw,vh);
     ctx.save();ctx.translate(camera.x,camera.y);ctx.scale(camera.zoom,camera.zoom);
     const actors=visibleActors();
     renderer.draw(ctx,{camera,actors,t,hover,nearby,viewportWidth:vw,viewportHeight:vh,showNicknames:social.preferences.nicknames});ctx.restore();
@@ -112,7 +116,7 @@
       window.CampusStairs.updateActor(D,actor,dt);
     }
     focusPlayer();
-    const r=D.rooms.find(room=>room.id===serverHints.roomId);if(r&&r.id!==lastRoom){lastRoom=r.id;$('currentRoom').textContent=r.name;for(const b of document.querySelectorAll('[data-room]')){b.classList.toggle('active',b.dataset.room===r.id);b.setAttribute('aria-current',b.dataset.room===r.id?'location':'false');}}
+    const r=D.rooms.find(room=>room.id===serverHints.roomId);if(r&&r.id!==lastRoom){lastRoom=r.id;spaceGuide.setRoom(r.id);$('currentRoom').textContent=r.name;for(const b of document.querySelectorAll('[data-room]')){b.classList.toggle('active',b.dataset.room===r.id);b.setAttribute('aria-current',b.dataset.room===r.id?'location':'false');}}
     nearby=D.objects.find(object=>object.id===serverHints.nearbyId)||null;
     $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent=window.CampusDoors.isDoor(nearby)?(nearby.open?'닫기':'열기'):'보기';}
     render(t);requestAnimationFrame(update);
@@ -129,14 +133,14 @@
     }
     Object.assign(player,{floor:D.id,x:position.x,y:position.y,targetX:position.x,targetY:position.y,dir:position.dir,moving:false,walkTime:0});
     window.CampusStairs.resetActor(D,player);
-    if(refresh){focusPlayer(true);nav();updateFloorUI();updateZoom();loadPlazaDisplays(D,renderer);}
+    if(refresh){focusPlayer(true);updateFloorUI();updateZoom();loadPlazaDisplays(D,renderer);}
   }
-  async function switchFloor(id){
+  async function switchFloor(id,objectId){
     try{
       return await floorTransition.run(async()=>{
         await presence.command('transfer',{floor:id});
         render(performance.now());toast(id==='rooftop'?'옥상 광장에 도착했어요.':'18층 캠퍼스로 내려왔어요.');return true;
-      });
+      },{from:D.id,to:id,avatar:player.avatar,kind:window.CampusFloorTransition.kindFor(objectId)});
     }catch(error){
       presence.command('cancel_transfer').catch(()=>{});toast(error.message);return false;
     }
@@ -147,7 +151,7 @@
   }
   function confirmTransfer(){
     const pending=pendingTransfer;pendingTransfer=null;transferDialog.close();keys.clear();
-    if(pending)switchFloor(pending.floor);
+    if(pending)switchFloor(pending.floor,pending.objectId);
   }
   async function useStairs(item){
     if(isDialogOpen())return;
@@ -156,11 +160,10 @@
   function updateFloorUI(){
     const hasBoard=D.id==='campus';$('boardShortcut').hidden=!hasBoard;
     viewport.closest('.map-shell').dataset.boardShortcutVisible=String(hasBoard);
+    spaceGuide.setWorld(D,serverHints.roomId);
     $('currentFloor').textContent=D.name;
+    $('currentRoom').textContent=D.rooms.find(room=>room.id===serverHints.roomId)?.name||(D.id==='campus'?'캠퍼스 복도':'옥상 광장');
     $('mapHeading').textContent=D.id==='campus'?'2.5D 캠퍼스':'옥상 광장';
-    document.querySelector('.sidebar-heading h1').textContent=D.id==='campus'?'공간 둘러보기':'옥상 광장 둘러보기';
-    $('referenceBtn').textContent=D.id==='campus'?'설계도 보기':'옥상 안내';
-    $('exportBtn').href=scene.toDataURL('image/png');$('exportBtn').download=D.id==='campus'?'PLAYDATA-campus-map.png':'PLAYDATA-rooftop-map.png';
     canvas.setAttribute('aria-label',D.name+'. 방향키 또는 WASD로 이동하고 계단으로 층을 오갈 수 있습니다.');
   }
   async function loadPlazaDisplays(data,view){
@@ -225,7 +228,6 @@
     const door=worlds.campus.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o));
     if(!door||typeof open!=='boolean'||door.open===open)return;
     door.open=open;const view=renderers.get('campus');view?.setDoorState(id,open);
-    if(D.id==='campus'){$('exportBtn').href=scene.toDataURL('image/png');}
   }
   function toggleDoor(door){
     if(isDialogOpen())return;
@@ -257,11 +259,6 @@
       $('boardMenuImage').onerror=failed;$('boardMenuOpen').href=imageUrl.href;$('boardMenuImage').hidden=false;$('boardMenuImage').src=imageUrl.href;
     }catch(error){if(error.name!=='AbortError')failed();}
   }
-  function nav(){
-    $('roomNav').replaceChildren();
-    const groups=D.id==='rooftop'?[['전시 부스',['festival-youtube','festival-instagram','festival-booth3']],['쉼터 · 연결 공간',['roof-upper','roof-terrace','roof-plaza','roof-stairs']]]:[['라운지',['lounge1','lounge2']],['강의 공간',['class1','class2','class3-4','left-bottom','left-middle','left-top']],['회의 · 상담',['meeting','meeting-l2-a','meeting-l2-b','consult-a','consult-b']],['기타 공간',['office','storage','stairs']]];
-    for(const [label,groupIds] of groups){const ids=groupIds.filter(id=>D.rooms.some(r=>r.id===id&&r.info!==false));if(!ids.length)continue;const heading=document.createElement('div');heading.className='nav-group-label';heading.textContent=label;$('roomNav').append(heading);for(const id of ids){const r=D.rooms.find(r=>r.id===id);if(!r||r.info===false)continue;const b=document.createElement('button');b.type='button';b.className='room-nav-button';b.dataset.room=id;const icon=document.createElement('span');icon.className='nav-icon';icon.textContent=id.startsWith('lounge')?'L'+id.slice(-1):id.startsWith('class')?id.slice(-1):id.startsWith('consult')?id.slice(-1).toUpperCase():id.startsWith('left')?r.name.slice(-1):'▤';const n=document.createElement('span');n.textContent=r.name;b.append(icon,n);b.addEventListener('click',()=>showDetail(r));$('roomNav').append(b);}}
-  }
   // Facility clicks open information; an administrator may drag the unlocked camera.
   function pointerPosition(e){const r=canvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
   let press=null;
@@ -271,9 +268,12 @@
   canvas.addEventListener('pointercancel',()=>{press=null;updateZoom();});canvas.addEventListener('pointerleave',()=>{if(!press)hover=null;});
   canvas.addEventListener('wheel',e=>{e.preventDefault();zoomBy(Math.exp(-e.deltaY*.0015));},{passive:false});
   $('followBtn').onclick=()=>{if(!isAdmin)return;camera.follow=!camera.follow;press=null;hover=null;if(camera.follow)focusPlayer();updateZoom();};
-  nav();updateFloorUI();updateZoom();new ResizeObserver(resize).observe(viewport);
+  updateFloorUI();updateZoom();new ResizeObserver(resize).observe(viewport);
+  const mapShell=viewport.closest('.map-shell'),mapFooter=mapShell.querySelector('.map-footer');
+  new ResizeObserver(()=>mapShell.style.setProperty('--map-footer-height',mapFooter.getBoundingClientRect().height+'px')).observe(mapFooter);
   document.addEventListener('keydown',e=>{
     const k=window.CampusKeyboard.key(e);
+    if(e.target.closest?.('#campusNavToggle,#campusSpaceGuide')&&['enter',' '].includes(k))return;
     if(floorTransition.blocking){
       if(movementKeys.has(k))suppressedKeys.add(k);
       if(movementKeys.has(k)||['e','z','escape','enter','+','=','-'].includes(k))e.preventDefault();
@@ -292,7 +292,6 @@
   document.addEventListener('keyup',e=>{const k=window.CampusKeyboard.key(e);keys.delete(k);suppressedKeys.delete(k);});
   window.addEventListener('blur',()=>{keys.clear();suppressedKeys.clear();});
   $('zoomIn').onclick=()=>zoomBy(1.25);$('zoomOut').onclick=()=>zoomBy(1/1.25);
-  $('fullscreenBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.map-shell').requestFullscreen();}catch{toast('현재 창에서는 전체 화면을 사용할 수 없습니다.');}};
   $('closeDialog').onclick=$('detailClose').onclick=()=>{dialog.close();canvas.focus({preventScroll:true});};
   $('closeBoardDialog').onclick=$('boardClose').onclick=()=>{if(communityUI.canLeave())boardDialog.close();};
   $('openBoardShortcut').onclick=()=>{if(D.id==='campus'&&!isDialogOpen())showBoard();};
@@ -325,12 +324,13 @@
   $('exitNo').onclick=cancelExit;$('exitYes').onclick=confirmExit;
   exitDialog.addEventListener('cancel',e=>{e.preventDefault();cancelExit();});
   dialog.addEventListener('click',e=>{const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();});
-  $('referenceBtn').onclick=()=>showDetail(D.id==='rooftop'?{name:'옥상 광장 안내',description:'옥상 중앙의 세로 계단을 기준으로 휴게 광장과 아래 광장의 길이를 맞췄습니다. 위쪽 광장에는 유튜브·심리 테스트·게임 부스 세 개를 회전한 맵의 긴 변을 따라 나란히 배치하고, 입구를 오른쪽으로 90도 돌렸습니다. 분수와 광고 게시판, 계단 위쪽까지 이어진 높은 벽면을 따라 둘러보세요. 18층 라운지 2 소화기에서 E를 누르면 옥상 왼쪽 끝으로 올라올 수 있습니다.',tags:['중앙 8단 계단','전시 부스 3개','분수 · 광고 게시판','우상단 벽면']}:{name:'캠퍼스 설계도',photo:'assets/blueprint.png',description:'제공해 주신 설계도를 기준으로 방의 위치와 비율을 반영했습니다. 복도 오른쪽은 라운지 1, 왼쪽은 라운지 2입니다. 문이 표시되지 않은 곳에는 이동을 위한 출입구를 추가했습니다. 사진이 없는 강의실·직원실·회의실의 가구는 기본 구성으로 채웠습니다.',tags:['원본 설계도','실제 사진 반영','출입구 위치 추정']});
   $('interactionPrompt').querySelector('button').onclick=()=>nearby&&showDetail(nearby);
   function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar);$('avatarPreview').src=`assets/characters/${id}-preview.png`;$('avatarName').textContent=window.CampusAvatars.definitions[id].name;}
   updateAvatarPreview();
   window.addEventListener('campus:avatar',updateAvatarPreview);
   window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:true,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
+  window.addEventListener('campus:guide-open',()=>{keys.clear();suppressedKeys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);});
   requestAnimationFrame(update);
+  window.dispatchEvent(new Event('campus:ready'));
   setInterval(()=>{if(D.id==='rooftop'&&!document.hidden)loadPlazaDisplays(D,renderer);},60000);
 })();

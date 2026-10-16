@@ -105,7 +105,7 @@
         frame=requestAnimationFrame(animate);
       }
       function maybeDraw(){
-        if(window.CampusApp?.floorTransition.blocking||window.CampusSession?.ending)return;
+        if(window.CampusApp?.floorTransition.blocking||window.CampusSession?.ending||window.CampusGuide?.blocking||window.CampusGuide?.pending)return;
         const event=state?.event;if(event?.status!=='drawn'||!event.drawnAt)return;
         const token=event.id+':'+event.drawnAt;
         if(drawDialog.open&&animationToken===token)return;
@@ -188,6 +188,7 @@
       $('raffleDraw').onclick=()=>{if(window.confirm('참여를 마감하고 전체 접속자에게 추첨을 보여줄까요?'))operate('draw');};
       $('raffleScheduleForm').onsubmit=e=>{e.preventDefault();try{operate('schedule',{title:$('raffleEventName').value.trim(),opensAt:$('raffleOpensAt').disabled?null:wireTime($('raffleOpensAt').value),drawAt:wireTime($('raffleDrawAt').value)});}catch{report('예약 시간을 확인해 주세요.',true);}};
       window.addEventListener('campus:floor-transition-end',maybeDraw);
+      window.addEventListener('campus:guide-close',maybeDraw);
       if(enabled){refresh();setInterval(refresh,15000);setInterval(()=>{if(dialog.open)render();},1000);}
       render();
       return {open,receive,onEntry,onSurvey,onError(message){closeWaitingWindow();onError(message);},refresh,setConnected(value){connected=value;render();},get state(){return state;},get blocking(){return dialog.open||drawDialog.open;}};

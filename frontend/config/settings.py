@@ -34,3 +34,6 @@ parsed_backend = urlsplit(BACKEND_URL)
 if parsed_backend.scheme not in {'http', 'https'} or not parsed_backend.hostname or parsed_backend.username or parsed_backend.password or parsed_backend.path not in {'', '/'} or parsed_backend.query or parsed_backend.fragment:
     raise ValueError('BACKEND_URL must be a plain HTTP(S) server address')
 BACKEND_TIMEOUT = float(os.environ.get('BACKEND_TIMEOUT', '30'))
+
+# The trusted edge proxy must overwrite this header and restrict direct app access.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
