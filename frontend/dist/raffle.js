@@ -189,7 +189,8 @@
       $('raffleScheduleForm').onsubmit=e=>{e.preventDefault();try{operate('schedule',{title:$('raffleEventName').value.trim(),opensAt:$('raffleOpensAt').disabled?null:wireTime($('raffleOpensAt').value),drawAt:wireTime($('raffleDrawAt').value)});}catch{report('예약 시간을 확인해 주세요.',true);}};
       window.addEventListener('campus:floor-transition-end',maybeDraw);
       window.addEventListener('campus:guide-close',maybeDraw);
-      if(enabled){refresh();setInterval(refresh,15000);setInterval(()=>{if(dialog.open)render();},1000);}
+      // 소켓이 붙어 있으면 welcome·raffle_state 가 알려 주므로, 15초 조회는 끊겨 있을 때만 한다(계획 4g)
+      if(enabled){refresh();setInterval(()=>{if(!connected)refresh();},15000);setInterval(()=>{if(dialog.open)render();},1000);}
       render();
       return {open,receive,onEntry,onSurvey,onError(message){closeWaitingWindow();onError(message);},refresh,setConnected(value){connected=value;render();},get state(){return state;},get blocking(){return dialog.open||drawDialog.open;}};
     },

@@ -5,7 +5,7 @@
   if(!configElement)return;
   const config=JSON.parse(configElement.textContent);
   let state=null,clockOffset=0,ending=false,pendingActivity=false,activityRequest=null,statusRequest=null;
-  let lastActivityRequest=-Infinity,activityTimer=null,verification=false,warningMode='';
+  let lastActivityRequest=-Infinity,activityTimer=null,verification=false,warningMode='',checkedDeadline=null;
   const interval=Math.max(1000,config.activityIntervalSeconds*1000);
   const banner=document.createElement('aside');banner.id='sessionWarning';banner.className='session-warning';
   banner.setAttribute('role','alert');banner.setAttribute('popover','manual');banner.hidden=true;
@@ -105,6 +105,8 @@
       return;
     }
     if(remaining>state.warningSeconds){hideWarning();return;}
+    // 다른 탭의 활동이 마감을 늘렸을 수 있다: 경고를 띄우기 전에 그 마감을 한 번 확인한다(소켓이 붙어 있으면 정기 조회를 하지 않으므로)
+    if(checkedDeadline!==state.expiresAt){checkedDeadline=state.expiresAt;requestStatus();}
     const mode=state.absoluteExpiresAt<=state.idleExpiresAt?'maximum':'idle';
     title.textContent=mode==='maximum'?'로그인 유지 시간이 곧 끝나요':'곧 자동 로그아웃돼요';
     message.textContent=mode==='maximum'
@@ -118,7 +120,8 @@
   }
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)requestStatus();});
   window.addEventListener('pageshow',event=>{if(event.persisted)requestStatus();});
-  const timer=setInterval(renderWarning,1000),poll=setInterval(requestStatus,15000);
+  // 지도에서 소켓이 붙어 있으면 만료·교체를 소켓이 바로 알리므로 15초 조회는 끊겨 있을 때(다른 화면 포함)만 한다(계획 4g)
+  const timer=setInterval(renderWarning,1000),poll=setInterval(()=>{if(!window.CampusApp?.presence?.connected)requestStatus();},15000);
   window.CampusSession={receive,expire,get ending(){return ending;}};
   receive(config.status);
   requestStatus();

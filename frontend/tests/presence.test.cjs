@@ -66,6 +66,13 @@ test('only allowed keyboard inputs are sent; client coordinates never become mov
  f.player.x=2400;f.tick(200);assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'input',keys:['d','w']});
  f.presence.close();assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'leave'});assert.equal(f.intervals.size,0);
 });
+test('an idle player sends no input; held keys keep the 0.1s refresh and a release is sent once',()=>{
+ const f=app({floors});f.welcome();const inputs=()=>f.sockets[0].sent.filter(packet=>packet.type==='input').length;
+ const idle=inputs();for(let t=100;t<=1000;t+=16)f.tick(t);assert.equal(inputs(),idle);
+ f.presence.setInput(['w']);const pressed=inputs();for(let t=1016;t<=1500;t+=16)f.tick(t);assert.ok(inputs()-pressed>=4);
+ f.presence.setInput([]);assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'input',keys:[]});const released=inputs();
+ for(let t=1516;t<=2500;t+=16)f.tick(t);assert.equal(inputs(),released);f.presence.close();
+});
 test('accepted state supplies self position and interpolates remote walking across both floors',()=>{
  const f=app({floors});f.welcome();assert.equal(f.element('presenceStatus').textContent,'전체 접속 2명');
  f.sockets[0].receive({type:'move',player:f.peer({x:1230.25,moving:true})});f.tick(116);
@@ -74,6 +81,13 @@ test('accepted state supplies self position and interpolates remote walking acro
  assert.equal(f.presence.peers.get('peer').x,2200);assert.equal(f.element('presenceStatus').textContent,'전체 접속 2명');
  f.sockets[0].receive({type:'control_state',state:{main:f.peer({id:'self',x:1400,y:600,dir:'right'})}});
  assert.equal(f.player.targetX,1400);assert.equal(f.player.dir,'right');f.presence.close();
+});
+test('batched moves update known people only, so a late batch cannot bring back someone who left',()=>{
+ const f=app({floors});f.welcome();
+ f.sockets[0].receive({type:'moves',players:[f.peer({x:1230.25,moving:true}),f.peer({id:'self',x:5}),f.peer({id:'stranger',x:900})]});f.tick(116);
+ assert.ok(f.presence.peers.get('peer').x>1200&&f.presence.peers.get('peer').moving);assert.equal(f.presence.peers.has('stranger'),false);
+ f.sockets[0].receive({type:'leave',id:'peer'});f.sockets[0].receive({type:'moves',players:[f.peer({x:1240})]});
+ assert.equal(f.presence.peers.has('peer'),false);assert.equal(f.element('presenceStatus').textContent,'전체 접속 1명');f.presence.close();
 });
 test('chat validation, shared door changes and raffle requests stay routed to the server',()=>{
  const f=app({floors});f.welcome();assert.equal(f.presence.sendChat('가'.repeat(201)),false);assert.equal(f.presence.sendChat('   '),false);

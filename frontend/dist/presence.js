@@ -158,6 +158,10 @@
             applyIdentity(message.player);
           } else if (ready && (message.type === 'join' || message.type === 'move')) {
             if (upsert(message.player)) updateRoster();
+          } else if (ready && message.type === 'moves' && Array.isArray(message.players)) {
+            // 0.1초마다 묶여 오는 위치. 이미 아는 사람만 갱신한다(떠난 사람이 늦게 온 묶음으로 되살아나지 않게, 새 사람은 join 으로 온다)
+            let renamed=false;for(const p of message.players)if(p&&peers.has(p.id))renamed=upsert(p)||renamed;
+            if(renamed)updateRoster();
           } else if (ready && message.type === 'leave') {
             if (peers.delete(message.id)) updateRoster();
           } else if (ready && message.type === 'chat') {
@@ -256,7 +260,7 @@
           return true;
         },
         tick(t, dt) {
-          publish(t);
+          if(inputKeys.length||poking)publish(t); // 누르고 있는 동안만 0.1초마다 갱신한다(서버의 키 유효 시간 0.35초). 놓은 순간은 setInput 이 바로 보낸다
           const blend = 1 - Math.exp(-dt * 18);
           for (const peer of [player,...peers.values()]) {
             if(!Number.isFinite(peer.targetX))continue;
