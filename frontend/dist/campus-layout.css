@@ -71,3 +71,10 @@ html,body{width:100%;height:100%;overflow:hidden}
  .map-shell .map-player .account-name{max-width:135px}
  .map-shell .map-footer .map-player-copy{flex-direction:column;align-items:flex-start;gap:3px}
 }
+
+.map-shell .map-footer .jump-key-button{display:inline-flex;align-items:center;gap:5px;margin:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;white-space:nowrap}
+.map-shell .map-footer .jump-key-button>span{display:inline;margin:0}
+.map-shell .map-footer .jump-key-button kbd{min-width:37px;height:23px}
+@media(max-width:700px){.map-shell .map-footer .jump-key-button kbd{display:inline-flex;min-width:34px;height:21px;font-size:9px}}
+
+.map-shell .map-controls[hidden]{display:none}

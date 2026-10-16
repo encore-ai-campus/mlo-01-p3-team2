@@ -1002,10 +1002,12 @@
     }
     function drawActor(ctx,actor,t,zoom,labelText,self) {
       const q=projectActor(actor);ctx.save();ctx.translate(q.x,q.y);
-      ctx.fillStyle='#304d4038';ctx.beginPath();ctx.ellipse(0,1,7,2.8,0,0,Math.PI*2);ctx.fill();
+      const jumpHeight=window.CampusJump?.height(actor,t)||0,jumpScale=window.CampusJump?.squash(actor,t)||1;
+      ctx.fillStyle=jumpHeight?'#304d4028':'#304d4038';ctx.beginPath();ctx.ellipse(0,1,7-jumpHeight*.025,2.8-jumpHeight*.008,0,0,Math.PI*2);ctx.fill();
+      ctx.translate(0,-jumpHeight);ctx.scale(1/jumpScale,jumpScale);
       ctx.translate(0,-(actor.stairMotion?.lift||0));ctx.rotate(actor.stairMotion?.lean||0);
       window.CampusPoke?.react(ctx,actor,t,P);window.CampusPoke?.draw(ctx,actor,t,P,true);
-      const body=window.CampusPoke?.pose(actor,t)||actor;
+      const poked=window.CampusPoke?.pose(actor,t)||actor,body=window.CampusJump?.pose(poked,t)||poked;
       ctx.save();if(actor.seated){ctx.beginPath();ctx.rect(-22,-45,44,34);ctx.clip();}
       if(!D.drawActor?.(ctx,body,t)&&!window.CampusAvatars?.draw(ctx,body,t)){
         ctx.fillStyle=actor.color||'#4e9b91';ctx.fillRect(-5,-21,10,18);
@@ -1014,11 +1016,11 @@
       ctx.restore();
       window.CampusPoke?.draw(ctx,actor,t,P,false);window.CampusPoke?.contact(ctx,actor,t,P);
       ctx.restore();
-      if(labelText)drawName(ctx,actor,zoom,labelText,self);
+      if(labelText)drawName(ctx,actor,zoom,labelText,self,t);
     }
     // Draw names above the scenery so a pillar cannot cover another user's name.
-    function drawName(ctx,actor,zoom,labelText,self) {
-      const q=projectActor(actor),scale=1/Math.max(zoom,.55);ctx.save();ctx.translate(q.x,q.y-(window.CampusAvatars?.size||40)-12*scale);ctx.scale(scale,scale);ctx.font=`600 11px ${font}`;const w=Math.min(155,ctx.measureText(labelText).width+16);ctx.fillStyle='#ffffffec';ctx.beginPath();ctx.roundRect(-w/2,-9,w,18,5);ctx.fill();ctx.fillStyle=self?'#256b59':'#3e5764';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(labelText,0,0,w-8);ctx.restore();
+    function drawName(ctx,actor,zoom,labelText,self,t=performance.now()) {
+      const q=projectActor(actor),scale=1/Math.max(zoom,.55);ctx.save();ctx.translate(q.x,q.y-(window.CampusJump?.height(actor,t)||0)-(window.CampusAvatars?.size||40)-12*scale);ctx.scale(scale,scale);ctx.font=`600 11px ${font}`;const w=Math.min(155,ctx.measureText(labelText).width+16);ctx.fillStyle='#ffffffec';ctx.beginPath();ctx.roundRect(-w/2,-9,w,18,5);ctx.fill();ctx.fillStyle=self?'#256b59':'#3e5764';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(labelText,0,0,w-8);ctx.restore();
     }
     function compare(a,b) {
       if(Boolean(a.actor)!==Boolean(b.actor)) {
@@ -1047,7 +1049,7 @@
       }
       for(const sprite of visible.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(ctx,sprite);
       drawLabels(ctx,actors);
-      for(const actor of actors)if(actor===actors[0]||(showNicknames&&actor.nickname))drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0]);
+      for(const actor of actors)if(actor===actors[0]||(showNicknames&&actor.nickname))drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0],t);
     }
     return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState};
   }
