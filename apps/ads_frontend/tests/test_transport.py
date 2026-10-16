@@ -1,10 +1,12 @@
 """프론트의 전달과 통과(설계 §6.6 "6-15 분리"): 입력·쿠키는 그대로 백엔드로, 백엔드 응답은 그대로 브라우저로. 실제 HTTP 로 가짜 백엔드를 띄워 본다."""
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 
 
 class FakeBackend(BaseHTTPRequestHandler):
@@ -121,6 +123,24 @@ class RouteTests(SimpleTestCase):
         self.assertEqual(reverse("operator:media_list"), "/dev-admin/operator/media/")
         self.assertEqual(reverse("admin:index"), "/dev-admin/")
         self.assertEqual(reverse("login"), "/accounts/login/")
+
+    def test_every_url_name_in_the_templates_resolves(self):
+        """템플릿이 거는 {% url %} 이름은 모두 프론트의 경로 표에 있다 — 없으면 그 화면이 프론트에서만 500 이다(6-22: 운영 화면 광고주 상세의
+        '비밀번호 초기화'. 백엔드 시험은 백엔드의 URL 설정으로 그려 잡지 못했다)."""
+        missing = []
+        for template in (Path(settings.BASE_DIR) / "ui/templates").rglob("*.html"):
+            for name in re.findall(r"\{%\s*url\s+['\"]([^'\"]+)['\"]", template.read_text(encoding="utf-8")):
+                if not any(self.resolves(name, n) for n in range(4)):  # 인자 수는 화면마다 다르다(0~3)
+                    missing.append(f"{template.name}: {name}")
+        self.assertEqual(missing, [])
+
+    @staticmethod
+    def resolves(name, count):
+        try:
+            reverse(name, args=["x"] * count)
+            return True
+        except NoReverseMatch:
+            return False
 
 
 @override_settings(WHITENOISE_USE_FINDERS=True)

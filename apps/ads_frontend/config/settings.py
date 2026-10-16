@@ -86,5 +86,9 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {"ui": {"handlers": ["console"], "level": "INFO"}},
+    "loggers": {
+        "ui": {"handlers": ["console"], "level": "INFO"},
+        # 프론트의 500(그리기 실패 등)도 서비스 로그(journalctl -u ads-front)에 남긴다 — Django 기본은 DEBUG 가 꺼지면 mail_admins 로만 보낸다(6-22)
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},  # DEBUG 에서 두 번 찍히지 않게
+    },
 }

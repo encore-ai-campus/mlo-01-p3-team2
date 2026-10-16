@@ -55,8 +55,9 @@ OPERATOR = [  # 백엔드 console/operator/urls.py — 관리 사이트 경로 +
     ("assets/<str:name>", "asset"),
 ]
 
-ADMIN = [  # Django admin(관리 사이트 경로 아래, 이름공간 admin) 중 관리 템플릿이 거는 것만. 화면은 백엔드가 그리고 프론트는 통과시킨다
+ADMIN = [  # Django admin(관리 사이트 경로 아래, 이름공간 admin) 중 관리 템플릿과 운영 화면이 거는 것만. 화면은 백엔드가 그리고 프론트는 통과시킨다
     ("", "index"),
     ("logout/", "logout"),
     ("password_change/", "password_change"),
+    ("foundation/user/<id>/password/", "auth_user_password_change"),  # 운영 화면 광고주 상세의 '비밀번호 초기화'(Django UserAdmin 이 모델과 상관없이 이 이름을 쓴다)
 ]
