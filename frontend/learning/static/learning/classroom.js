@@ -1,7 +1,7 @@
 /* Private classroom: collect keys, render accepted state, and show server decisions. */
 (() => {
   'use strict';
-  function create({onOpen=()=>{},onExit=()=>{},getPlayer,getControl,onPoke=()=>{},onJump=()=>{}}) {
+  function create({onOpen=()=>{},onExit=()=>{},getPlayer,getControl,onPoke=()=>{},onJump=()=>{},pixelScale=()=>Math.min(window.devicePixelRatio||1,2)}) {
     const dialog=document.getElementById('classroomDialog'),canvas=document.getElementById('classroomCanvas');
     const ctx=canvas.getContext('2d'),keys=new Set(),suppressedKeys=new Set();
     const areaHint=document.getElementById('classroomAreaHint'),prompt=document.getElementById('classroomPrompt');
@@ -72,7 +72,7 @@
       const blend=1-Math.exp(-dt*18);
       actor.x+=(actor.targetX-actor.x)*blend;actor.y+=(actor.targetY-actor.y)*blend;
       actor.walkTime=actor.moving?(actor.walkTime||0)+dt:0;actor.avatar=getPlayer().avatar;
-      const bounds=canvas.getBoundingClientRect(),width=bounds.width,height=bounds.height,dpr=Math.min(window.devicePixelRatio||1,2);
+      const bounds=canvas.getBoundingClientRect(),width=bounds.width,height=bounds.height,dpr=pixelScale(width,height);
       if(!width||!height)return;
       if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
       const P=renderer.projection,view=map.data.viewBounds,zoom=Math.min(width/view.w,height/view.h),camera={zoom,x:(width-view.w*zoom)/2-view.x*zoom,y:(height-view.h*zoom)/2-view.y*zoom};

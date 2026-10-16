@@ -31,6 +31,11 @@
   const camera={x:0,y:0,zoom:DEFAULT_ZOOM,follow:true}, player={...initialPosition,avatar,color:window.CampusAvatars.definitions[avatar].color,moving:false,step:0,walkTime:0};
   let logoutPending=false,serverHints={};
   let vw=0,vh=0,dpr=1,nearby=null,hover=null,lastRoom='',lastTime=0,toastTimer;
+  // 그리기 상한(계획 B1·B2): 화면 주사율·Retina 배율과 상관없이 초당 60번, 캔버스 1920×1680 화소까지만 그린다(비율 유지, 원래 배율보다 키우지 않는다)
+  const FRAME_MS=1000/60,MAX_CANVAS_WIDTH=1920,MAX_CANVAS_HEIGHT=1680;let nextFrameAt=0;
+  const pixelScale=(width,height)=>Math.min(devicePixelRatio||1,2,MAX_CANVAS_WIDTH/width,MAX_CANVAS_HEIGHT/height);
+  // 1ms 여유: 60Hz 화면의 시각 흔들림으로 프레임을 놓치지 않는다. 120·144Hz 에서는 평균 60번이 된다
+  const frameDue=t=>{if(t<nextFrameAt-1)return false;nextFrameAt=Math.max(nextFrameAt+FRAME_MS,t);return true;};
   const keys=new Set();
   const movementKeys=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
   const suppressedKeys=new Set();
@@ -50,7 +55,7 @@
   const social=window.CampusSocial.create({config:accountConfig,onFocus(){keys.clear();player.moving=false;},onSend:text=>presence.sendChat(text),getSelfId:()=>presence.selfId});
   let pendingTransfer=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
-  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,onPoke:()=>poke.setHeld(true),
+  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,pixelScale,onPoke:()=>poke.setHeld(true),
     onOpen(){keys.clear();player.moving=false;jump.reset();},
     onJump:()=>jump.trigger(),
     onExit(){keys.clear();focusPlayer();canvas.focus({preventScroll:true});}
@@ -101,7 +106,7 @@
     $('cameraStatus').textContent=camera.follow?'내 위치 고정':'자유 보기 · 드래그';$('cameraHint').textContent=camera.follow?'내 위치 화면':'자유 보기';canvas.style.cursor=isAdmin&&!camera.follow?'grab':'default';
   }
   function resize(){
-    const oldWidth=vw,oldHeight=vh,r=viewport.getBoundingClientRect();vw=r.width;vh=r.height;dpr=Math.min(devicePixelRatio||1,2);
+    const oldWidth=vw,oldHeight=vh,r=viewport.getBoundingClientRect();vw=r.width;vh=r.height;dpr=pixelScale(vw,vh);
     canvas.width=Math.round(vw*dpr);canvas.height=Math.round(vh*dpr);
     if(camera.follow)focusPlayer();else{camera.x+=(vw-oldWidth)/2;camera.y+=(vh-oldHeight)/2;}updateZoom();
   }
@@ -114,6 +119,7 @@
     social.render(t,{actors,camera,projectActor:actor=>{const q=renderer.projectActor(actor);return {...q,y:q.y-window.CampusJump.height(actor,t)};},selfId:presence.selfId,floor:D.id,avatarSize:window.CampusAvatars.size});
   }
   function update(t){
+    if(!frameDue(t)){requestAnimationFrame(update);return;}
     const dt=Math.min((t-lastTime)/1000,.04)||.016;lastTime=t;
     if(!classroom.blocking)presence.setInput(!isDialogOpen()?[...keys]:[]);
     jump.tick(t);classroom.tick(t,dt);poke.tick(t);checkExit();
