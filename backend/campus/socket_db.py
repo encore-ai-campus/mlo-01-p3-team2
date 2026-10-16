@@ -9,17 +9,15 @@ import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor
 
-from django.db import close_old_connections, connections
+from django.db import close_old_connections
 
-KEEP_SECONDS = 60
+from config.connections import keep_thread_connection
+
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="campus-socket-db")
 
 
 def _call(fn, args, kwargs):
-    database = connections["default"]
-    if database.settings_dict.get("CONN_MAX_AGE") != KEEP_SECONDS:
-        # 이 스레드의 연결 객체에만 적용된다(다른 스레드·HTTP 요청은 그대로 CONN_MAX_AGE=0). 발행기(eventing/publisher.py)와 같은 방식
-        database.settings_dict = {**database.settings_dict, "CONN_MAX_AGE": KEEP_SECONDS, "CONN_HEALTH_CHECKS": True}
+    keep_thread_connection()  # 이 스레드의 연결만 이어 쓴다(HTTP 요청은 그대로)
     close_old_connections()  # 오래됐거나 오류가 난 연결만 닫는다
     return fn(*args, **kwargs)
 
