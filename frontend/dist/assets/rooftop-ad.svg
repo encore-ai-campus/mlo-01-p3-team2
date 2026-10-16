@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="540" viewBox="0 0 900 540">
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#173f39"/><stop offset="1" stop-color="#417d68"/></linearGradient></defs>
+  <rect width="900" height="540" fill="url(#bg)"/>
+  <circle cx="800" cy="430" r="250" fill="#f0bc70" fill-opacity=".15"/><circle cx="825" cy="455" r="170" fill="none" stroke="#f5dd9c" stroke-width="18"/>
+  <path d="M700 380L845 380L845 470L700 470Z" fill="#e6b469"/><path d="M750 330L750 470" stroke="#fff0c7" stroke-width="12"/>
+  <text x="65" y="90" font-family="Malgun Gothic, sans-serif" font-size="38" font-weight="700" fill="#dcebe2">PLAYDATA</text>
+  <text x="65" y="250" font-family="Malgun Gothic, sans-serif" font-size="78" font-weight="700" fill="#fff6df">캠퍼스 소식</text>
+  <text x="70" y="340" font-family="Malgun Gothic, sans-serif" font-size="32" fill="#dcebe2">함께 만드는 우리의 공간</text>
+  <rect x="65" y="418" width="292" height="52" rx="26" fill="#f4d599"/><text x="211" y="452" text-anchor="middle" font-family="Malgun Gothic, sans-serif" font-size="23" font-weight="700" fill="#36564a">광고 · 행사 안내</text>
+</svg>

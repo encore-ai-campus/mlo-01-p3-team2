@@ -1,0 +1,3993 @@
+[
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   73,
+   8,
+   73,
+   31
+  ],
+  "kind": "drop-call",
+  "before": "super().__init__(items)",
+  "after": "pass",
+  "id": "m001"
+ },
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   76,
+   68,
+   76,
+   69
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m002"
+ },
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   76,
+   80,
+   76,
+   81
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m003"
+ },
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   80,
+   7,
+   80,
+   30
+  ],
+  "kind": "negate",
+  "before": "isinstance(value, list)",
+  "after": "not (isinstance(value, list))",
+  "id": "m004"
+ },
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   104,
+   11,
+   104,
+   37
+  ],
+  "kind": "compare",
+  "before": "row[\"choices\"] is not None",
+  "after": "row['choices'] is None",
+  "id": "m005"
+ },
+ {
+  "file": "apps/ads_frontend/ui/rendering.py",
+  "span": [
+   109,
+   7,
+   109,
+   22
+  ],
+  "kind": "negate",
+  "before": "schema[\"bound\"]",
+  "after": "not (schema[\"bound\"])",
+  "id": "m006"
+ },
+ {
+  "file": "apps/ads_frontend/ui/templatetags/console_chart.py",
+  "span": [
+   17,
+   37,
+   17,
+   39
+  ],
+  "kind": "int+1",
+  "before": "10",
+  "after": "11",
+  "id": "m007"
+ },
+ {
+  "file": "apps/ads_frontend/ui/templatetags/console_chart.py",
+  "span": [
+   25,
+   63,
+   25,
+   73
+  ],
+  "kind": "add/sub",
+  "before": "HEIGHT - 6",
+  "after": "HEIGHT + 6",
+  "id": "m008"
+ },
+ {
+  "file": "apps/ads_frontend/ui/templatetags/console_format.py",
+  "span": [
+   75,
+   7,
+   75,
+   19
+  ],
+  "kind": "negate",
+  "before": "not previous",
+  "after": "not (not previous)",
+  "id": "m009"
+ },
+ {
+  "file": "apps/ads_frontend/ui/templatetags/console_format.py",
+  "span": [
+   77,
+   15,
+   77,
+   33
+  ],
+  "kind": "add/sub",
+  "before": "current - previous",
+  "after": "current + previous",
+  "id": "m010"
+ },
+ {
+  "file": "apps/ads_server/assets/storage.py",
+  "span": [
+   32,
+   8,
+   32,
+   67
+  ],
+  "kind": "drop-call",
+  "before": "final.parent.mkdir(parents=True, exist_ok=True, mode=0o750)",
+  "after": "pass",
+  "id": "m011"
+ },
+ {
+  "file": "apps/ads_server/assets/storage.py",
+  "span": [
+   38,
+   16,
+   38,
+   36
+  ],
+  "kind": "drop-call",
+  "before": "os.fsync(f.fileno())",
+  "after": "pass",
+  "id": "m012"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   58,
+   11,
+   58,
+   55
+  ],
+  "kind": "compare",
+  "before": "PROFILE_SPACE_TO_MODE.get(space) != img.mode",
+  "after": "PROFILE_SPACE_TO_MODE.get(space) == img.mode",
+  "id": "m013"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   78,
+   34,
+   78,
+   49
+  ],
+  "kind": "compare",
+  "before": "img.mode == \"L\"",
+  "after": "img.mode != 'L'",
+  "id": "m014"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   79,
+   35,
+   79,
+   61
+  ],
+  "kind": "compare",
+  "before": "img.mode in (\"RGBA\", \"LA\")",
+  "after": "img.mode not in ('RGBA', 'LA')",
+  "id": "m015"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   116,
+   7,
+   116,
+   29
+  ],
+  "kind": "compare",
+  "before": "out.tell() > max_bytes",
+  "after": "out.tell() >= max_bytes",
+  "id": "m016"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   125,
+   35,
+   125,
+   36
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m017"
+ },
+ {
+  "file": "apps/ads_server/assets/validation.py",
+  "span": [
+   167,
+   90,
+   167,
+   91
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m018"
+ },
+ {
+  "file": "apps/ads_server/assets/views.py",
+  "span": [
+   20,
+   7,
+   20,
+   29
+  ],
+  "kind": "negate",
+  "before": "not asset_exists(name)",
+  "after": "not (not asset_exists(name))",
+  "id": "m019"
+ },
+ {
+  "file": "apps/ads_server/billing/management/commands/check_ledger.py",
+  "span": [
+   15,
+   12,
+   15,
+   32
+  ],
+  "kind": "drop-call",
+  "before": "self.stderr.write(p)",
+  "after": "pass",
+  "id": "m020"
+ },
+ {
+  "file": "apps/ads_server/billing/management/commands/check_ledger.py",
+  "span": [
+   16,
+   11,
+   16,
+   19
+  ],
+  "kind": "negate",
+  "before": "problems",
+  "after": "not (problems)",
+  "id": "m021"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   32,
+   4,
+   32,
+   73
+  ],
+  "kind": "drop-call",
+  "before": "record_audit(None, action, target=target, actor=actor, detail=detail)",
+  "after": "pass",
+  "id": "m022"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   46,
+   11,
+   46,
+   43
+  ],
+  "kind": "compare",
+  "before": "0 <= balance_after <= MAX_AMOUNT",
+  "after": "0 < balance_after <= MAX_AMOUNT",
+  "id": "m023"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   48,
+   15,
+   48,
+   116
+  ],
+  "kind": "boolop",
+  "before": "LedgerEntry.objects.filter(wallet=wallet).order_by(\"-seq\").values_list(\"seq\", flat=True).first() or 0",
+  "after": "LedgerEntry.objects.filter(wallet=wallet).order_by('-seq').values_list('seq', flat=True).first() and 0",
+  "id": "m024"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   48,
+   115,
+   48,
+   116
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m025"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   79,
+   11,
+   79,
+   42
+  ],
+  "kind": "boolop",
+  "before": "existing is None and points > 0",
+  "after": "existing is None or points > 0",
+  "id": "m026"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   81,
+   12,
+   81,
+   99
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"billing.signup_grant\", (\"billing.wallet\", wallet.pk), {\"amount\": points})",
+  "after": "pass",
+  "id": "m027"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   97,
+   43,
+   97,
+   46
+  ],
+  "kind": "int+1",
+  "before": "200",
+  "after": "201",
+  "id": "m028"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   98,
+   29,
+   98,
+   40
+  ],
+  "kind": "compare",
+  "before": "amount == 0",
+  "after": "amount != 0",
+  "id": "m029"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   258,
+   69,
+   258,
+   70
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m030"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   310,
+   12,
+   313,
+   14
+  ],
+  "kind": "drop-call",
+  "before": "found.append(ChargeEntryView(\n                entry_id=e.entry_id, campaign_id=e.campaign_id, charge_policy=e.charge_policy, reaction_ref=e.reaction_ref, charged=-e.amount,\n                shortfall=e.shortfall, created_at=e.created_at,\n            ))",
+  "after": "pass",
+  "id": "m031"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   332,
+   7,
+   332,
+   33
+  ],
+  "kind": "negate",
+  "before": "connection.in_atomic_block",
+  "after": "not (connection.in_atomic_block)",
+  "id": "m032"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   333,
+   11,
+   333,
+   20
+  ],
+  "kind": "negate",
+  "before": "quiescent",
+  "after": "not (quiescent)",
+  "id": "m033"
+ },
+ {
+  "file": "apps/ads_server/billing/services.py",
+  "span": [
+   358,
+   16,
+   358,
+   108
+  ],
+  "kind": "drop-call",
+  "before": "problems.append(f\"지갑 {wallet.pk}: 원장 {entry.entry_id} 의 seq={entry.seq}, 기대={expected_seq}\")",
+  "after": "pass",
+  "id": "m034"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   148,
+   57,
+   148,
+   60
+  ],
+  "kind": "negate",
+  "before": "bid",
+  "after": "not (bid)",
+  "id": "m035"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   175,
+   7,
+   175,
+   23
+  ],
+  "kind": "compare",
+  "before": "done is not None",
+  "after": "done is None",
+  "id": "m036"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   193,
+   12,
+   193,
+   129
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"campaign.created\", (\"campaigns.campaign\", c.campaign_id), {\"name\": name, \"daily_budget\": daily_budget})",
+  "after": "pass",
+  "id": "m037"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   247,
+   11,
+   247,
+   30
+  ],
+  "kind": "compare",
+  "before": "\"status\" in changes",
+  "after": "'status' not in changes",
+  "id": "m038"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   269,
+   8,
+   269,
+   109
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"campaign.updated\", (\"campaigns.campaign\", c.campaign_id), {\"changed\": sorted(changes)})",
+  "after": "pass",
+  "id": "m039"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   318,
+   8,
+   318,
+   120
+  ],
+  "kind": "drop-call",
+  "before": "_audit(actor, \"campaign.suspended\", (\"campaigns.campaign\", c.campaign_id), {\"from\": previous, \"reason\": reason})",
+  "after": "pass",
+  "id": "m040"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   328,
+   4,
+   328,
+   24
+  ],
+  "kind": "drop-call",
+  "before": "require_admin(actor)",
+  "after": "pass",
+  "id": "m041"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   340,
+   8,
+   340,
+   81
+  ],
+  "kind": "drop-call",
+  "before": "_audit(actor, \"campaign.released\", (\"campaigns.campaign\", c.campaign_id))",
+  "after": "pass",
+  "id": "m042"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   354,
+   15,
+   354,
+   51
+  ],
+  "kind": "compare",
+  "before": "c.status != CampaignStatus.SUSPENDED",
+  "after": "c.status == CampaignStatus.SUSPENDED",
+  "id": "m043"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   359,
+   12,
+   359,
+   146
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"campaign.review_requested\", (\"campaigns.campaign\", c.campaign_id), {\"review_request_id\": str(review.review_request_id)})",
+  "after": "pass",
+  "id": "m044"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   372,
+   4,
+   372,
+   28
+  ],
+  "kind": "drop-call",
+  "before": "require_advertiser(user)",
+  "after": "pass",
+  "id": "m045"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   393,
+   8,
+   393,
+   37
+  ],
+  "kind": "drop-call",
+  "before": "tr.assert_open(campaign, now)",
+  "after": "pass",
+  "id": "m046"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   445,
+   11,
+   445,
+   26
+  ],
+  "kind": "compare",
+  "before": "key not in seen",
+  "after": "key in seen",
+  "id": "m047"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   488,
+   7,
+   488,
+   32
+  ],
+  "kind": "compare",
+  "before": "len(set(ids)) != len(ids)",
+  "after": "len(set(ids)) == len(ids)",
+  "id": "m048"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   493,
+   11,
+   493,
+   23
+  ],
+  "kind": "compare",
+  "before": "slot is None",
+  "after": "slot is not None",
+  "id": "m049"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   614,
+   7,
+   614,
+   52
+  ],
+  "kind": "negate",
+  "before": "not (slot.is_active and slot.media_is_active)",
+  "after": "not (not (slot.is_active and slot.media_is_active))",
+  "id": "m050"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   673,
+   8,
+   673,
+   87
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"creative.created\", (\"campaigns.creative\", c.creative_id), detail)",
+  "after": "pass",
+  "id": "m051"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   680,
+   7,
+   680,
+   85
+  ],
+  "kind": "negate",
+  "before": "not AdGroupCreative.objects.filter(ad_group=group, creative=creative).exists()",
+  "after": "not (not AdGroupCreative.objects.filter(ad_group=group, creative=creative).exists())",
+  "id": "m052"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   682,
+   18,
+   682,
+   43
+  ],
+  "kind": "compare",
+  "before": "group.creative_id is None",
+  "after": "group.creative_id is not None",
+  "id": "m053"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   692,
+   4,
+   692,
+   28
+  ],
+  "kind": "drop-call",
+  "before": "require_advertiser(user)",
+  "after": "pass",
+  "id": "m054"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   697,
+   8,
+   697,
+   32
+  ],
+  "kind": "drop-call",
+  "before": "_link(g, c, now, select)",
+  "after": "pass",
+  "id": "m055"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   699,
+   8,
+   699,
+   159
+  ],
+  "kind": "drop-call",
+  "before": "_audit(user, \"creative.linked\", (\"campaigns.creative\", c.creative_id), {\"ad_group_id\": str(g.ad_group_id), \"selected\": g.creative_id == c.creative_id})",
+  "after": "pass",
+  "id": "m056"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   731,
+   8,
+   731,
+   157
+  ],
+  "kind": "drop-call",
+  "before": "uses.setdefault(link.creative_id, []).append(CreativeUse(g.ad_group_id, g.name, c.campaign_id, c.name, not ended, g.creative_id == link.creative_id))",
+  "after": "pass",
+  "id": "m057"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   743,
+   44,
+   743,
+   68
+  ],
+  "kind": "add/sub",
+  "before": "prefix + item[\"pointer\"]",
+  "after": "prefix - item['pointer']",
+  "id": "m058"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   754,
+   7,
+   754,
+   50
+  ],
+  "kind": "compare",
+  "before": "(creative is None) == (creative_id is None)",
+  "after": "(creative is None) != (creative_id is None)",
+  "id": "m059"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   754,
+   8,
+   754,
+   24
+  ],
+  "kind": "compare",
+  "before": "creative is None",
+  "after": "creative is not None",
+  "id": "m060"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   766,
+   15,
+   766,
+   38
+  ],
+  "kind": "compare",
+  "before": "creative_id is not None",
+  "after": "creative_id is None",
+  "id": "m061"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   771,
+   16,
+   771,
+   88
+  ],
+  "kind": "drop-call",
+  "before": "AdGroup.objects.filter(pk=g.ad_group_id).update(request_key=request_key)",
+  "after": "pass",
+  "id": "m062"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   810,
+   71,
+   810,
+   84
+  ],
+  "kind": "compare",
+  "before": "u is not None",
+  "after": "u is None",
+  "id": "m063"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   811,
+   33,
+   811,
+   41
+  ],
+  "kind": "boolop",
+  "before": "u or raw",
+  "after": "u and raw",
+  "id": "m064"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   836,
+   4,
+   836,
+   28
+  ],
+  "kind": "drop-call",
+  "before": "require_advertiser(user)",
+  "after": "pass",
+  "id": "m065"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   839,
+   7,
+   839,
+   29
+  ],
+  "kind": "boolop",
+  "before": "unknown or not changes",
+  "after": "unknown and (not changes)",
+  "id": "m066"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   863,
+   8,
+   863,
+   69
+  ],
+  "kind": "drop-call",
+  "before": "_assert_seen(expected_updated_at, c.updated_at, again=\"바꾸세요\")",
+  "after": "pass",
+  "id": "m067"
+ },
+ {
+  "file": "apps/ads_server/campaigns/services.py",
+  "span": [
+   890,
+   63,
+   890,
+   64
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m068"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   44,
+   4,
+   44,
+   71
+  ],
+  "kind": "drop-call",
+  "before": "review.save(update_fields=[\"status\", \"response_note\", \"closed_at\"])",
+  "after": "pass",
+  "id": "m069"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   50,
+   7,
+   50,
+   16
+  ],
+  "kind": "compare",
+  "before": "by != who",
+  "after": "by == who",
+  "id": "m070"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   52,
+   7,
+   52,
+   31
+  ],
+  "kind": "compare",
+  "before": "campaign.status == ENDED",
+  "after": "campaign.status != ENDED",
+  "id": "m071"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   58,
+   7,
+   58,
+   42
+  ],
+  "kind": "compare",
+  "before": "campaign.status not in allowed_from",
+  "after": "campaign.status in allowed_from",
+  "id": "m072"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   76,
+   8,
+   76,
+   137
+  ],
+  "kind": "drop-call",
+  "before": "ReviewRequest.objects.filter(campaign=campaign, status=ReviewStatus.OPEN).update(status=ReviewStatus.CLOSED_ENDED, closed_at=now)",
+  "after": "pass",
+  "id": "m073"
+ },
+ {
+  "file": "apps/ads_server/campaigns/transitions.py",
+  "span": [
+   99,
+   4,
+   99,
+   135
+  ],
+  "kind": "drop-call",
+  "before": "ReviewRequest.objects.filter(campaign_id__in=due, status=ReviewStatus.OPEN).update(status=ReviewStatus.CLOSED_ENDED, closed_at=now)",
+  "after": "pass",
+  "id": "m074"
+ },
+ {
+  "file": "apps/ads_server/config/access_map.py",
+  "span": [
+   13,
+   7,
+   13,
+   81
+  ],
+  "kind": "boolop",
+  "before": "not path or path.startswith(\"/\") or not path.endswith(\"/\") or \"//\" in path",
+  "after": "not path and path.startswith('/') and (not path.endswith('/')) and ('//' in path)",
+  "id": "m075"
+ },
+ {
+  "file": "apps/ads_server/config/access_map.py",
+  "span": [
+   13,
+   69,
+   13,
+   81
+  ],
+  "kind": "compare",
+  "before": "\"//\" in path",
+  "after": "'//' not in path",
+  "id": "m076"
+ },
+ {
+  "file": "apps/ads_server/config/access_map.py",
+  "span": [
+   15,
+   7,
+   15,
+   23
+  ],
+  "kind": "compare",
+  "before": "path == \"admin/\"",
+  "after": "path != 'admin/'",
+  "id": "m077"
+ },
+ {
+  "file": "apps/ads_server/config/access_map.py",
+  "span": [
+   15,
+   7,
+   15,
+   45
+  ],
+  "kind": "boolop",
+  "before": "path == \"admin/\" and not allow_default",
+  "after": "path == 'admin/' or not allow_default",
+  "id": "m078"
+ },
+ {
+  "file": "apps/ads_server/config/env.py",
+  "span": [
+   13,
+   23,
+   13,
+   48
+  ],
+  "kind": "boolop",
+  "before": "path or BASE_DIR / \".env\"",
+  "after": "path and BASE_DIR / '.env'",
+  "id": "m079"
+ },
+ {
+  "file": "apps/ads_server/config/env.py",
+  "span": [
+   21,
+   4,
+   21,
+   18
+  ],
+  "kind": "drop-call",
+  "before": "load_env(path)",
+  "after": "pass",
+  "id": "m080"
+ },
+ {
+  "file": "apps/ads_server/config/env.py",
+  "span": [
+   22,
+   43,
+   22,
+   74
+  ],
+  "kind": "boolop",
+  "before": "explicit or WEB_SETTINGS_MODULE",
+  "after": "explicit and WEB_SETTINGS_MODULE",
+  "id": "m081"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   22,
+   8,
+   22,
+   21
+  ],
+  "kind": "drop-call",
+  "before": "_not_shown(e)",
+  "after": "pass",
+  "id": "m082"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   28,
+   7,
+   28,
+   41
+  ],
+  "kind": "negate",
+  "before": "isinstance(error, errors.NotFound)",
+  "after": "not (isinstance(error, errors.NotFound))",
+  "id": "m083"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   42,
+   31,
+   42,
+   32
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m084"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   50,
+   11,
+   50,
+   39
+  ],
+  "kind": "negate",
+  "before": "hasattr(error, \"error_dict\")",
+  "after": "not (hasattr(error, \"error_dict\"))",
+  "id": "m085"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   52,
+   40,
+   52,
+   65
+  ],
+  "kind": "compare",
+  "before": "field != NON_FIELD_ERRORS",
+  "after": "field == NON_FIELD_ERRORS",
+  "id": "m086"
+ },
+ {
+  "file": "apps/ads_server/console/errors.py",
+  "span": [
+   52,
+   70,
+   52,
+   90
+  ],
+  "kind": "compare",
+  "before": "field in form.fields",
+  "after": "field not in form.fields",
+  "id": "m087"
+ },
+ {
+  "file": "apps/ads_server/console/forms.py",
+  "span": [
+   63,
+   12,
+   63,
+   27
+  ],
+  "kind": "drop-call",
+  "before": "self.is_valid()",
+  "after": "pass",
+  "id": "m088"
+ },
+ {
+  "file": "apps/ads_server/console/forms.py",
+  "span": [
+   195,
+   8,
+   195,
+   41
+  ],
+  "kind": "drop-call",
+  "before": "super().__init__(*args, **kwargs)",
+  "after": "pass",
+  "id": "m089"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   53,
+   80,
+   53,
+   82
+  ],
+  "kind": "int+1",
+  "before": "16",
+  "after": "17",
+  "id": "m090"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   84,
+   22,
+   84,
+   42
+  ],
+  "kind": "boolop",
+  "before": "request.POST or None",
+  "after": "request.POST and None",
+  "id": "m091"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   91,
+   11,
+   91,
+   25
+  ],
+  "kind": "compare",
+  "before": "status is None",
+  "after": "status is not None",
+  "id": "m092"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   92,
+   12,
+   92,
+   77
+  ],
+  "kind": "drop-call",
+  "before": "messages.success(request, f\"‘{slot.name}’의 입찰 정책을 새 버전으로 바꿨습니다.\")",
+  "after": "pass",
+  "id": "m093"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   96,
+   114,
+   96,
+   127
+  ],
+  "kind": "compare",
+  "before": "status == 409",
+  "after": "status != 409",
+  "id": "m094"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   102,
+   13,
+   102,
+   16
+  ],
+  "kind": "int+1",
+  "before": "200",
+  "after": "201",
+  "id": "m095"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   183,
+   33,
+   183,
+   79
+  ],
+  "kind": "boolop",
+  "before": "form.cleaned_data[\"review_request_id\"] or None",
+  "after": "form.cleaned_data['review_request_id'] and None",
+  "id": "m096"
+ },
+ {
+  "file": "apps/ads_server/console/operator/views.py",
+  "span": [
+   224,
+   57,
+   224,
+   63
+  ],
+  "kind": "negate",
+  "before": "active",
+  "after": "not (active)",
+  "id": "m097"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   48,
+   12,
+   49,
+   118
+  ],
+  "kind": "drop-call",
+  "before": "alerts.append(Alert(\"campaign_suspended\", \"critical\", \"campaign\", c.campaign_id,\n                                f\"‘{c.name}’ 캠페인을 관리자가 중단했습니다. 사유: {c.suspension.reason}\", c.suspension.suspended_at))",
+  "after": "pass",
+  "id": "m098"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   55,
+   62,
+   55,
+   78
+  ],
+  "kind": "compare",
+  "before": "c.ends_at <= now",
+  "after": "c.ends_at < now",
+  "id": "m099"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   57,
+   16,
+   57,
+   126
+  ],
+  "kind": "drop-call",
+  "before": "alerts.append(Alert(\"campaign_ended\", \"info\", \"campaign\", c.campaign_id, f\"‘{c.name}’ 캠페인이 끝났습니다.\", ended_at))",
+  "after": "pass",
+  "id": "m100"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   69,
+   11,
+   69,
+   31
+  ],
+  "kind": "compare",
+  "before": "remaining < cheapest",
+  "after": "remaining <= cheapest",
+  "id": "m101"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   84,
+   12,
+   85,
+   107
+  ],
+  "kind": "drop-call",
+  "before": "alerts.append(Alert(\"bid_capped\", \"info\", \"ad_group\", g.ad_group_id,\n                                f\"‘{g.name}’ 입찰이 상한을 넘어 구성 {capped}곳에서는 상한 금액으로 적용됩니다.\", g.bid_created_at))",
+  "after": "pass",
+  "id": "m102"
+ },
+ {
+  "file": "apps/ads_server/console/queries/alerts.py",
+  "span": [
+   95,
+   7,
+   95,
+   36
+  ],
+  "kind": "compare",
+  "before": "wallet.balance < max(applied)",
+  "after": "wallet.balance <= max(applied)",
+  "id": "m103"
+ },
+ {
+  "file": "apps/ads_server/console/queries/campaigns.py",
+  "span": [
+   51,
+   61,
+   51,
+   80
+  ],
+  "kind": "compare",
+  "before": "e.reason in reasons",
+  "after": "e.reason not in reasons",
+  "id": "m104"
+ },
+ {
+  "file": "apps/ads_server/console/queries/dashboard.py",
+  "span": [
+   11,
+   108,
+   11,
+   109
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m105"
+ },
+ {
+  "file": "apps/ads_server/console/views/account.py",
+  "span": [
+   22,
+   7,
+   22,
+   21
+  ],
+  "kind": "compare",
+  "before": "status is None",
+  "after": "status is not None",
+  "id": "m106"
+ },
+ {
+  "file": "apps/ads_server/console/views/account.py",
+  "span": [
+   23,
+   8,
+   23,
+   49
+  ],
+  "kind": "drop-call",
+  "before": "messages.success(request, \"내 정보를 바꿨습니다.\")",
+  "after": "pass",
+  "id": "m107"
+ },
+ {
+  "file": "apps/ads_server/console/views/ad_groups.py",
+  "span": [
+   25,
+   90,
+   25,
+   107
+  ],
+  "kind": "negate",
+  "before": "group.current_bid",
+  "after": "not (group.current_bid)",
+  "id": "m108"
+ },
+ {
+  "file": "apps/ads_server/console/views/ads.py",
+  "span": [
+   28,
+   82,
+   28,
+   89
+  ],
+  "kind": "negate",
+  "before": "effects",
+  "after": "not (effects)",
+  "id": "m109"
+ },
+ {
+  "file": "apps/ads_server/console/views/ads.py",
+  "span": [
+   59,
+   46,
+   59,
+   108
+  ],
+  "kind": "compare",
+  "before": "campaign in {str(c.campaign_id) for c in choices[\"campaigns\"]}",
+  "after": "campaign not in {str(c.campaign_id) for c in choices['campaigns']}",
+  "id": "m110"
+ },
+ {
+  "file": "apps/ads_server/console/views/ads.py",
+  "span": [
+   72,
+   11,
+   72,
+   27
+  ],
+  "kind": "compare",
+  "before": "done is not None",
+  "after": "done is None",
+  "id": "m111"
+ },
+ {
+  "file": "apps/ads_server/console/views/ads.py",
+  "span": [
+   98,
+   7,
+   98,
+   21
+  ],
+  "kind": "compare",
+  "before": "amount is None",
+  "after": "amount is not None",
+  "id": "m112"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   29,
+   54,
+   29,
+   55
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m113"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   51,
+   67,
+   51,
+   83
+  ],
+  "kind": "negate",
+  "before": "campaign.ends_at",
+  "after": "not (campaign.ends_at)",
+  "id": "m114"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   61,
+   90,
+   61,
+   115
+  ],
+  "kind": "compare",
+  "before": "name in form.changed_data",
+  "after": "name not in form.changed_data",
+  "id": "m115"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   63,
+   12,
+   63,
+   49
+  ],
+  "kind": "drop-call",
+  "before": "messages.info(request, \"바뀐 것이 없습니다.\")",
+  "after": "pass",
+  "id": "m116"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   66,
+   11,
+   66,
+   25
+  ],
+  "kind": "compare",
+  "before": "status is None",
+  "after": "status is not None",
+  "id": "m117"
+ },
+ {
+  "file": "apps/ads_server/console/views/campaigns.py",
+  "span": [
+   70,
+   17,
+   70,
+   20
+  ],
+  "kind": "int+1",
+  "before": "400",
+  "after": "401",
+  "id": "m118"
+ },
+ {
+  "file": "apps/ads_server/console/views/creatives.py",
+  "span": [
+   69,
+   7,
+   69,
+   25
+  ],
+  "kind": "compare",
+  "before": "status is not None",
+  "after": "status is None",
+  "id": "m119"
+ },
+ {
+  "file": "apps/ads_server/console/views/dashboard.py",
+  "span": [
+   30,
+   35,
+   30,
+   77
+  ],
+  "kind": "add/sub",
+  "before": "today - timedelta(days=chosen[\"days\"] - 1)",
+  "after": "today + timedelta(days=chosen['days'] - 1)",
+  "id": "m120"
+ },
+ {
+  "file": "apps/ads_server/console/views/dashboard.py",
+  "span": [
+   30,
+   98,
+   30,
+   123
+  ],
+  "kind": "add/sub",
+  "before": "today + timedelta(days=1)",
+  "after": "today - timedelta(days=1)",
+  "id": "m121"
+ },
+ {
+  "file": "apps/ads_server/engine/api.py",
+  "span": [
+   15,
+   11,
+   15,
+   39
+  ],
+  "kind": "compare",
+  "before": "c.slot_id != request.slot_id",
+  "after": "c.slot_id == request.slot_id",
+  "id": "m122"
+ },
+ {
+  "file": "apps/ads_server/engine/filters/budget.py",
+  "span": [
+   2,
+   27,
+   2,
+   83
+  ],
+  "kind": "compare",
+  "before": "candidate.remaining_daily_budget < effect.applied_amount",
+  "after": "candidate.remaining_daily_budget <= effect.applied_amount",
+  "id": "m123"
+ },
+ {
+  "file": "apps/ads_server/engine/filters/period.py",
+  "span": [
+   5,
+   7,
+   5,
+   43
+  ],
+  "kind": "compare",
+  "before": "candidate.period_start > request.now",
+  "after": "candidate.period_start >= request.now",
+  "id": "m124"
+ },
+ {
+  "file": "apps/ads_server/engine/filters/status.py",
+  "span": [
+   7,
+   7,
+   7,
+   37
+  ],
+  "kind": "negate",
+  "before": "not candidate.ad_group_enabled",
+  "after": "not (not candidate.ad_group_enabled)",
+  "id": "m125"
+ },
+ {
+  "file": "apps/ads_server/engine/pricing.py",
+  "span": [
+   22,
+   4,
+   22,
+   20
+  ],
+  "kind": "drop-call",
+  "before": "_int(\"cap\", cap)",
+  "after": "pass",
+  "id": "m126"
+ },
+ {
+  "file": "apps/ads_server/engine/types.py",
+  "span": [
+   29,
+   7,
+   29,
+   99
+  ],
+  "kind": "boolop",
+  "before": "not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != timedelta(0)",
+  "after": "not isinstance(value, datetime) and value.tzinfo is None and (value.utcoffset() != timedelta(0))",
+  "id": "m127"
+ },
+ {
+  "file": "apps/ads_server/engine/types.py",
+  "span": [
+   73,
+   8,
+   73,
+   58
+  ],
+  "kind": "drop-call",
+  "before": "_utc(\"period_end\", self.period_end, nullable=True)",
+  "after": "pass",
+  "id": "m128"
+ },
+ {
+  "file": "apps/ads_server/engine/types.py",
+  "span": [
+   84,
+   8,
+   84,
+   62
+  ],
+  "kind": "drop-call",
+  "before": "_int(\"applied_amount\", self.applied_amount, minimum=1)",
+  "after": "pass",
+  "id": "m129"
+ },
+ {
+  "file": "apps/ads_server/engine/types.py",
+  "span": [
+   84,
+   60,
+   84,
+   61
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m130"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   32,
+   21,
+   32,
+   53
+  ],
+  "kind": "boolop",
+  "before": "manifest.get(\"checkpoint\") or {}",
+  "after": "manifest.get('checkpoint') and {}",
+  "id": "m131"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   54,
+   59,
+   54,
+   84
+  ],
+  "kind": "compare",
+  "before": "size != timedelta(days=1)",
+  "after": "size == timedelta(days=1)",
+  "id": "m132"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   83,
+   7,
+   83,
+   58
+  ],
+  "kind": "boolop",
+  "before": "expected_kind is not None and kind != expected_kind",
+  "after": "expected_kind is not None or kind != expected_kind",
+  "id": "m133"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   103,
+   11,
+   103,
+   23
+  ],
+  "kind": "compare",
+  "before": "key in lines",
+  "after": "key not in lines",
+  "id": "m134"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   120,
+   8,
+   121,
+   58
+  ],
+  "kind": "drop-call",
+  "before": "out.append({\"pair\": pair, \"window_start\": window, \"event_name\": name, \"status\": status, \"fields\": fields,\n                    \"a\": _summary(la), \"b\": _summary(lb)})",
+  "after": "pass",
+  "id": "m135"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   124,
+   8,
+   124,
+   130
+  ],
+  "kind": "drop-call",
+  "before": "out.append({\"pair\": pair, \"window_start\": window, \"event_name\": None, \"status\": OPEN, \"fields\": [], \"a\": None, \"b\": None})",
+  "after": "pass",
+  "id": "m136"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   134,
+   35,
+   134,
+   59
+  ],
+  "kind": "compare",
+  "before": "window in b.open_windows",
+  "after": "window not in b.open_windows",
+  "id": "m137"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   138,
+   26,
+   138,
+   40
+  ],
+  "kind": "compare",
+  "before": "lb is not None",
+  "after": "lb is None",
+  "id": "m138"
+ },
+ {
+  "file": "apps/ads_server/events/hopcheck.py",
+  "span": [
+   140,
+   57,
+   140,
+   65
+  ],
+  "kind": "boolop",
+  "before": "lb or {}",
+  "after": "lb and {}",
+  "id": "m139"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   70,
+   15,
+   70,
+   26
+  ],
+  "kind": "add/sub",
+  "before": "sign + \"0.\"",
+  "after": "sign - '0.'",
+  "id": "m140"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   71,
+   12,
+   71,
+   13
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m141"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   72,
+   31,
+   72,
+   32
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m142"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   72,
+   38,
+   72,
+   43
+  ],
+  "kind": "compare",
+  "before": "k > 1",
+  "after": "k >= 1",
+  "id": "m143"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   72,
+   42,
+   72,
+   43
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m144"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   90,
+   15,
+   90,
+   69
+  ],
+  "kind": "add/sub",
+  "before": "\"[\" + \",\".join(canonical_json(v) for v in value) + \"]\"",
+  "after": "'[' + ','.join((canonical_json(v) for v in value)) - ']'",
+  "id": "m145"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   93,
+   15,
+   93,
+   108
+  ],
+  "kind": "add/sub",
+  "before": "\"{\" + \",\".join(json.dumps(k, ensure_ascii=False) + \":\" + canonical_json(v) for k, v in items)",
+  "after": "'{' - ','.join((json.dumps(k, ensure_ascii=False) + ':' + canonical_json(v) for k, v in items))",
+  "id": "m146"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   126,
+   11,
+   126,
+   28
+  ],
+  "kind": "compare",
+  "before": "since is not None",
+  "after": "since is None",
+  "id": "m147"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   158,
+   15,
+   158,
+   61
+  ],
+  "kind": "negate",
+  "before": "not is_closed(start, now, grace_seconds, size)",
+  "after": "not (not is_closed(start, now, grace_seconds, size))",
+  "id": "m148"
+ },
+ {
+  "file": "apps/ads_server/events/hops.py",
+  "span": [
+   162,
+   34,
+   162,
+   56
+  ],
+  "kind": "add/sub",
+  "before": "read_count + len(docs)",
+  "after": "read_count - len(docs)",
+  "id": "m149"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/check_event_store.py",
+  "span": [
+   17,
+   11,
+   17,
+   41
+  ],
+  "kind": "negate",
+  "before": "not all(r.ok for r in results)",
+  "after": "not (not all(r.ok for r in results))",
+  "id": "m150"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/ensure_event_store.py",
+  "span": [
+   17,
+   12,
+   17,
+   25
+  ],
+  "kind": "drop-call",
+  "before": "mongo.close()",
+  "after": "pass",
+  "id": "m151"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/ensure_event_store.py",
+  "span": [
+   20,
+   8,
+   20,
+   56
+  ],
+  "kind": "drop-call",
+  "before": "self.stdout.write(\"변경 없음\" if not done else \"완료\")",
+  "after": "pass",
+  "id": "m152"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/purge_sent_events.py",
+  "span": [
+   19,
+   56,
+   19,
+   79
+  ],
+  "kind": "compare",
+  "before": "options[\"days\"] is None",
+  "after": "options['days'] is not None",
+  "id": "m153"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/purge_sent_events.py",
+  "span": [
+   20,
+   18,
+   20,
+   19
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m154"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/purge_sent_events.py",
+  "span": [
+   26,
+   15,
+   26,
+   22
+  ],
+  "kind": "negate",
+  "before": "not ids",
+  "after": "not (not ids)",
+  "id": "m155"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   27,
+   8,
+   27,
+   77
+  ],
+  "kind": "drop-call",
+  "before": "parser.add_argument(\"--once\", action=\"store_true\", help=\"한 번 비우고 종료\")",
+  "after": "pass",
+  "id": "m156"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   34,
+   14,
+   34,
+   31
+  ],
+  "kind": "negate",
+  "before": "not should_stop()",
+  "after": "not (not should_stop())",
+  "id": "m157"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   46,
+   55,
+   46,
+   56
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m158"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   48,
+   11,
+   48,
+   28
+  ],
+  "kind": "negate",
+  "before": "options[\"status\"]",
+  "after": "not (options[\"status\"])",
+  "id": "m159"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   49,
+   12,
+   49,
+   51
+  ],
+  "kind": "drop-call",
+  "before": "self.stdout.write(str(outbox_status()))",
+  "after": "pass",
+  "id": "m160"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   53,
+   55,
+   53,
+   70
+  ],
+  "kind": "negate",
+  "before": "options['once']",
+  "after": "not (options['once'])",
+  "id": "m161"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   61,
+   23,
+   61,
+   61
+  ],
+  "kind": "boolop",
+  "before": "any(total.values()) or options[\"once\"]",
+  "after": "any(total.values()) and options['once']",
+  "id": "m162"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   75,
+   67,
+   75,
+   68
+  ],
+  "kind": "int+1",
+  "before": "5",
+  "after": "6",
+  "id": "m163"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/relay_events.py",
+  "span": [
+   84,
+   19,
+   84,
+   42
+  ],
+  "kind": "boolop",
+  "before": "options[\"once\"] or stop",
+  "after": "options['once'] and stop",
+  "id": "m164"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/verify_hops.py",
+  "span": [
+   44,
+   16,
+   44,
+   111
+  ],
+  "kind": "drop-call",
+  "before": "errors.append(\"감사 로그에 고정점이 없다(export_hop_manifests 를 한 번도 실행하지 않았거나 다른 환경의 폴더다 — --no-anchor)\")",
+  "after": "pass",
+  "id": "m165"
+ },
+ {
+  "file": "apps/ads_server/events/management/commands/verify_hops.py",
+  "span": [
+   72,
+   47,
+   72,
+   81
+  ],
+  "kind": "compare",
+  "before": "row['status'] == hopcheck.MISMATCH",
+  "after": "row['status'] != hopcheck.MISMATCH",
+  "id": "m166"
+ },
+ {
+  "file": "apps/ads_server/events/mongo.py",
+  "span": [
+   24,
+   7,
+   24,
+   34
+  ],
+  "kind": "boolop",
+  "before": "not cfg or not cfg[\"HOSTS\"]",
+  "after": "not cfg and (not cfg['HOSTS'])",
+  "id": "m167"
+ },
+ {
+  "file": "apps/ads_server/events/mongo.py",
+  "span": [
+   62,
+   11,
+   62,
+   30
+  ],
+  "kind": "compare",
+  "before": "_client is not None",
+  "after": "_client is None",
+  "id": "m168"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   46,
+   4,
+   46,
+   26
+  ],
+  "kind": "drop-call",
+  "before": "os.replace(tmp, final)",
+  "after": "pass",
+  "id": "m169"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   61,
+   8,
+   61,
+   41
+  ],
+  "kind": "drop-call",
+  "before": "Path(tmp).unlink(missing_ok=True)",
+  "after": "pass",
+  "id": "m170"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   84,
+   4,
+   84,
+   54
+  ],
+  "kind": "drop-call",
+  "before": "Path(directory).mkdir(parents=True, exist_ok=True)",
+  "after": "pass",
+  "id": "m171"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   120,
+   16,
+   120,
+   34
+  ],
+  "kind": "drop-call",
+  "before": "handle.write(line)",
+  "after": "pass",
+  "id": "m172"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   121,
+   16,
+   121,
+   35
+  ],
+  "kind": "drop-call",
+  "before": "digest.update(line)",
+  "after": "pass",
+  "id": "m173"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   122,
+   24,
+   122,
+   25
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m174"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   178,
+   7,
+   178,
+   35
+  ],
+  "kind": "compare",
+  "before": "digest != manifest[\"sha256\"]",
+  "after": "digest == manifest['sha256']",
+  "id": "m175"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   179,
+   8,
+   179,
+   66
+  ],
+  "kind": "drop-call",
+  "before": "problems.append(\"SHA-256 이 manifest 와 다르다(파일이 바뀌었거나 깨졌다)\")",
+  "after": "pass",
+  "id": "m176"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   185,
+   9,
+   185,
+   16
+  ],
+  "kind": "negate",
+  "before": "content",
+  "after": "not (content)",
+  "id": "m177"
+ },
+ {
+  "file": "apps/ads_server/events/ndjson.py",
+  "span": [
+   193,
+   12,
+   193,
+   56
+  ],
+  "kind": "drop-call",
+  "before": "problems.append(f\"{number}번째 줄이 JSON 이 아니다\")",
+  "after": "pass",
+  "id": "m178"
+ },
+ {
+  "file": "apps/ads_server/events/relay.py",
+  "span": [
+   58,
+   11,
+   58,
+   29
+  ],
+  "kind": "compare",
+  "before": "stored is not None",
+  "after": "stored is None",
+  "id": "m179"
+ },
+ {
+  "file": "apps/ads_server/events/relay.py",
+  "span": [
+   58,
+   34,
+   58,
+   72
+  ],
+  "kind": "compare",
+  "before": "canonical(stored) == canonical(wanted)",
+  "after": "canonical(stored) != canonical(wanted)",
+  "id": "m180"
+ },
+ {
+  "file": "apps/ads_server/events/relay.py",
+  "span": [
+   92,
+   38,
+   92,
+   64
+  ],
+  "kind": "compare",
+  "before": "r.pk not in set(conflicts)",
+  "after": "r.pk in set(conflicts)",
+  "id": "m181"
+ },
+ {
+  "file": "apps/ads_server/events/relay.py",
+  "span": [
+   123,
+   124,
+   123,
+   128
+  ],
+  "kind": "int+1",
+  "before": "1000",
+  "after": "1001",
+  "id": "m182"
+ },
+ {
+  "file": "apps/ads_server/events/schemas.py",
+  "span": [
+   28,
+   19,
+   28,
+   32
+  ],
+  "kind": "compare",
+  "before": "value is None",
+  "after": "value is not None",
+  "id": "m183"
+ },
+ {
+  "file": "apps/ads_server/events/store.py",
+  "span": [
+   69,
+   13,
+   69,
+   42
+  ],
+  "kind": "compare",
+  "before": "existing[name][\"key\"] != keys",
+  "after": "existing[name]['key'] == keys",
+  "id": "m184"
+ },
+ {
+  "file": "apps/ads_server/events/store.py",
+  "span": [
+   101,
+   8,
+   101,
+   43
+  ],
+  "kind": "drop-call",
+  "before": "probe.insert_one({\"_id\": probe_id})",
+  "after": "pass",
+  "id": "m185"
+ },
+ {
+  "file": "apps/ads_server/events/store.py",
+  "span": [
+   109,
+   12,
+   109,
+   105
+  ],
+  "kind": "drop-call",
+  "before": "results.append(Check(\"컬렉션\", False, f\"{COLLECTION} 이(가) 없습니다 — manage.py ensure_event_store\"))",
+  "after": "pass",
+  "id": "m186"
+ },
+ {
+  "file": "apps/ads_server/events/store.py",
+  "span": [
+   115,
+   17,
+   115,
+   33
+  ],
+  "kind": "compare",
+  "before": "name in existing",
+  "after": "name not in existing",
+  "id": "m187"
+ },
+ {
+  "file": "apps/ads_server/events/store.py",
+  "span": [
+   115,
+   17,
+   115,
+   67
+  ],
+  "kind": "boolop",
+  "before": "name in existing and existing[name][\"key\"] == keys",
+  "after": "name in existing or existing[name]['key'] == keys",
+  "id": "m188"
+ },
+ {
+  "file": "apps/ads_server/foundation/accounts.py",
+  "span": [
+   88,
+   4,
+   88,
+   28
+  ],
+  "kind": "drop-call",
+  "before": "require_advertiser(user)",
+  "after": "pass",
+  "id": "m189"
+ },
+ {
+  "file": "apps/ads_server/foundation/accounts.py",
+  "span": [
+   97,
+   7,
+   97,
+   13
+  ],
+  "kind": "negate",
+  "before": "errors",
+  "after": "not (errors)",
+  "id": "m190"
+ },
+ {
+  "file": "apps/ads_server/foundation/accounts.py",
+  "span": [
+   127,
+   21,
+   127,
+   42
+  ],
+  "kind": "compare",
+  "before": "confirmed is not None",
+  "after": "confirmed is None",
+  "id": "m191"
+ },
+ {
+  "file": "apps/ads_server/foundation/accounts.py",
+  "span": [
+   199,
+   57,
+   199,
+   77
+  ],
+  "kind": "boolop",
+  "before": "not active or reason",
+  "after": "not active and reason",
+  "id": "m192"
+ },
+ {
+  "file": "apps/ads_server/foundation/accounts.py",
+  "span": [
+   202,
+   11,
+   202,
+   34
+  ],
+  "kind": "compare",
+  "before": "row.is_active == active",
+  "after": "row.is_active != active",
+  "id": "m193"
+ },
+ {
+  "file": "apps/ads_server/foundation/admin.py",
+  "span": [
+   70,
+   8,
+   70,
+   113
+  ],
+  "kind": "drop-call",
+  "before": "record_audit(request, \"account.admin_updated\", target=obj, detail={\"changed\": changed, \"role\": obj.role})",
+  "after": "pass",
+  "id": "m194"
+ },
+ {
+  "file": "apps/ads_server/foundation/admin_site.py",
+  "span": [
+   57,
+   11,
+   57,
+   35
+  ],
+  "kind": "compare",
+  "before": "request.method != \"POST\"",
+  "after": "request.method == 'POST'",
+  "id": "m195"
+ },
+ {
+  "file": "apps/ads_server/foundation/admin_site.py",
+  "span": [
+   61,
+   44,
+   61,
+   67
+  ],
+  "kind": "compare",
+  "before": "u.pk == request.user.pk",
+  "after": "u.pk != request.user.pk",
+  "id": "m196"
+ },
+ {
+  "file": "apps/ads_server/foundation/admin_site.py",
+  "span": [
+   65,
+   37,
+   65,
+   64
+  ],
+  "kind": "compare",
+  "before": "response.status_code == 302",
+  "after": "response.status_code != 302",
+  "id": "m197"
+ },
+ {
+  "file": "apps/ads_server/foundation/admin_site.py",
+  "span": [
+   66,
+   16,
+   66,
+   30
+  ],
+  "kind": "drop-call",
+  "before": "audit(request)",
+  "after": "pass",
+  "id": "m198"
+ },
+ {
+  "file": "apps/ads_server/foundation/audit.py",
+  "span": [
+   19,
+   7,
+   19,
+   29
+  ],
+  "kind": "negate",
+  "before": "isinstance(value, str)",
+  "after": "not (isinstance(value, str))",
+  "id": "m199"
+ },
+ {
+  "file": "apps/ads_server/foundation/audit.py",
+  "span": [
+   50,
+   44,
+   50,
+   45
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m200"
+ },
+ {
+  "file": "apps/ads_server/foundation/dberrors.py",
+  "span": [
+   13,
+   11,
+   13,
+   53
+  ],
+  "kind": "boolop",
+  "before": "bool(cause.args) and cause.args[0] == 1062",
+  "after": "bool(cause.args) or cause.args[0] == 1062",
+  "id": "m201"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   68,
+   21,
+   68,
+   22
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m202"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   74,
+   12,
+   74,
+   66
+  ],
+  "kind": "drop-call",
+  "before": "stack.extend((child, depth + 1) for child in children)",
+  "after": "pass",
+  "id": "m203"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   83,
+   11,
+   83,
+   32
+  ],
+  "kind": "negate",
+  "before": "isinstance(node, str)",
+  "after": "not (isinstance(node, str))",
+  "id": "m204"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   103,
+   15,
+   103,
+   40
+  ],
+  "kind": "compare",
+  "before": "int(declared) > max_bytes",
+  "after": "int(declared) >= max_bytes",
+  "id": "m205"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   107,
+   23,
+   107,
+   36
+  ],
+  "kind": "add/sub",
+  "before": "max_bytes + 1",
+  "after": "max_bytes - 1",
+  "id": "m206"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   126,
+   7,
+   126,
+   37
+  ],
+  "kind": "negate",
+  "before": "_has_unpaired_surrogate(value)",
+  "after": "not (_has_unpaired_surrogate(value))",
+  "id": "m207"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   146,
+   7,
+   146,
+   17
+  ],
+  "kind": "negate",
+  "before": "request_id",
+  "after": "not (request_id)",
+  "id": "m208"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   148,
+   7,
+   148,
+   19
+  ],
+  "kind": "negate",
+  "before": "error.errors",
+  "after": "not (error.errors)",
+  "id": "m209"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   151,
+   39,
+   151,
+   68
+  ],
+  "kind": "compare",
+  "before": "error.retry_after is not None",
+  "after": "error.retry_after is None",
+  "id": "m210"
+ },
+ {
+  "file": "apps/ads_server/foundation/http.py",
+  "span": [
+   151,
+   75,
+   151,
+   76
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m211"
+ },
+ {
+  "file": "apps/ads_server/foundation/middleware.py",
+  "span": [
+   31,
+   12,
+   31,
+   39
+  ],
+  "kind": "drop-call",
+  "before": "request_id_var.reset(token)",
+  "after": "pass",
+  "id": "m212"
+ },
+ {
+  "file": "apps/ads_server/foundation/models.py",
+  "span": [
+   21,
+   8,
+   21,
+   35
+  ],
+  "kind": "drop-call",
+  "before": "user.set_password(password)",
+  "after": "pass",
+  "id": "m213"
+ },
+ {
+  "file": "apps/ads_server/foundation/models.py",
+  "span": [
+   63,
+   15,
+   63,
+   51
+  ],
+  "kind": "boolop",
+  "before": "self.is_active and self.is_superuser",
+  "after": "self.is_active or self.is_superuser",
+  "id": "m214"
+ },
+ {
+  "file": "apps/ads_server/foundation/models.py",
+  "span": [
+   98,
+   11,
+   98,
+   27
+  ],
+  "kind": "negate",
+  "before": "update_conflicts",
+  "after": "not (update_conflicts)",
+  "id": "m215"
+ },
+ {
+  "file": "apps/ads_server/foundation/net.py",
+  "span": [
+   12,
+   13,
+   12,
+   50
+  ],
+  "kind": "boolop",
+  "before": "request.META.get(\"REMOTE_ADDR\") or \"\"",
+  "after": "request.META.get('REMOTE_ADDR') and ''",
+  "id": "m216"
+ },
+ {
+  "file": "apps/ads_server/foundation/presentation.py",
+  "span": [
+   69,
+   29,
+   69,
+   52
+  ],
+  "kind": "negate",
+  "before": "_never_rendered(widget)",
+  "after": "not (_never_rendered(widget))",
+  "id": "m217"
+ },
+ {
+  "file": "apps/ads_server/foundation/presentation.py",
+  "span": [
+   78,
+   11,
+   78,
+   119
+  ],
+  "kind": "boolop",
+  "before": "isinstance(widget, forms.FileInput) or (isinstance(widget, forms.PasswordInput) and not widget.render_value)",
+  "after": "isinstance(widget, forms.FileInput) and (isinstance(widget, forms.PasswordInput) and (not widget.render_value))",
+  "id": "m218"
+ },
+ {
+  "file": "apps/ads_server/foundation/presentation.py",
+  "span": [
+   83,
+   7,
+   83,
+   57
+  ],
+  "kind": "negate",
+  "before": "type(widget).__module__.startswith(\"django.forms\")",
+  "after": "not (type(widget).__module__.startswith(\"django.forms\"))",
+  "id": "m219"
+ },
+ {
+  "file": "apps/ads_server/foundation/signals.py",
+  "span": [
+   12,
+   20,
+   12,
+   75
+  ],
+  "kind": "boolop",
+  "before": "isinstance(value, str) and USERNAME_RE.fullmatch(value)",
+  "after": "isinstance(value, str) or USERNAME_RE.fullmatch(value)",
+  "id": "m220"
+ },
+ {
+  "file": "apps/ads_server/foundation/templatetags/kst.py",
+  "span": [
+   12,
+   7,
+   12,
+   35
+  ],
+  "kind": "boolop",
+  "before": "value is None or value == \"\"",
+  "after": "value is None and value == ''",
+  "id": "m221"
+ },
+ {
+  "file": "apps/ads_server/foundation/validators.py",
+  "span": [
+   78,
+   38,
+   78,
+   39
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m222"
+ },
+ {
+  "file": "apps/ads_server/foundation/validators.py",
+  "span": [
+   95,
+   11,
+   95,
+   42
+  ],
+  "kind": "compare",
+  "before": "len(password) > self.max_length",
+  "after": "len(password) >= self.max_length",
+  "id": "m223"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   22,
+   100,
+   22,
+   101
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m224"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   63,
+   18,
+   63,
+   33
+  ],
+  "kind": "compare",
+  "before": "now is not None",
+  "after": "now is None",
+  "id": "m225"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   105,
+   4,
+   105,
+   24
+  ],
+  "kind": "drop-call",
+  "before": "require_admin(actor)",
+  "after": "pass",
+  "id": "m226"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   151,
+   49,
+   151,
+   52
+  ],
+  "kind": "int+1",
+  "before": "200",
+  "after": "201",
+  "id": "m227"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   164,
+   12,
+   165,
+   126
+  ],
+  "kind": "drop-call",
+  "before": "_audit(actor, \"masters.slot_created\", (\"masters.slot\", slot.slot_id),\n                   {\"name\": name, \"audience\": audience, \"floor\": floor, \"base\": base, \"cap\": cap, **shares, \"reason\": reason})",
+  "after": "pass",
+  "id": "m228"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   175,
+   7,
+   175,
+   49
+  ],
+  "kind": "compare",
+  "before": "current.policy_version != expected_version",
+  "after": "current.policy_version == expected_version",
+  "id": "m229"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   204,
+   49,
+   204,
+   52
+  ],
+  "kind": "int+1",
+  "before": "200",
+  "after": "201",
+  "id": "m230"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   206,
+   4,
+   206,
+   46
+  ],
+  "kind": "drop-call",
+  "before": "_validate_policy(floor, base, cap, shares)",
+  "after": "pass",
+  "id": "m231"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   273,
+   37,
+   273,
+   57
+  ],
+  "kind": "compare",
+  "before": "k.expires_at is None",
+  "after": "k.expires_at is not None",
+  "id": "m232"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   287,
+   4,
+   287,
+   128
+  ],
+  "kind": "drop-call",
+  "before": "_audit(actor, action, (\"masters.media_key\", row.key_id), {\"media_id\": str(media.media_id), \"label\": label, **(extra or {})})",
+  "after": "pass",
+  "id": "m233"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   314,
+   49,
+   314,
+   54
+  ],
+  "kind": "negate",
+  "before": "label",
+  "after": "not (label)",
+  "id": "m234"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   329,
+   40,
+   329,
+   41
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m235"
+ },
+ {
+  "file": "apps/ads_server/masters/services.py",
+  "span": [
+   340,
+   8,
+   340,
+   105
+  ],
+  "kind": "drop-call",
+  "before": "older.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=deadline)).update(expires_at=deadline)",
+  "after": "pass",
+  "id": "m236"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   78,
+   27,
+   78,
+   70
+  ],
+  "kind": "add/sub",
+  "before": "\"입력 manifest 검증 실패: \" + \"; \".join(problems)",
+  "after": "'입력 manifest 검증 실패: ' - '; '.join(problems)",
+  "id": "m237"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   92,
+   11,
+   92,
+   59
+  ],
+  "kind": "compare",
+  "before": "events.event_id_for(name, source_id) != event_id",
+  "after": "events.event_id_for(name, source_id) == event_id",
+  "id": "m238"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   94,
+   8,
+   94,
+   59
+  ],
+  "kind": "drop-call",
+  "before": "items.append(Item(name, kind, source_id, event_id))",
+  "after": "pass",
+  "id": "m239"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   109,
+   11,
+   109,
+   20
+  ],
+  "kind": "compare",
+  "before": "r is None",
+  "after": "r is not None",
+  "id": "m240"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   136,
+   41,
+   136,
+   62
+  ],
+  "kind": "compare",
+  "before": "i.event_id in missing",
+  "after": "i.event_id not in missing",
+  "id": "m241"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   137,
+   114,
+   137,
+   141
+  ],
+  "kind": "compare",
+  "before": "i.source_kind == \"decision\"",
+  "after": "i.source_kind != 'decision'",
+  "id": "m242"
+ },
+ {
+  "file": "apps/ads_server/records/backfill.py",
+  "span": [
+   147,
+   115,
+   147,
+   135
+  ],
+  "kind": "compare",
+  "before": "reason == NOT_JUDGED",
+  "after": "reason != NOT_JUDGED",
+  "id": "m243"
+ },
+ {
+  "file": "apps/ads_server/records/basis.py",
+  "span": [
+   11,
+   19,
+   11,
+   32
+  ],
+  "kind": "compare",
+  "before": "value is None",
+  "after": "value is not None",
+  "id": "m244"
+ },
+ {
+  "file": "apps/ads_server/records/facts.py",
+  "span": [
+   53,
+   43,
+   53,
+   87
+  ],
+  "kind": "compare",
+  "before": "decision.audience == masters.Audience.SHARED",
+  "after": "decision.audience != masters.Audience.SHARED",
+  "id": "m245"
+ },
+ {
+  "file": "apps/ads_server/records/facts.py",
+  "span": [
+   67,
+   11,
+   67,
+   44
+  ],
+  "kind": "compare",
+  "before": "status == ReactionStatus.ACCEPTED",
+  "after": "status != ReactionStatus.ACCEPTED",
+  "id": "m246"
+ },
+ {
+  "file": "apps/ads_server/records/facts.py",
+  "span": [
+   72,
+   12,
+   72,
+   36
+  ],
+  "kind": "drop-call",
+  "before": "waiting_refs.append(ref)",
+  "after": "pass",
+  "id": "m247"
+ },
+ {
+  "file": "apps/ads_server/records/facts.py",
+  "span": [
+   122,
+   7,
+   122,
+   25
+  ],
+  "kind": "compare",
+  "before": "person is not None",
+  "after": "person is None",
+  "id": "m248"
+ },
+ {
+  "file": "apps/ads_server/records/facts.py",
+  "span": [
+   132,
+   11,
+   132,
+   41
+  ],
+  "kind": "compare",
+  "before": "row.type == ReactionType.CLICK",
+  "after": "row.type != ReactionType.CLICK",
+  "id": "m249"
+ },
+ {
+  "file": "apps/ads_server/records/hops.py",
+  "span": [
+   29,
+   8,
+   29,
+   102
+  ],
+  "kind": "drop-call",
+  "before": "expected.update([_received_event(r)] + ([_judged_event(r)] if r.status != \"RECEIVED\" else []))",
+  "after": "pass",
+  "id": "m250"
+ },
+ {
+  "file": "apps/ads_server/records/hops.py",
+  "span": [
+   71,
+   25,
+   71,
+   26
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m251"
+ },
+ {
+  "file": "apps/ads_server/records/hops.py",
+  "span": [
+   73,
+   20,
+   73,
+   48
+  ],
+  "kind": "drop-call",
+  "before": "sample.append(str(entry_id))",
+  "after": "pass",
+  "id": "m252"
+ },
+ {
+  "file": "apps/ads_server/records/hops.py",
+  "span": [
+   114,
+   25,
+   114,
+   48
+  ],
+  "kind": "add/sub",
+  "before": "e.charged + e.shortfall",
+  "after": "e.charged - e.shortfall",
+  "id": "m253"
+ },
+ {
+  "file": "apps/ads_server/records/integrity.py",
+  "span": [
+   22,
+   28,
+   22,
+   56
+  ],
+  "kind": "add/sub",
+  "before": "stats.get(\"reaction\", 0) + 1",
+  "after": "stats.get('reaction', 0) - 1",
+  "id": "m254"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/backfill_events.py",
+  "span": [
+   37,
+   41,
+   37,
+   55
+  ],
+  "kind": "negate",
+  "before": "result.applied",
+  "after": "not (result.applied)",
+  "id": "m255"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   26,
+   8,
+   26,
+   68
+  ],
+  "kind": "drop-call",
+  "before": "parser.add_argument(\"--out\", required=True, help=\"결과를 쓸 폴더\")",
+  "after": "pass",
+  "id": "m256"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   40,
+   87,
+   40,
+   103
+  ],
+  "kind": "negate",
+  "before": "options[\"as_of\"]",
+  "after": "not (options[\"as_of\"])",
+  "id": "m257"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   78,
+   151,
+   78,
+   152
+  ],
+  "kind": "int+1",
+  "before": "3",
+  "after": "4",
+  "id": "m258"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   80,
+   8,
+   80,
+   62
+  ],
+  "kind": "drop-call",
+  "before": "self.stdout.write(f\"peak_rss={peak_rss_mib():.1f}MiB\")",
+  "after": "pass",
+  "id": "m259"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   81,
+   11,
+   81,
+   21
+  ],
+  "kind": "negate",
+  "before": "unresolved",
+  "after": "not (unresolved)",
+  "id": "m260"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   87,
+   19,
+   87,
+   20
+  ],
+  "kind": "int+1",
+  "before": "2",
+  "after": "3",
+  "id": "m261"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_hop_manifests.py",
+  "span": [
+   87,
+   22,
+   87,
+   24
+  ],
+  "kind": "int+1",
+  "before": "20",
+  "after": "21",
+  "id": "m262"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/export_integrity.py",
+  "span": [
+   23,
+   8,
+   23,
+   77
+  ],
+  "kind": "drop-call",
+  "before": "parser.add_argument(\"--out\", required=True, help=\"결과를 쓸 폴더(없으면 만든다)\")",
+  "after": "pass",
+  "id": "m263"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/process_reactions.py",
+  "span": [
+   39,
+   15,
+   39,
+   43
+  ],
+  "kind": "compare",
+  "before": "sum(counts.values()) < batch",
+  "after": "sum(counts.values()) <= batch",
+  "id": "m264"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/process_reactions.py",
+  "span": [
+   47,
+   16,
+   47,
+   56
+  ],
+  "kind": "boolop",
+  "before": "math.isfinite(interval) and interval > 0",
+  "after": "math.isfinite(interval) or interval > 0",
+  "id": "m265"
+ },
+ {
+  "file": "apps/ads_server/records/management/commands/process_reactions.py",
+  "span": [
+   56,
+   72,
+   56,
+   73
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m266"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   58,
+   45,
+   58,
+   59
+  ],
+  "kind": "compare",
+  "before": "person is None",
+  "after": "person is not None",
+  "id": "m267"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   62,
+   63,
+   62,
+   96
+  ],
+  "kind": "compare",
+  "before": "status == ReactionStatus.ACCEPTED",
+  "after": "status != ReactionStatus.ACCEPTED",
+  "id": "m268"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   66,
+   7,
+   66,
+   19
+  ],
+  "kind": "compare",
+  "before": "changed != 1",
+  "after": "changed == 1",
+  "id": "m269"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   82,
+   4,
+   82,
+   93
+  ],
+  "kind": "drop-call",
+  "before": "Reaction.objects.filter(pk=row.pk, status=ReactionStatus.RECEIVED).update(checked_at=now)",
+  "after": "pass",
+  "id": "m270"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   98,
+   76,
+   98,
+   77
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m271"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   102,
+   7,
+   102,
+   26
+  ],
+  "kind": "compare",
+  "before": "verdict is not None",
+  "after": "verdict is None",
+  "id": "m272"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   103,
+   57,
+   103,
+   58
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m273"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   104,
+   90,
+   104,
+   91
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m274"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   111,
+   8,
+   111,
+   46
+  ],
+  "kind": "drop-call",
+  "before": "_record_charge_event(charge, row, now)",
+  "after": "pass",
+  "id": "m275"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   131,
+   50,
+   131,
+   69
+  ],
+  "kind": "add/sub",
+  "before": "charged + shortfall",
+  "after": "charged - shortfall",
+  "id": "m276"
+ },
+ {
+  "file": "apps/ads_server/records/processing.py",
+  "span": [
+   248,
+   129,
+   248,
+   130
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m277"
+ },
+ {
+  "file": "apps/ads_server/records/report.py",
+  "span": [
+   70,
+   29,
+   70,
+   44
+  ],
+  "kind": "compare",
+  "before": "key is not None",
+  "after": "key is None",
+  "id": "m278"
+ },
+ {
+  "file": "apps/ads_server/records/report.py",
+  "span": [
+   111,
+   91,
+   111,
+   92
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m279"
+ },
+ {
+  "file": "apps/ads_server/records/report.py",
+  "span": [
+   128,
+   4,
+   128,
+   47
+  ],
+  "kind": "drop-call",
+  "before": "require_advertiser(owner, \"광고주만 볼 수 있습니다.\")",
+  "after": "pass",
+  "id": "m280"
+ },
+ {
+  "file": "apps/ads_server/records/report.py",
+  "span": [
+   130,
+   102,
+   130,
+   103
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m281"
+ },
+ {
+  "file": "apps/ads_server/records/report.py",
+  "span": [
+   134,
+   51,
+   134,
+   52
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m282"
+ },
+ {
+  "file": "apps/ads_server/records/rules/__init__.py",
+  "span": [
+   84,
+   12,
+   84,
+   47
+  ],
+  "kind": "drop-call",
+  "before": "checks.append((name, _RULES[name]))",
+  "after": "pass",
+  "id": "m283"
+ },
+ {
+  "file": "apps/ads_server/records/rules/funnel_order.py",
+  "span": [
+   23,
+   7,
+   23,
+   64
+  ],
+  "kind": "negate",
+  "before": "any(arrived <= limit for arrived in facts.prereq_waiting)",
+  "after": "not (any(arrived <= limit for arrived in facts.prereq_waiting))",
+  "id": "m284"
+ },
+ {
+  "file": "apps/ads_server/records/rules/funnel_order.py",
+  "span": [
+   23,
+   11,
+   23,
+   27
+  ],
+  "kind": "compare",
+  "before": "arrived <= limit",
+  "after": "arrived < limit",
+  "id": "m285"
+ },
+ {
+  "file": "apps/ads_server/records/rules/funnel_window.py",
+  "span": [
+   12,
+   11,
+   12,
+   113
+  ],
+  "kind": "boolop",
+  "before": "facts.next_display_at is not None and facts.received_at > facts.next_display_at + limits.display_grace",
+  "after": "facts.next_display_at is not None or facts.received_at > facts.next_display_at + limits.display_grace",
+  "id": "m286"
+ },
+ {
+  "file": "apps/ads_server/records/rules/funnel_window.py",
+  "span": [
+   12,
+   49,
+   12,
+   113
+  ],
+  "kind": "compare",
+  "before": "facts.received_at > facts.next_display_at + limits.display_grace",
+  "after": "facts.received_at >= facts.next_display_at + limits.display_grace",
+  "id": "m287"
+ },
+ {
+  "file": "apps/ads_server/records/rules/funnel_window.py",
+  "span": [
+   12,
+   69,
+   12,
+   113
+  ],
+  "kind": "add/sub",
+  "before": "facts.next_display_at + limits.display_grace",
+  "after": "facts.next_display_at - limits.display_grace",
+  "id": "m288"
+ },
+ {
+  "file": "apps/ads_server/records/rules/occurred_at.py",
+  "span": [
+   10,
+   79,
+   10,
+   108
+  ],
+  "kind": "add/sub",
+  "before": "facts.received_at + tolerance",
+  "after": "facts.received_at - tolerance",
+  "id": "m289"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   72,
+   52,
+   72,
+   74
+  ],
+  "kind": "compare",
+  "before": "subject_id is not None",
+  "after": "subject_id is None",
+  "id": "m290"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   98,
+   56,
+   98,
+   70
+  ],
+  "kind": "negate",
+  "before": "slot.is_active",
+  "after": "not (slot.is_active)",
+  "id": "m291"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   122,
+   103,
+   122,
+   116
+  ],
+  "kind": "boolop",
+  "before": "context or {}",
+  "after": "context and {}",
+  "id": "m292"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   154,
+   4,
+   157,
+   5
+  ],
+  "kind": "drop-call",
+  "before": "events.record_reaction_received(\n        now=row.received_at, inbox_id=row.inbox_id, reaction_id=row.reaction_id, media_id=row.media_id, decision_id=row.decision_id, type=row.type,\n        occurred_at=row.occurred_at, received_at=row.received_at, subject_id=row.subject_id, source=row.source, raw=row.raw,\n    )",
+  "after": "pass",
+  "id": "m293"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   185,
+   12,
+   185,
+   60
+  ],
+  "kind": "drop-call",
+  "before": "ordering.lock_for_receipt(decision_id, media_id)",
+  "after": "pass",
+  "id": "m294"
+ },
+ {
+  "file": "apps/ads_server/records/services.py",
+  "span": [
+   211,
+   48,
+   211,
+   49
+  ],
+  "kind": "int+1",
+  "before": "8",
+  "after": "9",
+  "id": "m295"
+ },
+ {
+  "file": "apps/ads_server/records/types.py",
+  "span": [
+   54,
+   49,
+   54,
+   65
+  ],
+  "kind": "negate",
+  "before": "self.impressions",
+  "after": "not (self.impressions)",
+  "id": "m296"
+ },
+ {
+  "file": "apps/ads_server/serving_api/auth.py",
+  "span": [
+   38,
+   32,
+   38,
+   33
+  ],
+  "kind": "int+1",
+  "before": "1",
+  "after": "2",
+  "id": "m297"
+ },
+ {
+  "file": "apps/ads_server/serving_api/clicks.py",
+  "span": [
+   65,
+   109,
+   65,
+   110
+  ],
+  "kind": "int+1",
+  "before": "0",
+  "after": "1",
+  "id": "m298"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   47,
+   16,
+   47,
+   35
+  ],
+  "kind": "drop-call",
+  "before": "stack.append(child)",
+  "after": "pass",
+  "id": "m299"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   53,
+   7,
+   53,
+   36
+  ],
+  "kind": "negate",
+  "before": "not isinstance(context, dict)",
+  "after": "not (not isinstance(context, dict))",
+  "id": "m300"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   62,
+   7,
+   62,
+   12
+  ],
+  "kind": "negate",
+  "before": "found",
+  "after": "not (found)",
+  "id": "m301"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   68,
+   70,
+   68,
+   88
+  ],
+  "kind": "compare",
+  "before": "key not in _FIELDS",
+  "after": "key in _FIELDS",
+  "id": "m302"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   95,
+   7,
+   95,
+   20
+  ],
+  "kind": "compare",
+  "before": "match is None",
+  "after": "match is not None",
+  "id": "m303"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   99,
+   99,
+   99,
+   113
+  ],
+  "kind": "boolop",
+  "before": "fraction or \"\"",
+  "after": "fraction and ''",
+  "id": "m304"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   124,
+   59,
+   124,
+   79
+  ],
+  "kind": "compare",
+  "before": "\"subject_id\" in body",
+  "after": "'subject_id' not in body",
+  "id": "m305"
+ },
+ {
+  "file": "apps/ads_server/serving_api/requests.py",
+  "span": [
+   127,
+   87,
+   127,
+   102
+  ],
+  "kind": "compare",
+  "before": "subject is None",
+  "after": "subject is not None",
+  "id": "m306"
+ },
+ {
+  "file": "apps/ads_server/serving_api/views.py",
+  "span": [
+   85,
+   60,
+   85,
+   63
+  ],
+  "kind": "int+1",
+  "before": "200",
+  "after": "201",
+  "id": "m307"
+ }
+]

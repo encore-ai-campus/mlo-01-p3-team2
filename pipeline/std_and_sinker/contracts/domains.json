@@ -1,0 +1,112 @@
+{
+  "UUID_V4_JSON": {
+    "type": "uuid_v4",
+    "definition": "소문자·하이픈 포함 UUIDv4"
+  },
+  "STRING": {
+    "type": "string"
+  },
+  "UTC_INSTANT": {
+    "type": "utc_instant"
+  },
+  "FINGERPRINT": {
+    "type": "string",
+    "pattern": "[0-9a-f]{16}"
+  },
+  "ALGORITHM": {
+    "type": "enum",
+    "values": [
+      "xxh3_64"
+    ]
+  },
+  "INTEGER": {
+    "type": "integer"
+  },
+  "POSITIVE_INT": {
+    "type": "integer",
+    "exclusive_minimum": 0
+  },
+  "BOOLEAN": {
+    "type": "boolean"
+  },
+  "QUESTION_TYPE": {
+    "type": "enum",
+    "values": [
+      "MULTIPLE_CHOICE",
+      "FILL_BLANK"
+    ]
+  },
+  "FINITE_DOUBLE": {
+    "type": "number"
+  },
+  "END_REASON": {
+    "type": "enum",
+    "values": [
+      "LOGOUT",
+      "SESSION_EXPIRED"
+    ]
+  },
+  "CHANNEL": {
+    "type": "enum",
+    "values": [
+      "GLOBAL"
+    ]
+  },
+  "CONTENT_DOMAIN": {
+    "type": "enum",
+    "values": [
+      "LEARNING",
+      "REST"
+    ]
+  },
+  "CONTENT_KIND": {
+    "type": "enum",
+    "values": [
+      "EXTERNAL_LINK",
+      "QUIZ"
+    ]
+  },
+  "CONTENT_OPEN_ACTION": {
+    "type": "enum",
+    "values": [
+      "OPEN_REQUESTED"
+    ]
+  },
+  "INPUT_KIND": {
+    "type": "enum",
+    "values": [
+      "KEYBOARD",
+      "MOUSE",
+      "SYSTEM"
+    ]
+  },
+  "STD_STATUS": {
+    "type": "enum",
+    "values": [
+      "SUCCESS",
+      "FAIL"
+    ]
+  },
+  "ERROR_CODE": {
+    "type": "enum",
+    "values": [
+      "RAW_CHECKSUM_MISMATCH",
+      "UNSUPPORTED_VERSION",
+      "MISSING_FIELD",
+      "INVALID_VALUE",
+      "PARSE_ERROR",
+      "EVENT_UUID_CONFLICT"
+    ]
+  },
+  "STD_ACTION": {
+    "type": "enum",
+    "values": [
+      "CREATE",
+      "UPDATE",
+      "DELETE",
+      "READ",
+      "OPEN_REQUESTED",
+      "GRANTED"
+    ]
+  }
+}

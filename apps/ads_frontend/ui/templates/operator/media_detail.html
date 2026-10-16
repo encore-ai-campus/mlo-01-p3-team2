@@ -1,0 +1,78 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › <a href="{% url 'operator:media_list' %}">매체</a> › {{ media.name }}{% endblock %}
+{% block content %}
+<p>상태: {% if media.is_active %}활성{% else %}비활성 — 이 매체의 모든 구성에 광고가 나가지 않습니다{% endif %}</p>
+
+<h2>구성</h2>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">이름</th><th scope="col">보는 사람</th><th scope="col">입찰 정책 (하한 / 기준가 / 상한 · 비율)</th><th scope="col">상태</th><th scope="col">바꾸기</th></tr></thead>
+    <tbody>
+    {% for s in slots %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ s.audience|audience_label }}</td>
+        <td>{{ s.policy.floor|points }} / {{ s.policy.base|points }} / {{ s.policy.cap|points }} · {{ s.policy|shares }} (버전 {{ s.policy.policy_version }}) · <a href="{% url 'operator:slot_policy' s.slot_id %}">바꾸기·이력</a></td>
+        <td>{% if s.is_active %}활성{% else %}비활성{% endif %}</td>
+        <td>
+          <form method="post" action="{% url 'operator:slot_active' s.slot_id %}">{% csrf_token %}
+            <input type="hidden" name="active" value="{% if s.is_active %}0{% else %}1{% endif %}">
+            <button type="submit">{% if s.is_active %}비활성으로{% else %}활성으로{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5">구성이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<h3>구성 만들기</h3>
+<p class="help">보는 사람(개인/일괄)은 만든 뒤 바꿀 수 없습니다. 입찰 정책(하한·기준가·상한·비율)은 이후 새 버전으로만 바꿉니다.</p>
+<form method="post" action="{% url 'operator:slot_create' media.media_id %}" id="slot-create">{% csrf_token %}
+  {{ slot_form.as_div }}
+  <button type="submit">만들기</button>
+</form>
+
+<h2>매체 키</h2>
+<p class="help">키 평문은 발급한 화면에서 한 번만 보입니다. 목록에는 키 식별자와 상태만 나옵니다.</p>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">키 식별자</th><th scope="col">라벨</th><th scope="col">발급 (KST)</th><th scope="col">만료 (KST)</th><th scope="col">상태</th><th scope="col">바꾸기</th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td><code>{{ k.key_id }}</code></td>
+        <td>{{ k.label }}</td>
+        <td>{{ k.created_at|kst }}</td>
+        <td>{{ k.expires_at|kst|default:"없음" }}</td>
+        <td>{% if k.revoked_at %}폐기됨{% elif k.active %}유효{% else %}만료됨{% endif %}</td>
+        <td>
+          {% if not k.revoked_at %}
+          <form method="post" action="{% url 'operator:key_revoke' k.key_id %}" data-confirm="이 키를 지금 폐기합니다. 이 키를 쓰는 매체 서버는 바로 인증에 실패합니다. 되돌릴 수 없습니다.">{% csrf_token %}
+            <input type="hidden" name="media_id" value="{{ media.media_id }}">
+            <button type="submit">폐기</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">발급한 키가 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<h3>새 키 발급</h3>
+<p class="help">기존 키는 그대로 유효합니다.</p>
+<form method="post" action="{% url 'operator:key_issue' media.media_id %}" id="key-issue">{% csrf_token %}
+  {{ issue_form.as_div }}
+  <button type="submit">발급</button>
+</form>
+<h3>키 교체</h3>
+<p class="help">새 키를 발급하고, 지금 유효한 키는 고른 시간 뒤에 만료됩니다(그동안 두 키가 모두 유효 — 매체 서버 설정을 바꿀 시간).</p>
+<form method="post" action="{% url 'operator:key_rotate' media.media_id %}" id="key-rotate" data-confirm="새 키를 발급하고 지금 유효한 키를 고른 시간 뒤에 만료합니다. ‘즉시 만료’면 그 키를 쓰는 매체 서버는 바로 인증에 실패합니다.">{% csrf_token %}
+  {{ rotate_form.as_div }}
+  <button type="submit">교체</button>
+</form>
+{% endblock %}

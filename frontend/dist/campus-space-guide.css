@@ -1,0 +1,24 @@
+.map-shell>.map-toolbar { padding: 0; gap: 0; }
+.map-guide-toggle { display: flex; align-items: center; gap: 12px; max-width: 100%; min-width: 0; padding: 10px 13px; border: 0; border-radius: 11px; background: transparent; color: inherit; text-align: left; }
+.map-guide-toggle:hover,.map-guide-toggle[aria-expanded=true] { background: #edf4e9; }
+.map-guide-toggle .map-title { display: flex; align-items: center; }
+.map-guide-toggle .map-location { text-align: left; }
+.map-guide-chevron { flex: none; width: 12px; height: 12px; color: #879b8a; transition: transform .18s; }
+.map-guide-toggle[aria-expanded=true] .map-guide-chevron { transform: rotate(180deg); }
+.map-toolbar>#followBtn:not([hidden]) { margin: 6px 8px 6px 0; }
+.campus-space-guide { position: absolute; z-index: 5; top: 92px; left: 18px; bottom: calc(var(--map-footer-height) + 18px); display: flex; flex-direction: column; width: 280px; max-width: calc(100% - 36px); min-height: 0; padding: 22px 18px 14px; border: 1px solid #dbe4da; border-radius: 16px; background: #f6f9f6f7; box-shadow: 0 12px 32px #23433120; }
+.campus-space-guide[hidden] { display: none; }
+.space-guide-heading { flex: none; position: relative; padding: 0 9px; }
+.space-guide-heading .eyebrow { display: block; margin: 2px 26px 14px 0; }
+.space-guide-heading h2 { margin: 0 0 9px; font-size: 21px; line-height: 1.4; letter-spacing: -.7px; }
+.space-guide-heading p { margin: 0 0 13px; font-size: 12px; line-height: 1.8; color: #7d9184; }
+#spaceGuideClose { position: absolute; top: -8px; right: -6px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #eaf0e9; color: #6b8071; font-size: 23px; line-height: 1; }
+#spaceGuideClose:hover { background: #dfeadf; }
+.campus-space-guide #roomNav { display: block; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; margin: 0; padding: 0 5px 2px 0; scrollbar-width: thin; scrollbar-color: #b4c5b7 transparent; white-space: normal; overscroll-behavior: contain; }
+.campus-space-guide .nav-group-label { display: block; padding: 15px 10px 7px; }
+.campus-space-guide .room-nav-button { width: 100%; display: flex; flex-shrink: 1; gap: 11px; margin: 3px 0; padding: 12px 10px; border: 0; border-radius: 11px; background: transparent; white-space: normal; font-size: 13px; line-height: 1.5; }
+.campus-space-guide .room-nav-button:hover { background: #e9f0e8; }
+.campus-space-guide .room-nav-button.active { background: #dfeee6; color: #126b65; }
+.campus-space-guide .nav-icon { width: 27px; height: 27px; flex: none; }
+@media(max-width:700px) { .map-guide-toggle { padding: 9px; gap: 5px; } .map-guide-chevron { width: 9px; height: 9px; } .campus-space-guide { top: 85px; left: 12px; bottom: calc(var(--map-footer-height) + 12px); width: 280px; max-width: calc(100% - 24px); padding: 16px 13px 10px; } .space-guide-heading h2 { font-size: 19px; } .space-guide-heading .eyebrow { margin-bottom: 9px; } }
+@media(prefers-reduced-motion:reduce) { .map-guide-chevron { transition: none; } }

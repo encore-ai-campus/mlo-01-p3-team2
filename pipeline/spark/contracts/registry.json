@@ -1,0 +1,1201 @@
+{
+  "parser_versions": [
+    "1.0.0",
+    "1.1.0"
+  ],
+  "domains": {
+    "UUID_V4_JSON": {
+      "type": "uuid_v4",
+      "definition": "소문자·하이픈 포함 UUIDv4"
+    },
+    "STRING": {
+      "type": "string"
+    },
+    "UTC_INSTANT": {
+      "type": "utc_instant"
+    },
+    "FINGERPRINT": {
+      "type": "string",
+      "pattern": "[0-9a-f]{16}"
+    },
+    "ALGORITHM": {
+      "type": "enum",
+      "values": [
+        "xxh3_64"
+      ]
+    },
+    "INTEGER": {
+      "type": "integer"
+    },
+    "POSITIVE_INT": {
+      "type": "integer",
+      "exclusive_minimum": 0
+    },
+    "BOOLEAN": {
+      "type": "boolean"
+    },
+    "QUESTION_TYPE": {
+      "type": "enum",
+      "values": [
+        "MULTIPLE_CHOICE",
+        "FILL_BLANK"
+      ]
+    },
+    "FINITE_DOUBLE": {
+      "type": "number"
+    },
+    "END_REASON": {
+      "type": "enum",
+      "values": [
+        "LOGOUT",
+        "SESSION_EXPIRED"
+      ]
+    },
+    "CHANNEL": {
+      "type": "enum",
+      "values": [
+        "GLOBAL"
+      ]
+    },
+    "CONTENT_DOMAIN": {
+      "type": "enum",
+      "values": [
+        "LEARNING",
+        "REST"
+      ]
+    },
+    "CONTENT_KIND": {
+      "type": "enum",
+      "values": [
+        "EXTERNAL_LINK",
+        "QUIZ"
+      ]
+    },
+    "CONTENT_OPEN_ACTION": {
+      "type": "enum",
+      "values": [
+        "OPEN_REQUESTED"
+      ]
+    },
+    "INPUT_KIND": {
+      "type": "enum",
+      "values": [
+        "KEYBOARD",
+        "MOUSE",
+        "SYSTEM"
+      ]
+    },
+    "STD_STATUS": {
+      "type": "enum",
+      "values": [
+        "SUCCESS",
+        "FAIL"
+      ]
+    },
+    "ERROR_CODE": {
+      "type": "enum",
+      "values": [
+        "RAW_CHECKSUM_MISMATCH",
+        "UNSUPPORTED_VERSION",
+        "MISSING_FIELD",
+        "INVALID_VALUE",
+        "PARSE_ERROR",
+        "EVENT_UUID_CONFLICT"
+      ]
+    },
+    "STD_ACTION": {
+      "type": "enum",
+      "values": [
+        "CREATE",
+        "UPDATE",
+        "DELETE",
+        "READ",
+        "OPEN_REQUESTED",
+        "GRANTED"
+      ]
+    }
+  },
+  "schemas": {
+    "CHAT_SENT|1.0": {
+      "event_type": "CHAT_SENT",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "message_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "channel_code",
+          "domain": "CHANNEL",
+          "nullable": false
+        },
+        {
+          "name": "floor_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "CHAT_SENT"
+      },
+      "table": "chat_activity_fact"
+    },
+    "COMMENT_CREATED|1.0": {
+      "event_type": "COMMENT_CREATED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "parent_comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "COMMENT_CREATED",
+        "action": "CREATE"
+      },
+      "table": "comment_activity_fact"
+    },
+    "COMMENT_DELETED|1.0": {
+      "event_type": "COMMENT_DELETED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "parent_comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "COMMENT_DELETED",
+        "action": "DELETE"
+      },
+      "table": "comment_activity_fact"
+    },
+    "COMMENT_UPDATED|1.0": {
+      "event_type": "COMMENT_UPDATED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "parent_comment_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "COMMENT_UPDATED",
+        "action": "UPDATE"
+      },
+      "table": "comment_activity_fact"
+    },
+    "CONTENT_OPEN_REQUESTED|1.0": {
+      "event_type": "CONTENT_OPEN_REQUESTED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "content_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "category_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "domain",
+          "domain": "CONTENT_DOMAIN",
+          "nullable": false
+        },
+        {
+          "name": "content_kind",
+          "domain": "CONTENT_KIND",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "CONTENT_OPEN_REQUESTED",
+        "action": "OPEN_REQUESTED"
+      },
+      "table": "content_activity_fact"
+    },
+    "FLOOR_TRANSFERRED|1.0": {
+      "event_type": "FLOOR_TRANSFERRED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "from_floor_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "to_floor_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "FLOOR_TRANSFERRED"
+      },
+      "table": "floor_transfer_fact"
+    },
+    "MOVEMENT_OBSERVED|1.0": {
+      "event_type": "MOVEMENT_OBSERVED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "floor_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "x",
+          "domain": "FINITE_DOUBLE",
+          "nullable": false
+        },
+        {
+          "name": "y",
+          "domain": "FINITE_DOUBLE",
+          "nullable": false
+        },
+        {
+          "name": "input_kind",
+          "domain": "INPUT_KIND",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "MOVEMENT_OBSERVED"
+      },
+      "table": "movement_fact"
+    },
+    "POINT_GRANTED|1.0": {
+      "event_type": "POINT_GRANTED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "ledger_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "attempt_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "delta",
+          "domain": "POSITIVE_INT",
+          "nullable": false
+        },
+        {
+          "name": "balance_after",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "POINT_GRANTED",
+        "action": "GRANTED"
+      },
+      "table": "point_grant_fact"
+    },
+    "POST_CREATED|1.0": {
+      "event_type": "POST_CREATED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "POST_CREATED",
+        "action": "CREATE"
+      },
+      "table": "post_activity_fact"
+    },
+    "POST_DELETED|1.0": {
+      "event_type": "POST_DELETED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "POST_DELETED",
+        "action": "DELETE"
+      },
+      "table": "post_activity_fact"
+    },
+    "POST_READ|1.0": {
+      "event_type": "POST_READ",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "POST_READ",
+        "action": "READ"
+      },
+      "table": "post_activity_fact"
+    },
+    "POST_UPDATED|1.0": {
+      "event_type": "POST_UPDATED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "post_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "domain": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "zone_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "domain": "STD_ACTION",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "POST_UPDATED",
+        "action": "UPDATE"
+      },
+      "table": "post_activity_fact"
+    },
+    "QUIZ_ANSWERED|1.0": {
+      "event_type": "QUIZ_ANSWERED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "attempt_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "question_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "content_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "choice_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "is_correct",
+          "domain": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "QUIZ_ANSWERED"
+      },
+      "table": "quiz_attempt_fact"
+    },
+    "QUIZ_ANSWERED|1.1": {
+      "event_type": "QUIZ_ANSWERED",
+      "version": "1.1",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "attempt_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "question_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "content_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "question_type",
+          "domain": "QUESTION_TYPE",
+          "nullable": false
+        },
+        {
+          "name": "choice_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": true
+        },
+        {
+          "name": "is_correct",
+          "domain": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "QUIZ_ANSWERED"
+      },
+      "table": "quiz_attempt_fact",
+      "conditional_rules": [
+        {
+          "when": {
+            "question_type": "MULTIPLE_CHOICE"
+          },
+          "not_null": [
+            "choice_uuid"
+          ]
+        },
+        {
+          "when": {
+            "question_type": "FILL_BLANK"
+          },
+          "null": [
+            "choice_uuid"
+          ]
+        }
+      ]
+    },
+    "SESSION_ENDED|1.0": {
+      "event_type": "SESSION_ENDED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "end_reason",
+          "domain": "END_REASON",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "SESSION_ENDED"
+      },
+      "table": "account_activity_fact"
+    },
+    "SESSION_STARTED|1.0": {
+      "event_type": "SESSION_STARTED",
+      "version": "1.0",
+      "fields": [
+        {
+          "name": "event_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "occurred_at",
+          "domain": "UTC_INSTANT",
+          "nullable": false
+        },
+        {
+          "name": "user_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "session_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "class_group_uuid",
+          "domain": "UUID_V4_JSON",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "domain": "STRING",
+          "nullable": false
+        }
+      ],
+      "constants": {
+        "event_type": "SESSION_STARTED"
+      },
+      "table": "account_activity_fact"
+    }
+  },
+  "routes": {
+    "standardized.account": [
+      "SESSION_ENDED|1.0",
+      "SESSION_STARTED|1.0"
+    ],
+    "standardized.chat": [
+      "CHAT_SENT|1.0"
+    ],
+    "standardized.content_usage": [
+      "CONTENT_OPEN_REQUESTED|1.0",
+      "QUIZ_ANSWERED|1.0",
+      "QUIZ_ANSWERED|1.1"
+    ],
+    "standardized.movement": [
+      "FLOOR_TRANSFERRED|1.0",
+      "MOVEMENT_OBSERVED|1.0"
+    ],
+    "standardized.points": [
+      "POINT_GRANTED|1.0"
+    ],
+    "standardized.board": [
+      "POST_CREATED|1.0",
+      "POST_DELETED|1.0",
+      "POST_READ|1.0",
+      "POST_UPDATED|1.0"
+    ],
+    "standardized.comment": [
+      "COMMENT_CREATED|1.0",
+      "COMMENT_DELETED|1.0",
+      "COMMENT_UPDATED|1.0"
+    ]
+  },
+  "fact_tables": {
+    "account_activity_fact": [
+      "event_type",
+      "end_reason"
+    ],
+    "chat_activity_fact": [
+      "message_uuid",
+      "floor_uuid"
+    ],
+    "post_activity_fact": [
+      "post_uuid",
+      "action",
+      "revision",
+      "zone_uuid"
+    ],
+    "comment_activity_fact": [
+      "comment_uuid",
+      "post_uuid",
+      "parent_comment_uuid",
+      "action",
+      "revision"
+    ],
+    "content_activity_fact": [
+      "content_uuid",
+      "category_uuid",
+      "domain",
+      "content_kind",
+      "action",
+      "zone_uuid"
+    ],
+    "quiz_attempt_fact": [
+      "attempt_uuid",
+      "question_uuid",
+      "content_uuid",
+      "question_type",
+      "choice_uuid",
+      "is_correct"
+    ],
+    "movement_fact": [
+      "floor_uuid",
+      "zone_uuid",
+      "x",
+      "y",
+      "input_kind"
+    ],
+    "floor_transfer_fact": [
+      "from_floor_uuid",
+      "to_floor_uuid",
+      "zone_uuid"
+    ],
+    "point_grant_fact": [
+      "ledger_uuid",
+      "attempt_uuid",
+      "delta",
+      "balance_after"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{% load static %}<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{% static 'console/app.css' %}">
+</head>
+<body class="plain">
+  <main class="auth">
+    <section class="card auth-card state">
+      <span class="glyph danger" aria-hidden="true">!</span>
+      <h1>{{ title }}</h1>
+      <p class="muted">{{ message }}</p>
+      <a class="button secondary wide" href="/">처음 화면으로</a>
+    </section>
+  </main>
+</body>
+</html>

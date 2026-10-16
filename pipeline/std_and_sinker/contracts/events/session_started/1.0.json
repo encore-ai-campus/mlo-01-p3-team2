@@ -1,0 +1,15 @@
+{
+  "event_type": "session_started",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid"
+  ],
+  "constants": {
+    "event_type": "SESSION_STARTED"
+  },
+  "double_fields": []
+}

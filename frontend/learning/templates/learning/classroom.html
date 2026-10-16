@@ -1,0 +1,8 @@
+<dialog id="classroomDialog" class="classroom-screen" aria-labelledby="classroom-title">
+  <h2 id="classroom-title" hidden>Python 학습교실</h2>
+  <canvas id="classroomCanvas" tabindex="0" aria-label="Python 학습교실. WASD와 방향키로 이동하고 PC와 출입구 가까이에서 E키를 누르세요."></canvas>
+  <button id="campusPokeButton" class="campus-poke-button" type="button" title="Z키 또는 이 버튼을 누르고 있으면 연속 찌르기" aria-label="가까운 캐릭터 연속 찌르기, Z키를 길게 누르세요" aria-pressed="false" disabled><kbd>Z</kbd><span>찌르기</span></button>
+  <footer class="map-footer classroom-footer" aria-label="학습교실 조작 안내">
+    <div class="classroom-action-guide" role="status" aria-live="polite" aria-atomic="true"><span id="classroomAreaHint">박스 안에서</span><kbd>E</kbd><span id="classroomPrompt">상호작용</span></div>
+  </footer>
+</dialog>

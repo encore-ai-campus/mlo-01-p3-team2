@@ -1,0 +1,69 @@
+{% extends "console/base.html" %}
+{% load static console_format console_icons %}
+{% block title %}소재 라이브러리{% endblock %}
+{% block crumb %} / 소재 라이브러리{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>소재 라이브러리</h1><p>한 번 등록한 소재를 여러 광고에서 다시 사용할 수 있습니다.</p></div>
+  <div class="actions"><a class="button" href="#upload">{% icon "plus" 14 %}소재 올리기</a></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="notice info">소재를 수정하면 사용하는 모든 광고에 반영돼요<span class="detail">다음 결정부터 적용됩니다. 끝나지 않은 캠페인(일시 중지·중단 포함)의 광고에서 사용 중인 소재는 삭제할 수 없습니다.</span></div>
+
+<form method="get" role="search" class="searchbar autosubmit">
+  <div class="search">
+    {% icon "search" 16 %}
+    <label for="q" class="sr-only">소재 이름 또는 이동 주소 검색</label>
+    <input type="search" id="q" name="q" value="{{ q }}" placeholder="소재 이름 또는 이동 주소 검색" maxlength="100">
+  </div>
+  <div class="inline">
+    <label for="use" class="muted">사용 상태:</label>
+    <select id="use" name="use">{% for value, label in filters %}<option value="{{ value }}"{% if value == use %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </div>
+  <button type="submit" class="secondary js-hide">찾기</button>
+</form>
+
+<ul class="creative-grid" aria-label="소재">
+  {% for item in items %}{% with c=item.creative %}
+  <li class="card">
+    <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="" loading="lazy">
+    <h2><a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></h2>
+    <p class="url">{{ c.redirect_url }}</p>
+    {% if item.uses %}
+    <details class="uses">
+      <summary class="status active">광고 {{ item.uses|length }}개에서 사용 중</summary>
+      <ul>{% for u in item.uses %}<li><a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 선택됨{% endif %})</span></li>{% endfor %}</ul>
+    </details>
+    {% else %}<span class="status ended">사용 중인 광고 없음</span>{% endif %}
+    <div class="card-foot">
+      <a href="{% url 'creative_detail' c.creative_id %}">상세 보기 {% icon "arrow" 14 %}</a>
+      {% if item.deletable %}
+      <form method="post" action="{% url 'creative_archive' c.creative_id %}" data-confirm="‘{{ c.title }}’ 소재를 삭제할까요?" data-confirm-detail="삭제한 소재는 목록에서 사라지고 새 광고에 고를 수 없습니다." data-confirm-action="삭제">{% csrf_token %}
+        <button type="submit" class="link danger" aria-label="{{ c.title }} 삭제">삭제</button>
+      </form>
+      {% else %}<span class="muted locked">{% icon "lock" 14 %}삭제 제한<span class="sr-only"> — 끝나지 않은 캠페인의 광고에서 사용 중</span></span>{% endif %}
+    </div>
+  </li>
+  {% endwith %}{% empty %}
+  <li class="empty dashed"><p class="muted">{% if q or use %}조건에 맞는 소재가 없습니다. <a href="{% url 'creative_list' %}">전체 보기</a>{% else %}소재가 없습니다. 아래에서 올리면 광고 만들기와 광고 상세에서 고를 수 있습니다.{% endif %}</p></li>
+  {% endfor %}
+</ul>
+
+<section class="card" aria-labelledby="upload">
+  <h2 id="upload">소재 올리기</h2>
+  <form method="post" enctype="multipart/form-data" novalidate>{% csrf_token %}
+    {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="pair">
+      <div class="field">{{ form.title.as_field_group }}</div>
+      <div class="field">{{ form.redirect_url.as_field_group }}</div>
+    </div>
+    <div class="upload-row">
+      <div class="field dropzone">{{ form.image.as_field_group }}</div>
+      <button type="submit">소재 올리기</button>
+    </div>
+    <p class="helptext">PNG · JPEG / 움직이는 이미지 제외. 올린 소재는 광고 만들기나 광고 상세에서 고를 수 있습니다.</p>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script><script src="{% static 'console/autosubmit.js' %}" defer></script>{% endblock %}

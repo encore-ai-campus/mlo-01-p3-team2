@@ -1,0 +1,76 @@
+{% extends "console/base.html" %}
+{% load static console_format console_icons %}
+{% block title %}{{ creative.title }}{% endblock %}
+{% block crumb %} / <a href="{% url 'creative_list' %}">소재 라이브러리</a> / {{ creative.title }}{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div>
+    <h1>{{ creative.title }}{% if creative.archived %} <span class="status ended">삭제됨</span>{% endif %}</h1>
+    <p><a href="{% url 'creative_list' %}">소재 라이브러리</a> / 소재 상세</p>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+{% if creative.archived %}<div class="notice warning">삭제한 소재입니다<span class="detail">이미 나간 광고의 기록에만 남아 있습니다.</span></div>{% endif %}
+<div class="split">
+  <div class="column">
+    {% if not creative.archived %}
+    <section class="card" aria-label="소재 수정">
+      <h2>제목·이동 주소</h2>
+      <p class="muted">고치면 이 소재를 쓰는 모든 광고에 다음 결정부터 적용됩니다. 이미 나간 광고는 그대로입니다.</p>
+      <form method="post" action="{% url 'creative_edit' creative.creative_id %}">{% csrf_token %}
+        {% if edit.non_field_errors %}<div class="notice error" role="alert">{{ edit.non_field_errors }}</div>{% endif %}
+        {{ edit.updated_at }}
+        <div class="pair">
+          <div class="field">{{ edit.title.as_field_group }}</div>
+          <div class="field">{{ edit.redirect_url.as_field_group }}</div>
+        </div>
+        <div class="form-end"><button type="submit" class="wide-sm">저장</button></div>
+      </form>
+    </section>
+    <section class="card" aria-label="이미지 바꾸기">
+      <h2>이미지 바꾸기</h2>
+      <form method="post" action="{% url 'creative_image' creative.creative_id %}" enctype="multipart/form-data">{% csrf_token %}
+        {% if image.non_field_errors %}<div class="notice error" role="alert">{{ image.non_field_errors }}</div>{% endif %}
+        {{ image.updated_at }}
+        <div class="upload-row">
+          <div class="field dropzone">{{ image.image.as_field_group }}</div>
+          <button type="submit" class="secondary">이미지 바꾸기</button>
+        </div>
+        <p class="helptext">PNG · JPEG. 이전 이미지는 이미 나간 광고를 위해 보관하며, 보관분도 업로드 총량에 들어갑니다.</p>
+      </form>
+    </section>
+    {% endif %}
+    <section class="card" aria-label="쓰는 광고">
+      <h2>쓰는 광고</h2>
+      {% if owned.uses %}
+      <ul class="uses-list">
+        {% for u in owned.uses %}<li><a href="{% url 'ad_group_detail' u.ad_group_id %}">{{ u.ad_group_name }}</a> <span class="muted">({{ u.campaign_name }}{% if not u.campaign_open %} · 끝남{% endif %}{% if u.selected %} · 선택됨{% endif %})</span></li>{% endfor %}
+      </ul>
+      {% else %}<p class="muted">아직 쓰는 광고가 없습니다.</p>{% endif %}
+    </section>
+  </div>
+
+  <div class="aside-cards">
+    <section class="card creative-preview" aria-label="미리보기">
+      <h2>미리보기</h2>
+      <figure>
+        <img class="preview" src="{% url 'creative_image_file' creative.creative_id %}" alt="{{ creative.title }} 소재 이미지">
+        <figcaption><strong>{{ creative.title }}</strong><span class="muted">이동 주소</span><span class="url">{{ creative.redirect_url }}</span></figcaption>
+      </figure>
+    </section>
+    {% if not creative.archived %}
+    <section class="card end" aria-label="삭제">
+      <h2>소재 삭제</h2>
+      {% if owned.deletable %}
+      <p class="muted">삭제한 소재는 목록에서 사라지고 새 광고에 고를 수 없습니다. 이미 나간 광고의 기록에는 남습니다.</p>
+      <form method="post" action="{% url 'creative_archive' creative.creative_id %}" data-confirm="‘{{ creative.title }}’ 소재를 삭제할까요?" data-confirm-detail="삭제한 소재는 목록에서 사라지고 새 광고에 고를 수 없습니다." data-confirm-action="삭제">{% csrf_token %}
+        <button type="submit" class="danger wide">소재 삭제</button>
+      </form>
+      {% else %}<p class="muted locked">{% icon "lock" 14 %}끝나지 않은 캠페인의 광고에 쓰여 삭제할 수 없습니다.</p>{% endif %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/confirm.js' %}" defer></script>{% endblock %}

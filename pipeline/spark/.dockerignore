@@ -1,0 +1,6 @@
+artifacts
+.venv
+__pycache__
+**/__pycache__
+dist
+.env

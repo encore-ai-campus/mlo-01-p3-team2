@@ -1,0 +1,4 @@
+confluent-kafka>=2.8,<3
+pymongo>=4.10,<5
+xxhash>=3.5,<4
+python-dotenv>=1.0,<2
