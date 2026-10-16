@@ -14,7 +14,7 @@
 
 ## 시연 영상
 
-https://github.com/user-attachments/assets/03797865-0b57-4f57-94c4-7c20dd7f8ade
+https://github.com/user-attachments/assets/1a88be7e-7d3f-4d0a-8036-f4b4ca2c817a
 
 ## 동료를 만나는 가상 캠퍼스
 
@@ -28,6 +28,13 @@ https://github.com/user-attachments/assets/03797865-0b57-4f57-94c4-7c20dd7f8ade
 
 ![게시판에서 질문과 자료, 프로젝트 소식을 나누는 캠퍼스 커뮤니티](docs/readme/community-board.png)
 
+## 찌르기로 친구에게 인사하기
+
+가까운 동료를 바라보고 **Z**를 누르면 찌르기로 인사할 수 있습니다.
+손 동작과 반응 효과로 대화 전에도 가볍게 인사를 나눠보세요.
+
+![Z 키로 가까운 친구에게 인사하는 찌르기 기능](docs/readme/poke.png)
+
 ## 내 수준에 맞게 배우는 Python·SQL 학습교실
 
 Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분을 확인할 수 있습니다.
@@ -37,7 +44,7 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 - **코드 빈칸 문제**: 답을 직접 작성하며 배운 내용을 적용합니다.
 - **결과와 오답 복습**: 성적과 해설을 확인하고, 틀린 문제를 다시 살펴봅니다.
 
-![객관식과 코드 빈칸 학습 영역이 있는 Python 학습교실](docs/readme/learning-classroom.png)
+![객관식과 코드 빈칸 학습 콘텐츠를 소개하는 Python 학습 공간](docs/readme/learning-classroom.png)
 
 ## 학습의 보상으로 쌓이는 포인트
 
@@ -85,6 +92,8 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 서로 다른 역할을 맡은 다섯 명이 함께 캠퍼스를 만듭니다.
 플랫폼, 광고 서비스, 데이터 처리와 인프라를 연결해 학습과 소통을 지원합니다.
 
+![PLAYDATA METAVERSE 팀 소개](docs/readme/team-members.png)
+
 ### 팀구성
 
 | 이름 | 작업 | GitHub 주소 |
@@ -94,5 +103,3 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 | 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
 | 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
 | 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
-
-![PLAYDATA METAVERSE 팀 소개](docs/readme/team-members.png)
