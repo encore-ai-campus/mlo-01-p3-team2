@@ -291,9 +291,38 @@ Channels 4.3.2의 `dispatch`는 모든 핸들러 앞에서 `aclose_old_connectio
 
 ## 6. 배포할 때 (팀 절차)
 
+순서가 중요하다. **추첨 테이블은 새 코드를 올리기 전에, 지금 운영 코드로 지운다** — 새 코드에는 추첨 마이그레이션이 없어서 올린 뒤에는 `migrate raffle zero` 를 쓸 수 없다.
+
+### 6.1 추첨 데이터 지우기 (지금 운영 코드로, 새 코드를 올리기 전)
+
+추첨 기능은 쓰지 않기로 했다(2026-10-16). 운영 DB 의 `raffle_*` 테이블 6개(event·entry·control·surveyattempt·surveyconnection·winnercontact)에는
+Google 설문 연결 주소·접근 키, 참가자 닉네임, 당첨자 QR 이미지가 있다. 쓰지 않는 개인 정보·비밀 값이므로 백업한 뒤 지운다.
+
+```bash
+cd ~/backend
+# 1) 백엔드를 멈춘다. 지금 코드는 추첨 테이블을 1초마다·접속할 때마다 읽으므로, 켜 둔 채 지우면 오류가 난다
+sudo systemctl stop playdata-backend
+# 2) 백업(서버에 mysqldump 가 없어도 되도록 Django 로). 비밀 값·개인 정보가 들어 있으니 본인만 읽게 만든다
+umask 077 && .venv/bin/python manage.py dumpdata raffle --indent 1 -o ~/raffle-backup-$(date +%Y%m%d).json
+# 3) 지운다(테이블 6개와 마이그레이션 기록). 계정·다른 앱의 데이터는 그대로다
+.venv/bin/python manage.py migrate raffle zero --noinput
+# 4) 확인: 모두 [ ] 여야 한다
+.venv/bin/python manage.py showmigrations raffle
+```
+
+- 로컬 리허설(MySQL 8.4, 서로 참조하는 추첨 행을 넣은 상태): 테이블 6개·마이그레이션 기록이 지워지고 계정은 남았다. 새 코드는 `No migrations to apply`.
+- **되돌려야 할 때**(새 코드 배포를 되돌리는 경우): 옛 코드로 `manage.py migrate raffle` 로 빈 테이블을 만들고 `manage.py loaddata ~/raffle-backup-YYYYMMDD.json`.
+  리허설에서 6행과 QR 이미지(바이트)까지 그대로 돌아왔다.
+- 백업 파일은 보관 기간을 정해 지운다(접근 키·개인 정보). `.env` 의 `CAMPUS_RAFFLE_*` 줄도 지운다(새 코드는 읽지 않는다).
+
+### 6.2 새 코드 올리기
+
 1. **백엔드와 프론트를 함께** 올린다. 이동 묶음(`moves`, 1d)은 새 JS 만 읽는다. 스크립트 주소의 내용 버전(`?v=`)이 바뀌므로 새로고침하면 새 JS 를 받지만,
    배포 중 열려 있던 탭은 재연결해도 옛 JS 라 다른 사람이 멈춰 보인다 — **열린 탭 새로고침 안내**가 필요하다.
-2. 마이그레이션은 없다.
+2. `migrate --noinput` 은 할 일이 없다(새 마이그레이션 없음). 서비스를 켠다(`sudo systemctl start playdata-backend`).
 3. 광고 반응 재전송: `deploy/ad71/README.md` 대로 예전 타이머를 끄고 서비스를 켠다(7a).
-4. 배포 뒤 `journalctl -u playdata-backend` 에서 `closed by server code=` 줄을 모아 재로그인 원인을 본다(0c → 6a). `waited ...s for the database` 는 DB 가 느렸던 순간이다(0d).
-5. Kafka(7b)는 인프라가 새 주소의 방화벽을 연 뒤 outbox 가 빠지는지 본다.
+
+### 6.3 배포 뒤
+
+1. `journalctl -u playdata-backend` 에서 `closed by server code=` 줄을 모아 재로그인 원인을 본다(0c → 6a). `waited ...s for the database` 는 DB 가 느렸던 순간이다(0d).
+2. Kafka(7b)는 인프라가 새 주소의 방화벽을 연 뒤 outbox 가 빠지는지 본다.
