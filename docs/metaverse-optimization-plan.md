@@ -269,7 +269,7 @@ Channels 4.3.2의 `dispatch`는 모든 핸들러 앞에서 `aclose_old_connectio
 
 ### 8단계. 이번 범위 밖 (나중에)
 
-- **여러 프로세스로 늘리기:** Redis 채널 계층과 방 상태(`room`)·`session_registry`를 밖으로 빼야 합니다. 1~4단계 뒤에 측정해 필요할 때 합니다.
+- **여러 프로세스로 늘리기:** 실사용 측정(사람당 운영 코어 약 3.1%)으로 필요해졌다. 별도 계획: [metaverse-multiprocess-plan.md](metaverse-multiprocess-plan.md).
 - **동작을 그대로 두고 코드 줄이기(Ponytail 점검 목록):**
   - 항상 503인 `ad_bridge` `decision/` 뷰
   - 쓰이지 않는 카탈로그 상수·함수
