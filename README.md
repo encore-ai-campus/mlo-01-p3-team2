@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="320">
+  <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="800">
 </p>
 
 # PLAYDATA 캠퍼스 메타버스
@@ -90,9 +90,9 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 | 이름 | 작업 | GitHub 주소 |
 |---|---|---|
 | 신동엽 | 데이터 파이프라인 | [sdyeob](https://github.com/sdyeob) |
-| 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
-| 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
-| 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
 | 강한솔 | 플랫폼 | [hansolsmart](https://github.com/hansolsmart) |
+| 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
+| 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
+| 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
 
 ![PLAYDATA METAVERSE 팀 소개](docs/readme/team-members.png)
