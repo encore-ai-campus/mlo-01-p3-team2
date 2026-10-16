@@ -1,4 +1,4 @@
-"""접수된 개인 노출의 판정을 조회하고 기존 기록에 반영한다."""
+"""접수된 사용자별 노출의 판정을 조회하고 기존 기록에 반영한다."""
 
 from datetime import datetime
 from uuid import UUID

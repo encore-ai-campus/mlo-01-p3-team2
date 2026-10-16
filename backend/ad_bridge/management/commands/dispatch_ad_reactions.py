@@ -8,7 +8,8 @@ from uuid import UUID
 from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError, close_old_connections
 
-from ad_bridge import AdsClient, AdsConfig
+from ad_bridge import AdsConfig
+from ad_bridge.routing import RoutedAdsClient as AdsClient
 from ad_bridge.impressions import store as impression_store
 from ad_bridge.delivery.worker import dispatch_due_impressions
 from ad_bridge.delivery.policy import RetryPolicy, utc_now

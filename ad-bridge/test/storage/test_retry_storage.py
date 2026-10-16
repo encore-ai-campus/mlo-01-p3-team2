@@ -438,6 +438,7 @@ class RetryMigrationTests(TransactionTestCase):
         previous = [("ad_bridge", "0001_initial")]
         latest = [("ad_bridge", "0002_impression_retry")]
         executor = MigrationExecutor(connection)
+        restore = executor.loader.graph.leaf_nodes("ad_bridge")
         executor.migrate(previous)
         old_apps = executor.loader.project_state(previous).apps
         OldDecision = old_apps.get_model("ad_bridge", "IssuedDecision")
@@ -456,8 +457,10 @@ class RetryMigrationTests(TransactionTestCase):
                 identities[state] = row.pk
             executor = MigrationExecutor(connection)
             executor.migrate(latest)
+            # 과거 스키마를 검사할 때 최신 모델의 추가 필드를 조회하지 않는다.
+            MigratedImpression = executor.loader.project_state(latest).apps.get_model("ad_bridge", "Impression")
             for state, reaction_id in identities.items():
-                row = Impression.objects.get(pk=reaction_id)
+                row = MigratedImpression.objects.get(pk=reaction_id)
                 self.assertEqual(row.delivery_state, state)
                 self.assertEqual(row.occurred_at, "2026-10-11T12:00:00Z")
                 if state in {"SENDING", "UNCONFIRMED"}:
@@ -468,7 +471,7 @@ class RetryMigrationTests(TransactionTestCase):
                     self.assertIsNone(row.next_attempt_at)
                     self.assertIsNone(row.lease_expires_at)
         finally:
-            MigrationExecutor(connection).migrate([("ad_bridge", "0003_decision_owner")])
+            MigrationExecutor(connection).migrate(restore)
 
 
 class OwnerMigrationTests(TransactionTestCase):
@@ -476,6 +479,7 @@ class OwnerMigrationTests(TransactionTestCase):
         previous = [("ad_bridge", "0002_impression_retry")]
         latest = [("ad_bridge", "0003_decision_owner")]
         executor = MigrationExecutor(connection)
+        restore = executor.loader.graph.leaf_nodes("ad_bridge")
         executor.migrate(previous)
         old_apps = executor.loader.project_state(previous).apps
         OldDecision = old_apps.get_model("ad_bridge", "IssuedDecision")
@@ -493,11 +497,15 @@ class OwnerMigrationTests(TransactionTestCase):
                     last_error="ads_http_error", last_http_status=503, lease_token=uuid4())
                 snapshots.append((OldDecision.objects.values().get(pk=decision.pk),
                                   OldImpression.objects.values().get(pk=row.pk)))
-            MigrationExecutor(connection).migrate(latest)
+            executor = MigrationExecutor(connection)
+            executor.migrate(latest)
+            migrated_apps = executor.loader.project_state(latest).apps
+            MigratedDecision = migrated_apps.get_model("ad_bridge", "IssuedDecision")
+            MigratedImpression = migrated_apps.get_model("ad_bridge", "Impression")
             for decision_before, impression_before in snapshots:
-                decision_after = IssuedDecision.objects.values().get(pk=decision_before["decision_id"])
+                decision_after = MigratedDecision.objects.values().get(pk=decision_before["decision_id"])
                 self.assertIsNone(decision_after.pop("owner_id"))
                 self.assertEqual(decision_after, decision_before)
-                self.assertEqual(Impression.objects.values().get(pk=impression_before["reaction_id"]), impression_before)
+                self.assertEqual(MigratedImpression.objects.values().get(pk=impression_before["reaction_id"]), impression_before)
         finally:
-            MigrationExecutor(connection).migrate(latest)
+            MigrationExecutor(connection).migrate(restore)

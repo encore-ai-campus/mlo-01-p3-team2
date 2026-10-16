@@ -889,8 +889,9 @@
       if(o.type==='plaza-display') {
         const q=projectGround(o.x+o.w/2,o.y+o.h/2),sw=o.screenWidth||250,v=o.displayAxis==='y'?P.vector(0,-1):{x:1,y:0};
         const half=(sw/2+16),spreadX=Math.abs(v.x)*half,spreadY=Math.abs(v.y)*half;
-        b.x=Math.floor(q.x-spreadX-10);b.y=Math.floor(q.y-spreadY-(o.renderHeight||230));
-        b.w=Math.ceil(spreadX*2+20);b.h=Math.ceil(spreadY*2+(o.renderHeight||230)+14);
+        const image=displayImages.get(o.id),height=Math.max(o.renderHeight||230,o.imageOnly&&image?44+sw*image.height/image.width+8:0);
+        b.x=Math.floor(q.x-spreadX-10);b.y=Math.floor(q.y-spreadY-height);
+        b.w=Math.ceil(spreadX*2+20);b.h=Math.ceil(spreadY*2+height+14);
       }
       const canvas=makeCanvas(b.w*2,b.h*2);g=canvas.getContext('2d',{willReadFrequently:Boolean(o.name)});g.scale(2,2);g.translate(-b.x,-b.y);paint();
       return {o,r,b,canvas,isWall,depth:isWall&&D.backdropWalls&&((o.x<=15&&o.w<=10)||(o.y<=15&&o.h<=10))?-Infinity:p(r.x+r.w/2,r.y+r.h/2).y};
@@ -1051,7 +1052,16 @@
       drawLabels(ctx,actors);
       for(const actor of actors)if(actor===actors[0]||(showNicknames&&actor.nickname))drawName(ctx,actor,camera.zoom,actor===actors[0]?'나':actor.nickname,actor===actors[0],t);
     }
-    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState};
+    // 확대·카메라 이동 전 광고 이미지의 실제 사각형을 투영한다. 테두리는 포함하지 않는다.
+    function displayPolygon(id){
+      const o=D.objects.find(o=>o.id===id),image=displayImages.get(id);
+      if(!o||!image)return null;
+      const q=projectGround(o.x+o.w/2,o.y+o.h/2),sw=o.screenWidth||250;
+      const sh=o.imageOnly?sw*image.height/image.width:o.screenHeight||150;
+      const v=o.displayAxis==='y'?P.vector(0,-1):{x:1,y:0};
+      return [[-sw/2,-44-sh],[sw/2,-44-sh],[sw/2,-44],[-sw/2,-44]].map(([x,y])=>({x:q.x+v.x*x,y:q.y+v.y*x+y}));
+    }
+    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState,displayPolygon};
   }
   window.CampusIsometric={createProjection,create};
 })();

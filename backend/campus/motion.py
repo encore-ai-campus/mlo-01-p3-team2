@@ -2,6 +2,7 @@
 from functools import lru_cache
 import heapq
 import json
+from uuid import uuid4
 import math
 from pathlib import Path
 import time
@@ -297,7 +298,7 @@ class MotionController:
         obj=self.world.objects.get(object_id)
         if not obj or not obj.get('toFloor') or self.world.distance(obj,self.pose,doors)>=35 or self.interior:
             raise ControlError('계단이나 포탈 가까이에서 이용해 주세요.')
-        self.pending_transfer=obj;self.keys=set();self.route=[];self.pose['moving']=False
+        self.pending_transfer=obj;self.ad_transfer_id=None;self.keys=set();self.route=[];self.pose['moving']=False
         return {'type':'transfer_offer','objectId':obj['id'],'floor':obj['toFloor'],'confirm':obj.get('confirmTransfer',False)}
 
     def leave_classroom(self, doors=None, *, now=None):
@@ -320,6 +321,16 @@ class MotionController:
             if self.pending_transfer:
                 self.ignored_portal=self.pending_transfer['id']
             self.pending_transfer=None;self.keys=set()
+        elif action=='begin_transfer':
+            obj=self.pending_transfer
+            if not obj or data.get('floor')!=obj['toFloor'] or self.world.distance(obj,self.pose,doors)>=35:
+                raise ControlError('이동할 계단이나 포탈을 먼저 선택해 주세요.')
+            destination=world(obj['toFloor']);arrival=obj.get('arrival') or destination.data['spawn']
+            if destination.closest(*arrival,doors) is None:
+                raise ControlError('도착 위치를 확인해 주세요.')
+            if not getattr(self,'ad_transfer_id',None):
+                self.ad_transfer_id=str(uuid4())
+            return {'type':'transfer_ready','transfer_id':self.ad_transfer_id}
         elif action=='transfer':
             obj=self.pending_transfer
             if not obj or data.get('floor')!=obj['toFloor'] or self.world.distance(obj,self.pose,doors)>=35:

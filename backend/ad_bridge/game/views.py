@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
-from ..api.client import AdsClient
+from ..routing import RoutedAdsClient as AdsClient
 from ..api.config import AdsConfig
 from ..api.errors import AdsHTTPError, AdsResponseError, AdsTransportError
 from ..decisions import store as decision_store
@@ -112,9 +112,11 @@ def report_impression(request, decision_id):
         client = AdsClient(config)
         # 브라우저의 사용자·반응 ID·과거 시각을 쓰지 않고 서버가 알림을 확인한 시각을 고정한다.
         occurred_at = timezone.now().astimezone(utc_timezone.utc).isoformat().replace("+00:00", "Z")
+        shared = decision_store.is_shared_decision(decision_id)
+        viewer = {"subject_id": _subject_id(owner_id, subject_secret=config.subject_secret)} if shared else {}
         outcome = report_impression_once(
             client=client, store=impression_store, decision_id=decision_id,
-            owner_id=owner_id, occurred_at=occurred_at,
+            owner_id=owner_id, occurred_at=occurred_at, **viewer,
         )
     except impression_store.DecisionNotFound:
         return JsonResponse({
