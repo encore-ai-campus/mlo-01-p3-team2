@@ -29,7 +29,8 @@ services:
     environment:
       DJANGO_DEBUG: "0"
       DJANGO_SECRET_KEY: load-test-only-not-a-secret-0123456789abcdefghij
-      DJANGO_ALLOWED_HOSTS: backend,localhost
+      DJANGO_ALLOWED_HOSTS: ${BACKEND_HOSTS:-backend,localhost}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${CSRF_ORIGINS:-}
       DATABASE_ENGINE: mysql
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
@@ -57,6 +58,22 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9003/')"]
       interval: 2s
       retries: 60
+
+  # 개발 서버(사람이 접속해 보기): 프론트가 백엔드로 HTTP·WebSocket 을 중계한다(운영 front-a 와 같은 구조). README 의 "개발 서버로 띄우기"
+  frontend:
+    <<: *image
+    profiles: [dev]
+    depends_on:
+      backend: {condition: service_healthy}
+    volumes:
+      - ../frontend:/app:ro
+    environment:
+      BACKEND_URL: http://backend:9003
+      FRONTEND_ALLOWED_HOSTS: ${FRONTEND_HOSTS:-localhost,127.0.0.1}
+      FRONTEND_DEBUG: "1"  # 정적 파일을 runserver 가 내준다(운영은 nginx)
+    ports:
+      - "${FRONTEND_BIND:-127.0.0.1}:8004:8004"
+    command: python manage.py runserver 0.0.0.0:8004 --noreload
 
   load:
     <<: *image

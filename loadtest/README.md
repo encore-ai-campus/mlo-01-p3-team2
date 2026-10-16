@@ -48,4 +48,21 @@ python loadtest/run.py --label base-u100 --out /tmp/campus-load --users 100
 
 `--polls 0` 은 HTTP 조회를 끈다(원인 나누기용).
 
-끝나면 `docker compose -f loadtest/compose.yaml down -v` 로 지운다.
+## 개발 서버로 띄우기 (사람이 접속해 보기)
+
+같은 조건(운영 코어 하나·MySQL 8.4)의 백엔드에 프론트를 붙여 내부망에 연다. 프론트가 HTTP·WebSocket 을 백엔드로 중계한다(운영 front-a 와 같은 구조).
+
+```bash
+# dev/ 에서. LAN 은 이 컴퓨터의 내부 IP(맥: ipconfig getifaddr en0)
+LAN=192.168.0.109
+FRONTEND_BIND=0.0.0.0 FRONTEND_HOSTS=$LAN,localhost,127.0.0.1 BACKEND_HOSTS=backend,$LAN,localhost,127.0.0.1 \
+CSRF_ORIGINS=http://$LAN:8004,http://localhost:8004 \
+docker compose -f loadtest/compose.yaml --profile dev up -d --wait backend frontend
+python loadtest/watch.py          # 실시간: 운영 코어·백엔드 연결(≈ 접속자)·DB
+docker compose -f loadtest/compose.yaml logs -f backend | grep -E "closed by server|waited"   # 끊는 이유·느린 DB
+```
+
+접속: `http://<LAN>:8004/` (새 DB 라 회원가입부터 한다). `FRONTEND_BIND` 를 빼면 이 컴퓨터(127.0.0.1)에서만 열린다.
+CPU 제한을 풀려면 `BACKEND_CPU_QUOTA=100000` 을 함께 준다.
+
+끝나면 `docker compose -f loadtest/compose.yaml --profile dev down -v` 로 지운다(DB 도 지워진다).
