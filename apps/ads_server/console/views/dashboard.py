@@ -8,12 +8,13 @@ from django.utils import timezone
 
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import errors, present
+from foundation.api import errors
 from records import api as records
 
 from ..forms import METRICS, PeriodForm
 from ..queries.alerts import alerts_for
 from ..queries.dashboard import TOP, top_campaigns
+from .common import present
 
 
 def _now():
@@ -34,8 +35,11 @@ def advertiser_home(request):
     except errors.NotFound:  # 가입 절차를 거치지 않은 옛 계정
         wallet = None
     camps = campaigns.list_campaigns(request.user, now=now)  # 지갑과 함께 상위 캠페인 표·알림이 같은 읽기를 본다
+    alerts = alerts_for(request.user, now, camps, wallet)
     return present(request, "console/advertiser_home.html", {
         "form": form, "days": chosen["days"], "metric": chosen["metric"], "metric_label": dict(METRICS)[chosen["metric"]],
         "metrics": METRICS, "report": report, "today": today, "wallet": wallet, "top": top_campaigns(request.user, start, end, camps), "top_limit": TOP,
-        "alerts": alerts_for(request.user, now, camps, wallet),
+        "alerts": alerts, "has_alerts": bool(alerts),  # 헤더 종의 점 — 패널과 같은 계산(다른 화면은 views/common.py 가 계산)
+        "campaign_count": len(camps),  # 0 이면 처음 사용 화면(시작하기 3단계 — 6-21c)
+        "daily_budget_total": sum(c.daily_budget for c in camps if c.status == "ACTIVE"),  # 지갑 칸의 '일예산 합계 대비 오늘 소진'(6-21c) — 같은 읽기, 질의 없음
     })

@@ -129,7 +129,7 @@ class NoJsJourneyTests(Cases, TestCase):
         filled = dict(group_name="그룹", slot_ids=[slot], bid_amount="250", title="제목", redirect_url="https://example.com/nojs")
         page = submit(self.adv, page, ad_form, button="preview", **filled)
         self.assertContains(page, "지금 정책 기준")
-        self.assertContains(page, "노출 245 · 클릭 2 · 전환 2")  # 250 × 98% · 1% · 1%(내림)
+        self.assertRegex(page.content.decode(), r"(?s)<dt>노출</dt><dd>.*?245 P</dd>.*?<dt>클릭</dt><dd>.*?2 P</dd>.*?<dt>전환</dt><dd>.*?2 P</dd>")  # 250 × 98% · 1% · 1%(내림)
         done = submit(self.adv, page, ad_form, button="create", files={"image": png_file((1, 2, 3))})  # 미리보기 뒤 이미지는 다시 고른다
         group = campaign.ad_groups.get()
         group_url = reverse("ad_group_detail", args=[group.ad_group_id])

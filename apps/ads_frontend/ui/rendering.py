@@ -3,12 +3,14 @@
 백엔드 시험도 이 파일을 그대로 써서 화면을 그린다(apps/ads_server/tests/support/presentation.py) — 그래서 설정의 TEMPLATES 대신 화면 전용 엔진을 쓰고,
 설정은 두 쪽에 같은 것(STATIC_URL·URL 이름)만 기댄다. 값의 모양은 백엔드 foundation/presentation.py 와 짝이다."""
 import datetime
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 
 import django
 from django import forms
+from django.conf import settings
 from django.forms.utils import ErrorDict, ErrorList
 from django.middleware.csp import get_nonce
 from django.template import Context, Engine
@@ -22,6 +24,7 @@ LIBRARIES = {
     "tz": "django.templatetags.tz",
     "console_format": "ui.templatetags.console_format",
     "console_chart": "ui.templatetags.console_chart",
+    "console_icons": "ui.templatetags.console_icons",
     "kst": "ui.templatetags.kst",
 }
 WIDGETS = {cls.__name__: cls for cls in (
@@ -30,17 +33,23 @@ WIDGETS = {cls.__name__: cls for cls in (
     forms.CheckboxSelectMultiple, forms.FileInput, forms.ClearableFileInput,
 )}
 MULTIPLE = (forms.SelectMultiple, forms.CheckboxSelectMultiple)
+LABEL_SUFFIX = ContextVar("label_suffix", default=None)  # 광고주 화면(console/)은 라벨 뒤 ':' 없이(시안 v2), 운영 화면은 Django 기본 그대로
 
 
 @lru_cache(maxsize=1)
 def engine():
-    return Engine(dirs=[str(ROOT / "templates"), str(ADMIN_TEMPLATES)], libraries=LIBRARIES,
-                  loaders=[("django.template.loaders.cached.Loader", ["django.template.loaders.filesystem.Loader"])])
+    files = ["django.template.loaders.filesystem.Loader"]
+    loaders = files if settings.DEBUG else [("django.template.loaders.cached.Loader", files)]  # 개발(DEBUG)에서는 템플릿을 고치면 바로 보인다
+    return Engine(dirs=[str(ROOT / "templates"), str(ADMIN_TEMPLATES)], libraries=LIBRARIES, loaders=loaders)
 
 
 def render(request, presentation):
     """`(HTML, 문맥)`. 문맥에는 요청(현재 경로·메뉴 표시·`{% querystring %}`)과 이 응답의 CSP nonce 를 더한다."""
-    context = {key: from_data(value) for key, value in presentation["context"].items()}
+    token = LABEL_SUFFIX.set("" if presentation["template"].startswith("console/") else None)
+    try:
+        context = {key: from_data(value) for key, value in presentation["context"].items()}
+    finally:
+        LABEL_SUFFIX.reset(token)
     context["messages"] = [Message(**m) for m in context.get("messages", [])]
     context["request"] = request
     context["csp_nonce"] = get_nonce(request)
@@ -96,7 +105,7 @@ def from_data(value):
 
 def display_form(schema):
     """그리기만 하는 폼 — 검증하지 않는다(`is_valid`·`clean` 을 부르지 않는다). 백엔드 폼과 같은 위젯·속성·값·오류라 같은 HTML 이 나온다."""
-    form = forms.Form(prefix=schema["prefix"], auto_id=schema["auto_id"])
+    form = forms.Form(prefix=schema["prefix"], auto_id=schema["auto_id"], label_suffix=LABEL_SUFFIX.get())
     values = {}
     for row in schema["fields"]:
         attrs = {**from_data(row["attrs"]), **({"type": row["input_type"]} if row["input_type"] else {})}  # Input 은 type 을 꺼내 입력 종류로 둔다(datetime-local 등)

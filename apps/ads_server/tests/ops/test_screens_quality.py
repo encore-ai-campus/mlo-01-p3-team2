@@ -225,7 +225,7 @@ class ScreenQualityTests(Cases, TestCase):
             self.assertEqual(self.assert_headers(r, label).report(), [], label)
         error_page = screens["오류 화면"][0].content.decode()
         self.assertIn("<title>찾을 수 없습니다</title>", error_page)  # 제목은 오류 종류(`NotFound.title`), 본문은 화면이 정한 문구
-        self.assertIn("<p>요청한 페이지를 찾을 수 없습니다.</p>", error_page)
+        self.assertIn("<p class=\"muted\">요청한 페이지를 찾을 수 없습니다.</p>", error_page)
 
     def case_console_screens_meet_the_accessibility_basics(self):
         """콘솔(광고주·로그인·가입) 화면. 관리자 화면의 틀은 Django admin 의 것이라 그 위에 얹은 운영 화면만 같은 기준으로 본다."""
@@ -249,7 +249,7 @@ class ScreenQualityTests(Cases, TestCase):
         (_, adv), *_ = self.pages()
         for url in adv:
             html = self.client.get(url).content.decode()
-            self.assertEqual(re.findall(r'aria-current="page">([^<]+)</a>', html), [menu_of[resolve(url).url_name]], url)
+            self.assertEqual(re.findall(r'aria-current="page">(?:<svg.*?</svg>)?([^<]+)</a>', html), [menu_of[resolve(url).url_name]], url)  # 메뉴 앞 아이콘(6-21b)
 
     def case_screens_use_the_screen_terms(self):
         """화면 용어는 "광고"·"구성"이다 — 코드·계약의 광고그룹(`AdGroup`)과 슬롯(`Slot`, 옛 화면 이름 "게재 위치"), 없어진 과금 단위를 화면에 드러내지 않는다
@@ -265,17 +265,18 @@ class ScreenQualityTests(Cases, TestCase):
                 for word in ("광고그룹", "게재 위치", "과금 단위"):
                     self.assertNotIn(word, html, (url, word))
 
-    def case_the_design_tokens_have_enough_contrast_in_both_themes(self):
+    def case_the_design_tokens_have_enough_contrast(self):
+        """시안 v2 의 색 토큰(밝은 화면만 — 6-21b)에서 글자·바탕 쌍이 WCAG AA(4.5:1) 이상이다: 본문·흐린 글자, 버튼, 상태 배지·알림 띠, 사이드바."""
         css = (rendering.ROOT / "static/console/app.css").read_text()  # 콘솔 CSS 는 프론트에 있다(6-15)
-        token = re.compile(r"--([\w-]+):\s*(#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b)")
-        head, dark_block = css.split("@media (prefers-color-scheme: dark)", 1)
-        light = dict(token.findall(head))
-        dark = {**light, **dict(token.findall(dark_block.split("}\n}")[0]))}
-        pairs = [("text", "bg"), ("text", "surface"), ("muted", "surface"), ("muted", "bg"), ("accent", "surface"), ("accent-text", "accent"),
-                 ("danger", "surface"), ("text", "ok-bg"), ("text", "warn-bg"), ("text", "error-bg"), ("muted", "ok-bg"), ("muted", "warn-bg"), ("muted", "error-bg")]  # 알림·오류 상자 안의 흐린 글자
-        for name, tokens in (("light", light), ("dark", dark)):
-            for fg, bg in pairs:
-                self.assertGreaterEqual(contrast(tokens[fg], tokens[bg]), 4.5, f"{name}: {fg} on {bg}")
+        self.assertNotIn("prefers-color-scheme", css)  # 다크 모드는 없앴다(설계 §10 "광고주 화면 v2")
+        tokens = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6})\b", css))
+        pairs = [("ink", "paper"), ("ink", "canvas"), ("ink", "quiet"), ("muted", "paper"), ("muted", "canvas"), ("muted", "quiet"),
+                 ("paper", "accent"), ("accentdark", "paper"), ("accentdark", "accentsoft"), ("danger", "paper"),  # 버튼(Primary·Tonal)·링크·오류
+                 ("positive", "positivesoft"), ("warning", "warningsoft"), ("danger", "dangersoft"), ("blue", "bluesoft"),  # 상태 배지·알림 띠
+                 ("muted", "accentsoft"), ("muted", "warningsoft"), ("muted", "dangersoft"),  # 알림 띠 안의 흐린 글자
+                 ("paper", "nav"), ("navmuted", "nav"), ("navmuted", "navcard")]  # 사이드바
+        for fg, bg in pairs:
+            self.assertGreaterEqual(contrast(tokens[fg], tokens[bg]), 4.5, f"{fg} on {bg}")
 
     def test_screen_quality(self):
         self.run_cases()

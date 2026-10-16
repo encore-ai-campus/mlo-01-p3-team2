@@ -1,32 +1,55 @@
 {% extends "console/base.html" %}
+{% load kst console_format console_icons %}
 {% block title %}내 정보{% endblock %}
-{% block content %}
-<div class="card">
-  <h1>내 정보</h1>
-  <p class="muted">아이디 {{ user.username }} (바꿀 수 없습니다)</p>
-  <form method="post" action="{% url 'my_account' %}" id="profile-form">
-    {% csrf_token %}
-    {{ profile_form.non_field_errors }}
-    {% for field in profile_form %}
-      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {{ field.errors }}
-    {% endfor %}
-    <button type="submit">저장</button>
-  </form>
+{% block crumb %} / 내 정보{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>내 정보</h1><p>계정 정보와 비밀번호를 관리하세요.</p></div>
 </div>
-<div class="card">
-  <h1>비밀번호 변경</h1>
-  <p class="muted">바꾸면 다른 기기의 로그인은 끝납니다. 현재 비밀번호를 여러 번 틀리면 로그인과 함께 잠시 잠깁니다.</p>
-  <form method="post" action="{% url 'my_password' %}" id="password-form">
-    {% csrf_token %}
-    {{ password_form.non_field_errors }}
-    {% for field in password_form %}
-      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {{ field.errors }}
-    {% endfor %}
-    <button type="submit">비밀번호 변경</button>
-  </form>
+{% endblock %}
+{% block content %}
+<div class="split">
+  <div class="column">
+    <section class="card" aria-labelledby="profile">
+      <h2 id="profile">프로필</h2>
+      <div class="field">
+        <label for="username">아이디</label>
+        <div class="locked-input"><input type="text" id="username" value="{{ user.username }}" readonly aria-describedby="username_helptext">{% icon "lock" 16 %}</div>
+        <span class="helptext" id="username_helptext">아이디는 바꿀 수 없습니다.</span>
+      </div>
+      <form method="post" action="{% url 'my_account' %}" id="profile-form">{% csrf_token %}
+        {% if profile_form.non_field_errors %}<div class="notice error" role="alert">{{ profile_form.non_field_errors }}</div>{% endif %}
+        <div class="pair">
+          <div class="field">{{ profile_form.nickname.as_field_group }}</div>
+          <div class="field">{{ profile_form.class_label.as_field_group }}</div>
+        </div>
+        <div class="form-end"><button type="submit" class="wide-sm">저장</button></div>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="password">
+      <h2 id="password">비밀번호 변경</h2>
+      <div class="notice warning">바꾸면 다른 기기의 로그인은 끝납니다<span class="detail">현재 비밀번호를 여러 번 틀리면 로그인과 함께 잠시 잠깁니다.</span></div>
+      <form method="post" action="{% url 'my_password' %}" id="password-form">{% csrf_token %}
+        {% if password_form.non_field_errors %}<div class="notice error" role="alert">{{ password_form.non_field_errors }}</div>{% endif %}
+        <div class="field">{{ password_form.current_password.as_field_group }}</div>
+        <div class="pair">
+          <div class="field">{{ password_form.new_password.as_field_group }}</div>
+          <div class="field">{{ password_form.new_password_confirm.as_field_group }}</div>
+        </div>
+        <div class="form-end"><button type="submit" class="wide-sm">비밀번호 변경</button></div>
+      </form>
+    </section>
+  </div>
+
+  <aside class="card profile-card" aria-label="계정 요약">
+    <div class="who-big"><span class="initial" aria-hidden="true">{{ user.nickname|slice:":1" }}</span><p><strong>{{ user.nickname }} 님</strong><span class="muted">{{ user.class_label }}</span></p></div>
+    <dl class="kv">
+      <div><dt>가입일</dt><dd>{{ summary.joined|kst:"%Y.%m.%d" }}</dd></div>
+      <div><dt>사용 가능한 포인트</dt><dd>{% if summary.balance is not None %}{{ summary.balance|p }}{% else %}—{% endif %}</dd></div>
+      <div><dt>진행 중 캠페인</dt><dd>{{ summary.active_campaigns }}개</dd></div>
+    </dl>
+    <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit" class="secondary wide">로그아웃</button></form>
+  </aside>
 </div>
 {% endblock %}

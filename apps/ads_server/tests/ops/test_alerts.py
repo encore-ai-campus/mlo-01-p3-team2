@@ -125,13 +125,27 @@ class AlertTests(Cases, TestCase):
         self.client.force_login(self.w.adv)
         with mock.patch("console.views.dashboard._now", return_value=NOW):
             html = self.client.get(reverse("advertiser_home")).content.decode()
-        panel = html[html.index('aria-label="알림"'):html.index('aria-label="지표"')]
+        panel = re.search(r'<section aria-label="알림".*?</section>', html, re.S).group(0)
         self.assertIn("&lt;script&gt;x&lt;/script&gt;", panel)
         self.assertNotIn("<script>x</script>", html)
         self.assertNotIn("<b>캠페인</b>", html)
         badges = re.findall(r'<span class="badge">([^<]+)</span>', panel)
         self.assertEqual(badges[0], "긴급")  # 중단(긴급)이 먼저, 상한 적용(알림)은 뒤
         self.assertEqual(badges[-1], "알림")
+
+    def case_the_header_bell_marks_alerts_on_every_advertiser_screen(self):
+        """6-21d: 헤더 종의 점은 대시보드 패널과 같은 계산이다 — 알림이 있으면 어느 광고주 화면에서나 보이고, 풀리면 사라진다."""
+        self.client.force_login(self.w.adv)
+        screens = [reverse("advertiser_home"), reverse("campaign_list"), reverse("points"), reverse("my_account")]
+
+        def marked():
+            return ["(새 알림 있음)" in self.client.get(url).content.decode() for url in screens]
+
+        self.assertEqual(marked(), [False] * 4)
+        campaigns.suspend_campaign(self.w.admin, self.cid, "사유")
+        self.assertEqual(marked(), [True] * 4)
+        campaigns.release_campaign(self.w.admin, self.cid)
+        self.assertEqual(marked(), [False] * 4)
 
     def test_alert(self):
         self.run_cases()

@@ -1,42 +1,66 @@
-{% load static %}<!doctype html>
+{% load static console_icons %}<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}광고 서버{% endblock %}</title>
+  <link rel="preload" href="{% static 'console/fonts/Pretendard-Regular.subset.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{% static 'console/app.css' %}">
 </head>
-<body>
-  <header class="topbar">
-    <strong class="brand">광고 서버</strong>
-    {% if user.is_authenticated %}
-    {% if user.role == "advertiser" %}
+{# 시안 "광고주 센터 UI v2"(설계 §10 "광고주 화면 v2"): 로그인한 광고주는 사이드바 + 헤더, 그 밖(로그인·가입·잠김)은 단순한 틀 #}
+<body class="{% if user.is_authenticated and user.role == 'advertiser' %}console{% else %}plain{% endif %}{% block body_class %}{% endblock %}">
+{% if user.is_authenticated and user.role == "advertiser" %}
+  <aside class="side">
+    <div class="brand"><img class="logo" src="{% static 'console/logo.png' %}" alt="" width="32" height="32">광고주 센터</div>
+    <div class="workspace">ADVERTISER WORKSPACE</div>
     <nav class="mainnav" aria-label="주 메뉴">
       {% url 'advertiser_home' as home_url %}
-      <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>대시보드</a>
+      <a href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>{% icon "dashboard" %}대시보드</a>
       {% url 'campaign_list' as campaigns_url %}
       {# 광고(만들기·상세 — 경로 이름 ad_create·ad_group_*)는 캠페인에 속한다 #}
-      <a href="{{ campaigns_url }}"{% if campaigns_url in request.path or request.resolver_match.url_name == "ad_create" or "ad_group_" in request.resolver_match.url_name %} aria-current="page"{% endif %}>캠페인</a>
+      <a href="{{ campaigns_url }}"{% if campaigns_url in request.path or request.resolver_match.url_name == "ad_create" or "ad_group_" in request.resolver_match.url_name %} aria-current="page"{% endif %}>{% icon "campaigns" %}캠페인</a>
       {% url 'creative_list' as creatives_url %}
-      <a href="{{ creatives_url }}"{% if creatives_url in request.path %} aria-current="page"{% endif %}>소재</a>
+      <a href="{{ creatives_url }}"{% if creatives_url in request.path %} aria-current="page"{% endif %}>{% icon "creatives" %}소재</a>
       {% url 'points' as points_url %}
-      <a href="{{ points_url }}"{% if request.path == points_url %} aria-current="page"{% endif %}>포인트</a>
+      <a href="{{ points_url }}"{% if request.path == points_url %} aria-current="page"{% endif %}>{% icon "points" %}포인트</a>
       {% url 'my_account' as me_url %}
-      <a href="{{ me_url }}"{% if request.path == me_url %} aria-current="page"{% endif %}>내 정보</a>
+      <a href="{{ me_url }}"{% if request.path == me_url %} aria-current="page"{% endif %}>{% icon "account" %}내 정보</a>
     </nav>
-    {% endif %}
-    <form method="post" action="{% url 'logout' %}" class="account">
-      {% csrf_token %}
-      <span class="muted">{{ user.nickname }}({{ user.class_label }})</span>
-      <button type="submit" class="secondary">로그아웃</button>
-    </form>
+    <div class="who"><strong>{{ user.nickname }}({{ user.class_label }})</strong><span>광고주 계정</span></div>
+  </aside>
+  <div class="shell">
+    <header class="top">
+      <div class="crumb"><a href="{% url 'advertiser_home' %}">광고주 센터</a>{% block crumb %}{% endblock %}</div>
+      <a class="bell" href="{% url 'advertiser_home' %}#alerts" aria-label="알림 보기{% if has_alerts %}(새 알림 있음){% endif %}">{% icon "bell" %}{% if has_alerts %}<span class="dot"></span>{% endif %}</a>
+      <a class="chip" href="{% url 'my_account' %}"><span class="initial" aria-hidden="true">{{ user.nickname|slice:":1" }}</span>{{ user.nickname }} 님</a>
+      <details class="more">
+        <summary aria-label="더 보기">⋯</summary>
+        <div class="menu">
+          <a href="{% url 'my_account' %}">내 정보</a>
+          <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">로그아웃</button></form>
+        </div>
+      </details>
+    </header>
+{% else %}
+  {% block plain_top %}{# 로그인·가입·잠김은 왼쪽 소개(_brand_panel.html)로 바꾼다 #}
+  <header class="plain-top">
+    <span class="brand"><img class="logo" src="{% static 'console/logo.png' %}" alt="" width="32" height="32">광고주 센터</span>
+    {% if user.is_authenticated %}
+    <form method="post" action="{% url 'logout' %}" class="account">{% csrf_token %}<span>{{ user.nickname }}({{ user.class_label }})</span><button type="submit" class="secondary">로그아웃</button></form>
     {% endif %}
   </header>
-  <main class="{% block main_class %}{% endblock %}">
-    {% for message in messages %}<div class="notice{% if message.tags %} {{ message.tags }}{% endif %}" role="status">{{ message }}</div>{% endfor %}
-    {% block content %}{% endblock %}
-  </main>
+  {% endblock %}
+{% endif %}
+    <main class="{% block main_class %}{% endblock %}">
+      {# 알림(시안 states "FEEDBACK"): 화면 아래 가운데, 4초 뒤 사라지고(CSS) 오류는 닫을 때까지. 닫기는 <form method="dialog"> 라 스크립트가 없어도 된다 #}
+      {% if messages %}<div class="toasts">{% for message in messages %}<dialog open class="toast{% if message.tags %} {{ message.tags }}{% endif %}"><p role="status">{{ message }}</p><form method="dialog"><button type="submit" class="link">닫기</button></form></dialog>{% endfor %}</div>{% endif %}
+      {% block page_head %}{% endblock %}
+      {% block content %}{% endblock %}
+    </main>
+{% if user.is_authenticated and user.role == "advertiser" %}
+  </div>
+{% endif %}
   {# 스크립트는 우리 서버의 정적 파일만(인라인·외부 CDN 없음, CSP 그대로). 없어도 화면이 동작해야 한다(설계 D3-1): <script src="{% static '…' %}" defer></script> #}
   {% block scripts %}{% endblock %}
 </body>

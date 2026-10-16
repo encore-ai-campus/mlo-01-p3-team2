@@ -28,7 +28,7 @@ class PointsPageTests(Cases, TestCase):
 
     def rows(self, html):
         body = html[html.index('aria-label="원장 내역"'):]
-        return re.findall(r"<tr>\s*<td>[^<]+</td>\s*<td>([^<]+)</td>\s*<td class=\"num\">([^<]+)</td>", body)
+        return re.findall(r'<tr>\s*<td>[^<]+</td>\s*<td><span class="status entry [a-z_]+">([^<]+)</span></td>\s*<td class="num[^"]*">([^<]+)</td>', body)
 
     def case_balance_today_and_entries_newest_first_with_campaign_names(self):
         campaigns.update_campaign(self.w.adv, self.w.campaign.campaign_id, {"name": "<b>캠페인</b>"})
@@ -38,11 +38,12 @@ class PointsPageTests(Cases, TestCase):
         view, _ = records.receive_reaction(decision.media_id, decision.decision_id, uuid.uuid4(), "IMPRESSION", NOW, {}, now=NOW)
         self.assertEqual(records.process_reaction(view.inbox_id, now=NOW), "ACCEPTED")  # 10 만 받고 284 는 못 받음
         html = self.client.get(URL).content.decode()
-        self.assertIn("잔액 <strong>0 포인트</strong> · 오늘 소진 304 포인트", html)
-        self.assertEqual(self.rows(html), [("반응 과금", "-10 포인트"), ("관리자 조정", "-49,696 포인트"), ("반응 과금", "-294 포인트"), ("가입 지급", "50,000 포인트")])
+        self.assertIn('<div class="muted">사용 가능한 잔액</div><div class="value accent">0 P</div>', html)
+        self.assertIn('<div class="muted">오늘 소진</div><div class="value">304 P</div>', html)
+        self.assertEqual(self.rows(html), [("반응 과금", "-10 P"), ("관리자 조정", "-49,696 P"), ("반응 과금", "-294 P"), ("가입 지급", "+50,000 P")])
         self.assertIn("&lt;b&gt;캠페인&lt;/b&gt;", html)  # 과금 줄의 캠페인 이름(이스케이프)
         self.assertNotIn("<b>캠페인</b>", html)
-        self.assertRegex(html, r"<td class=\"num\">284 포인트</td>")  # 못 받은 포인트
+        self.assertIn('<td class="num">284 P</td>', html)  # 못 받은 포인트
 
     def case_cursor_paging_and_bad_cursors(self):
         for i in range(54):
@@ -67,7 +68,7 @@ class PointsPageTests(Cases, TestCase):
         html = self.client.get(URL).content.decode()
         self.assertNotIn("남의 캠페인", html)
         self.assertNotIn("남의 조정", html)
-        self.assertEqual(self.rows(html), [("가입 지급", "50,000 포인트")])
+        self.assertEqual(self.rows(html), [("가입 지급", "+50,000 P")])
 
     def case_an_account_without_a_wallet(self):
         legacy = User.objects.create_user("legacy_points", PW, nickname="옛계정", class_label="1반")

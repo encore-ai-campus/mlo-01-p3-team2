@@ -31,6 +31,7 @@ def main():
         parser.error("두 포트는 달라야 한다")
     for port in ports:
         with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # runserver 와 같게 — 방금 끈 서버의 TIME_WAIT 는 쓰는 중이 아니다
             try:
                 probe.bind(("127.0.0.1", port))
             except OSError:

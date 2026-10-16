@@ -49,8 +49,8 @@ class DashboardTests(Cases, TestCase):
         self.assertEqual(self.dates(html), [f"2026-10-{d:02d}" for d in range(1, 8)])
         self.assertEqual(html.count("(집계 중)"), 1)
         self.assertIn("<td>2026-10-07 (집계 중)", html)
-        self.assertEqual(html.count('class="bar'), 7)
-        self.assertEqual(html.count('class="bar partial"'), 1)  # 오늘 막대는 흐리게
+        self.assertEqual(html.count('class="point'), 7)
+        self.assertEqual(html.count('class="point partial"'), 1)  # 오늘 점은 비우고 점선으로 잇는다(시안 v2)
 
     def case_cards_show_totals_and_the_change_against_the_previous_window(self):
         impression(self.w, NOW - DAY)
@@ -60,7 +60,8 @@ class DashboardTests(Cases, TestCase):
         cards = re.search(r'<section class="cards".*?</section>', html, re.S).group(0)
         self.assertIn('<div class="value">2</div>', cards)  # 노출
         self.assertIn("직전 7일 대비 +100.0%", cards)
-        self.assertIn('<div class="value">588</div>', cards)  # 소진 포인트(입찰 300 × 노출 98% = 294, 두 번)
+        self.assertIn('<div class="value accent">588 P</div>', cards)  # 소진 포인트(입찰 300 × 노출 98% = 294, 두 번)
+        self.assertIn("▲ 직전 7일 대비 +100.0%", cards)  # 늘었으면 위 표시(시안 v2)
 
     def case_no_data_and_zero_previous_do_not_divide_by_zero(self):
         html = self.page()
@@ -73,7 +74,7 @@ class DashboardTests(Cases, TestCase):
         for _ in range(3):
             impression(other, NOW)
         cards = re.search(r'<section class="cards".*?</section>', self.page(), re.S).group(0)
-        self.assertEqual(re.findall(r'<div class="value">([^<]+)</div>', cards), ["0", "0", "0", "0"])
+        self.assertEqual(re.findall(r'<div class="value[^"]*">([^<]+)</div>', cards), ["0", "0", "0", "0 P"])
 
     def case_period_choice_and_bad_values_fall_back(self):
         self.assertEqual(len(self.dates(self.page(days=14))), 14)
@@ -86,20 +87,39 @@ class DashboardTests(Cases, TestCase):
     def case_the_chart_is_inline_svg_with_a_table_of_the_same_values(self):
         impression(self.w, NOW - 2 * DAY)
         html = self.page(metric="spent")
-        svg = re.search(r"<svg.*?</svg>", html, re.S).group(0)
+        svg = re.search(r"<svg class=\"chart\".*?</svg>", html, re.S).group(0)  # 메뉴 아이콘(장식 SVG)이 아니라 그래프
         self.assertIn('role="img"', svg)
         self.assertIn("소진 포인트 일별 추세", svg)
-        self.assertIn("<title>10-05 294</title>", svg)  # 막대마다 값
+        self.assertIn("<title>10-05 294</title>", svg)  # 점마다 값
         self.assertRegex(html, r"<td>2026-10-05</td>\s*(<td class=\"num\">[^<]+</td>){3}<td class=\"num\">294</td>")  # 표에도 같은 값
         self.assertNotRegex(html, r"\sstyle=")  # CSP: 인라인 style 없음
-        self.assertNotIn("<script", html)
+        self.assertNotRegex(html, r"<script(?![^>]*\ssrc=)")  # 인라인 스크립트 없음(우리 서버 정적 파일만)
 
     def case_points_widget(self):
         impression(self.w, NOW)
         html = self.page()
-        self.assertIn("잔액 <strong>49,706 포인트</strong>", html)
-        self.assertIn("오늘 소진 294 포인트", html)
-        self.assertIn("2026-10-08 09:00", html)  # 다음 예산 일 시작(KST)
+        wallet = re.search(r'aria-label="포인트".*?</section>', html, re.S).group(0)
+        self.assertIn('<div class="big">49,706 P</div>', wallet)  # 사용 가능한 포인트
+        self.assertRegex(wallet, r"<dt>오늘 소진</dt><dd><strong>294 P</strong></dd>")
+        self.assertIn("일예산 합계 50,000 P 중 1%", wallet)  # 집행 중 캠페인의 일예산 합계 대비(6-21c)
+        self.assertIn("2026-10-08 09:00", wallet)  # 다음 예산 일 시작(KST)
+        self.assertNotIn('aria-label="시작하기"', html)
+
+    def case_first_use_shows_getting_started_instead_of_the_campaign_table(self):
+        """캠페인이 하나도 없으면 시안의 '처음 사용' 대시보드: 환영 띠·시작하기 세 단계·빈 그래프, 상위 캠페인 표는 없다(6-21c)."""
+        from billing import api as billing_api
+        from tests.support.factories import make_advertiser
+
+        newcomer = make_advertiser()
+        billing_api.grant_signup(newcomer, now=NOW)
+        self.client.force_login(newcomer)
+        html = self.page()
+        self.assertIn("가입을 환영해요! 광고에 쓸 50,000 P가 있어요", html)
+        self.assertIn('aria-label="시작하기"', html)
+        self.assertIn(f'href="{reverse("campaign_create")}"', html)
+        self.assertNotIn('<svg class="chart"', html)
+        self.assertNotIn('aria-label="상위 캠페인"', html)
+        self.assertEqual(len(self.dates(html)), 7)  # 같은 값의 표는 그대로
 
     def test_dashboard(self):
         self.run_cases()

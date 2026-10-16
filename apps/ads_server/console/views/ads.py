@@ -14,17 +14,17 @@ from django.shortcuts import redirect
 
 from billing import api as billing
 from campaigns import api as campaigns
-from foundation.api import present
 from masters import api as masters
 
 from ..errors import HANDLED, form_errors, message_of, submit
 from ..forms import EXISTING, NEW, AdCreateForm
+from .common import present
 
 
 def _render(request, form, choices, effects=None, status=200):
     slots = {str(s.slot_id): s for s in choices["slots"]}
     return present(request, "console/ad_create.html", {
-        "form": form, "slots": choices["slots"],
+        "form": form, "slots": choices["slots"], "creatives": choices["creatives"],  # 고른 소재 미리보기(제목·이동 주소·이미지)
         "effects": [effect_row(slots.get(str(e.slot_id)), e) for e in effects] if effects else None,
         "max_bytes": settings.ASSET_MAX_BYTES,
     }, status=status)
@@ -55,7 +55,7 @@ def ad_create(request):
         return present(request, "console/ad_create.html", {"no_campaign": True})
     if request.method != "POST":
         campaign = request.GET.get("campaign")
-        initial = {"creative_source": NEW, "request_key": secrets.token_urlsafe(16),
+        initial = {"creative_source": EXISTING if choices["creatives"] else NEW, "request_key": secrets.token_urlsafe(16),
                    "campaign_id": campaign if campaign in {str(c.campaign_id) for c in choices["campaigns"]} else None}
         return _render(request, _form(choices, initial=initial), choices)
     if not request.POST.get("request_key"):

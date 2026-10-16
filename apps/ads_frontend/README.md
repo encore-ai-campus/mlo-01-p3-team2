@@ -6,6 +6,7 @@
 - **그리는 화면**: 광고주 콘솔, 로그인·가입·잠금, 오류 화면, 운영 화면(Django admin 의 템플릿을 상속 — 그 한국어 문구는 `LOCALE_PATHS`).
 - **통과시키는 것**: Django admin 자체, 이미지(`/assets/`), 클릭 이동(`/c/`), 내 소재 이미지 파일 — 백엔드 응답 그대로. **매체 API(`/api/media/`)는 404**(공개하지 않는다).
 - **같은 것을 데이터로 갖는다**: 경로 표 `ui/routes.py`, 이름표 `ui/labels.py`, KST 표시 `ui/templatetags/kst.py` — 백엔드 시험(`tests/dev/test_frontend_sync.py`)이 두 쪽이 같은지 본다.
+- **광고주 화면의 모양**(시안 v2 — 설계 §10 "광고주 화면 v2"): 색 토큰·글꼴·사이드바 틀은 `ui/static/console/app.css`·`templates/console/base.html`, 글꼴은 Pretendard Regular·Bold(`ui/static/console/fonts`, 자주 쓰는 한글 2,350자 부분 글꼴, OFL — `Pretendard-LICENSE.txt`), 선 아이콘은 `{% icon %}`(`ui/templatetags/console_icons.py`). 밝은 화면만. 인라인 `style` 은 CSP 가 막으므로 막대 길이 같은 값은 SVG 속성으로 그린다.
   백엔드 시험은 화면 데이터를 이 렌더러(`ui/rendering.py`)로 그려 HTML 을 본다.
 
 ## 실행

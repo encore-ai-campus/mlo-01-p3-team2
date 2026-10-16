@@ -10,14 +10,18 @@ from django.views.decorators.http import require_POST, require_safe
 
 from assets.api import asset_exists, content_type, open_asset
 from campaigns import api as campaigns
-from foundation.api import present
 
 from ..errors import fetch, run_action, submit
 from ..forms import CreativeEditForm, CreativeUploadForm, ImageForm
+from .campaigns import SEARCH_MAX
+from .common import present
+
+USE_FILTERS = (("", "전체"), ("used", "사용 중"), ("unused", "사용 안 함"))
 
 
 def creative_list(request):
-    """내 소재(보관하지 않은 것)와 소재마다 쓰는 광고. 여기서 올린 소재는 아직 어느 광고에도 연결되지 않는다."""
+    """내 소재(보관하지 않은 것)와 소재마다 쓰는 광고. 여기서 올린 소재는 아직 어느 광고에도 연결되지 않는다.
+    `q` 는 제목·이동 주소에서 찾고(대소문자 무시), `use` 는 쓰는 광고가 있는지로 거른다(시안 v2 소재 라이브러리)."""
     form = CreativeUploadForm(request.POST or None, request.FILES or None, prefix="new")
     status = 200
     if request.method == "POST":
@@ -25,7 +29,14 @@ def creative_list(request):
         if status is None:
             messages.success(request, "소재를 올렸습니다. 광고 만들기나 광고 상세에서 이 소재를 쓸 수 있습니다.")
             return redirect("creative_detail", creative_id=c.creative_id)
-    return present(request, "console/creative_list.html", {"items": campaigns.list_owned_creatives(request.user), "form": form}, status=status)
+    q = request.GET.get("q", "").strip()[:SEARCH_MAX]
+    query = q.casefold()
+    use = request.GET.get("use", "")
+    use = use if use in dict(USE_FILTERS) else ""
+    items = [i for i in campaigns.list_owned_creatives(request.user)
+             if (query in i.creative.title.casefold() or query in i.creative.redirect_url.casefold()) and (not use or (use == "used") == bool(i.uses))]
+    return present(request, "console/creative_list.html", {"items": items, "form": form, "q": q, "use": use,
+                                                           "filters": USE_FILTERS}, status=status)
 
 
 def _edit_form(creative, data=None):

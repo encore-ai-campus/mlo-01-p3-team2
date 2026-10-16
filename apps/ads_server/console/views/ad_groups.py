@@ -9,12 +9,12 @@ from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
 from campaigns import api as campaigns
-from foundation.api import present
 
 from ..errors import fetch, run_action, submit
 from ..forms import BidForm, CreativeUploadForm, GroupNameForm, GroupSlotsForm
 from ..queries.ad_groups import ad_group_page
 from .ads import effect_row
+from .common import present
 
 
 def ad_group_detail(request, ad_group_id, status=200, **bound):

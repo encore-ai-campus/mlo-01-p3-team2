@@ -52,7 +52,7 @@ class CampaignListTests(Cases, CampaignPagesBase):
         row = re.search(rf'<a href="{re.escape(self.detail)}">.*?</tr>', html, re.S).group(0)
         self.assertIn("집행 중", row)
         self.assertIn("끄기", row)
-        self.assertRegex(row, r'<td class="num">294 포인트</td>\s*<td class="num">1</td>')  # 오늘 소진 294(입찰 300 × 노출 98%) · 최근 7일 노출 1
+        self.assertRegex(row, r'<td class="spend">294 P<progress value="294" max="50000">[^<]*</progress></td>\s*<td class="num">1</td>')  # 오늘 소진 294(입찰 300 × 노출 98%)와 일예산 대비 막대 · 최근 7일 노출 1
 
     def case_a_suspended_campaign_has_no_toggle_and_shows_the_reason_escaped(self):
         campaigns.update_campaign(self.w.adv, self.cid, {"name": "<b>캠페인</b>"})
@@ -63,6 +63,26 @@ class CampaignListTests(Cases, CampaignPagesBase):
         self.assertNotIn("<script>x</script>", html)
         self.assertNotIn("<b>캠페인</b>", html)
         self.assertNotIn(reverse("campaign_status", args=[self.cid]), html)
+
+    def case_status_chips_count_everything_and_search_filters_by_name(self):
+        """상태 칩은 거르기 전 전체에서 세고 `?status=`·`?q=`(이름, 대소문자 무시)로 거른다 — GET 이라 JS 없이(6-21c). 모르는 상태 값은 전체."""
+        second = campaigns.create_campaign(self.w.adv, "Autumn 이벤트", NOW - DAY, None, 1000, now=NOW)
+        campaigns.update_campaign(self.w.adv, second.campaign_id, {"status": "PAUSED"})
+        other = reverse("campaign_detail", args=[second.campaign_id])
+        chips = re.search(r'<ul class="chips".*?</ul>', self.client.get(self.list).content.decode(), re.S).group(0)
+        for chip in ('aria-current="true">전체 2</a>', ">집행 중 1</a>", ">일시 중지 1</a>", ">관리자 중단 0</a>", ">종료 0</a>"):
+            self.assertIn(chip, chips)
+        paused = self.client.get(self.list, {"status": "PAUSED"}).content.decode()
+        self.assertIn(other, paused)
+        self.assertNotIn(self.detail, paused)
+        self.assertIn('aria-current="true">일시 중지 1</a>', paused)
+        found = self.client.get(self.list, {"q": "autumn"}).content.decode()
+        self.assertIn(other, found)
+        self.assertNotIn(self.detail, found)
+        self.assertIn("조건에 맞는 캠페인이 없습니다", self.client.get(self.list, {"q": "없는 이름"}).content.decode())
+        bogus = self.client.get(self.list, {"status": "<b>X</b>"}).content.decode()
+        self.assertIn('aria-current="true">전체 2</a>', bogus)
+        self.assertNotIn("<b>X</b>", bogus)
 
     def test_campaign_list(self):
         self.run_cases()
@@ -82,7 +102,7 @@ class ToggleTests(Cases, CampaignPagesBase):
         campaigns.suspend_campaign(self.w.admin, self.cid, "사유")
         self.client.post(reverse("campaign_status", args=[self.cid]), {"status": "ACTIVE"})
         self.assertEqual(self.view().status, "SUSPENDED")
-        self.assertIn('class="notice error"', self.flash())
+        self.assertIn('class="toast error"', self.flash())
         self.client.post(reverse("campaign_status", args=[self.cid]), {"status": "ENDED"})  # 광고주가 고를 수 없는 상태
         self.assertEqual(self.view().status, "SUSPENDED")
 
@@ -171,7 +191,7 @@ class AdGroupTableTests(CampaignPagesBase):
         campaigns.add_bid(self.w.adv, self.w.group.ad_group_id, 600, expected_version=1)  # 상한 500 초과
         html = self.client.get(self.detail).content.decode()
         table = html[html.index('aria-label="광고"'):]
-        self.assertIn("600 포인트", table)
+        self.assertIn("600 P", table)
         self.assertIn("노출 가능 1곳 · 상한 적용 1곳", table)
 
 

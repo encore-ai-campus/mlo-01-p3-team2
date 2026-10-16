@@ -20,6 +20,7 @@ python tests/tools/run_split.py         # 백엔드 127.0.0.1:8000 + 프론트 1
 ```
 
 - **두 서버를 따로 띄울 때**: 백엔드는 `python manage.py runserver 127.0.0.1:8000`, 프론트는 `../ads_frontend` 에서 `FRONTEND_DEBUG=1 BACKEND_URL=http://127.0.0.1:8000 python manage.py runserver 127.0.0.1:8001`(관리 사이트 경로 `ADMIN_URL_PATH`·업로드 상한 `ASSET_MAX_BYTES` 는 두 쪽이 같아야 한다 — `run_split.py` 는 이 `.env` 에서 받아 넘긴다). 백엔드 주소를 브라우저로 열면 화면 대신 화면 데이터(JSON)가 보인다.
+- **광고주 화면 검토(6-21)**: `python tests/tools/demo_data.py`(개발 설정에서만 — 개발 DB 에 시연 광고주·캠페인 넷·최근 7일 성과, 계정은 그 파일) → `run_split.py` → `python tests/tools/screens.py OUT --design <시안 폴더>`(headless Chrome 으로 광고주 화면을 찍어 `OUT/<화면>.png`, 시안과 나란히 `OUT/compare-<화면>.png`).
 
 - **실행 환경은 `apps/ads_server/.venv`** 하나다. 의존성은 `requirements.txt`가 전부이고(직접 의존성은 패치 버전까지 고정), `.venv`는 커밋하지 않는다. 다시 만들 때는 `.venv`를 지우고 위 세 줄을 그대로 실행한다. `mysqlclient` 빌드에는 MySQL 클라이언트 개발 파일과 `pkg-config`가 필요하다(macOS: `brew install mysql-client pkg-config`, `requirements.txt` 주석). 이후 명령(`python manage.py …`, `tests/tools/check.sh`)은 모두 이 환경을 활성화한 셸에서 실행한다.
 - `.env`는 python-dotenv가 읽고, **실제 환경변수가 `.env`보다 우선**한다.

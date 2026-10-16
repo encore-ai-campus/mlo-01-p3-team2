@@ -12,7 +12,8 @@ NEW_PASSWORD = forms.PasswordInput(attrs={"autocomplete": "new-password"})  # �
 class SignupForm(forms.Form):
     """입력 변환만 한다. 규칙 판단(형식·비밀번호 정책·중복)은 foundation 서비스가 한다."""
 
-    username = forms.CharField(label="아이디", max_length=64, strip=False, widget=forms.TextInput(attrs={"autocomplete": "username"}))
+    username = forms.CharField(label="아이디", max_length=64, strip=False, widget=forms.TextInput(attrs={"autocomplete": "username"}),
+                               help_text="로그인에 쓰며, 가입 후 바꿀 수 없습니다.")
     password = forms.CharField(label="비밀번호", widget=NEW_PASSWORD, strip=False, max_length=128)
     password_confirm = forms.CharField(label="비밀번호 확인", widget=NEW_PASSWORD, strip=False, max_length=128)
     nickname = forms.CharField(label="닉네임", max_length=64, strip=False)
@@ -91,8 +92,8 @@ class CampaignEditForm(forms.Form):
     `updated_at` 은 폼을 열 때 본 마지막 변경 시각 — 그 사이 다른 곳에서 바뀌었으면 서비스가 거절한다(옛 폼이 덮어쓰지 않게)."""
 
     name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
-    daily_budget = forms.IntegerField(label="일예산(포인트)")
-    ends_at = KstDateTimeField(label="끝나는 시각(KST, 비우면 끝 없음)", required=False)
+    daily_budget = forms.IntegerField(label="일예산(포인트)", help_text="캠페인 안의 광고들이 같은 일예산을 나눠 씁니다.")
+    ends_at = KstDateTimeField(label="끝나는 시각(KST, 선택)", required=False, help_text="비우면 끝 없이 집행합니다.")
     updated_at = forms.DateTimeField(widget=forms.HiddenInput)
 
     EDITABLE = ("name", "daily_budget", "ends_at")
@@ -108,8 +109,8 @@ class CampaignCreateForm(forms.Form):
 
     name = forms.CharField(label="캠페인 이름", max_length=100, strip=False)
     starts_at = KstDateTimeField(label="시작 시각(KST)")
-    ends_at = KstDateTimeField(label="끝나는 시각(KST, 비우면 끝 없음)", required=False)
-    daily_budget = forms.IntegerField(label="일예산(포인트)")
+    ends_at = KstDateTimeField(label="끝나는 시각(KST, 선택)", required=False, help_text="비우면 끝 없이 집행합니다.")
+    daily_budget = forms.IntegerField(label="일예산(포인트)", help_text="캠페인 안의 광고들이 같은 일예산을 나눠 씁니다.")
     request_key = forms.CharField(max_length=64, widget=forms.HiddenInput)
 
 
@@ -121,11 +122,11 @@ class AdCreateForm(forms.Form):
     쓸 수 있는지·금액 범위·이미지 규격·남의 소재는 서비스(`create_ad`)가 판단한다. `request_key` 는 화면을 그릴 때마다 새 값이고, 서비스가 광고그룹 행에 함께
     저장해 같은 폼의 다시 보냄으로는 하나만 만든다."""
 
-    campaign_id = forms.ChoiceField(label="캠페인")
+    campaign_id = forms.ChoiceField(label="집행할 캠페인")
     group_name = forms.CharField(label="광고 이름", max_length=100, strip=False)
     slot_ids = forms.MultipleChoiceField(label="구성", widget=forms.CheckboxSelectMultiple, required=False)
-    bid_amount = forms.IntegerField(label="입찰(포인트)")
-    creative_source = forms.ChoiceField(label="소재", choices=[(NEW, "새로 올리기"), (EXISTING, "등록된 소재 쓰기")], widget=forms.RadioSelect, initial=NEW)
+    bid_amount = forms.IntegerField(label="입찰 금액(포인트)")
+    creative_source = forms.ChoiceField(label="소재", choices=[(EXISTING, "등록된 소재 쓰기"), (NEW, "새로 올리기")], widget=forms.RadioSelect, initial=NEW)
     creative_id = forms.ChoiceField(label="등록된 소재", required=False)
     title = forms.CharField(label="제목", max_length=200, strip=False, required=False)
     redirect_url = forms.CharField(label="이동 주소(https)", max_length=2048, strip=False, required=False)
@@ -175,7 +176,7 @@ class CreativeUploadForm(forms.Form):
 class BidForm(forms.Form):
     """새 입찰(추가만). `expected_version` 은 화면이 본 현재 버전(첫 입찰이면 빈 값) — 그 사이 다른 곳에서 입찰이 바뀌었으면 서비스가 거절한다."""
 
-    amount = forms.IntegerField(label="새 입찰(포인트)")
+    amount = forms.IntegerField(label="새 입찰 금액(포인트)")
     expected_version = forms.IntegerField(required=False, widget=forms.HiddenInput)
 
 
