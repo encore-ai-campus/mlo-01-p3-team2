@@ -49,6 +49,7 @@ class CampusRoom:
 room = CampusRoom()
 MOVES_INTERVAL = 0.1
 REST_TICK = 0.5  # 가만히 있는 사람의 이동 틱 간격(시간으로 바뀌는 것 — 포탈 대기 등 — 을 살피는 상한)
+PLATFORM_TOUCH_SECONDS = 15  # touch_platform_session 이 last_seen_at 을 고치는 간격과 같다
 
 
 async def flush_moves(campus):
@@ -72,6 +73,23 @@ async def flush_moves(campus):
     finally:
         campus.flusher = None
 SLOW_DB_SECONDS = 1.0
+
+
+_background = set()
+
+
+def in_background(coroutine):
+    """기다리지 않고 돌린다(작업이 끝나기 전에 사라지지 않게 참조를 쥔다)."""
+    task = asyncio.create_task(coroutine)
+    _background.add(task)
+    task.add_done_callback(_finished)
+    return task
+
+
+def _finished(task):
+    _background.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logging.getLogger(__name__).warning("Background campus work failed", exc_info=task.exception())
 
 
 def note_slow_db(what, started):
@@ -108,6 +126,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.seen_by_peers = None  # 다른 사람에게 마지막으로 보낸 내 상태(바뀐 것이 있을 때만 다시 보낸다)
         self.control_key = None  # 마지막으로 보낸 control_state 의 바탕(같으면 다시 보내지 않는다)
         self.wake = asyncio.Event()  # 쉬고 있는 이동 틱을 깨운다(입력·명령·문 변경)
+        self.last_platform_touch = -math.inf
         self.user = self.scope["user"]
         if not self.user.is_authenticated or not self.user.is_active:
             await self.close(code=4401)
@@ -288,8 +307,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
             return
         if data.get("type") == "ping":
             self.last_seen = time.monotonic()
-            await socket_db.run(touch_platform_session, self.platform_session_uuid)
-            await self.send_packet({"type": "pong"})
+            await self.send_packet({"type": "pong"})  # DB 를 기다리지 않는다: 브라우저는 10초 동안 소식이 없으면 다시 연결한다
+            if self.last_seen - self.last_platform_touch >= PLATFORM_TOUCH_SECONDS:  # DB 가 실제로 고치는 주기(계획 4b)
+                self.last_platform_touch = self.last_seen
+                in_background(socket_db.run(touch_platform_session, self.platform_session_uuid))
             return
         if data.get("type") == "leave":
             # The final frame bypasses movement throttling and precedes socket close.
@@ -350,9 +371,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
                         room.pending_moves[self.player_id] = self.seen_by_peers  # 0.1초마다 묶어 보낸다(계획 1d)
                     else:
                         await self.broadcast({"type": "move", "player": self.state.copy()})
-        await self.checkpoint(force=final or floor_changed)
+        # 이동 처리는 저장을 기다리지 않는다(계획 3단계). 드문 층 이동과 마지막 프레임만 저장이 끝날 때까지 기다린다(최종 위치가 빠지지 않게)
+        await self.checkpoint(force=final or floor_changed, wait=final or floor_changed)
         if changed and not final and publish:
-            await self.touch_activity()
+            await self.touch_activity(wait=not authoritative)  # 서버 판정 이동(이동 틱)은 활동 기록도 기다리지 않는다(계획 3단계)
 
     def peers_should_see(self, now):
         """서버 판정 프레임을 다른 사람에게 보낼지(계획 1a): 다른 사람이 보는 상태가 바뀔 때만 보낸다.
@@ -418,7 +440,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     if moved:
                         await self.receive_movement({**self.controller.pose, "color": self.state["color"]}, authoritative=True)
                     if self.controller.interior and self.controller.interior["actor"]["moving"]:
-                        await self.touch_activity()
+                        await self.touch_activity(wait=False)
                     await self.tick_poke()
                     sent = await self.send_control_state(only_changes=True)
                     for event in events:
@@ -726,13 +748,24 @@ class CampusConsumer(AsyncWebsocketConsumer):
             state = await socket_db.run(raffle_service.snapshot, self.user)
             await self.send_packet({"type": "raffle_state", "state": state})
 
-    async def touch_activity(self):
+    async def touch_activity(self, wait=True):
         now = time.monotonic()
-        if now - self.last_activity_write >= settings.CAMPUS_SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS:
-            self.last_activity_write = now
+        if now - self.last_activity_write < settings.CAMPUS_SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS:
+            return
+        self.last_activity_write = now
+        if wait:
+            await self.write_activity()
+        else:
+            in_background(self.write_activity())
+
+    async def write_activity(self):
+        try:
             state = await socket_db.run(check_session, self.session_key, touch=True)
-            if state.get("reason") != "retry":
-                self.policy_status = state
+        except Exception:  # noqa: BLE001 — 따로 도는 기록의 오류는 남기기만 한다(다음 활동 때 다시 기록한다)
+            logging.getLogger(__name__).warning("Could not record campus activity", exc_info=True)
+            return
+        if state.get("reason") != "retry":
+            self.policy_status = state
 
     async def chat_error(self, message):
         await self.send_packet({"type": "chat_error", "message": message})
@@ -795,19 +828,33 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 )
             return save_position(user, position, observed_at, session_uuid=self.platform_session_uuid)
 
-    async def checkpoint(self, force=False):
+    async def checkpoint(self, force=False, wait=True):
+        """최신 위치 하나를 저장한다(5초마다, 층 이동·종료는 바로). 쓰기는 따로 돌리고 `wait` 일 때만 끝까지 기다린다(계획 3단계).
+
+        저장 중에 온 새 위치는 다음 저장에 간다(저장할 것은 언제나 최신 위치 하나다). 층 이동이 아직 저장되지 않았으면 기한을 기다리지 않는다.
+        """
+        saving = getattr(self, "saving", None)
+        if saving is not None and not saving.done():
+            if not wait:
+                return  # 저장 중이다: 끝난 뒤 다음 기회(다음 틱·세션 확인)에 다시 본다
+            await saving
+        force = force or self.pending_floor_transfer is not None
         if not self.position_dirty or (not force and time.monotonic() - self.last_checkpoint < self.position_interval):
             return
         self.last_checkpoint = time.monotonic()
-        observed_at = self.position_changed_at
-        transfer = self.pending_floor_transfer
-        transfer_from = transfer[0] if transfer else None
+        self.saving = asyncio.create_task(self.write_position(self.state.copy(), self.position_changed_at, self.pending_floor_transfer))
+        if wait:
+            await self.saving
+
+    async def write_position(self, state, observed_at, transfer):
         try:
             started = time.monotonic()
-            await self.store_position(self.state.copy(), observed_at, transfer_from)
+            await self.store_position(state, observed_at, transfer[0] if transfer else None)
             note_slow_db("position save", started)
         except DatabaseError:
             logging.getLogger(__name__).exception("Could not save the campus position")
+        except Exception:  # noqa: BLE001 — 따로 도는 저장의 오류는 여기서 남긴다(이동 처리는 계속한다). 위치는 dirty 로 남아 다음에 다시 저장한다
+            logging.getLogger(__name__).exception("Unexpected error while saving the campus position")
         else:
             # A newer frame may arrive while the database write is awaiting.
             if self.position_changed_at == observed_at:
@@ -816,8 +863,15 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 self.pending_floor_transfer = None
 
     async def check_session_loop(self):
+        """위치 저장은 5초(`position_interval`)마다, 세션 확인은 10초(`session_check_interval`)마다 한다(계획 3단계·4a).
+        저장은 따로 돌아 기다리지 않는다. 세션 확인은 메시지 처리 순서를 지키도록 자기에게 보낸다(입력 처리와 같은 줄이라 자주 하지 않는다)."""
+        last_check = time.monotonic()
         while True:
             await asyncio.sleep(min(self.session_check_interval, self.position_interval))
+            await self.checkpoint(wait=False)  # 멈춘 뒤의 마지막 위치도 5초 안에 저장한다
+            if time.monotonic() - last_check < self.session_check_interval:
+                continue
+            last_check = time.monotonic()
             try:
                 await self.channel_layer.send(self.channel_name, {"type": "presence.check"})
             except ChannelFull:
@@ -840,7 +894,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
             await self.leave()
             await self.close(code=4408)
             return
-        await self.checkpoint()
         if any(self.state[key] != value for key, value in identity.items()):
             self.state.update(identity)
             async with room.lock:

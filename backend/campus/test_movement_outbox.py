@@ -182,6 +182,7 @@ class CheckpointTimingTests(SimpleTestCase):
 
     async def move(self, x):
         await self.consumer.receive_movement({**self.consumer.state, "x": x, "moving": True}, authoritative=True)
+        await asyncio.sleep(0)  # 저장은 이동 처리 밖에서 돈다(계획 3단계): 한 차례 양보해 시작하게 한다
 
     async def test_stationary_user_never_calls_position_storage_even_when_forced(self):
         for tick in [5, 10, 15]:
@@ -254,6 +255,7 @@ class CheckpointTimingTests(SimpleTestCase):
     async def test_floor_transition_and_leave_flush_before_five_seconds(self):
         self.clock[0] = 1
         await self.consumer.receive_movement({**self.consumer.state, "floor": "rooftop", "moving": True}, authoritative=True)
+        await asyncio.sleep(0)
         self.assertEqual(self.consumer.store_position.await_args.args[2], "campus")
         self.clock[0] = 2
         await self.move(150)

@@ -5,9 +5,12 @@
 - 1d: 여러 사람의 위치는 0.1초마다 한 메시지(`moves`)로 묶어 보낸다.
 - 1e: 가만히 있는 사람은 30Hz 이동 틱을 돌리지 않는다(0.5초에 한 번만 살핀다). 입력이 오면 바로 깨어난다.
 - 2a·2b: 메시지마다 DB 스레드를 왕복하지 않고, 큐가 가득 차도 세션 감시 작업이 끝나지 않는다.
+- 3: 위치 저장은 이동 처리 밖에서 한다(저장이 느려도 이동 틱이 밀리지 않는다).
+- 4b: ping 은 바로 pong 을 받고, 플랫폼 세션 기록은 15초에 한 번만(기다리지 않고) 한다.
 - 4f: 소켓의 DB 호출은 연결 하나를 이어 쓴다(호출마다 새 연결·TLS 핸드셰이크를 하지 않는다).
 """
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 
 from channels.exceptions import ChannelFull
@@ -128,6 +131,7 @@ class IdleTrafficTests(TransactionTestCase):
     async def test_a_full_queue_does_not_end_the_session_guard(self):
         consumer, sent = consumers.CampusConsumer(), []
         consumer.channel_name = 'campus.test!guard'
+        consumer.checkpoint = AsyncMock()
 
         async def send(channel, message):
             sent.append(message)
@@ -200,5 +204,53 @@ class IdleTrafficTests(TransactionTestCase):
             await a.send_json_to({'type': 'input', 'keys': ['w']})
             states = self.kinds(await self.drain(a, .15), 'control_state')
             self.assertTrue(any(s['state']['main']['moving'] for s in states))  # 깨어나 바로 움직인다
+        finally:
+            await self.disconnect_all()
+
+    async def test_a_slow_position_save_does_not_stall_walking(self):
+        original = consumers.CampusConsumer.store_position_now
+
+        def slow(consumer, *args):
+            time.sleep(1)
+            return original(consumer, *args)
+
+        try:
+            with patch.object(consumers.CampusConsumer, 'position_interval', .1), \
+                    patch.object(consumers.CampusConsumer, 'store_position_now', slow):
+                a, b = await self.two_settled()
+                arrivals = []
+                for _ in range(8):  # 1.2초 걷는다(키 유효 시간 안에 다시 보낸다)
+                    await a.send_json_to({'type': 'input', 'keys': ['w']})
+                    for _ in range(10):
+                        await asyncio.sleep(.015)
+                        while not await a.receive_nothing(timeout=0):
+                            if (await a.receive_json_from())['type'] == 'control_state':
+                                arrivals.append(time.monotonic())
+                await a.send_json_to({'type': 'input', 'keys': []})
+                gaps = [later - earlier for earlier, later in zip(arrivals, arrivals[1:])]
+                self.assertGreater(len(arrivals), 10)
+                self.assertLess(max(gaps), .3)  # 저장(1초)을 기다리면 1초 넘게 멈춘다
+        finally:
+            await self.disconnect_all()
+
+    async def test_pings_answer_at_once_and_record_the_platform_session_every_fifteen_seconds(self):
+        calls = []
+
+        def slow_touch(session_uuid, **kwargs):
+            calls.append(session_uuid)
+            time.sleep(.5)
+            return True
+
+        try:
+            with patch.object(consumers, 'touch_platform_session', slow_touch):
+                a, b = await self.two_settled()
+                for _ in range(3):
+                    started = time.monotonic()
+                    await a.send_json_to({'type': 'ping'})
+                    while (await a.receive_json_from(timeout=2))['type'] != 'pong':
+                        pass
+                    self.assertLess(time.monotonic() - started, .3)  # DB 기록을 기다리지 않는다
+                await asyncio.sleep(.6)
+            self.assertEqual(len(calls), 1)  # DB 가 실제로 고치는 주기(15초)에 한 번
         finally:
             await self.disconnect_all()
