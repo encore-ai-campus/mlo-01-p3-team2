@@ -22,15 +22,18 @@
 
 ## 재전송 서비스
 
-함께 제공한 service/timer는 위 백엔드 경로와 `ubuntu` 계정을 사용한다. 다른 환경은 경로·계정을 맞춘 뒤 설치한다. 명령은 저장소 루트에서 실행한다.
+함께 제공한 service는 위 백엔드 경로와 `ubuntu` 계정을 사용한다. 다른 환경은 경로·계정을 맞춘 뒤 설치한다. 명령은 저장소 루트에서 실행한다.
 
 ```bash
-sudo install -m 644 deploy/ad71/playdata-ad-reactions.service deploy/ad71/playdata-ad-reactions.timer /etc/systemd/system/
+sudo install -m 644 deploy/ad71/playdata-ad-reactions.service /etc/systemd/system/
+# 예전 타이머가 설치돼 있으면 끄고 지운다(5초마다 새 프로세스를 띄웠다)
+sudo systemctl disable --now playdata-ad-reactions.timer 2>/dev/null; sudo rm -f /etc/systemd/system/playdata-ad-reactions.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now playdata-ad-reactions.timer
+sudo systemctl enable --now playdata-ad-reactions.service
 ```
 
-대기 반응은 기존 ID·가명·시각으로 재전송한다. 타이머는 작업 종료 후 약 5초 간격으로 다시 실행한다. 노출 접수 응답과 최종 인정·차감은 별도로 확인한다.
+서비스는 한 번 떠 있고 5초(`--poll-interval 5`)마다 대기 반응을 기존 ID·가명·시각으로 재전송한다. 예전 타이머 방식은 5초마다 새 Python 프로세스를 띄워 회당 CPU 약 1.1초(하루 종일 코어 하나의 약 17%)를 썼다.
+멈출 때는 SIGINT 로 진행 중인 요청의 결과를 저장한 뒤 끝난다. 노출 접수 응답과 최종 인정·차감은 별도로 확인한다.
 
 ## 복구
 
