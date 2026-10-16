@@ -1,0 +1,73 @@
+# 메타버스 백엔드 부하 시험(로컬). 실행은 run.py 가 한다 — README.md 참고.
+name: campus-load
+
+x-image: &image
+  build: .
+  image: campus-load:py312
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: load
+      MYSQL_DATABASE: campus
+      MYSQL_USER: campus
+      MYSQL_PASSWORD: campus
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pload", "--silent"]
+      interval: 2s
+      retries: 60
+
+  backend:
+    <<: *image
+    depends_on:
+      mysql: {condition: service_healthy}
+    volumes:
+      - ../backend:/app:ro
+      - .:/load:ro
+      - data:/data
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: load-test-only-not-a-secret-0123456789abcdefghij
+      DJANGO_ALLOWED_HOSTS: backend,localhost
+      DATABASE_ENGINE: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: campus
+      MYSQL_USER: campus
+      MYSQL_PASSWORD: campus
+      CAMPUS_DATA_DIR: /data
+      DJANGO_SETTINGS_MODULE: ${SETTINGS:-config.settings}  # 실험용 덮어쓰기(settings_*.py)만 바꾼다
+      PYTHONPATH: /load
+      CAMPUS_DM_ENABLED: "1"
+      # 운영처럼 브로커 주소는 있지만 닿지 않는다(outbox 에 쌓이고 전송기는 연결을 계속 시도한다)
+      KAFKA_BOOTSTRAP_SERVERS: 10.255.255.1:9092
+    cap_add: [NET_ADMIN, SYS_PTRACE]  # SYS_PTRACE: 원인을 볼 때 py-spy 로 들여다보려고
+    # 운영 t3.2xlarge 는 vCPU 8개지만 이 프로세스는 GIL 때문에 코어 하나 분량이 한계다.
+    # cpu_quota/cpu_period = 운영 코어 하나의 속도에 맞춘 비율(corebench.py 로 측정, run.py 가 넣는다).
+    cpuset: "0-7"
+    cpu_period: 10000
+    cpu_quota: ${BACKEND_CPU_QUOTA:-5000}
+    # 운영 DB·프록시 왕복(약 0.26ms)을 흉내 낸다: 이 컨테이너에서 나가는 패킷에 지연
+    command: >
+      sh -c "tc qdisc replace dev eth0 root netem delay ${NET_DELAY_US:-250}us &&
+             python manage.py migrate --noinput -v 0 &&
+             exec python -u run-campus.py --port 9003 --bind 0.0.0.0 --noreload"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9003/')"]
+      interval: 2s
+      retries: 60
+
+  load:
+    <<: *image
+    profiles: [load]
+    depends_on:
+      backend: {condition: service_healthy}
+    volumes:
+      - .:/load:ro
+      - data:/data
+    working_dir: /load
+    cpuset: "8-11"
+
+volumes:
+  data:
