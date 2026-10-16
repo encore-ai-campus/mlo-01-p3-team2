@@ -3,7 +3,7 @@
 브라우저 동작(frontend/dist):
 - presence.js: 접속 후 5초마다 ping. 입력은 화면 프레임마다 publish(t)를 부르고 100ms 제한만 있어서, 키를 안 눌러도
   0.1초마다 input 을 보낸다(`--client current`). 키가 바뀌면 바로 보낸다. `--client new`는 계획 1c(키·찌르기가 있을 때만 0.1초마다).
-- session-policy.js·raffle.js·messages.js: 15초마다 HTTP 조회 세 개(`--client current`). `new` 는 계획 4g: 소켓이 붙어 있으면 조회하지 않는다.
+- session-policy.js·messages.js: 15초마다 HTTP 조회 둘(`--client current`). `new` 는 계획 4g: 소켓이 붙어 있으면 조회하지 않는다.
 - session-policy.js: 키·마우스 입력이 있으면 활동 POST(15초에 한 번까지). 여기서는 이동 중인 사람이 보낸다.
 - 끊기면 1→2→4→…→10초 간격으로 다시 연결하고, 4401·4409 면 멈춘다.
 
@@ -25,7 +25,7 @@ from autobahn.asyncio.websocket import WebSocketClientFactory, WebSocketClientPr
 
 HOST, PORT = "backend", 9003
 MOVE_KEYS = (["d"], ["a"], ["w"], ["s"], ["d", "w"], ["a", "s"])
-POLLS = ("/accounts/session/status/", "/api/raffle/", "/api/messages/status/")
+POLLS = ("/accounts/session/status/", "/api/messages/status/")  # 추첨(/api/raffle/)은 기능을 없앴다(2026-10-16)
 ACTIVITY = "/accounts/session/activity/"
 CSRF = "a" * 32  # 부하 시험용 CSRF 비밀(쿠키와 헤더에 같은 값)
 MOVE_PREFIX = b'{"type": "move"'  # move 와 moves(0.1초 묶음) 둘 다

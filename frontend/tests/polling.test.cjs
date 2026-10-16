@@ -35,18 +35,6 @@ function load(file, {elements = {}, body = () => ({})} = {}) {
   return {window, fetched, every: delay => intervals.find(item => item.delay === delay).callback};
 }
 
-test('raffle state is not polled while the socket delivers it', async () => {
-  const app = load('raffle.js');
-  const ui = app.window.CampusRaffle.create();
-  await flush();
-  const poll = app.every(15000), before = app.fetched.length;
-  poll(); await flush();
-  assert.equal(app.fetched.length, before + 1);  // 끊겨 있으면 조회한다
-  ui.setConnected(true);
-  poll(); await flush();
-  assert.equal(app.fetched.length, before + 1);  // 붙어 있으면 소켓(welcome·raffle_state)이 알려 준다
-});
-
 test('private message status is not polled while connected unless the inbox is open', async () => {
   const app = load('messages.js', {body: () => ({unread: 0, canStart: true, hasInbox: false})});
   app.window.CampusMessages.create({config: {enabled: true}});

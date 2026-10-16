@@ -684,18 +684,6 @@
         circlePlane(cx,cy,r-27,base+27,'#75c4d2','#4e9cac');
         for(const rr of [48,81,110])circlePlane(cx,cy,rr,base+27.4,null,'#c8f1ebaa');
         cylinder(cx,cy,23,base+27,46,'#e0e8d6','#a4baa9');cylinder(cx,cy,59,base+69,7,'#dce5d5','#adc4b2');circlePlane(cx,cy,48,base+76,'#a4dce0',null);
-      } else if(type==='raffle-buzzer') {
-        const cx=x+w/2,cy=y+h/2,status=o.raffle?.event?.status||'draft';
-        circlePlane(cx,cy,48,base+.5,'#f0dfb977','#bba87a');
-        cylinder(cx,cy,31,base+1,9,'#af9477','#7d7264');
-        cylinder(cx,cy,23,base+10,48,'#ece2cc','#bdae94');
-        cylinder(cx,cy,32,base+58,6,'#454f51','#303c3e');
-        cylinder(cx,cy,27,base+64,12,status==='open'?'#f07464':'#bf6861','#a33837');
-        circlePlane(cx,cy,22,base+76.4,'#ea5149','#f9b290');
-        const light=p(cx+11,cy+13,base+59);ellipse(light.x,light.y,3.5,2.5,status==='open'?'#8ee8ad':status==='drawn'?'#f4cd74':'#97a4a0');
-        label('EVENT',cx,cy,12,'#765a3b','#fff6db',base+94);
-        const q=p(o.interactionPoint[0],o.interactionPoint[1],base+2);circlePlane(o.interactionPoint[0],o.interactionPoint[1],16,base+1,'#fff7e0cc','#ac8754');
-        g.font=`700 12px ${font}`;g.fillStyle='#80643b';g.textAlign='center';g.textBaseline='middle';g.fillText('E',q.x,q.y);
       } else if(type==='wall-poster') {
         const image=displayImages.get(o.id);
         if(image){
@@ -1020,11 +1008,6 @@
     function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);city?.draw(sg);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites){drawSprite(sg,s);if(s.o.type==='fountain'){g=sg;fountainWater(s.o,0);}if(s.o.type==='floor-portal'){g=sg;if(s.o.portalStyle==='compact')compactPortalEnergy(s.o);else portalEnergy(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2));}else if(s.o.type==='stair-portal'||(s.o.type==='fire-extinguisher'&&s.o.portalGlow)){g=sg;compactPortalEnergy(s.o);}}for(const sprite of sprites.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(sg,sprite);drawLabels(sg);}
     repaintScene();
     function setDisplayImage(id,image){const s=sprites.find(s=>s.o.id===id&&(s.o.type==='plaza-display'||s.o.type==='wall-poster'));if(!s)return false;const depth=s.depth;displayImages.set(id,image);Object.assign(s,cacheSprite(s.o,()=>furniture(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2))));s.depth=depth;repaintScene();return true;}
-    function setRaffleState(state){
-      const targets=sprites.filter(s=>s.o.type==='raffle-buzzer');
-      for(const sprite of targets){sprite.o.raffle=state;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(sprite.o.x+sprite.o.w/2,sprite.o.y+sprite.o.h/2))));}
-      if(targets.length)repaintScene();
-    }
     function setDoorState(id,open){
       const door=D.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o)),sprite=sprites.find(s=>s.o.id===id);
       if(!door||!sprite||typeof open!=='boolean')return false;
@@ -1093,7 +1076,7 @@
       const v=o.displayAxis==='y'?P.vector(0,-1):{x:1,y:0};
       return [[-sw/2,-44-sh],[sw/2,-44-sh],[sw/2,-44],[-sw/2,-44]].map(([x,y])=>({x:q.x+v.x*x,y:q.y+v.y*x+y}));
     }
-    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState,displayPolygon};
+    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,displayPolygon};
   }
   window.CampusIsometric={createProjection,create};
 })();

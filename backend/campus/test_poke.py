@@ -156,13 +156,10 @@ class PokeControlTests(SimpleTestCase):
         self.consumer.send_packet.assert_not_awaited()
 
 
-@override_settings(ALLOWED_HOSTS=["127.0.0.1", "testserver"], KAFKA_BOOTSTRAP_SERVERS="",
-                   CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+@override_settings(ALLOWED_HOSTS=["127.0.0.1", "testserver"], KAFKA_BOOTSTRAP_SERVERS="")
 class PokeSocketTests(TransactionTestCase):
     def setUp(self):
         consumers.room = consumers.CampusRoom()
-        from raffle.models import Control
-        Control.objects.get_or_create(pk=1)
         self.clients = []
         for index, (x, y) in enumerate([(130, 100), (130 + 32 / math.sqrt(2), 100 - 32 / math.sqrt(2))]):
             user = get_user_model().objects.create_user(username=f"poke-{index}")

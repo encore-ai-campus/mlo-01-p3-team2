@@ -16,8 +16,6 @@ from .positions import DEFAULT_POSITION
 @override_settings(CAMPUS_TEST_LEGACY_MOVEMENT=False, KAFKA_BOOTSTRAP_SERVERS='')
 class AuthoritativeSocketTests(TransactionTestCase):
     def setUp(self):
-        from raffle.models import Control
-        Control.objects.get_or_create(pk=1)
         self.user = get_user_model().objects.create_user(username='server-input')
         Profile.objects.create(user=self.user, nickname='입력 검증', cohort='mlo-1', setup_complete=True)
         client = Client()

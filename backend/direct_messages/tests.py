@@ -132,7 +132,7 @@ class DirectMessageTests(TestCase):
         self.assertEqual(group,user_group(self.recipient.pk));self.assertEqual(set(event),{'type','conversationId'})
 
 
-@override_settings(CAMPUS_DM_ENABLED=True,ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='',CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+@override_settings(CAMPUS_DM_ENABLED=True,ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='')
 class PrivateSocketTests(TransactionTestCase):
     setUp=PokeSocketTests.setUp
     socket=PokeSocketTests.socket

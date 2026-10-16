@@ -27,8 +27,6 @@ class CampusSocketTests(TransactionTestCase):
         # TransactionTestCase flushes migration data between socket tests.
         for code, name in FLOORS:
             MapFloor.objects.get_or_create(floor_uuid=floor_uuid(code), defaults={"code": code, "name": name})
-        from raffle.models import Control
-        Control.objects.get_or_create(pk=1)
         self.alice = get_user_model().objects.create_user(username="alice", password="Test!River4820")
         self.bob = get_user_model().objects.create_user(username="bob", password="Test!River4820")
         Profile.objects.create(user=self.alice, nickname="조원 하나", avatar="female-2")

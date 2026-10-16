@@ -21,8 +21,6 @@ from django.utils import timezone
 from accounts.models import get_identity, needs_profile_setup
 from accounts.session_policy import check_session
 from eventing.events import ensure_platform_session, record_chat, record_floor_transfer, touch_platform_session
-from raffle import live as raffle_live, service as raffle_service
-from raffle import survey as raffle_survey
 from . import session_registry, poke, socket_db
 from .motion import CLASSROOM_TRANSITION_DELAY, MotionController, ControlError, geometry, world
 from .doors import DOORS, distance as door_distance, footprint as door_footprint
@@ -159,7 +157,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.poke_watchers = set()
         self.pending_poke_states = {}
         self.last_door = -math.inf
-        self.last_survey = -math.inf
         self.last_checkpoint = self.last_seen
         self.position_changed_at = None
         identity = await socket_db.run(get_identity, self.user)
@@ -174,7 +171,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
             if self.position_dirty:
                 self.position_changed_at = timezone.now()
             self.state.update(corrected, color=geometry()["avatarColors"].get(identity.get("avatar"), "#dfa34d"))
-        raffle_live.bind_socket_loop(self.channel_layer)
         async with room.lock:
             await self.channel_layer.group_add(room.group, self.channel_name)
             await self.channel_layer.group_add(self.session_group, self.channel_name)
@@ -231,8 +227,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 room.controllers[self.player_id] = self.controller
                 if self.controller.interior:room.interiors.add(self.player_id)
             await self.accept()
-            raffle = await socket_db.run(raffle_service.snapshot, self.user)
-            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "raffle": raffle, "serverControl": self.server_control})
+            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "doors": room.doors.copy(), "session": self.policy_status, "serverControl": self.server_control})
             self.seen_by_peers = self.state.copy()
             await self.broadcast({"type": "join", "player": self.state.copy()})
         if settings.CAMPUS_DM_ENABLED:
@@ -301,9 +296,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
             return
         if data.get("type") == "door":
             await self.receive_door(data)
-            return
-        if data.get("type") == "raffle_enter":
-            await self.receive_raffle(data)
             return
         if data.get("type") == "ping":
             self.last_seen = time.monotonic()
@@ -718,35 +710,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 "sentAt": timezone.now().isoformat(),
             }})
         await self.touch_activity()
-
-    async def receive_raffle(self, data):
-        # The authenticated socket supplies the real account and last reported
-        # position. This only issues a survey code; it never registers an entry.
-        if await self.current_identity() is None:
-            await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})
-            return
-        now = time.monotonic()
-        if now - self.last_survey < .8:
-            await self.send_packet({"type": "raffle_error", "message": "잠시 후 다시 눌러 주세요."})
-            return
-        self.last_survey = self.last_seen = now
-        try:
-            event_id = data.get("eventId")
-            if not isinstance(event_id, str) or len(event_id) != 36:
-                raise raffle_service.RaffleError("대상 이벤트를 확인해 주세요.", 400)
-            url = await socket_db.run(raffle_survey.begin, self.user, self.state.copy(), event_id)
-            state = await socket_db.run(raffle_service.snapshot, self.user)
-            await self.send_packet({"type": "raffle_survey", "eventId": event_id, "url": url, "state": state})
-            await self.touch_activity()
-        except raffle_service.RaffleError as error:
-            await self.send_packet({"type": "raffle_error", "message": error.message})
-        except DatabaseError:
-            await self.send_packet({"type": "raffle_error", "message": "설문 참여 정보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."})
-
-    async def raffle_changed(self, event):
-        if self.player_id in room.players:
-            state = await socket_db.run(raffle_service.snapshot, self.user)
-            await self.send_packet({"type": "raffle_state", "state": state})
 
     async def touch_activity(self, wait=True):
         now = time.monotonic()

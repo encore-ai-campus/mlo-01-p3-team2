@@ -76,7 +76,7 @@ class JumpControlTests(SimpleTestCase):
         self.consumer.send_packet.assert_not_awaited()
 
 
-@override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='',CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+@override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='')
 class JumpSocketTests(TransactionTestCase):
     setUp = fixtures.PokeSocketTests.setUp
     socket = fixtures.PokeSocketTests.socket

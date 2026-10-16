@@ -29,13 +29,10 @@ test('the shortcut retains confirmation, both arrival positions and its original
  assert.equal(shortcut.solid,false);
 });
 
-test('the event image is wall mounted while the advertising stand keeps its footprint',()=>{
+test('the advertising stand keeps its footprint',()=>{
  const board=W.rooftop.objects.find(o=>o.id==='roof-ad-board');
- const poster=W.rooftop.objects.find(o=>o.id==='roof-wall-event-poster');
  assert.equal(board.imageUrl,'');
  assert.deepEqual([board.x,board.y,board.w,board.h],[2038,1385,24,250]);
- assert.equal(poster.imageUrl,'assets/rooftop-event-banner.png');assert.equal(poster.mounted,true);assert.equal(poster.solid,false);
- assert.ok(fs.statSync(path.join(__dirname,'../dist',poster.imageUrl)).size>0);
 });
 
 test('the small portal rests entirely on the treads and remains within interaction reach',()=>{

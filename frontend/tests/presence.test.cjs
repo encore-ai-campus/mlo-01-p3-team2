@@ -7,7 +7,7 @@ function app({authenticated = true, secure = false, floors, restore = false, ses
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
   const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
-  const raffleStates = [], raffleEntries = [], raffleErrors = [], events = [];
+  const events = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
     if (!elements.has(id)) elements.set(id, {
@@ -41,14 +41,13 @@ function app({authenticated = true, secure = false, floors, restore = false, ses
   const presence = context.window.CampusPresence.create({player, width: 1632, height: 820, floors, onAuthExpired() {expired++;},
     onRestore(position) {restores.push(position);if(restore)Object.assign(player,position);},
     onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);},
-    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);},
-    onRaffle(state) {raffleStates.push(state);}, onRaffleEntry(message) {raffleEntries.push(message);}, onRaffleError(message) {raffleErrors.push(message);}});
+    onDoors(states) {doorSnapshots.push(states);}, onDoor(state) {doorChanges.push(state);}, onDoorError(message) {doorErrors.push(message);}});
   const peer = (changes = {}) => ({id: 'peer', nickname: '조원 이름', avatar: 'female-2', x: 1200, y: 437,
     dir: 'down', color: '#4e9b91', moving: false, ...changes});
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors, raffleStates, raffleEntries, raffleErrors,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, doorSnapshots, doorChanges, doorErrors,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
@@ -96,14 +95,14 @@ test('the same avatar and nickname do not redraw the avatar panel; a real change
  f.sockets[0].receive({type:'control_state',state:{main:f.peer({id:'self',nickname:'내 이름',avatar:'male-1'})}});
  assert.equal(avatar(),first+1);f.presence.close();
 });
-test('chat validation, shared door changes and raffle requests stay routed to the server',()=>{
+test('chat validation and shared door changes stay routed to the server',()=>{
  const f=app({floors});f.welcome();assert.equal(f.presence.sendChat('가'.repeat(201)),false);assert.equal(f.presence.sendChat('   '),false);
  assert.equal(f.presence.sendChat('  안녕  '),true);assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'chat',text:'안녕'});
  const message={id:'m1',playerId:'peer',nickname:'조원',floor:'rooftop',text:'안녕',sentAt:'2026-10-13T01:00:00Z'};
  f.sockets[0].receive({type:'chat',message});f.sockets[0].receive({type:'chat',message:{...message,floor:'unknown'}});assert.equal(f.chats.length,1);
  assert.equal(f.presence.requestDoor('door-storage',true),true);assert.equal(f.presence.requestDoor('invalid',true),false);
  f.sockets[0].receive({type:'door_state',doorId:'door-storage',open:true});assert.equal(f.doorChanges.length,1);
- f.presence.joinRaffle('event-1');assert.deepEqual(plain(f.sockets[0].sent.at(-1)),{type:'raffle_enter',eventId:'event-1'});f.presence.close();
+ f.presence.close();
 });
 test('control results match request IDs and disconnect rejects pending actions',async()=>{
  const f=app({floors});f.welcome();const result=f.presence.command('open_booth',{objectId:'roof-booth-3'});const packet=f.sockets[0].sent.at(-1);

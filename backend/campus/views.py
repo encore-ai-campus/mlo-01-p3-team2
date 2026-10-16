@@ -11,7 +11,6 @@ from django.views.decorators.http import require_safe
 from accounts.models import get_avatar, get_nickname, needs_profile_setup
 from .menu_images import FILE_NAME, IMAGE_TYPES, latest_menu, storage_root
 from .positions import get_position
-from raffle.survey import survey_url
 from direct_messages.service import configuration as message_configuration
 
 
@@ -30,7 +29,7 @@ def map_view(request):
             "guideCompleteUrl": reverse("accounts-api:guide-complete")},
         "presence_config": {"socketPath": "/ws/campus/", "loginUrl": reverse("accounts:login"),
             "avatar": get_avatar(request.user), "preferencesKey": f"campus-display-v1:{request.user.pk}",
-            "position": get_position(request.user), "raffleSurveyUrl": survey_url()},
+            "position": get_position(request.user)},
     })
 
 

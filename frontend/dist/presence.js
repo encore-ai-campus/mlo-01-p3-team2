@@ -2,12 +2,12 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onPoke = () => {}, onJump = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onPoke = () => {}, onJump = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
       const peers = new Map();
-      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, setPoking(){}, requestDoor(){return false;}, joinRaffle(){return false;}, setInput() {}, command(){return Promise.reject(new Error('연결이 필요해요.'));}, tick() {}, close() {}};
+      if (!configElement) return {peers, connected:false, selfId:null, sendChat(){return false;}, setPoking(){}, requestDoor(){return false;}, setInput() {}, command(){return Promise.reject(new Error('연결이 필요해요.'));}, tick() {}, close() {}};
       const config = JSON.parse(configElement.textContent);
       let socket = null, selfId = null, ready = false, closed = false;
       let inputKeys = [], sequence = 0, poking = false, pokeContext = null;
@@ -126,7 +126,6 @@
           lastReceived=performance.now();
           if (message.type === 'welcome' && Array.isArray(message.players)) {
             window.CampusSession?.receive(message.session);
-            if(message.raffle)onRaffle(message.raffle);
             selfId = message.selfId; peers.clear();
             const own = message.players.find(p => p.id === selfId);
             applyIdentity(own);
@@ -181,14 +180,6 @@
             onDoorError(message.message);
           } else if (ready && message.type === 'chat_error' && typeof message.message === 'string') {
             onChatError(message.message);
-          } else if (ready && message.type === 'raffle_state' && message.state) {
-            onRaffle(message.state);
-          } else if (ready && message.type === 'raffle_entry' && message.state && typeof message.entryId === 'string') {
-            onRaffleEntry(message);
-          } else if (ready && message.type === 'raffle_survey' && message.state && typeof message.url === 'string' && typeof message.eventId === 'string') {
-            onRaffleSurvey(message);
-          } else if (ready && message.type === 'raffle_error' && typeof message.message === 'string') {
-            onRaffleError(message.message);
           }
         };
         current.onclose = event => {
@@ -258,10 +249,6 @@
         get connected() {return ready;},
         get selfId() {return selfId;},
         get inputKeys() {return [...inputKeys];},
-        joinRaffle(eventId, {resume=false}={}) {
-          if(!ready||socket?.readyState!==WebSocket.OPEN||typeof eventId!=='string')return false;
-          publish(performance.now(),true);socket.send(JSON.stringify({type:'raffle_enter',eventId}));return true;
-        },
         requestDoor(doorId, open) {
           if(!ready||socket?.readyState!==WebSocket.OPEN||!doorIds.has(doorId)||typeof open!=='boolean')return false;
           publish(performance.now(),true);socket.send(JSON.stringify({type:'door',doorId,open}));return true;

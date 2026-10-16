@@ -276,13 +276,10 @@ class CheckpointTimingTests(SimpleTestCase):
 
 
 @override_settings(ALLOWED_HOSTS=["127.0.0.1", "testserver"], KAFKA_BOOTSTRAP_SERVERS="",
-                   CAMPUS_TEST_LEGACY_MOVEMENT=True, CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+                   CAMPUS_TEST_LEGACY_MOVEMENT=True)
 class MovementSocketTests(TransactionTestCase):
     def setUp(self):
         consumers.room = consumers.CampusRoom()
-        from raffle.models import Control
-
-        Control.objects.get_or_create(pk=1)
         self.user = get_user_model().objects.create_user(username="movement-socket")
         Profile.objects.create(user=self.user, nickname="이동 확인", cohort="mlo-1", setup_complete=True)
         self.client = Client()

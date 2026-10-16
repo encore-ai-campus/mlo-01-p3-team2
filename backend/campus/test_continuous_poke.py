@@ -172,8 +172,7 @@ class ContinuousPokeTests(SimpleTestCase):
         self.assertFalse(self.packets('near')[-1]['active'])
 
 
-@override_settings(ALLOWED_HOSTS=['127.0.0.1', 'testserver'], KAFKA_BOOTSTRAP_SERVERS='',
-                   CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+@override_settings(ALLOWED_HOSTS=['127.0.0.1', 'testserver'], KAFKA_BOOTSTRAP_SERVERS='')
 class ContinuousPokeSocketTests(TransactionTestCase):
     setUp = PokeSocketTests.setUp
     socket = PokeSocketTests.socket

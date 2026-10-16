@@ -27,8 +27,6 @@ from . import consumers
 @override_settings(CAMPUS_TEST_LEGACY_MOVEMENT=False, KAFKA_BOOTSTRAP_SERVERS='')
 class IdleTrafficTests(TransactionTestCase):
     def setUp(self):
-        from raffle.models import Control
-        Control.objects.get_or_create(pk=1)
         self.cookies = [self.login(name) for name in ('idle-a', 'idle-b', 'idle-c')]
         self.sockets = []
         self.room = consumers.CampusRoom()

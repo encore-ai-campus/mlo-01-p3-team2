@@ -38,7 +38,7 @@ class DoorOccupancyTests(SimpleTestCase):
         user.broadcast.assert_not_awaited()
 
 
-@override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='',CAMPUS_RAFFLE_SCHEDULER_ENABLED=False,CAMPUS_TEST_LEGACY_MOVEMENT=False)
+@override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='',CAMPUS_TEST_LEGACY_MOVEMENT=False)
 class ClassroomVisibilitySocketTests(TransactionTestCase):
     setUp=PokeSocketTests.setUp
     socket=PokeSocketTests.socket

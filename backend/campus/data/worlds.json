@@ -8121,24 +8121,6 @@
           "door": false
         },
         {
-          "id": "roof-event-buzzer",
-          "type": "raffle-buzzer",
-          "name": "기프티콘 이벤트 부저",
-          "action": "raffle",
-          "confirmTransfer": false,
-          "interactionPoint": [
-            1540,
-            384
-          ],
-          "footprint": {
-            "x": 1500,
-            "y": 360,
-            "w": 32,
-            "h": 36
-          },
-          "door": false
-        },
-        {
           "id": "roof-object-120",
           "type": "plaza-paving",
           "confirmTransfer": false,
@@ -9350,13 +9332,6 @@
           "y": 1385,
           "w": 24,
           "h": 250,
-          "pad": 0
-        },
-        {
-          "x": 1500,
-          "y": 360,
-          "w": 32,
-          "h": 36,
           "pad": 0
         },
         {
