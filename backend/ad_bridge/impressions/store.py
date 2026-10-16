@@ -1,4 +1,4 @@
-"""노출 전송 전에 소유권·반응 ID·요청 시각을 영속 저장한다.
+"""노출 전송 전에 개인 소유권 또는 공유 광고의 사용자·요청 내용을 저장한다.
 
 전송할 작업의 예약과 재시도 일정을 보관한다. HTTP·결과 GET은 담당하지 않는다.
 Django 모델은 함수 호출 시에만
@@ -106,7 +106,8 @@ def _lease_end(now: datetime, lease_seconds: float) -> datetime:
 
 def reserve_impression(
     decision_id: str | UUID, owner_id: str | UUID, occurred_at: str,
-    *, now: datetime | None = None, lease_seconds: float = 60,
+    *, subject_id: str | UUID | None = None,
+    now: datetime | None = None, lease_seconds: float = 60,
 ) -> tuple[StoredImpression, bool]:
     from django.db import transaction
 
@@ -120,22 +121,34 @@ def reserve_impression(
     # 반환 뒤 즉시 HTTP를 보내므로 외부 트랜잭션 안에서 미커밋 기록을 반환하지 않는다.
     with transaction.atomic(durable=True):
         try:
-            decision = IssuedDecision.objects.get(
-                decision_id=decision_uuid, owner_id=owner_uuid
-            )
+            decision = IssuedDecision.objects.get(decision_id=decision_uuid)
         except IssuedDecision.DoesNotExist as error:
             raise DecisionNotFound("사용자에게 발급한 광고 결정이 없습니다.") from error
+        shared = decision.audience == "shared"
+        if not shared and decision.owner_id != owner_uuid:
+            raise DecisionNotFound("사용자에게 발급한 광고 결정이 없습니다.")
         if not decision.has_ad:
             raise NoAdForDecision("광고 없는 결정은 노출을 보고할 수 없습니다.")
-        # OneToOne 고유 제약과 get_or_create가 중복 요청에서도 최초 기록을 유지한다.
+        if shared:
+            # 브라우저 입력을 받는 API가 아니다. 로그인 검증을 마친 서버의 가명만 받는다.
+            subject = _uuid(subject_id)
+            lookup = {"decision": decision, "owner_id": owner_uuid}
+        else:
+            subject = decision.subject_id
+            if subject_id is not None and _uuid(subject_id) != subject:
+                raise ValueError("개인 결정에 저장된 사용자 가명과 일치하지 않습니다.")
+            lookup = {"decision": decision}
+        # 공유 결정은 내부 사용자로 중복을 막아 비밀 교체 후에도 첫 요청을 유지한다.
+        # 개인 결정은 기존처럼 결정당 한 건만 찾아 이전 기록도 재사용한다.
         record, created = Impression.objects.get_or_create(
-            decision=decision,
+            **lookup,
             defaults={
-                # 현재 비밀로 가명을 다시 만들지 않고 결정 발급 당시 값을 고정한다.
-                "subject_id": decision.subject_id, "occurred_at": occurred_at,
+                "owner_id": owner_uuid, "subject_id": subject, "occurred_at": occurred_at,
                 "attempts": 1, "lease_token": uuid4, "lease_expires_at": expires,
             },
         )
+        if not shared and (record.subject_id != subject or record.owner_id not in (None, owner_uuid)):
+            raise DecisionNotFound("사용자에게 발급한 광고 결정이 없습니다.")
         return _snapshot(record), created
 
 
@@ -274,12 +287,21 @@ class ImpressionNotReady(Exception):
 def get_impression(*, decision_id: str | UUID, owner_id: str | UUID) -> StoredImpression:
     """사용자 소유의 기존 노출만 읽으며 새 기록을 만들지 않는다."""
     from ..models import Impression
-    from django.db.models import F
+    from django.db.models import F, Q
 
+    owner_uuid = _uuid(owner_id)
+    # 개인 기록은 결정 소유자·발급 당시 가명도 검사한다. 공유 기록은 노출 소유자로 조회한다.
+    # NULL 소유자 호환은 소유권이 확인된 개인 결정에만 한정한다.
+    individual = (
+        Q(decision__audience="individual", decision__owner_id=owner_uuid,
+          subject_id=F("decision__subject_id"))
+        & (Q(owner_id=owner_uuid) | Q(owner_id__isnull=True))
+    )
+    shared = Q(decision__audience="shared", owner_id=owner_uuid)
     try:
         record = Impression.objects.get(
-            decision_id=_uuid(decision_id), decision__owner_id=_uuid(owner_id),
-            subject_id=F("decision__subject_id"), decision__has_ad=True,
+            individual | shared,
+            decision_id=_uuid(decision_id), decision__has_ad=True,
         )
     except Impression.DoesNotExist:
         raise DecisionNotFound("사용자에게 발급한 노출 기록이 없습니다.") from None

@@ -3,10 +3,12 @@
 from django.urls import path
 
 from .views import report_impression, request_decision, reaction_result
+from .placements import placement
 
 
 app_name = "ad_bridge"
 urlpatterns = [
+    path("placements/<str:location>/", placement, name="placement"),
     path("decisions/<uuid:decision_id>/result/", reaction_result, name="result"),
     path("decision/", request_decision, name="decision"),
     path("decisions/<uuid:decision_id>/impression/", report_impression, name="impression"),

@@ -36,6 +36,8 @@ class GameImpressionTests(SimpleTestCase):
         self.config = SimpleNamespace(media_key=PRIVATE_KEY, subject_secret=SUBJECT_SECRET)
         self.now = datetime(2026, 10, 11, 21, 0, 0, 123456, tzinfo=timezone(timedelta(hours=9)))
         patches = (
+            # 개인 슬롯 테스트는 새 공유 여부 조회도 DB 경계에서 대체한다.
+            patch("ad_bridge.game.views.decision_store.is_shared_decision", return_value=False),
             patch("ad_bridge.game.views.AdsConfig.from_env", return_value=self.config),
             patch("ad_bridge.game.views.AdsClient", return_value=self.client),
             patch("ad_bridge.game.views.timezone.now", return_value=self.now),

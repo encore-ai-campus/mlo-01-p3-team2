@@ -90,3 +90,23 @@ class AuthoritativeSocketTests(TransactionTestCase):
         finally:
             await socket.disconnect()
         self.assertEqual((await self.stored())[1], [])
+
+    async def test_transfer_approval_returns_a_user_bound_ad_token_before_moving(self):
+        from ad_bridge.placements import transfer_identity
+
+        await database_sync_to_async(Profile.objects.filter(user_id=self.user.pk).update)(
+            last_position={"floor": "campus", "x": 2280, "y": 912, "dir": "down"})
+        socket = self.socket()
+        try:
+            self.assertTrue((await socket.connect(timeout=5))[0])
+            await self.packet(socket, "welcome")
+            await socket.send_json_to({"type": "control", "requestId": "offer", "action": "prepare_transfer",
+                                       "data": {"objectId": "campus-roof-stairs"}})
+            await self.packet(socket, "control_result")
+            await socket.send_json_to({"type": "control", "requestId": "approve", "action": "begin_transfer",
+                                       "data": {"floor": "rooftop"}})
+            result = (await self.packet(socket, "control_result"))["result"]
+            self.assertEqual(transfer_identity(result["ads_token"], self.user.pk), result["transfer_id"])
+            self.assertEqual(next(iter(self.room.players.values()))["floor"], "campus")
+        finally:
+            await socket.disconnect()

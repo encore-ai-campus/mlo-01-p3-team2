@@ -1,0 +1,14 @@
+[Unit]
+Description=Playdata pending ad reaction delivery
+After=network-online.target playdata-backend.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/backend
+EnvironmentFile=/home/ubuntu/backend/.env
+ExecStart=/home/ubuntu/backend/.venv/bin/python manage.py dispatch_ad_reactions --once
+TimeoutStartSec=300
+UMask=0077
