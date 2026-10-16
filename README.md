@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/readme/logo.png" alt="PLAYDATA METAVERSE 로고" width="320">
+</p>
+
 # PLAYDATA 캠퍼스 메타버스
 
 **함께 배우고, 이야기하고, 즐기는 우리 캠퍼스.**
@@ -10,7 +14,7 @@
 
 ## 시연 영상
 
-[![PLAYDATA 캠퍼스 시연 영상 보기]](https://github.com/user-attachments/assets/03797865-0b57-4f57-94c4-7c20dd7f8ade)
+https://github.com/user-attachments/assets/03797865-0b57-4f57-94c4-7c20dd7f8ade
 
 ## 동료를 만나는 가상 캠퍼스
 
@@ -21,6 +25,8 @@
 게시판에서는 수업 밖의 대화도 이어집니다.
 프로젝트 진행 상황을 공유하고, 막힌 문제를 질문하거나, 학습 자료와 취업 정보를 나눠보세요.
 댓글로 의견을 주고받으며 함께 공부할 동료를 알아갈 수 있습니다.
+
+![게시판에서 질문과 자료, 프로젝트 소식을 나누는 캠퍼스 커뮤니티](docs/readme/community-board.png)
 
 ## 내 수준에 맞게 배우는 Python·SQL 학습교실
 
@@ -71,3 +77,20 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 [캠퍼스 로그인 화면](https://43.203.25.153/accounts/login/)에서 시작하세요.
 회원가입에서 수강 과정과 기수를 선택하고, 닉네임과 캐릭터를 설정하면 캠퍼스 생활을 시작할 수 있습니다.
 처음 이용 안내를 따라 공간을 둘러본 뒤, 학습교실이나 옥상 부스에서 원하는 활동을 즐겨보세요.
+
+## 팀 소개
+
+서로 다른 역할을 맡은 다섯 명이 함께 캠퍼스를 만듭니다.
+플랫폼, 광고 서비스, 데이터 처리와 인프라를 연결해 학습과 소통을 지원합니다.
+
+### 팀구성
+
+| 이름 | 작업 | GitHub 주소 |
+|---|---|---|
+| 신동엽 | 데이터 파이프라인 | [sdyeob](https://github.com/sdyeob) |
+| 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
+| 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
+| 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
+| 강한솔 | 플랫폼 | [hansolsmart](https://github.com/hansolsmart) |
+
+![PLAYDATA METAVERSE 팀 소개](docs/readme/team-members.png)
