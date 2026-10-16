@@ -21,7 +21,7 @@ from django.utils import timezone
 from accounts.models import get_identity, needs_profile_setup
 from accounts.session_policy import check_session
 from eventing.events import ensure_platform_session, record_chat, record_floor_transfer, touch_platform_session
-from . import session_registry, poke, socket_db
+from . import cluster, session_registry, poke, socket_db
 from .motion import CLASSROOM_TRANSITION_DELAY, MotionController, ControlError, geometry, world
 from .positions import DIRECTIONS, FLOOR_BOUNDS, get_position, save_position, validate_position
 from direct_messages.live import user_group as direct_message_group
@@ -40,6 +40,7 @@ class CampusRoom:
         self.sockets = {}  # player_id → 소켓(묶음을 채널 계층 없이 바로 쓴다)
         self.pending_moves = {}  # 다음 묶음에 실을 최신 상태(사람마다 하나)
         self.flusher = None
+        self.cluster = cluster.Cluster()  # 다른 프로세스의 사람(Redis 를 쓸 때만, 계획 M3)
 
 
 room = CampusRoom()
@@ -53,14 +54,22 @@ async def flush_moves(campus):
 
     받는 쪽 메시지 수가 '걷는 사람 수'에서 1 로 준다. 직렬화는 한 번이고 채널 계층(복사·전체 훑기)을 거치지 않는다.
     브라우저는 이미 아는 사람만 갱신하므로, 떠난 뒤 늦게 도착한 묶음이 그 사람을 되살리지 않는다.
+    여러 프로세스면(계획 M3) 이 프로세스 사람의 변경만 다른 프로세스에 알리고, 받은 것은 다음 자기 묶음에 합친다.
     """
     try:
+        campus.cluster.remote_moves.clear()  # 이 프로세스에 사람이 없던 동안 쌓인 것은 버린다
         while campus.players:
             await asyncio.sleep(MOVES_INTERVAL)
-            if not campus.pending_moves:
-                continue
-            text = json.dumps({"type": "moves", "players": list(campus.pending_moves.values())}, ensure_ascii=False, allow_nan=False)
+            local = list(campus.pending_moves.values())
             campus.pending_moves.clear()
+            if cluster.enabled():
+                await campus.cluster.moved(local)
+                await campus.cluster.save_positions(session_registry.drain_dirty())
+            players = local + list(campus.cluster.remote_moves.values())
+            campus.cluster.remote_moves.clear()
+            if not players:
+                continue
+            text = json.dumps({"type": "moves", "players": players}, ensure_ascii=False, allow_nan=False)
             for socket in list(campus.sockets.values()):
                 try:
                     await socket.send(text_data=text)
@@ -69,6 +78,17 @@ async def flush_moves(campus):
     finally:
         campus.flusher = None
 SLOW_DB_SECONDS = 1.0
+
+
+async def send_to_sockets(campus, payloads):
+    """다른 프로세스에서 온 입장·퇴장을 이 프로세스의 모든 소켓에 보낸다(계획 M3)."""
+    for payload in payloads:
+        text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        for socket in list(campus.sockets.values()):
+            try:
+                await socket.send(text_data=text)
+            except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 소식을 막지 않는다
+                logging.getLogger(__name__).debug("Could not send a cluster presence change", exc_info=True)
 
 
 _background = set()
@@ -158,6 +178,10 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.position_changed_at = None
         identity = await socket_db.run(get_identity, self.user)
         position = await socket_db.run(get_position, self.user)
+        live = await socket_db.run(cluster.stored_position, self.session_key, self.user.pk) if cluster.enabled() else None
+        if live and validate_position(live[0]):
+            # 같은 세션이 다른 프로세스에서 막 끊겼다(그 프로세스가 죽은 경우 등): DB 체크포인트(5초)보다 새 위치로 이어 붙는다(계획 M3)
+            position = validate_position(live[0])
         self.state = {
             "id": self.player_id, **identity, **position, "color": "#dfa34d", "moving": False,
         }
@@ -168,6 +192,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
             if self.position_dirty:
                 self.position_changed_at = timezone.now()
             self.state.update(corrected, color=geometry()["avatarColors"].get(identity.get("avatar"), "#dfa34d"))
+        if live:
+            self.position_dirty, self.position_changed_at = True, live[1]
+        await room.cluster.start(room, lambda payloads, campus=room: send_to_sockets(campus, payloads))
         async with room.lock:
             await self.channel_layer.group_add(room.group, self.channel_name)
             await self.channel_layer.group_add(self.session_group, self.channel_name)
@@ -212,6 +239,13 @@ class CampusConsumer(AsyncWebsocketConsumer):
                     with suppress(ChannelFull):
                         await self.channel_layer.send(previous_channel, {"type":"presence.replaced"})
                 await self.tell_local({"type":"leave", "id":previous_id})
+                await room.cluster.left(previous_id)
+            mine = cluster.session_hash(self.session_key)
+            for row in list(room.cluster.remote.values()):
+                if row["session"] == mine:
+                    # 같은 세션이 다른 프로세스에 남아 있다(세션 고정 배정이 장애로 바뀐 경우). 그쪽이 떠나며 다른 프로세스에 알린다
+                    with suppress(ChannelFull):
+                        await self.channel_layer.send(row["channel"], {"type": "presence.replaced"})
             session_registry.register(self.player_id, self.session_key, self.user.pk)
             self.state["inClassroom"] = bool(self.controller and self.controller.interior)
             room.players[self.player_id] = self.state.copy()
@@ -224,9 +258,11 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 room.controllers[self.player_id] = self.controller
                 if self.controller.interior:room.interiors.add(self.player_id)
             await self.accept()
-            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": list(room.players.values()), "session": self.policy_status, "serverControl": self.server_control})
+            players = [*room.players.values(), *(row["state"] for row in room.cluster.remote.values())]
+            await self.send_packet({"type": "welcome", "selfId": self.player_id, "players": players, "session": self.policy_status, "serverControl": self.server_control})
             self.seen_by_peers = self.state.copy()
             await self.tell_local({"type": "join", "player": self.state.copy()})
+            await room.cluster.joined(self)
         if settings.CAMPUS_DM_ENABLED:
             self.direct_message_group = direct_message_group(self.user.pk)
             await self.channel_layer.group_add(self.direct_message_group, self.channel_name)
@@ -516,9 +552,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 pose = self.controller.pose
                 direction = self.controller.poke_direction
                 active_world = self.controller.world
-                targets = [player for player_id, player in room.players.items()
-                           if player_id != self.player_id and player_id not in room.interiors
-                           and player["floor"] == pose["floor"]]
+                targets = [player for player_id, player in self.everyone() if player_id != self.player_id and player["floor"] == pose["floor"]]
             target_id = poke.find_target(pose, targets, active_world, direction)
             packet = {"type": "poke", "id": uuid4().hex, "actorId": self.player_id,
                       "targetId": target_id, "dir": direction, "floor": self.controller.pose["floor"],
@@ -530,19 +564,26 @@ class CampusConsumer(AsyncWebsocketConsumer):
         interior = self.controller.interior
         return {"context": "classroom", "subject": interior["subject"]} if interior else {"context": "world", "floor": self.controller.pose["floor"]}
 
+    def everyone(self):
+        """교실 밖 사람(이 프로세스와 다른 프로세스, 계획 M3) — 찌르기 대상·관객."""
+        for player_id, player in room.players.items():
+            if player_id not in room.interiors:
+                yield player_id, player
+        for player_id, row in room.cluster.remote.items():
+            if not row["state"].get("inClassroom"):
+                yield player_id, row["state"]
+
     def poke_audience(self, scope):
         if scope["context"] == "classroom":
             return {self.player_id}
         pose = self.controller.pose
-        return {player_id for player_id, player in room.players.items()
-                if player_id == self.player_id or (player_id not in room.interiors
-                    and player["floor"] == scope["floor"]
-                    and math.hypot(player["x"] - pose["x"], player["y"] - pose["y"]) <= poke.SYNC_RANGE)}
+        return {self.player_id} | {player_id for player_id, player in self.everyone() if player["floor"] == scope["floor"]
+                                   and math.hypot(player["x"] - pose["x"], player["y"] - pose["y"]) <= poke.SYNC_RANGE}
 
     async def send_poke_to(self, recipients, payload):
         # Cosmetic effects go directly to nearby sockets, never to the global presence group.
         for player_id in recipients:
-            channel = room.channels.get(player_id)
+            channel = room.channels.get(player_id) or room.cluster.remote.get(player_id, {}).get("channel")
             if channel:
                 try:
                     await self.channel_layer.send(channel, {
@@ -557,7 +598,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
 
     async def flush_poke_states(self):
         for player_id, packet in list(self.pending_poke_states.items()):
-            if player_id not in room.channels:
+            if player_id not in room.channels and player_id not in room.cluster.remote:
                 self.pending_poke_states.pop(player_id, None)
             else:
                 await self.send_poke_to({player_id}, packet)
@@ -615,8 +656,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             self.poke_watchers = audience
             active_world = world(interior["subject"]) if interior else self.controller.world
             targets = poke.classroom_targets(interior["subject"]) if interior else [
-                player for player_id, player in room.players.items()
-                if player_id != self.player_id and player_id not in room.interiors and player["floor"] == pose["floor"]]
+                player for player_id, player in self.everyone() if player_id != self.player_id and player["floor"] == pose["floor"]]
             target_id = poke.find_target(pose, targets, active_world, direction)
             if target_id is not None:
                 await self.send_poke_to(audience, {
@@ -869,6 +909,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             if self.player_id and room.players.pop(self.player_id, None) is not None:
                 await self.channel_layer.group_discard(room.group, self.channel_name)
                 await self.tell_local({"type": "leave", "id": self.player_id})
+                await room.cluster.left(self.player_id)
 
     async def close(self, code=None, reason=None):
         if code not in (None, 1000):
