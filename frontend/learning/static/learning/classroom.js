@@ -1,7 +1,7 @@
 /* Private classroom: collect keys, render accepted state, and show server decisions. */
 (() => {
   'use strict';
-  function create({onOpen=()=>{},onExit=()=>{},getPlayer,getControl,onPoke=()=>{}}) {
+  function create({onOpen=()=>{},onExit=()=>{},getPlayer,getControl,onPoke=()=>{},onJump=()=>{}}) {
     const dialog=document.getElementById('classroomDialog'),canvas=document.getElementById('classroomCanvas');
     const ctx=canvas.getContext('2d'),keys=new Set(),suppressedKeys=new Set();
     const areaHint=document.getElementById('classroomAreaHint'),prompt=document.getElementById('classroomPrompt');
@@ -22,10 +22,10 @@
         guideUntil=guidedSubjects.has(subject)?0:performance.now()+4500;guidedSubjects.add(subject);
         renderer=window.CampusIsometric.create({data:map.data});
         actor={...getPlayer(),...state.actor,walkTime:0,visualZ:0};
-        delete actor._campusPoke;delete actor._campusPokeReaction;delete actor._campusPokeLoop;delete actor._campusPokeFacing;
+        delete actor._campusJump;delete actor._campusPoke;delete actor._campusPokeReaction;delete actor._campusPokeLoop;delete actor._campusPokeFacing;
         for(const resident of map.data.residents){delete resident._campusPoke;delete resident._campusPokeReaction;}
         const title=document.getElementById('classroom-title');if(title)title.textContent=map.data.name;
-        canvas.setAttribute?.('aria-label',`${subject==='sql'?'SQL':'Python'} 학습교실. WASD와 방향키로 이동하고 학습 영역 안에서 E키, 가까운 캐릭터 앞에서 Z키를 누르세요.`);
+        canvas.setAttribute?.('aria-label',`${subject==='sql'?'SQL':'Python'} 학습교실. WASD와 방향키로 이동하고 학습 영역 안에서 E키, 가까운 캐릭터 앞에서 Z키, 스페이스바로 점프할 수 있어요.`);
         onOpen();keys.clear();if(!dialog.open)dialog.showModal();focus();
       }
       actor.targetX=state.actor.x;actor.targetY=state.actor.y;actor.receivedAt=performance.now();
@@ -51,6 +51,7 @@
       if(suppressedKeys.has(key)){event.preventDefault();return;}
       if(movementKeys.has(key)){event.preventDefault();keys.add(key);}
       else if(key==='e'&&!event.repeat){event.preventDefault();event.stopImmediatePropagation?.();activate();}
+      else if(key===' '&&!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();event.stopImmediatePropagation?.();onJump();}
       else if(key==='z'&&!event.repeat&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();event.stopImmediatePropagation?.();onPoke();}
       else if(key==='enter')event.preventDefault();
     });

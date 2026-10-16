@@ -45,7 +45,7 @@
         <div class="map-status-tools">
           <div id="presenceStatus" class="presence-status" role="status" aria-live="polite" hidden></div>
           <div class="map-view-tools">
-            <div class="map-controls"><button id="zoomIn" aria-label="지도 확대">+</button><span id="zoomLabel">145%</span><button id="zoomOut" aria-label="지도 축소">−</button></div>
+            <div class="map-controls" hidden><button id="zoomIn" aria-label="지도 확대" disabled>+</button><span id="zoomLabel">150%</span><button id="zoomOut" aria-label="지도 축소" disabled>−</button></div>
             <div class="map-wallet-anchor">
               <button id="mapWallet" type="button" class="map-wallet" data-state="loading" aria-expanded="false" aria-controls="mapWalletHistory" aria-label="보유 포인트를 불러오는 중, 적립 내역">
                 <img class="map-wallet-coin" src="assets/point-coin.svg" width="40" height="40" alt="" aria-hidden="true" draggable="false">
@@ -110,6 +110,7 @@
           <span class="map-key-item"><kbd>WASD</kbd><span> / 방향키 이동</span></span>
           <span class="map-key-item"><kbd>E</kbd><span>상호작용</span></span>
           <span class="map-key-item"><kbd>Z</kbd><span>찌르기</span></span>
+          <button id="campusJumpButton" class="jump-key-button" type="button" aria-label="점프, 스페이스바"><kbd>Space</kbd><span>점프</span></button>
           <button id="chatOpen" class="chat-open" type="button" aria-controls="chatPanel" aria-expanded="false" title="채팅 입력 (Enter)" disabled><kbd>Enter</kbd> 채팅</button>
           <span class="map-key-item"><kbd>Esc</kbd><span>설정</span></span>
         </div>
@@ -339,6 +340,7 @@
   <script src="keyboard.js"></script>
   <script src="presence.js"></script>
   <script src="poke.js"></script>
+  <script src="jump.js"></script>
   <script src="social.js"></script>
   <script src="community.js"></script>
   <script src="rooftop-city.js"></script>

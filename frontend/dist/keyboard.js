@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const physicalKeys = Object.freeze({
-    KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyE: 'e', KeyZ: 'z',
+    KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyE: 'e', KeyZ: 'z', Space: ' ',
     ArrowUp: 'arrowup', ArrowDown: 'arrowdown', ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
   });
   const gameKeys = new Set(Object.values(physicalKeys));

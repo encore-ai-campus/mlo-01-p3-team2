@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   window.CampusPresence = {
-    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onPoke = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
+    create({player, width, height, floors, onAuthExpired, onRestore = () => {}, onState = () => {}, onControlEvent = () => {}, onPoke = () => {}, onJump = () => {}, onChat = () => {}, onChatError = () => {}, onConnectionChange = () => {}, onDoors = () => {}, onDoor = () => {}, onDoorError = () => {}, onRaffle = () => {}, onRaffleEntry = () => {}, onRaffleSurvey = () => {}, onRaffleError = () => {}}) {
       const configElement = document.getElementById('campusPresenceConfig');
       const status = document.getElementById('presenceStatus');
       const roster = document.getElementById('presencePeers');
@@ -141,6 +141,8 @@
             onState(message.state);acceptSelf(message.state.main);
           } else if (ready && message.type === 'control_event' && message.event) {
             onControlEvent(message.event);
+          } else if (ready && message.type === 'jump') {
+            onJump(message);
           } else if (ready && ['poke','poke_state','poke_hit'].includes(message.type)) {
             onPoke(message);
           } else if (ready && message.type === 'control_result') {

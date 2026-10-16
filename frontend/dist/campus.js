@@ -1,12 +1,12 @@
 (() => {
   'use strict';
   const worlds=window.CampusWorlds, $=id=>document.getElementById(id);
-  const DEFAULT_ZOOM=1.45;
+  const DEFAULT_ZOOM=1.5;
   const accountConfig=JSON.parse($('campusPresenceConfig')?.textContent||'{}');
   const avatar=window.CampusAvatars.resolve(accountConfig.avatar);
   // The existing server flag grants the administrator's wider camera controls.
   const isAdmin=JSON.parse($('campusViewConfig')?.textContent||'{}').canZoom===true;
-  const MIN_ZOOM=isAdmin ? .35 : .5,MAX_ZOOM=isAdmin ? 3.6 : 1.5;
+  const MIN_ZOOM=isAdmin ? .35 : DEFAULT_ZOOM,MAX_ZOOM=isAdmin ? 3.6 : DEFAULT_ZOOM;
   function validPosition(position){
     const bounds=position&&typeof position.floor==='string'&&Object.hasOwn(worlds,position.floor)&&worlds[position.floor];
     return bounds&&Number.isFinite(position.x)&&Number.isFinite(position.y)&&position.x>=0&&position.x<=bounds.width
@@ -35,7 +35,7 @@
   const suppressedKeys=new Set();
   const floorTransition=window.CampusFloorTransition.create({
     onStart(){
-      spaceGuide.close();
+      spaceGuide.close();jump.reset();
       for(const key of keys)suppressedKeys.add(key);
       keys.clear();player.moving=false;player.walkTime=0;press=null;hover=nearby=null;
       $('interactionPrompt').hidden=true;viewport.setAttribute('aria-busy','true');
@@ -51,11 +51,13 @@
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
   const raffleUI=window.CampusRaffle.create({onStart:(id,resume)=>presence.joinRaffle(id,{resume}),onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});},onState:state=>{for(const view of renderers.values())view.setRaffleState(state);},isNear:()=>serverHints.nearbyId==='roof-event-buzzer',notify:toast});
   const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,onPoke:()=>poke.setHeld(true),
-    onOpen(){keys.clear();player.moving=false;},
+    onOpen(){keys.clear();player.moving=false;jump.reset();},
+    onJump:()=>jump.trigger(),
     onExit(){keys.clear();focusPlayer();canvas.focus({preventScroll:true});}
   })||{blocking:false,applyState(){},tick(){}};
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
   const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
+  const jump=window.CampusJump.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,isBlocked:()=>isDialogOpen(false),notify:toast});
   const spaceGuide=window.CampusSpaceGuide.create({onSelect:room=>showDetail(room),isBlocked:()=>isDialogOpen(),
     onOpen(){keys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);},focusMap:()=>canvas.focus({preventScroll:true})});
   spaceGuide.setWorld(D,serverHints.roomId);
@@ -81,7 +83,7 @@
     const q=renderer.projectActor(player);camera.x=vw/2-q.x*camera.zoom;camera.y=vh/2-q.y*camera.zoom;
   }
   function zoomBy(factor){
-    if(floorTransition.blocking)return;
+    if(!isAdmin||floorTransition.blocking)return;
     const anchor={x:(vw/2-camera.x)/camera.zoom,y:(vh/2-camera.y)/camera.zoom};
     camera.zoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,camera.zoom*factor));
     if(camera.follow)focusPlayer();else{camera.x=vw/2-anchor.x*camera.zoom;camera.y=vh/2-anchor.y*camera.zoom;}
@@ -89,8 +91,9 @@
   }
   function updateZoom(){
     $('zoomLabel').textContent=Math.round(camera.zoom*100)+'%';
-    $('zoomLabel').title=isAdmin?'관리자 · 마우스 휠 또는 + / −로 확대·축소':'마우스 휠 또는 + / −로 확대·축소 (50~150%)';
-    $('zoomIn').disabled=camera.zoom>=MAX_ZOOM-1e-9;$('zoomOut').disabled=camera.zoom<=MIN_ZOOM+1e-9;
+    $('zoomLabel').title=isAdmin?'관리자 · 마우스 휠 또는 + / −로 확대·축소':'150% 고정';
+    $('zoomIn').closest('.map-controls').hidden=!isAdmin;
+    $('zoomIn').disabled=!isAdmin||camera.zoom>=MAX_ZOOM-1e-9;$('zoomOut').disabled=!isAdmin||camera.zoom<=MIN_ZOOM+1e-9;
     $('followBtn').hidden=!isAdmin;$('followBtn').setAttribute('aria-pressed',String(camera.follow));$('followBtn').textContent='화면 고정: '+(camera.follow?'켬':'끔');
     $('cameraStatus').textContent=camera.follow?'내 위치 고정':'자유 보기 · 드래그';$('cameraHint').textContent=camera.follow?'내 위치 화면':'자유 보기';canvas.style.cursor=isAdmin&&!camera.follow?'grab':'default';
   }
@@ -104,12 +107,12 @@
     ctx.save();ctx.translate(camera.x,camera.y);ctx.scale(camera.zoom,camera.zoom);
     const actors=visibleActors();
     renderer.draw(ctx,{camera,actors,t,hover,nearby,viewportWidth:vw,viewportHeight:vh,showNicknames:social.preferences.nicknames});ctx.restore();
-    social.render(t,{actors,camera,projectActor:renderer.projectActor,selfId:presence.selfId,floor:D.id,avatarSize:window.CampusAvatars.size});
+    social.render(t,{actors,camera,projectActor:actor=>{const q=renderer.projectActor(actor);return {...q,y:q.y-window.CampusJump.height(actor,t)};},selfId:presence.selfId,floor:D.id,avatarSize:window.CampusAvatars.size});
   }
   function update(t){
     const dt=Math.min((t-lastTime)/1000,.04)||.016;lastTime=t;
     if(!classroom.blocking)presence.setInput(!isDialogOpen()?[...keys]:[]);
-    classroom.tick(t,dt);poke.tick(t);checkExit();
+    jump.tick(t);classroom.tick(t,dt);poke.tick(t);checkExit();
     presence.tick(t,dt);
     for(const actor of visibleActors()){
       actor.walkTime=actor.moving?(actor.walkTime||0)+dt:0;
@@ -125,7 +128,7 @@
   function visibleActors(){return [player,...[...presence.peers.values()].filter(peer=>(peer.floor||'campus')===D.id&&peer.inClassroom!==true)];}
   function restorePosition(position,refresh=true){
     if(!validPosition(position))return;
-    keys.clear();hover=nearby=null;lastRoom='';
+    jump.reset();keys.clear();hover=nearby=null;lastRoom='';
     if(D.id!==position.floor){
       D=worlds[position.floor];window.CampusData=D;
       renderer=renderers.get(D.id)||window.CampusIsometric.create({data:D});renderers.set(D.id,renderer);P=renderer.projection;scene=renderer.scene;
@@ -276,15 +279,17 @@
     if(e.target.closest?.('#campusNavToggle,#campusSpaceGuide')&&['enter',' '].includes(k))return;
     if(floorTransition.blocking){
       if(movementKeys.has(k))suppressedKeys.add(k);
-      if(movementKeys.has(k)||['e','z','escape','enter','+','=','-'].includes(k))e.preventDefault();
+      if(movementKeys.has(k)||['e','z',' ','escape','enter','+','=','-'].includes(k))e.preventDefault();
       return;
     }
+    if(k===' '&&e.target.closest?.('button,a'))return;
     if(suppressedKeys.has(k)){e.preventDefault();return;}
     if((e.isComposing&&!window.CampusKeyboard.isGameKey(e))||isDialogOpen()||e.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
     if(k==='escape'&&!e.repeat){e.preventDefault();social.openSettings();}
     else if(k==='enter'&&!e.repeat){if(social.focusChat())e.preventDefault();}
     else if(movementKeys.has(k)){e.preventDefault();keys.add(k);}
     else if(k==='e'&&nearby&&!e.repeat){e.preventDefault();showDetail(nearby,{keyboard:true});}
+    else if(k===' '&&!e.repeat&&!e.ctrlKey&&!e.altKey&&!e.metaKey){e.preventDefault();jump.trigger();}
     else if(k==='z'&&!e.repeat&&!e.ctrlKey&&!e.altKey&&!e.metaKey){e.preventDefault();poke.setHeld(true);}
     else if(k==='+'||k==='='){e.preventDefault();zoomBy(1.2);}
     else if(k==='-'){e.preventDefault();zoomBy(1/1.2);}
@@ -328,7 +333,7 @@
   function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar);$('avatarPreview').src=`assets/characters/${id}-preview.png`;$('avatarName').textContent=window.CampusAvatars.definitions[id].name;}
   updateAvatarPreview();
   window.addEventListener('campus:avatar',updateAvatarPreview);
-  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:true,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
+  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:isAdmin,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
   window.addEventListener('campus:guide-open',()=>{keys.clear();suppressedKeys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);});
   requestAnimationFrame(update);
   window.dispatchEvent(new Event('campus:ready'));

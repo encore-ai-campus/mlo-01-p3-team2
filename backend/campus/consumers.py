@@ -51,6 +51,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
     max_chat_length = 200
     chat_interval = 0.8
     position_interval = 5
+    jump_duration = 0.72
     colors = {"#dfa34d", "#4e9b91", "#8a78bb", "#cb7773", "#648eb5"}
     directions = DIRECTIONS
     floor_bounds = FLOOR_BOUNDS
@@ -91,6 +92,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_move = 0
         self.last_chat = -math.inf
         self.last_poke = -math.inf
+        self.last_jump = -math.inf
         self.poke_requested = False
         self.poke_input_scope = None
         self.poke_scope = None
@@ -331,6 +333,11 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.last_seen = time.monotonic()
         async with self.control_lock:
             try:
+                if action == "jump":
+                    result = await self.receive_jump(arguments)
+                    await self.send_packet({"type": "control_result", "requestId": request_id, "result": result})
+                    await self.touch_activity()
+                    return
                 if action == "poke":
                     result = await self.receive_poke(arguments)
                     await self.send_packet({"type": "control_result", "requestId": request_id, "result": result})
@@ -346,6 +353,25 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 await self.touch_activity()
             except ControlError as error:
                 await self.send_packet({"type": "control_result", "requestId": request_id, "error": str(error)})
+
+    async def receive_jump(self, arguments):
+        expected = self.current_poke_scope()
+        if arguments != expected or self.controller.pending_transfer:
+            raise ControlError("현재 공간에서 다시 점프해 주세요.")
+        now = time.monotonic()
+        if now - self.last_jump < self.jump_duration:
+            raise ControlError("착지한 뒤 다시 점프해 주세요.")
+        if self.player_id not in room.players:
+            raise ControlError("연결된 뒤 이용해 주세요.")
+        self.last_jump = now
+        packet = {"type": "jump", "id": uuid4().hex, "actorId": self.player_id,
+                  "floor": self.controller.pose["floor"], "durationMs": 720, "height": 52, **expected}
+        # A cosmetic action never updates position_dirty, the database, or the event outbox.
+        if self.controller.interior:
+            await self.send_packet(packet)
+        else:
+            await self.broadcast(packet)
+        return {"type": "jump", "id": packet["id"]}
 
     async def receive_poke(self, arguments):
         interior = self.controller.interior
@@ -609,14 +635,14 @@ class CampusConsumer(AsyncWebsocketConsumer):
 
     async def presence_packet(self, event):
         payload = event["payload"]
-        if payload["type"] in {"poke", "poke_state", "poke_hit"}:
+        if payload["type"] in {"poke", "poke_state", "poke_hit", "jump"}:
             interior = getattr(self, "controller", None) and self.controller.interior
             if payload.get("context") == "classroom":
                 if self.player_id != payload["actorId"] or not interior or interior["subject"] != payload.get("subject"):
                     return
             elif interior or payload["floor"] != self.state["floor"]:
                 return
-        if self.player_id in room.players and (event["sender"] != self.player_id or payload["type"] in {"chat", "door_state", "poke", "poke_state", "poke_hit"}):
+        if self.player_id in room.players and (event["sender"] != self.player_id or payload["type"] in {"chat", "door_state", "poke", "poke_state", "poke_hit", "jump"}):
             await self.send_packet(payload)
 
     @database_sync_to_async
