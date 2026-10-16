@@ -684,11 +684,6 @@
         circlePlane(cx,cy,r-27,base+27,'#75c4d2','#4e9cac');
         for(const rr of [48,81,110])circlePlane(cx,cy,rr,base+27.4,null,'#c8f1ebaa');
         cylinder(cx,cy,23,base+27,46,'#e0e8d6','#a4baa9');cylinder(cx,cy,59,base+69,7,'#dce5d5','#adc4b2');circlePlane(cx,cy,48,base+76,'#a4dce0',null);
-        const centre=p(cx,cy,base+84);for(const [dx,dy] of [[-65,-22],[65,-22],[-50,26],[50,26]]){
-          const end={x:centre.x+dx,y:centre.y+60+dy};g.beginPath();g.moveTo(centre.x,centre.y);g.bezierCurveTo(centre.x+dx*.35,centre.y-62,centre.x+dx*.92,centre.y-56,end.x,end.y);g.strokeStyle='#e5ffffbb';g.lineWidth=4;g.stroke();
-          ellipse(end.x,end.y,10,3,'#d6ffff99');
-        }
-        line(centre,{x:centre.x,y:centre.y-58},'#e5ffff',5);ellipse(centre.x,centre.y-59,5,4,'#f4ffff');
       } else if(type==='raffle-buzzer') {
         const cx=x+w/2,cy=y+h/2,status=o.raffle?.event?.status||'draft';
         circlePlane(cx,cy,48,base+.5,'#f0dfb977','#bba87a');
@@ -984,9 +979,45 @@
       labels.push({value:r.name,x,y,z:groundHeight(x,y)+48,size:r.id.startsWith('festival')?18:r.id.startsWith('lounge')?17:isClass?14:12});
     }
     function drawLabels(ctx,actors=[]){g=ctx;for(const a of labels){const q=p(a.x,a.y,a.z);if(actors.some(actor=>{const b=projectActor(actor);return Math.abs(q.x-b.x)<70&&q.y>b.y-53&&q.y<b.y+12;}))continue;label(a.value,a.x,a.y,a.size,'#4e5d56','#fffaf0ee',a.z);}}
+    // Water is rendered per frame; the stone basin remains in the sprite cache.
+    function fountainWater(o,t=0){
+      const base=groundHeight(o.x+o.w/2,o.y+o.h/2),cx=o.x+o.w/2,cy=o.y+o.h/2;
+      const seconds=portalMotion?.matches?0:(Number.isFinite(t)?t/1000:0);
+      const centre=p(cx,cy,base+84),pulse=Math.sin(seconds*2.1);
+      g.save();g.lineCap='round';
+      for(let i=0;i<4;i++){
+        const phase=(seconds*.28+i/4)%1,limit=Math.min(o.w,o.h)/2-29;
+        g.globalAlpha=(1-phase)*.48;g.lineWidth=1.2;
+        circlePlane(cx,cy,65+Math.max(0,limit-65)*phase,base+27.5,null,'#defcff');
+      }
+      g.globalAlpha=1;
+      for(const [i,[dx,dy]] of [[-65,-22],[65,-22],[-50,26],[50,26]].entries()){
+        const wave=Math.sin(seconds*2.4+i*.9),end={x:centre.x+dx,y:centre.y+60+dy};
+        const a={x:centre.x+dx*.35,y:centre.y-62-wave*3},b={x:centre.x+dx*.92,y:centre.y-56-wave*3};
+        g.beginPath();g.moveTo(centre.x,centre.y);g.bezierCurveTo(a.x,a.y,b.x,b.y,end.x,end.y);
+        g.strokeStyle='#e5ffffbb';g.lineWidth=4+wave*.3;g.stroke();
+        for(let drop=0;drop<4;drop++){
+          const u=(seconds*.7+drop/4+i*.17)%1,v=1-u;
+          ellipse(v*v*v*centre.x+3*v*v*u*a.x+3*v*u*u*b.x+u*u*u*end.x,
+            v*v*v*centre.y+3*v*v*u*a.y+3*v*u*u*b.y+u*u*u*end.y,1.6,2.7,'#f4ffffee');
+        }
+        const splash=(seconds*1.2+i*.23)%1;
+        g.globalAlpha=1-splash;
+        g.beginPath();g.ellipse(end.x,end.y,5+splash*11,1.5+splash*3,0,0,Math.PI*2);
+        g.strokeStyle='#deffff';g.lineWidth=1;g.stroke();g.globalAlpha=1;
+        ellipse(end.x,end.y,9+wave,2.8,'#d6ffff88');
+      }
+      const top={x:centre.x,y:centre.y-58-pulse*3};
+      line(centre,top,'#d8ffffcc',5);
+      for(let i=0;i<5;i++){
+        const u=(seconds*1.1+i/5)%1;
+        ellipse(centre.x,centre.y+(top.y-centre.y)*u,1.6,2.6,'#ffffffed');
+      }
+      ellipse(top.x,top.y-1,4.5,3.6,'#f4ffff');g.restore();
+    }
     function drawSprite(ctx,s,alpha=1){ctx.globalAlpha=alpha;ctx.drawImage(s.canvas,s.b.x,s.b.y,s.b.w,s.b.h);ctx.globalAlpha=1;}
     const scene=makeCanvas(P.width*resolution,P.height*resolution),sg=scene.getContext('2d');
-    function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);city?.draw(sg);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites){drawSprite(sg,s);if(s.o.type==='floor-portal'){g=sg;if(s.o.portalStyle==='compact')compactPortalEnergy(s.o);else portalEnergy(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2));}else if(s.o.type==='stair-portal'||(s.o.type==='fire-extinguisher'&&s.o.portalGlow)){g=sg;compactPortalEnergy(s.o);}}for(const sprite of sprites.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(sg,sprite);drawLabels(sg);}
+    function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);city?.draw(sg);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites){drawSprite(sg,s);if(s.o.type==='fountain'){g=sg;fountainWater(s.o,0);}if(s.o.type==='floor-portal'){g=sg;if(s.o.portalStyle==='compact')compactPortalEnergy(s.o);else portalEnergy(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2));}else if(s.o.type==='stair-portal'||(s.o.type==='fire-extinguisher'&&s.o.portalGlow)){g=sg;compactPortalEnergy(s.o);}}for(const sprite of sprites.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(sg,sprite);drawLabels(sg);}
     repaintScene();
     function setDisplayImage(id,image){const s=sprites.find(s=>s.o.id===id&&(s.o.type==='plaza-display'||s.o.type==='wall-poster'));if(!s)return false;const depth=s.depth;displayImages.set(id,image);Object.assign(s,cacheSprite(s.o,()=>furniture(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2))));s.depth=depth;repaintScene();return true;}
     function setRaffleState(state){
@@ -1045,6 +1076,7 @@
         if(e.actor){drawActor(ctx,e.actor,t,camera.zoom);continue;}
         const blocked=e.isWall&&actors.some(a=>{const q=projectActor(a),b=e.b;return q.x>b.x+10&&q.x<b.x+b.w-10&&q.y>b.y+55&&q.y<b.y+b.h+7&&q.y<e.depth+20;});
         drawSprite(ctx,e,blocked ? .27 : 1);
+        if(e.o.type==='fountain')fountainWater(e.o,t);
         if(e.o.type==='floor-portal'){g=ctx;if(e.o.portalStyle==='compact')compactPortalEnergy(e.o,portalMotion?.matches?0:t);else portalEnergy(e.o,groundHeight(e.o.x+e.o.w/2,e.o.y+e.o.h/2),portalMotion?.matches?0:t);}
         else if(e.o.type==='stair-portal'||(e.o.type==='fire-extinguisher'&&e.o.portalGlow)){g=ctx;compactPortalEnergy(e.o,portalMotion?.matches?0:t);}
       }
