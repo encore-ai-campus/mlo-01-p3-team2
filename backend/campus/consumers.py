@@ -885,7 +885,12 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 and time.monotonic() - self.controller.last_input <= poke.INPUT_LEASE):
             await self.touch_activity()
         started = time.monotonic()
-        identity = await self.current_identity()
+        try:
+            identity = await self.current_identity()
+        except DatabaseError:
+            # DB 가 잠깐 안 될 때(장애 전환 등) 로그인 만료로도, 소켓 오류로도 다루지 않는다. 다음 확인에서 다시 본다(계획 6b)
+            logging.getLogger(__name__).warning("campus session check could not reach the database; keeping the socket", exc_info=True)
+            return
         note_slow_db("session check", started)
         if identity is None:
             await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})

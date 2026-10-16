@@ -8,6 +8,7 @@
 - 3: 위치 저장은 이동 처리 밖에서 한다(저장이 느려도 이동 틱이 밀리지 않는다).
 - 4b: ping 은 바로 pong 을 받고, 플랫폼 세션 기록은 15초에 한 번만(기다리지 않고) 한다.
 - 4f: 소켓의 DB 호출은 연결 하나를 이어 쓴다(호출마다 새 연결·TLS 핸드셰이크를 하지 않는다).
+- 6b: 주기적인 세션 확인이 DB 오류를 만나도 연결을 끊지 않는다(다음 확인에서 다시 본다).
 """
 import asyncio
 import time
@@ -252,5 +253,30 @@ class IdleTrafficTests(TransactionTestCase):
                     self.assertLess(time.monotonic() - started, .3)  # DB 기록을 기다리지 않는다
                 await asyncio.sleep(.6)
             self.assertEqual(len(calls), 1)  # DB 가 실제로 고치는 주기(15초)에 한 번
+        finally:
+            await self.disconnect_all()
+
+    async def test_a_database_error_in_the_periodic_session_check_keeps_the_socket(self):
+        from django.db import OperationalError
+
+        failures = []
+        original = consumers.check_session
+
+        def flaky(*args, **kwargs):
+            if failures and not kwargs.get('touch'):
+                raise failures.pop()
+            return original(*args, **kwargs)
+
+        try:
+            with patch.object(consumers, 'check_session', flaky), patch.object(consumers.CampusConsumer, 'session_check_interval', .05):
+                a, b = await self.two_settled()
+                with self.assertLogs('campus.consumers', 'WARNING') as logs:
+                    failures.append(OperationalError(2013, 'Lost connection to MySQL server during query'))
+                    await asyncio.sleep(.3)  # 세션 확인이 몇 번 돈다(첫 번째가 DB 오류)
+            self.assertEqual(failures, [])
+            await a.send_json_to({'type': 'ping'})
+            while (await a.receive_json_from(timeout=2))['type'] != 'pong':
+                pass  # 연결이 살아 있다(예전: 소켓이 1011 로 끊겨 모두 다시 접속했다)
+            self.assertTrue(any('session check' in line for line in logs.output), logs.output)
         finally:
             await self.disconnect_all()

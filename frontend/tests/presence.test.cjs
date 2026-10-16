@@ -3,7 +3,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 
-function app({authenticated = true, secure = false, floors, restore = false} = {}) {
+function app({authenticated = true, secure = false, floors, restore = false, session} = {}) {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
   const chats = [], chatErrors = [], connectionChanges = [], restores = [], doorSnapshots = [], doorChanges = [], doorErrors = [];
@@ -28,7 +28,7 @@ function app({authenticated = true, secure = false, floors, restore = false} = {
   const protocol = secure ? 'https:' : 'http:';
   const context = vm.createContext({URL, Event, WebSocket: Socket, performance: {now: () => clock},
     window: {location: {protocol, href: protocol + '//127.0.0.1:8000/', assign(url) {redirected = url;}},
-      addEventListener(name, callback) {listeners.set('window:' + name, callback);}, dispatchEvent(event) {events.push(event.type);}},
+      addEventListener(name, callback) {listeners.set('window:' + name, callback);}, dispatchEvent(event) {events.push(event.type);}, CampusSession: session},
     document: {getElementById: element, createElement: () => ({textContent: ''}),
       addEventListener(name, callback) {listeners.set('document:' + name, callback);}},
     setTimeout(callback, delay) {const id = ++nextTimer; timers.set(id, {callback, delay}); return id;},
@@ -113,4 +113,19 @@ test('control results match request IDs and disconnect rejects pending actions',
 test('unexpected disconnection reconnects once and expired authentication cannot retry',()=>{
  const f=app({floors});f.welcome();f.sockets[0].close(1006);assert.equal(f.timers.size,1);[...f.timers.values()][0].callback();assert.equal(f.sockets.length,2);f.presence.close();
  const expired=app();expired.welcome();expired.sockets[0].close(4401);assert.equal(expired.expired,1);assert.equal(expired.timers.size,0);
+});
+test('reconnect delays are spread per person around the doubling backoff',()=>{
+ const f=app({floors});f.welcome();const delays=[];
+ for(let i=0;i<5;i++){f.sockets.at(-1).close(1006);const timer=[...f.timers.values()].at(-1);delays.push(timer.delay);f.timers.clear();timer.callback();}
+ [1000,2000,4000,8000,10000].forEach((base,i)=>assert.ok(delays[i]>=base*.5&&delays[i]<=base*1.5,String(delays)));
+ assert.notDeepEqual(delays,[1000,2000,4000,8000,10000]);f.presence.close();  // 모두가 같은 순간에 다시 오지 않는다
+});
+test('a 4401 is checked against the session first: alive reconnects, expired goes to login, a repeat does not loop',async()=>{
+ const flush=()=>new Promise(resolve=>setImmediate(resolve));
+ let verified=0;const alive=app({floors,session:{verify:async()=>{verified++;return true;},expire(){},receive(){}}});alive.welcome();
+ alive.sockets[0].close(4401);await flush();assert.equal(alive.expired,0);assert.equal(alive.timers.size,1);
+ [...alive.timers.values()][0].callback();assert.equal(alive.sockets.length,2);
+ alive.sockets[1].close(4401);await flush();assert.equal(verified,1);assert.equal(alive.expired,1);  // 다시 붙기 전에 또 4401: 확인 없이 끝낸다
+ const gone=app({floors,session:{verify:async()=>false,expire(){},receive(){}}});gone.welcome();
+ gone.sockets[0].close(4401);await flush();assert.equal(gone.expired,1);assert.equal(gone.timers.size,0);
 });

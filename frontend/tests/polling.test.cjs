@@ -82,3 +82,16 @@ test('session status is not polled while connected, and a coming warning is chec
   render(); await flush();
   assert.equal(app.fetched.length, before + 2);  // 확인한 마감은 다시 묻지 않는다
 });
+
+test('session verify reports whether the login is still alive', async () => {
+  const now = Date.now(), hour = 3600e3;
+  const status = {authenticated: true, reason: null, serverNow: now, absoluteExpiresAt: now + hour, idleExpiresAt: now + hour, expiresAt: now + hour, warningSeconds: 60};
+  let reply = status;
+  const config = element({textContent: JSON.stringify({statusUrl: '/s/', activityUrl: '/a/', logoutUrl: '/o/', loginUrl: '/l/', csrfToken: 'x',
+    activityIntervalSeconds: 15, status})});
+  const app = load('session-policy.js', {elements: {campusSessionPolicyConfig: config}, body: () => reply});
+  await flush();
+  assert.equal(await app.window.CampusSession.verify(), true);
+  reply = {authenticated: false, reason: 'idle', serverNow: Date.now()};
+  assert.equal(await app.window.CampusSession.verify(), false);
+});

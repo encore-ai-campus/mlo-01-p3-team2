@@ -13,7 +13,7 @@
       let inputKeys = [], sequence = 0, poking = false, pokeContext = null;
       const pending = new Map();
       const allowedKeys = new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
-      let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastInput = '';
+      let retry = null, retryDelay = 1000, heartbeat = null, lastSent = -Infinity, lastInput = '', authChecked = false;
       let lastReceived = 0;
       const floorBounds = floors || {campus:{width,height}};
       const doorIds = new Set((floors?.campus?.objects||[]).filter(o=>(o.type==='glass-door'||(o.type==='sliding-door'&&o.interactiveDoor===true))).map(o=>o.id));
@@ -98,6 +98,10 @@
         if(player.floor!==floor||!Number.isFinite(player.targetX)||Math.hypot(player.x-p.x,player.y-p.y)>80){player.x=p.x;player.y=p.y;}
         Object.assign(player,{floor,targetX:p.x,targetY:p.y,dir:p.dir,moving:p.moving,inClassroom:p.inClassroom===true,receivedAt:performance.now()});
       }
+      function backoff() {
+        // 2배씩 늘리되(최대 10초) 사람마다 0.5~1.5배로 흩뜨린다: 여럿이 함께 끊겨도 한순간에 다시 몰리지 않게(계획 6d)
+        const delay = retryDelay * (0.5 + Math.random()); retryDelay = Math.min(retryDelay * 2, 10000); return delay;
+      }
       function reconnectNow() {
         if(closed)return;
         const previous=socket;socket=null;
@@ -129,7 +133,7 @@
             if(message.doors&&typeof message.doors==='object'&&!Array.isArray(message.doors))onDoors(Object.fromEntries(Object.entries(message.doors).filter(([id,open])=>doorIds.has(id)&&typeof open==='boolean')));
             if(validPeer(own)){onRestore(own);acceptSelf(own);}
             for (const p of message.players) upsert(p);
-            ready = true; retryDelay = 1000; lastSent = -Infinity; lastInput = '';
+            ready = true; retryDelay = 1000; lastSent = -Infinity; lastInput = ''; authChecked = false;
             updateRoster(); publish(performance.now());
             clearInterval(heartbeat);
             heartbeat = setInterval(() => {
@@ -195,6 +199,17 @@
             closed=true;setStatus('새 연결로 전환됨 · 이 창에서 계속하려면 새로고침하세요','disconnected');
             return;
           }
+          if (event.code === 4401 && window.CampusSession?.verify && !authChecked) {
+            // 로그인이 정말 끝났는지 세션 상태로 한 번 확인한다(계획 6c): 끝났으면 CampusSession 이 로그인 화면으로 보내고, 살아 있으면 다시 연결한다.
+            // 다시 붙기 전에 또 4401 이면 확인 없이 끝낸다(되풀이하지 않게)
+            authChecked = true; setStatus('로그인 상태를 확인하는 중…', 'connecting');
+            window.CampusSession.verify().then(alive => {
+              if (closed || current !== socket) return;
+              if (alive) retry = setTimeout(connect, backoff());
+              else {closed = true; setStatus('로그인이 필요해요', 'disconnected'); onAuthExpired();}
+            });
+            return;
+          }
           if (event.code === 4401) {
             closed = true; setStatus('로그인이 필요해요', 'disconnected');
             onAuthExpired();
@@ -202,7 +217,7 @@
             return;
           }
           setStatus('연결 끊김 · 다시 연결 중…', 'disconnected');
-          retry = setTimeout(connect, retryDelay); retryDelay = Math.min(retryDelay * 2, 10000);
+          retry = setTimeout(connect, backoff());
         };
         // onclose performs recovery; avoid a separate retry for the same failure.
         current.onerror = () => {};

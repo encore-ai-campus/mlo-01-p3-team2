@@ -122,7 +122,9 @@
   window.addEventListener('pageshow',event=>{if(event.persisted)requestStatus();});
   // 지도에서 소켓이 붙어 있으면 만료·교체를 소켓이 바로 알리므로 15초 조회는 끊겨 있을 때(다른 화면 포함)만 한다(계획 4g)
   const timer=setInterval(renderWarning,1000),poll=setInterval(()=>{if(!window.CampusApp?.presence?.connected)requestStatus();},15000);
-  window.CampusSession={receive,expire,get ending(){return ending;}};
+  // 로그인이 아직 살아 있는가(소켓이 4401 로 끊겼을 때 확인한다, 계획 6c). 끝났으면 receive 가 로그인 화면으로 보낸다. 연결 실패는 살아 있는 것으로 본다
+  async function verify(){await requestStatus();return !ending;}
+  window.CampusSession={receive,expire,verify,get ending(){return ending;}};
   receive(config.status);
   requestStatus();
 })();
