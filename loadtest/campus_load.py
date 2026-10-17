@@ -525,7 +525,7 @@ async def learning(user, errand):
         base = f"/api/learning/sessions/{session['session_id']}/questions/1/"
         status, question = await call(user, base, label="learning")
         await asyncio.sleep(user.rng.uniform(2, 4))  # 문제를 읽고 고른다
-        choices = (question or {}).get("choices") if errand["question"] == "multiple_choice" else None
+        choices = ((question or {}).get("question") or {}).get("choices") if errand["question"] == "multiple_choice" else None  # 응답은 {"question": {..., "choices"}}
         if errand["question"] == "multiple_choice" and not choices:  # 문제를 못 받았다(오류 응답)
             count(stats.action_errors, f"learning: 문제 {status}")
             return
