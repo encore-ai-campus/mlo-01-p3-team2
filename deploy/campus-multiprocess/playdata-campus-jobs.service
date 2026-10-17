@@ -9,12 +9,15 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/backend
+# 지금의 playdata-backend 와 같은 값(.env 가 있으면 .env 가 이긴다)
+Environment=PYTHONUNBUFFERED=1
+Environment=DJANGO_DEBUG=0
 EnvironmentFile=/home/ubuntu/backend/.env
 Environment=CAMPUS_REDIS_URL=redis://127.0.0.1:6379/0
 ExecStart=/home/ubuntu/backend/.venv/bin/python manage.py campus_jobs
 Restart=always
 RestartSec=5
-UMask=0077
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
