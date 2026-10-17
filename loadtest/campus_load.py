@@ -59,6 +59,7 @@ class User:
     def __init__(self, key, rng, watch):
         self.key, self.rng, self.watch = key, rng, watch
         self.proto, self.ready, self.keys = None, False, []
+        self.last_input_sent = -math.inf  # 마지막 input 을 보낸 때(브라우저 publish 의 lastSent)
         self.last_state = self.move_started = None
         self.peers = {}
         self.closed = None
@@ -155,6 +156,8 @@ class Client(WebSocketClientProtocol):
 def send(user, obj, kind):
     if user.proto is not None and user.ready:
         user.proto.sendMessage(json.dumps(obj).encode())
+        if kind == "input":
+            user.last_input_sent = time.monotonic()
         if measuring:
             stats.sent[kind] += 1
 
@@ -175,14 +178,15 @@ async def heartbeat(user):
         send(user, {"type": "ping"}, "ping")
 
 
-async def input_loop(user, client):
+async def input_loop(user, client, hold):
+    """presence.js publish 처럼: 마지막 input(키를 바꿀 때 바로 보낸 것 포함)에서 hold 초가 지나면 다시 보낸다."""
     if client == "current":
         while True:
             await asyncio.sleep(0.1)
             send(user, {"type": "input", "keys": user.keys}, "input")
     while True:
-        await asyncio.sleep(0.1)
-        if user.keys or user.poking:  # 누르고 있는 동안만(presence.js tick)
+        await asyncio.sleep(max(.016, user.last_input_sent + hold - time.monotonic()))
+        if (user.keys or user.poking) and time.monotonic() - user.last_input_sent >= hold:  # 누르고 있는 동안만(presence.js tick)
             send(user, {"type": "input", "keys": user.keys, **({"poking": True} if user.poking else {})}, "input")
 
 
@@ -275,7 +279,7 @@ async def run_user(user, delay, args):
         tasks = []
         if user.ready:
             retry = 1.0
-            tasks = [asyncio.create_task(heartbeat(user)), asyncio.create_task(input_loop(user, args.client)),
+            tasks = [asyncio.create_task(heartbeat(user)), asyncio.create_task(input_loop(user, args.client, args.hold_ms / 1000)),
                      asyncio.create_task(real_user(user) if args.behavior == "real" else behave(user, args.moving))]
         code = await user.closed
         for task in tasks:
@@ -766,6 +770,7 @@ def main():
     parser.add_argument("--moving", type=float, default=0.2)
     parser.add_argument("--client", choices=("current", "new"), default="current")
     parser.add_argument("--behavior", choices=("walk", "real"), default="walk", help="real = 실사용 모방(사람마다 초당 행동 10건)")
+    parser.add_argument("--hold-ms", type=int, default=100, help="누르고 있는 키의 갱신 간격(presence.js publish 의 100ms. 0.2초 실험은 되돌렸다)")
     parser.add_argument("--mix", default="", help="원인 나누기: jump=0,poke=0,chat=0,panel=0 처럼 몫(점프·찌르기)·간격(채팅·패널, 0 이면 끔)을 바꾼다")
     parser.add_argument("--ramp", type=float, default=10)
     parser.add_argument("--warmup", type=float, default=20)
@@ -808,7 +813,7 @@ def main():
                 setattr(total, name, current + value if not isinstance(value, Counter) else current + Counter(value))
     seconds = args.measure
     print(json.dumps({
-        "users": args.users, "moving": args.moving, "client": args.client, "behavior": args.behavior, "mix": args.mix, "welcomed": total.welcomed,
+        "users": args.users, "moving": args.moving, "client": args.client, "behavior": args.behavior, "mix": args.mix, "hold_ms": args.hold_ms, "welcomed": total.welcomed,
         "actions_per_user_s": round(sum(total.actions.values()) / seconds / args.users, 2),
         "actions_per_s": {k: round(v / seconds, 1) for k, v in sorted(total.actions.items())},
         "action_errors": dict(total.action_errors.most_common()),

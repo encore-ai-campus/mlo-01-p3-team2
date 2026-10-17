@@ -77,6 +77,7 @@ def main():
     parser.add_argument("--client", choices=("current", "new"), default="new", help="new = 지금 브라우저(1c: 키가 있을 때만 input). current = 1c 이전")
     parser.add_argument("--behavior", choices=("walk", "real"), default="walk", help="real = 실사용 모방(사람마다 초당 행동 10건, campus_load.py)")
     parser.add_argument("--mix", default="", help="실사용 모방의 원인 나누기(campus_load.py --mix)")
+    parser.add_argument("--hold-ms", type=int, default=100, help="누르고 있는 키의 갱신 간격(presence.js publish 의 100ms. 0.2초 실험은 되돌렸다)")
     parser.add_argument("--polls", type=float, default=15)
     parser.add_argument("--ramp", type=float, default=30)
     parser.add_argument("--warmup", type=float, default=20)
@@ -127,7 +128,7 @@ def main():
 
     generator = subprocess.Popen(
         [*COMPOSE, "run", "--rm", "--no-deps", "-T", "load", "python", "campus_load.py", "--users", str(args.users), "--moving", str(args.moving),
-         "--client", args.client, "--behavior", args.behavior, "--mix", args.mix, "--polls", str(args.polls), "--ramp", str(args.ramp), "--warmup", str(args.warmup), "--measure", str(args.measure)],
+         "--client", args.client, "--behavior", args.behavior, "--mix", args.mix, "--hold-ms", str(args.hold_ms), "--polls", str(args.polls), "--ramp", str(args.ramp), "--warmup", str(args.warmup), "--measure", str(args.measure)],
         stdout=subprocess.PIPE, text=True, env=env,
     )
     marks, summary = {}, None
