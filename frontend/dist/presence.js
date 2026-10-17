@@ -164,6 +164,10 @@
             // 0.1초마다 묶여 오는 위치. 이미 아는 사람만 갱신한다(떠난 사람이 늦게 온 묶음으로 되살아나지 않게, 새 사람은 join 으로 온다)
             let renamed=false;for(const p of message.players)if(p&&peers.has(p.id))renamed=upsert(p)||renamed;
             if(renamed)updateRoster();
+            // 같은 묶음에 실려 오는 점프·찌르기(서버가 소켓마다 초당 10프레임으로 줄였다)
+            if(Array.isArray(message.effects))for(const effect of message.effects){
+              if(effect?.type==='jump')onJump(effect);else if(['poke','poke_state','poke_hit'].includes(effect?.type))onPoke(effect);
+            }
           } else if (ready && message.type === 'leave') {
             if (peers.delete(message.id)) updateRoster();
           } else if (ready && message.type === 'chat') {

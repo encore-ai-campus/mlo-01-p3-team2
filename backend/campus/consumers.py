@@ -39,6 +39,7 @@ class CampusRoom:
         self.lock = asyncio.Lock()
         self.sockets = {}  # player_id → 소켓(묶음을 채널 계층 없이 바로 쓴다)
         self.pending_moves = {}  # 다음 묶음에 실을 최신 상태(사람마다 하나)
+        self.pending_effects = {}  # player_id → 다음 묶음에 실을 꾸밈 효과(JSON 글)들(계획 §8)
         self.flusher = None
         self.cluster = cluster.Cluster()  # 다른 프로세스의 사람(Redis 를 쓸 때만, 계획 M3)
 
@@ -53,6 +54,7 @@ async def flush_moves(campus):
     """0.1초마다 바뀐 사람들의 위치를 한 메시지(`moves`)로 모두에게 보낸다(계획 1d).
 
     받는 쪽 메시지 수가 '걷는 사람 수'에서 1 로 준다. 직렬화는 한 번이고 채널 계층(복사·전체 훑기)을 거치지 않는다.
+    그 사람에게 갈 꾸밈 효과(점프·찌르기)도 같은 메시지의 `effects` 에 싣는다(계획 §8): 소켓마다 초당 10프레임을 넘지 않는다.
     브라우저는 이미 아는 사람만 갱신하므로, 떠난 뒤 늦게 도착한 묶음이 그 사람을 되살리지 않는다.
     여러 프로세스면(계획 M3) 이 프로세스 사람의 변경만 다른 프로세스에 알리고, 받은 것은 다음 자기 묶음에 합친다.
     """
@@ -67,12 +69,16 @@ async def flush_moves(campus):
                 await campus.cluster.save_positions(session_registry.drain_dirty())
             players = local + list(campus.cluster.remote_moves.values())
             campus.cluster.remote_moves.clear()
-            if not players:
+            effects, campus.pending_effects = campus.pending_effects, {}
+            if not players and not effects:
                 continue
-            text = json.dumps({"type": "moves", "players": players}, ensure_ascii=False, allow_nan=False)
-            for socket in list(campus.sockets.values()):
+            head = '{"type": "moves", "players": ' + json.dumps(players, ensure_ascii=False, allow_nan=False)
+            for player_id, socket in list(campus.sockets.items()):
+                mine = effects.get(player_id)
+                if not players and not mine:
+                    continue
                 try:
-                    await socket.send(text_data=text)
+                    await socket.send(text_data=head + (', "effects": [' + ", ".join(mine) + "]}" if mine else "}"))
                 except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 묶음을 막지 않는다
                     logging.getLogger(__name__).debug("Could not send a moves batch", exc_info=True)
     finally:
@@ -103,19 +109,25 @@ def nearby(state, floor, x, y, reach):
             and math.hypot(state["x"] - x, state["y"] - y) <= reach)
 
 
+BATCHED_EFFECTS = {"jump", "poke", "poke_state", "poke_hit"}  # 다음 0.1초 묶음에 싣는다. 채팅은 바로(묶음을 모르는 옛 탭도 받게)
+
+
 async def deliver_effect(campus, payload, to=None, near=None):
     """이 프로세스의 소켓에만 보낸다. to = 받는 player_id 들, near = (층, x, y, 거리), 둘 다 없으면 모두."""
     if to is not None:
-        targets = [campus.sockets[player_id] for player_id in to if player_id in campus.sockets]
+        targets = [player_id for player_id in to if player_id in campus.sockets]
     elif near is not None:
-        targets = [socket for player_id, socket in list(campus.sockets.items())
-                   if player_id in campus.players and nearby(campus.players[player_id], *near)]
+        targets = [player_id for player_id in list(campus.sockets) if player_id in campus.players and nearby(campus.players[player_id], *near)]
     else:
-        targets = list(campus.sockets.values())
+        targets = list(campus.sockets)
     if not targets:
         return
     text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
-    for socket in targets:
+    if payload["type"] in BATCHED_EFFECTS:
+        for player_id in targets:
+            campus.pending_effects.setdefault(player_id, []).append(text)
+        return
+    for socket in [campus.sockets[player_id] for player_id in targets if player_id in campus.sockets]:
         try:
             await socket.send(text_data=text)
         except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 효과를 막지 않는다
@@ -921,6 +933,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             room.channels.pop(self.player_id, None)
             room.sockets.pop(self.player_id, None)
             room.pending_moves.pop(self.player_id, None)
+            room.pending_effects.pop(self.player_id, None)
             room.controllers.pop(self.player_id, None)
             session_key = getattr(self, "session_key", None)
             if room.sessions.get(session_key) == self.player_id:

@@ -92,8 +92,9 @@ async def expect(ws, predicate, timeout=4.0, what=""):
         if remaining <= 0:
             raise TimeoutError(what)
         message = json.loads(await asyncio.wait_for(ws.recv(), remaining))
-        if predicate(message):
-            return message
+        for candidate in [message, *message.get("effects", ())] if message.get("type") == "moves" else [message]:  # 점프·찌르기는 0.1초 묶음에
+            if predicate(candidate):
+                return candidate
 
 
 async def attempt(name, coroutine, detail=""):

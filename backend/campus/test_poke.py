@@ -184,6 +184,8 @@ class PokeSocketTests(TransactionTestCase):
             while not wanted <= result.keys():
                 packet = await socket.receive_json_from(timeout=2)
                 result[packet["type"]] = packet
+                for effect in packet.get("effects", ()) if packet["type"] == "moves" else ():  # 점프·찌르기는 0.1초 묶음에 실려 온다
+                    result[effect["type"]] = effect
         await asyncio.wait_for(collect(), timeout=3)
         return result
 

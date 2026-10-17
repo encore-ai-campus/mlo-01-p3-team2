@@ -92,7 +92,8 @@ class EffectTests(SimpleTestCase):
             await consumers.share_effect(room, {"type": "poke_state"}, to={"me", "there"})
             await consumers.share_effect(room, {"type": "poke_state"}, to={"peer"})  # 모두 이 프로세스에 있다
             await consumers.share_effect(room, {"type": "chat"})
-        self.assertEqual((room.sockets["me"].send.await_count, room.sockets["peer"].send.await_count), (2, 2))
+        self.assertEqual((len(room.pending_effects["me"]), len(room.pending_effects["peer"])), (1, 1))  # 찌르기는 묶음에
+        self.assertEqual((room.sockets["me"].send.await_count, room.sockets["peer"].send.await_count), (1, 1))  # 채팅은 바로
         self.assertEqual([effect["to"] for effect in room.cluster.effects], [["there"], None])
 
     async def test_effects_from_other_processes_reach_only_their_recipients(self):
@@ -102,6 +103,5 @@ class EffectTests(SimpleTestCase):
         room.cluster.effects_in = [{"payload": {"type": "jump"}, "to": None, "near": ["campus", 0, 0, 100]},
                                    {"payload": {"type": "poke_hit"}, "to": ["roof", "elsewhere"], "near": None}]
         await consumers.send_to_sockets(room, [])
-        self.assertEqual([call.kwargs["text_data"] for call in room.sockets["me"].send.await_args_list], ['{"type": "jump"}'])
-        self.assertEqual([call.kwargs["text_data"] for call in room.sockets["roof"].send.await_args_list], ['{"type": "poke_hit"}'])
+        self.assertEqual(room.pending_effects, {"me": ['{"type": "jump"}'], "roof": ['{"type": "poke_hit"}']})
         self.assertEqual(room.cluster.effects_in, [])

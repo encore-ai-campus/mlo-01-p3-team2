@@ -87,7 +87,7 @@ class JumpControlTests(SimpleTestCase):
                         'class':{'floor':'campus','x':140,'y':100,'inClassroom':True}}
         room.sockets = {key:AsyncMock() for key in room.players}
         await consumers.deliver_effect(room, packet, near=(floor, x, y, reach))
-        self.assertEqual({key for key, socket in room.sockets.items() if socket.send.await_count}, {'self','near'})
+        self.assertEqual(set(room.pending_effects), {'self','near'})  # 다음 0.1초 묶음에 실린다
 
 
 @override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='')

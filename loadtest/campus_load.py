@@ -38,6 +38,7 @@ ACTIVITY = "/accounts/session/activity/"
 CSRF = "a" * 32  # 부하 시험용 CSRF 비밀(쿠키와 헤더에 같은 값)
 MOVE_PREFIX = b'{"type": "move"'  # move 와 moves(0.1초 묶음) 둘 다
 MOVES_PREFIX = b'{"type": "moves"'
+EFFECTS = b', "effects": ['  # 0.1초 묶음에 실린 점프·찌르기(계획 §8)
 
 
 class Stats:
@@ -81,11 +82,16 @@ class Client(WebSocketClientProtocol):
         if payload.startswith(MOVE_PREFIX) and not user.watch:
             if measuring:
                 stats.recv["moves" if payload.startswith(MOVES_PREFIX) else "move"] += 1
+                if EFFECTS in payload:
+                    for effect in json.loads(payload)["effects"]:
+                        stats.recv[effect["type"]] += 1
             return
         message = json.loads(payload)
         kind = message.get("type")
         if measuring:
             stats.recv[kind] += 1
+            for effect in message.get("effects", ()) if kind == "moves" else ():
+                stats.recv[effect["type"]] += 1
         if kind == "welcome":
             user.ready = True
             user.player_id = message["selfId"]

@@ -46,7 +46,7 @@ class ContinuousPokeTests(SimpleTestCase):
                              "far": {"id": "far", "floor": "campus", "x": 900, "y": 100},
                              "roof": {"id": "roof", "floor": "rooftop", "x": 130, "y": 100}}
         self.room.channels = {key: "channel." + key for key in self.room.players}
-        self.room.sockets = {key: SimpleNamespace(send=AsyncMock()) for key in self.room.players}  # 찌르기는 소켓에 바로(계획 M8)
+        self.room.sockets = {key: SimpleNamespace(send=AsyncMock()) for key in self.room.players}
         self.room_patch = patch.object(consumers, "room", self.room)
         self.room_patch.start()
         self.addCleanup(self.room_patch.stop)
@@ -55,7 +55,8 @@ class ContinuousPokeTests(SimpleTestCase):
         self.addCleanup(self.time_patch.stop)
 
     def packets(self, recipient="self"):
-        return [json.loads(call.kwargs["text_data"]) for call in self.room.sockets[recipient].send.await_args_list]
+        # 찌르기는 받는 사람의 다음 0.1초 묶음에 실린다(계획 §8)
+        return [json.loads(text) for text in self.room.pending_effects.get(recipient, [])]
 
     async def tick(self, seconds, *, refresh=True):
         self.clock[0] = seconds
@@ -155,13 +156,18 @@ class ContinuousPokeTests(SimpleTestCase):
         self.assertFalse(self.consumer.poke_requested)
         self.assertIsNone(self.consumer.poke_started)
 
-    async def test_a_broken_recipient_socket_does_not_stop_the_others(self):
-        self.room.sockets['near'].send.side_effect = RuntimeError('closing')
+    async def test_effects_ride_each_recipients_batch_and_a_broken_socket_does_not_stop_the_others(self):
         await self.tick(0)
-        self.assertTrue(self.packets('self')[0]['active'])
-        self.consumer.poke_requested = False
-        await self.tick(.1)
-        self.assertFalse(self.packets('self')[-1]['active'])
+        self.room.sockets['near'].send.side_effect = RuntimeError('closing')
+        self.room.flusher = None
+        with patch.object(consumers.asyncio, 'sleep', AsyncMock(side_effect=[None, asyncio.CancelledError])):
+            with self.assertRaises(asyncio.CancelledError):
+                await consumers.flush_moves(self.room)
+        sent = json.loads(self.room.sockets['self'].send.await_args.kwargs['text_data'])
+        self.assertEqual((sent['type'], sent['players']), ('moves', []))
+        self.assertEqual([row['type'] for row in sent['effects']], ['poke_state', 'poke_hit'])
+        self.room.sockets['far'].send.assert_not_awaited()  # 실을 것이 없는 사람에게는 보내지 않는다
+        self.assertEqual(self.room.pending_effects, {})
 
 
 @override_settings(ALLOWED_HOSTS=['127.0.0.1', 'testserver'], KAFKA_BOOTSTRAP_SERVERS='')

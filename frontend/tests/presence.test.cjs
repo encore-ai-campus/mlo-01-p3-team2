@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 function app({authenticated = true, secure = false, floors, restore = false, session} = {}) {
   const elements = new Map(), sockets = [], timers = new Map(), intervals = new Map(), listeners = new Map();
   let clock = 0, nextTimer = 0, redirected = null, expired = 0;
-  const chats = [], chatErrors = [], connectionChanges = [], restores = [], controlErrors = [];
+  const chats = [], chatErrors = [], connectionChanges = [], restores = [], controlErrors = [], jumps = [], pokes = [];
   const events = [];
   function element(id) {
     if (id === 'campusPresenceConfig' && !authenticated) return null;
@@ -41,13 +41,13 @@ function app({authenticated = true, secure = false, floors, restore = false, ses
   const presence = context.window.CampusPresence.create({player, width: 1632, height: 820, floors, onAuthExpired() {expired++;},
     onRestore(position) {restores.push(position);if(restore)Object.assign(player,position);},
     onChat(message) {chats.push(message);}, onChatError(message) {chatErrors.push(message);}, onConnectionChange(value) {connectionChanges.push(value);},
-    onControlError(message) {controlErrors.push(message);}});
+    onControlError(message) {controlErrors.push(message);}, onJump(message) {jumps.push(message);}, onPoke(message) {pokes.push(message);}});
   const peer = (changes = {}) => ({id: 'peer', nickname: '조원 이름', avatar: 'female-2', x: 1200, y: 437,
     dir: 'down', color: '#4e9b91', moving: false, ...changes});
   function welcome(socket = sockets.at(-1)) {
     socket.receive({type: 'welcome', selfId: 'self', players: [peer({id: 'self', nickname: '내 이름'}), peer()]});
   }
-  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, controlErrors,
+  return {presence, player, sockets, timers, intervals, listeners, element, peer, welcome, events, chats, chatErrors, connectionChanges, restores, controlErrors, jumps, pokes,
     tick(t, dt = .016) {clock = t; presence.tick(t, dt);},
     get redirected() {return redirected;}, get expired() {return expired;}};
 }
@@ -127,4 +127,17 @@ test('a 4401 is checked against the session first: alive reconnects, expired goe
  alive.sockets[1].close(4401);await flush();assert.equal(verified,1);assert.equal(alive.expired,1);  // 다시 붙기 전에 또 4401: 확인 없이 끝낸다
  const gone=app({floors,session:{verify:async()=>false,expire(){},receive(){}}});gone.welcome();
  gone.sockets[0].close(4401);await flush();assert.equal(gone.expired,1);assert.equal(gone.timers.size,0);
+});
+
+test('jumps and pokes riding the 0.1s moves batch reach the same handlers as single messages',()=>{
+ const f=app();f.welcome();const socket=f.sockets[0];
+ socket.receive({type:'moves',players:[f.peer({x:1210,moving:true})],effects:[
+  {type:'jump',id:'j1',actorId:'peer',floor:'campus',context:'world'},{type:'poke_state',id:'p1',actorId:'peer',active:true},{type:'chat'},null]});
+ assert.deepEqual(plain(f.jumps).map(row=>row.id),['j1']);
+ assert.deepEqual(plain(f.pokes).map(row=>row.id),['p1']);
+ assert.equal(f.presence.peers.get('peer').targetX,1210);
+ socket.receive({type:'jump',id:'j2',actorId:'peer',floor:'campus',context:'world'});  // 따로 오는 것도 그대로 받는다
+ socket.receive({type:'moves',players:[]});
+ assert.deepEqual(plain(f.jumps).map(row=>row.id),['j1','j2']);
+ f.presence.close();
 });
