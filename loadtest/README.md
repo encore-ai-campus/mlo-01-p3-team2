@@ -54,11 +54,14 @@ python loadtest/run.py --label base-u100 --out /tmp/campus-load --users 100
 python loadtest/run.py --label pubsub-u100 --out <폴더> --users 100 --redis          # 한 프로세스 + Redis 채널 계층
 python loadtest/run.py --label b4-u100 --out <폴더> --users 100 --moving 1.0 --backends 4               # daphne 4개 + 작업 하나 + nginx + Redis
 python loadtest/run.py --label relay-b4 --out <폴더> --users 100 --moving 1.0 --backends 4 --via-frontend  # 프론트 중계(운영 코어 하나)를 거쳐
+python loadtest/run.py --label edge-relay --out <폴더> --users 100 --moving 1.0 --backends 4 --edge relay   # 운영 front-a 그대로: edge nginx → 프론트 중계
+python loadtest/run.py --label edge-direct --out <폴더> --users 100 --moving 1.0 --backends 4 --edge direct # WebSocket 만 edge 에서 백엔드 nginx 로 바로
 docker compose -f loadtest/compose.yaml --profile check run --rm cluster-check       # 두 프로세스 사이 기능 12가지 확인
 ```
 
 - `--backends N`: 소켓 프로세스를 컨테이너 하나에 하나씩(각각 운영 코어 하나) 띄운다. 앞에서 nginx 가 세션 쿠키로 고정 배정한다(`nginx-backend.conf`, 운영 `deploy/campus-multiprocess` 와 같은 규칙).
-- 결과 JSON 의 `backends_prod_core_pct`(프로세스별)·`busiest_prod_core_pct`(가장 바쁜 프로세스 — 지연을 정한다)·`backends_total_prod_cores`·`connections_per_backend`·`redis_*`·`nginx_prod_core_pct`·`frontend_prod_core_pct`.
+- `--edge`: 운영 front-a 의 edge nginx(`nginx-edge.conf.template`, TLS 없이)를 앞에 둔다. HTTP 는 두 경우 모두 프론트를 지나고 `/ws/campus/` 만 갈린다.
+- 결과 JSON 의 `backends_prod_core_pct`(프로세스별)·`busiest_prod_core_pct`(가장 바쁜 프로세스 — 지연을 정한다)·`backends_total_prod_cores`·`connections_per_backend`·`redis_*`·`nginx_prod_core_pct`·`frontend_prod_core_pct`·`edge_prod_core_pct`.
 - 지금까지의 결과: `results/`.
 - 주의: 개발 서버를 띄운 채 손으로 `docker compose --profile load run load …` 를 하면 mysql·backend 가 다시 만들어져 DB 가 비워질 수 있다. 손으로 생성기를 돌릴 때는 `run --no-deps` 를 쓴다(run.py 는 그렇게 한다).
 

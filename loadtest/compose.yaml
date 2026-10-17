@@ -115,6 +115,16 @@ services:
     volumes:
       - ./nginx-backend.conf:/etc/nginx/conf.d/default.conf:ro
 
+  # 운영 front-a 의 edge nginx(TLS 없이). run.py --edge relay|direct 가 띄운다: WebSocket 을 프론트 중계로 보낼지 game-server nginx 로 바로 보낼지
+  edge:
+    image: nginx:1.24.0
+    profiles: [edge]
+    volumes:
+      - ./nginx-edge.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      EDGE_WS_UPSTREAM: ${EDGE_WS_UPSTREAM:-edge_frontends}
+      NGINX_ENVSUBST_FILTER: ^EDGE_
+
   # 두 프로세스 확인(계획 M4): 소켓 프로세스 둘과 작업 하나를 이 안에 띄워 프로세스 사이 기능을 확인한다
   cluster-check:
     <<: *image
