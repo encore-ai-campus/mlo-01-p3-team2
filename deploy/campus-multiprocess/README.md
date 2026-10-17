@@ -33,6 +33,7 @@ sudo systemctl daemon-reload
 ## 2. 새 코드 (먼저 지금 방식 그대로)
 
 `playdata-backend`(run-campus.py) 로 새 코드를 **Redis 주소 없이** 올린다. 코드는 지금과 똑같이 한 프로세스로 돈다(메모리 채널 계층).
+프론트도 같이 올린다: 점프·찌르기가 0.1초 위치 묶음에 실려 오므로(`presence.js`) 옛 탭은 새로고침해야 그것을 본다(채팅·이동은 옛 탭도 받는다).
 여기서 문제가 없는지 본 뒤 다음으로 넘어간다. `migrate` 는 할 일이 없다(새 마이그레이션 없음).
 
 ## 3. 여러 프로세스로 바꾸기
@@ -47,7 +48,8 @@ sudo nginx -t && sudo systemctl reload nginx
 확인:
 - `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/` 가 응답한다(로그인 화면 302 등).
 - `journalctl -u 'playdata-backend@*' -f` 에 오류가 없다. `redis-cli client list | wc -l` 이 프로세스 수만큼 늘어난다.
-- 브라우저 둘로 접속해 서로 보이고 움직임·채팅이 오간다(같은 프로세스에 붙었는지는 상관없다).
+- 브라우저 둘로 접속해 서로 보이고 움직임·채팅·점프가 오간다(같은 프로세스에 붙었는지는 상관없다).
+- 웹소켓이 고르게 붙는다(`least_conn`): `for p in 9101 9102 9103 9104; do ss -Htn state established "( sport = :$p )" | wc -l; done` 가 비슷하다. HTTP 는 세션 고정(쿠키 해시) 그대로다.
 - 작업 서비스 하나만 outbox 를 보낸다: `ps -eo args | grep -c '[c]ampus_jobs'` 가 1.
 
 ## 4. 되돌리기
