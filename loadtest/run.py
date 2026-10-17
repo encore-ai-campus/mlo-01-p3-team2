@@ -75,6 +75,8 @@ def main():
     parser.add_argument("--users", type=int, default=100)
     parser.add_argument("--moving", type=float, default=0.2)
     parser.add_argument("--client", choices=("current", "new"), default="new", help="new = 지금 브라우저(1c: 키가 있을 때만 input). current = 1c 이전")
+    parser.add_argument("--behavior", choices=("walk", "real"), default="walk", help="real = 실사용 모방(사람마다 초당 행동 10건, campus_load.py)")
+    parser.add_argument("--mix", default="", help="실사용 모방의 원인 나누기(campus_load.py --mix)")
     parser.add_argument("--polls", type=float, default=15)
     parser.add_argument("--ramp", type=float, default=30)
     parser.add_argument("--warmup", type=float, default=20)
@@ -125,7 +127,7 @@ def main():
 
     generator = subprocess.Popen(
         [*COMPOSE, "run", "--rm", "--no-deps", "-T", "load", "python", "campus_load.py", "--users", str(args.users), "--moving", str(args.moving),
-         "--client", args.client, "--polls", str(args.polls), "--ramp", str(args.ramp), "--warmup", str(args.warmup), "--measure", str(args.measure)],
+         "--client", args.client, "--behavior", args.behavior, "--mix", args.mix, "--polls", str(args.polls), "--ramp", str(args.ramp), "--warmup", str(args.warmup), "--measure", str(args.measure)],
         stdout=subprocess.PIPE, text=True, env=env,
     )
     marks, summary = {}, None
@@ -166,7 +168,7 @@ def main():
     server["log"] = {name: logs.count(text) for name, text in
                      (("traceback", "Traceback"), ("channel_full", "ChannelFull"), ("db_error", "OperationalError"))}
     result = {"label": args.label, "quota": args.quota, "delay_us": args.delay_us, "settings": args.settings, "redis": args.redis, "backends": args.backends,
-              "via_frontend": args.via_frontend, "edge": args.edge,
+              "via_frontend": args.via_frontend, "edge": args.edge, "behavior": args.behavior,
               "server": server, "client": summary}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

@@ -59,6 +59,17 @@ python loadtest/run.py --label edge-direct --out <폴더> --users 100 --moving 1
 docker compose -f loadtest/compose.yaml --profile check run --rm cluster-check       # 두 프로세스 사이 기능 12가지 확인
 ```
 
+실사용 모방(계획 M8, 사람마다 초당 행동 10건 — 걷기·점프·찌르기·채팅·계단·교실 학습·부스·패널 HTTP):
+
+```bash
+python loadtest/run.py --label real-b4-u100 --out <폴더> --users 100 --backends 4 --edge direct --behavior real
+python loadtest/run.py --label real-moveonly --out <폴더> --users 100 --backends 4 --edge direct --behavior real --mix jump=0,poke=0,chat=0,panel=0  # 원인 나누기
+```
+
+- 결과 JSON 의 `actions_per_user_s`·`actions_per_s`(행동별)·`action_errors`(서버가 거절한 것)·`action_ms`(조작 응답·내 채팅이 돌아오기·패널)·`errands`(층 이동·교실·학습·부스 완료, 벽에 걸림).
+- 생성기가 서버와 같은 지도로 길을 찾으려고 `load` 컨테이너에 `../backend` 를 읽기 전용으로 붙인다. 교실 학습용 예제 문제은행은 `seed.py` 가 넣는다.
+- 원인을 볼 때(py-spy): 백엔드 컨테이너 옆에 같은 PID 공간의 컨테이너를 띄워 `requirements-diag.txt` 를 깔고 잰다. 백엔드 안에서 재면 CPU 제한에 같이 묶여 표본이 거의 안 모인다.
+
 - `--backends N`: 소켓 프로세스를 컨테이너 하나에 하나씩(각각 운영 코어 하나) 띄운다. 앞에서 nginx 가 세션 쿠키로 고정 배정한다(`nginx-backend.conf`, 운영 `deploy/campus-multiprocess` 와 같은 규칙).
 - `--edge`: 운영 front-a 의 edge nginx(`nginx-edge.conf.template`, TLS 없이)를 앞에 둔다. HTTP 는 두 경우 모두 프론트를 지나고 `/ws/campus/` 만 갈린다.
 - 결과 JSON 의 `backends_prod_core_pct`(프로세스별)·`busiest_prod_core_pct`(가장 바쁜 프로세스 — 지연을 정한다)·`backends_total_prod_cores`·`connections_per_backend`·`redis_*`·`nginx_prod_core_pct`·`frontend_prod_core_pct`·`edge_prod_core_pct`.

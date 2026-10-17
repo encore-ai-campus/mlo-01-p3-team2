@@ -19,6 +19,9 @@ from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_K
 from accounts.avatars import DEFAULT_AVATAR  # noqa: E402
 from accounts.models import Profile  # noqa: E402
 from accounts.session_policy import start_login  # noqa: E402
+from django.core.management import call_command  # noqa: E402
+
+call_command("seed_learning_questions", verbosity=0)  # 실사용 모방의 교실 학습(예제 문제은행, 이미 있으면 그대로)
 
 count = int(sys.argv[1]) if len(sys.argv) > 1 else 100
 store = import_module(settings.SESSION_ENGINE).SessionStore

@@ -1,0 +1,268 @@
+{
+ "label": "real-b4-u100",
+ "quota": 5000,
+ "delay_us": 250,
+ "settings": "config.settings",
+ "redis": true,
+ "backends": 4,
+ "via_frontend": true,
+ "edge": "direct",
+ "behavior": "real",
+ "server": {
+  "prod_core_pct": 84.6,
+  "throttled_period_pct": 48.7,
+  "db_per_s": {
+   "Questions": 511.3,
+   "Com_select": 311.2,
+   "Com_insert": 19.1,
+   "Com_update": 32.6,
+   "Com_delete": 0.0,
+   "Connections": 18.6
+  },
+  "db_threads_connected_end": 6,
+  "db_max_used_connections": 14,
+  "redis_prod_core_pct": 34.0,
+  "redis_commands_per_s": 5827.0,
+  "backends_prod_core_pct": [
+   85.0,
+   88.8,
+   89.2,
+   89.4
+  ],
+  "busiest_prod_core_pct": 89.4,
+  "backends_total_prod_cores": 3.52,
+  "jobs_prod_core_pct": 0.2,
+  "nginx_prod_core_pct": 17.5,
+  "connections_per_backend": [
+   19,
+   27,
+   28,
+   28
+  ],
+  "frontend_prod_core_pct": 11.6,
+  "frontend_throttled_period_pct": 0.5,
+  "edge_prod_core_pct": 18.8,
+  "log": {
+   "traceback": 0,
+   "channel_full": 0,
+   "db_error": 0
+  }
+ },
+ "client": {
+  "users": 100,
+  "moving": 0.2,
+  "client": "new",
+  "behavior": "real",
+  "welcomed": 100,
+  "actions_per_user_s": 9.59,
+  "actions_per_s": {
+   "chat": 8.1,
+   "interact": 0.0,
+   "jump": 52.4,
+   "learning": 0.0,
+   "move": 748.6,
+   "panel": 7.1,
+   "poke": 142.2,
+   "transfer": 0.1
+  },
+  "action_errors": {
+   "jump: 응답 없음(10초)": 3091,
+   "jump: 현재 공간에서 다시 점프해 주세요.": 145,
+   "jump: 착지한 뒤 다시 점프해 주세요.": 26,
+   "begin_transfer: 응답 없음(10초)": 9,
+   "cancel_transfer: 응답 없음(10초)": 9,
+   "chat_error: 잠시 후 다시 보내 주세요.": 8,
+   "interact: 응답 없음(10초)": 3
+  },
+  "action_ms": {
+   "chat": {
+    "n": 7,
+    "p50": 6354.0,
+    "p95": 54467.5,
+    "p99": 54467.5,
+    "max": 54467.5
+   },
+   "jump": {
+    "n": 492,
+    "p50": 44133.3,
+    "p95": 70627.6,
+    "p99": 79177.5,
+    "max": 82245.3
+   },
+   "panel:community": {
+    "n": 81,
+    "p50": 158.7,
+    "p95": 248.6,
+    "p99": 273.6,
+    "max": 273.6
+   },
+   "panel:dm_send": {
+    "n": 40,
+    "p50": 179.6,
+    "p95": 285.0,
+    "p99": 353.0,
+    "max": 353.0
+   },
+   "panel:lunch": {
+    "n": 51,
+    "p50": 77.2,
+    "p95": 195.2,
+    "p99": 249.2,
+    "max": 249.2
+   },
+   "panel:menu": {
+    "n": 83,
+    "p50": 67.8,
+    "p95": 146.3,
+    "p99": 181.7,
+    "max": 181.7
+   },
+   "panel:messages": {
+    "n": 82,
+    "p50": 160.9,
+    "p95": 273.1,
+    "p99": 330.4,
+    "max": 330.4
+   },
+   "panel:wallet": {
+    "n": 86,
+    "p50": 152.7,
+    "p95": 254.3,
+    "p99": 331.9,
+    "max": 331.9
+   }
+  },
+  "errands": {
+   "classroom_enter": 1,
+   "learning": 1,
+   "stuck": 3730,
+   "timeout:portal": 33
+  },
+  "recv_per_s": {
+   "chat": 14.4,
+   "chat_error": 0.1,
+   "control_event": 0.1,
+   "control_result": 8.2,
+   "control_state": 83.5,
+   "jump": 35.0,
+   "moves": 927.2,
+   "poke_hit": 23.0,
+   "poke_state": 143.7,
+   "pong": 3.2,
+   "private_message": 0.1
+  },
+  "recv_total_per_s": 1238.5,
+  "sent_per_s": {
+   "chat": 8.1,
+   "control": 52.7,
+   "input": 1841.5,
+   "ping": 20.0
+  },
+  "own_state_gap_ms": {
+   "n": 148,
+   "p50": 33.8,
+   "p95": 49.3,
+   "p99": 67.4,
+   "max": 113.3
+  },
+  "input_to_moving_ms": {
+   "n": 4363,
+   "p50": 63.6,
+   "p95": 197.1,
+   "p99": 272.4,
+   "max": 493.6
+  },
+  "peer_move_gap_ms": {
+   "n": 29801,
+   "p50": 1160.3,
+   "p95": 1548.7,
+   "p99": 1753.9,
+   "max": 2127.8
+  },
+  "http_per_s": 18.4,
+  "http_ms": {
+   "n": 1104,
+   "p50": 77.3,
+   "p95": 159.2,
+   "p99": 212.6,
+   "max": 285.6
+  },
+  "http_ms_by_path": {
+   "/accounts/session/activity/": {
+    "n": 390,
+    "p50": 78.3,
+    "p95": 172.0,
+    "p99": 223.9,
+    "max": 285.6
+   },
+   "community": {
+    "n": 163,
+    "p50": 75.6,
+    "p95": 150.9,
+    "p99": 170.2,
+    "max": 174.7
+   },
+   "dm_send": {
+    "n": 80,
+    "p50": 89.1,
+    "p95": 172.2,
+    "p99": 259.4,
+    "max": 259.4
+   },
+   "learning": {
+    "n": 1,
+    "p50": 175.8,
+    "p95": 175.8,
+    "p99": 175.8,
+    "max": 175.8
+   },
+   "lunch": {
+    "n": 51,
+    "p50": 77.0,
+    "p95": 195.0,
+    "p99": 249.0,
+    "max": 249.0
+   },
+   "menu": {
+    "n": 83,
+    "p50": 67.7,
+    "p95": 146.1,
+    "p99": 181.5,
+    "max": 181.5
+   },
+   "messages": {
+    "n": 164,
+    "p50": 78.2,
+    "p95": 140.5,
+    "p99": 217.3,
+    "max": 271.5
+   },
+   "wallet": {
+    "n": 172,
+    "p50": 74.4,
+    "p95": 158.9,
+    "p99": 198.6,
+    "max": 206.5
+   }
+  },
+  "http_status": {
+   "/accounts/session/activity/ 200": 390,
+   "menu 200": 83,
+   "messages 200": 164,
+   "lunch 200": 51,
+   "wallet 200": 172,
+   "community 200": 163,
+   "dm_send 200": 40,
+   "dm_send 201": 40,
+   "learning 201": 1
+  },
+  "closes": {},
+  "generator_loop_lag_ms": {
+   "n": 2383,
+   "p50": 0.7,
+   "p95": 1.3,
+   "p99": 1.5,
+   "max": 2.1
+  }
+ }
+}

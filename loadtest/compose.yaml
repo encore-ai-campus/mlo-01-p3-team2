@@ -151,6 +151,7 @@ services:
     volumes:
       - .:/load:ro
       - data:/data
+      - ../backend:/app:ro  # 실사용 모방(--behavior real)이 서버와 같은 지도·충돌 판정(campus.motion)으로 길을 찾는다
     environment:
       CAMPUS_HOST: ${CAMPUS_HOST:-backend}  # 여러 프로세스면 nginx
       CAMPUS_PORT: ${CAMPUS_PORT:-9003}
