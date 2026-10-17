@@ -21,8 +21,21 @@ front-a 의 프론트 중계가 붙는 주소(game-server :8000)와 방화벽은
 
 ## 1. 설치 (서비스는 아직 켜지 않는다)
 
+먼저 `bash deploy/campus-multiprocess/preflight.sh`(로컬, 읽기만)로 두 서버의 서비스·경로·판·포트·접속 수를 본다.
+
+game-server 의 바깥 접속은 프록시(10.10.0.152:3128)뿐인데, **이 프록시는 HTTPS 만 넘기고 HTTP 는 넘기지 않는다**(10/17 확인).
+apt 소스가 `http://` 라 그대로는 받지 못한다 — 인프라에 요청하거나, 시스템 설정은 두고 이번 설치에만 https 미러를 쓴다:
+
 ```bash
-sudo apt-get install -y redis-server nginx
+A=/tmp/apt-https; mkdir -p $A/parts $A/lists/partial
+sed -E 's#^URIs: http://(ap-northeast-2\.ec2\.archive\.ubuntu\.com|security\.ubuntu\.com)/ubuntu/?#URIs: https://ap-northeast-2.ec2.archive.ubuntu.com/ubuntu/#' \
+  /etc/apt/sources.list.d/ubuntu.sources > $A/parts/ubuntu-https.sources
+OPT="-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=$A/parts -o Dir::State::Lists=$A/lists"
+sudo apt-get $OPT update && sudo apt-get $OPT install -y redis-server nginx
+sudo rm -f /etc/nginx/sites-enabled/default   # 기본 사이트(:80)는 쓰지 않는다
+```
+
+```bash
 sudo tee -a /etc/redis/redis.conf < deploy/campus-multiprocess/redis-campus.conf   # 같은 키가 이미 있으면 그 줄을 고친다
 sudo systemctl restart redis-server && redis-cli ping                              # PONG
 sudo install -m 644 deploy/campus-multiprocess/playdata-backend@.service deploy/campus-multiprocess/playdata-campus-jobs.service /etc/systemd/system/
@@ -37,6 +50,8 @@ sudo systemctl daemon-reload
 여기서 문제가 없는지 본 뒤 다음으로 넘어간다. `migrate` 는 할 일이 없다(새 마이그레이션 없음).
 
 ## 3. 여러 프로세스로 바꾸기
+
+`bash deploy/campus-multiprocess/switch-to-multiprocess.sh`(로컬에서) 가 아래를 한 번에 하고, 중간 확인이 실패하면 한 프로세스로 되돌린다. 손으로 할 때:
 
 ```bash
 sudo systemctl stop playdata-backend && sudo systemctl disable playdata-backend
@@ -101,3 +116,11 @@ front-a nginx 는 인프라(Ansible `edge` 역할)가 관리하므로 아래 변
 - 확인: 게임 화면에서 서로 보이고 움직이면 된다. front-a 의 프론트 로그에 `/ws/campus/` 가 더는 찍히지 않고, nginx access log 에 `GET /ws/campus/… 101` 이 남는다.
 - 되돌리기: 변수를 지우고 edge 를 다시 적용한다. `reload` 때 이미 열린 연결은 끊기지 않고, 새 연결부터 바뀐다.
 - 다른 길(중계 여러 개, `upstream edge_frontends` 에 서버 추가)은 중계 CPU 를 나눌 뿐 홉이 그대로라 권하지 않는다.
+
+## 6. 운영 반영 기록 (10/17, 운영 전 시험)
+
+- 백업: 두 서버 `~/deploy-backups/metaverse-multiprocess-20261017-1559/`(코드 전체·`.venv`·`.env`·서비스 파일·front-a `nginx.conf`·`/var/www/playdata-campus`).
+- 운영 코드는 `origin/dev` 에 서버에서 직접 올린 옥상 사진 순환(광고 스크립트 끔)이 더해진 것이었다(파일은 CRLF — 견줄 때 CR 을 뺀다). 코드에 반영해 배포했다.
+- game-server: 새 코드(한 프로세스로 먼저 확인) → Redis 7.0.15·nginx 1.24.0(https 미러) → 소켓 프로세스 4개·작업 하나·nginx `:8000`. 옛 `playdata-backend` 는 꺼 두었다(disabled).
+- front-a: 새 프론트 + `collectstatic` → `/var/www/playdata-campus/static`(root:www-data), nginx `location /ws/campus/` → `10.10.10.166:8000`
+  (이전 설정 `/etc/nginx/nginx.conf.before-ws-direct-20261017-1559`). nginx 는 Ansible `edge` 관리라 인프라에 알린다.
