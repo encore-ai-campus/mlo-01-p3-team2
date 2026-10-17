@@ -6,7 +6,7 @@
 - team: `mlo-01-p3-team2`
 - 작성일: `2026-10-16`
 - project_period: 2026-10-01 ~ 2026-10-19
-- 서비스 공개 목표: `2026-10-19` 예정(README 기준, 실제 공개 완료를 의미하지 않음)
+- 서비스 공개 목표: `2026-10-19` 예정
 - owner_role: 플랫폼·광고 서버·데이터 파이프라인·인프라 담당
 - reviewer_roles: 팀원 전체 및 프로젝트 검토 담당
 - 관련 이슈: [#110](https://github.com/encore-ai-campus/mlo-01-p3-team2/issues/110)
