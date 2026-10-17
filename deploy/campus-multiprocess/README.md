@@ -60,12 +60,42 @@ sudo systemctl enable --now playdata-backend
 
 코드는 그대로 둬도 된다: Redis 주소가 없으면(옛 서비스는 넣지 않는다) 지금처럼 한 프로세스로 돈다. Redis 에는 다시 만들 수 있는 값(최신 위치)만 있어 지워도 된다.
 
-## 5. 다음 천장: front-a 의 프론트 중계
+## 5. front-a: WebSocket 을 game-server 로 바로 넘기기 (인프라 요청)
 
-모든 WebSocket 메시지는 front-a 의 파이썬 프로세스 하나(`frontend/pages/sockets.py`)를 지난다.
-측정(계획 M6, 운영 코어 하나로 제한)상 100명이 모두 움직이면 이 중계가 **65.6%**(조절 23%)다. 실사용은 행동이 더 많아 70% 를 넘는다.
-front-a nginx 는 인프라(Ansible `edge`)가 관리하므로 둘 중 하나를 요청한다.
+지금은 모든 WebSocket 메시지가 front-a 의 파이썬 프로세스 하나(`frontend/pages/sockets.py`)를 지난다. 이 중계가 다음 천장이다.
+front-a nginx 는 인프라(Ansible `edge` 역할)가 관리하므로 아래 변경을 요청한다. 앱 코드와 브라우저는 바꿀 것이 없다(주소 `/ws/campus/` 그대로).
 
-- **WebSocket 만 nginx 가 game-server 로 바로 넘기기(권장):** `location /ws/campus/ { proxy_pass http://<game-server>:8000; … Upgrade 전달 … }`.
-  파이썬 중계를 거치지 않아 CPU·지연이 준다. 백엔드 `DJANGO_ALLOWED_HOSTS` 에 브라우저가 쓰는 주소(공인 IP)가 있어야 한다(지금 HTTP 중계도 같은 Host 를 넘긴다).
-- **중계 여러 개:** front-a 에 프론트 프로세스를 더 띄우고 `upstream edge_frontends`(이미 `least_conn`)에 서버를 더한다. 코드 변경이 없다.
+측정(계획 M6, 로컬에 같은 edge 설정을 두고 100명·소켓 프로세스 4개, 중계는 운영 코어 하나):
+
+| 100명 모두 계속 이동 | 프론트(중계) | edge nginx | 키 → 움직임 상위 5% | 다른 사람 위치 간격 상위 5% |
+|---|---|---|---|---|
+| 지금(edge → 중계 → game-server) | **69.4~70.2%**(조절 20%) | 15.8% | 38.8ms | 123ms |
+| 바로 넘기기(edge → game-server) | **4.3%**(HTTP 만) | 18.5% | 36.0ms | 128ms |
+
+`aws-platform/platform/roles/edge/templates/nginx.conf.j2` 의 443 server, `location /` 앞에 더한다(변수가 없으면 지금과 같다):
+
+```nginx
+{% if edge_campus_ws_backend | default('') %}
+        # 메타버스 WebSocket 은 프론트 중계를 거치지 않고 game-server nginx(:8000, 세션 고정)로 바로 보낸다.
+        location /ws/campus/ {
+            proxy_pass http://{{ edge_campus_ws_backend }};
+            proxy_http_version 1.1;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $edge_connection_upgrade;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 3600s;
+            proxy_next_upstream error timeout;
+        }
+{% endif %}
+```
+
+- front-a 인벤토리: `edge_campus_ws_backend: <game-server 사설 IP>:8000` — 프론트 `BACKEND_URL` 과 같은 주소다. 방화벽은 지금 중계가 쓰는 길(front-a → game-server :8000)과 같다.
+- 백엔드는 바꿀 것이 없다: 중계도 브라우저의 `Origin`·쿠키를 그대로 넘기므로 `DJANGO_ALLOWED_HOSTS` 에 공인 주소가 이미 있다. game-server 의 세션 고정(쿠키 해시)도 같다.
+- 여러 프로세스(§3)와 따로 할 수 있다(지금의 한 프로세스 :8000 에도 그대로 붙는다).
+- 확인: 게임 화면에서 서로 보이고 움직이면 된다. front-a 의 프론트 로그에 `/ws/campus/` 가 더는 찍히지 않고, nginx access log 에 `GET /ws/campus/… 101` 이 남는다.
+- 되돌리기: 변수를 지우고 edge 를 다시 적용한다. `reload` 때 이미 열린 연결은 끊기지 않고, 새 연결부터 바뀐다.
+- 다른 길(중계 여러 개, `upstream edge_frontends` 에 서버 추가)은 중계 CPU 를 나눌 뿐 홉이 그대로라 권하지 않는다.
