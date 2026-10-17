@@ -31,7 +31,10 @@ keys = []
 for i in range(count):
     user, created = get_user_model().objects.get_or_create(username=f"load{i:03d}")
     if created:
-        user.set_password(f"load-pass-{i:03d}-x")
+        if "--unusable-password" in sys.argv:  # 운영: 비밀번호로는 로그인할 수 없는 봇 계정(시드한 세션으로만 붙는다)
+            user.set_unusable_password()
+        else:
+            user.set_password(f"load-pass-{i:03d}-x")
         user.save()
     Profile.objects.update_or_create(user=user, defaults={
         "nickname": f"부하{i:03d}", "avatar": DEFAULT_AVATAR, "setup_complete": True, "guide_completed": True,
@@ -43,6 +46,7 @@ for i in range(count):
     start_login(session, user)  # 정책 시각·단일 로그인 소유·플랫폼 세션·저장(실제 로그인과 같다)
     keys.append(session.session_key)
 
-with open("/data/sessions.json", "w", encoding="utf-8") as f:
+out = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--out=")), "/data/sessions.json")
+with open(out, "w", encoding="utf-8") as f:
     json.dump(keys, f)
 print(f"seeded {len(keys)} sessions")

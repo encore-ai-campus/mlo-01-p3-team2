@@ -20,18 +20,23 @@ import math
 import multiprocessing as mp
 import os
 import random
+import signal
+import ssl
 import sys
 import time
 import urllib.parse
 import urllib.request
 import uuid
 from collections import Counter
+from contextlib import suppress
 from concurrent.futures import ThreadPoolExecutor
 
 from autobahn.asyncio.websocket import WebSocketClientFactory, WebSocketClientProtocol
 
 # 여러 프로세스 시험(계획 M5)은 nginx(세션 고정 배정)로 붙는다: CAMPUS_HOST=nginx CAMPUS_PORT=8000
 HOST, PORT = os.environ.get("CAMPUS_HOST", "backend"), int(os.environ.get("CAMPUS_PORT", "9003"))
+SECURE = os.environ.get("CAMPUS_SCHEME", "http") == "https"  # 운영(https://공인 주소)에 붙일 때
+BASE = ("https" if SECURE else "http") + f"://{HOST}" + ("" if PORT == (443 if SECURE else 80) else f":{PORT}")  # 브라우저의 Origin 과 같다
 MOVE_KEYS = (["d"], ["a"], ["w"], ["s"], ["d", "w"], ["a", "s"])
 POLLS = ("/accounts/session/status/", "/api/messages/status/")  # 추첨(/api/raffle/)은 기능을 없앴다(2026-10-16)
 ACTIVITY = "/accounts/session/activity/"
@@ -207,9 +212,9 @@ def fetch(path, key, data=None):
     """data 가 있으면 JSON POST(CSRF 쿠키·헤더). (상태, 걸린 초, 본문)."""
     headers = {"Cookie": f"campus_sessionid={key}; campus_csrftoken={CSRF}", "Accept": "application/json"}
     if data is not None:
-        headers.update({"X-CSRFToken": CSRF, "Origin": f"http://{HOST}:{PORT}", "Content-Type": "application/json"})
+        headers.update({"X-CSRFToken": CSRF, "Origin": BASE, "Referer": BASE + "/", "Content-Type": "application/json"})
         data = json.dumps(data).encode()
-    request = urllib.request.Request(f"http://{HOST}:{PORT}{path}", data=data, headers=headers)
+    request = urllib.request.Request(BASE + path, data=data, headers=headers)
     started = time.monotonic()
     body = b""
     try:
@@ -260,13 +265,13 @@ async def run_user(user, delay, args):
     while True:
         if args.behavior == "real":  # 브라우저는 화면(GET /)을 받은 뒤 소켓을 연다
             await call(user, "/", label="page")
-        factory = WebSocketClientFactory(f"ws://{HOST}:{PORT}/ws/campus/?control=server", origin=f"http://{HOST}:{PORT}",
+        factory = WebSocketClientFactory(f"{'wss' if SECURE else 'ws'}://{HOST}:{PORT}/ws/campus/?control=server", origin=BASE,
                                          headers={"Cookie": f"campus_sessionid={user.key}"})
         factory.setProtocolOptions(utf8validateIncoming=False, openHandshakeTimeout=30)  # 브라우저처럼 핸드셰이크를 오래 기다린다(autobahn 기본 5초)
         factory.protocol, factory.user = Client, user
         user.closed = loop.create_future()
         try:
-            await loop.create_connection(factory, HOST, PORT)
+            await loop.create_connection(factory, HOST, PORT, **({"ssl": ssl.create_default_context(), "server_hostname": HOST} if SECURE else {}))
         except OSError:
             stats.closes["connect_error"] += 1
             await asyncio.sleep(retry)
@@ -520,7 +525,11 @@ async def learning(user, errand):
         base = f"/api/learning/sessions/{session['session_id']}/questions/1/"
         status, question = await call(user, base, label="learning")
         await asyncio.sleep(user.rng.uniform(2, 4))  # 문제를 읽고 고른다
-        choice = user.rng.choice(question["choices"]) if errand["question"] == "multiple_choice" and question else None  # 빈칸은 글로 답한다
+        choices = (question or {}).get("choices") if errand["question"] == "multiple_choice" else None
+        if errand["question"] == "multiple_choice" and not choices:  # 문제를 못 받았다(오류 응답)
+            count(stats.action_errors, f"learning: 문제 {status}")
+            return
+        choice = user.rng.choice(choices) if choices else None  # 빈칸은 글로 답한다
         status, answer = await call(user, base + "answers/", {"answer": choice["choice_text"] if choice else "print",
                                                               "submission_request_uuid": str(uuid.uuid4()),
                                                               "choice_uuid": choice["choice_uuid"] if choice else None}, label="learning")
@@ -737,7 +746,7 @@ async def watch_loop_lag():
             stats.loop_lag.append(time.monotonic() - started - 0.1)
 
 
-async def process_main(keys, args, index, start_at, end_at):
+async def process_main(keys, args, index, start_at, end_at, stop):
     global measuring
     rng = random.Random(1000 + index)
     users = [User(key, random.Random(rng.random()), watch=i < args.watchers) for i, key in enumerate(keys)]
@@ -747,12 +756,14 @@ async def process_main(keys, args, index, start_at, end_at):
         asyncio.create_task(run_user(user, args.ramp * (i * args.procs + index) / max(1, args.users), args))
     await asyncio.sleep(max(0, start_at - time.time()))
     measuring = True
-    await asyncio.sleep(max(0, end_at - time.time()))
+    while time.time() < end_at and not stop.is_set():  # 중단 신호(SIGTERM)를 받으면 그때까지로 끝낸다
+        await asyncio.sleep(.5)
     measuring = False
 
 
-def worker(keys, args, index, start_at, end_at, queue):
-    asyncio.run(asyncio.wait_for(process_main(keys, args, index, start_at, end_at), timeout=end_at - time.time() + 5))
+def worker(keys, args, index, start_at, end_at, queue, stop):
+    with suppress(TimeoutError):
+        asyncio.run(asyncio.wait_for(process_main(keys, args, index, start_at, end_at, stop), timeout=end_at - time.time() + 5))
     queue.put(stats.__dict__)
 
 
@@ -791,13 +802,19 @@ def main():
         print(f"floors ready in {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
     start_at = time.time() + args.ramp + args.warmup
     end_at = start_at + args.measure
-    queue = mp.Queue()
-    procs = [mp.Process(target=worker, args=(keys[i::args.procs], args, i, start_at, end_at, queue)) for i in range(args.procs)]
+    queue, stop = mp.Queue(), mp.Event()
+    procs = [mp.Process(target=worker, args=(keys[i::args.procs], args, i, start_at, end_at, queue, stop)) for i in range(args.procs)]
     for proc in procs:
         proc.start()
-    time.sleep(max(0, start_at - time.time()))
+    for name in (signal.SIGTERM, signal.SIGINT):  # 멈추라고 하면(docker kill --signal=TERM) 그때까지의 결과를 낸다
+        signal.signal(name, lambda *_: stop.set())
+    while time.time() < start_at and not stop.is_set():
+        time.sleep(.5)
     print("MEASURE_START", flush=True)
-    time.sleep(max(0, end_at - time.time()))
+    while time.time() < end_at and not stop.is_set():
+        time.sleep(.5)
+    stopped_at = min(time.time(), end_at)
+    stop.set()
     print("MEASURE_END", flush=True)
     parts = [queue.get(timeout=60) for _ in procs]
     for proc in procs:
@@ -811,8 +828,8 @@ def main():
                     current.setdefault(key, []).extend(items)
             else:
                 setattr(total, name, current + value if not isinstance(value, Counter) else current + Counter(value))
-    seconds = args.measure
-    print(json.dumps({
+    seconds = max(1.0, stopped_at - start_at)
+    print(json.dumps({"measured_s": round(seconds),
         "users": args.users, "moving": args.moving, "client": args.client, "behavior": args.behavior, "mix": args.mix, "hold_ms": args.hold_ms, "welcomed": total.welcomed,
         "actions_per_user_s": round(sum(total.actions.values()) / seconds / args.users, 2),
         "actions_per_s": {k: round(v / seconds, 1) for k, v in sorted(total.actions.items())},
