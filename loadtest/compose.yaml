@@ -121,6 +121,8 @@ services:
     profiles: [edge]
     volumes:
       - ./nginx-edge.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "${EDGE_BIND:-127.0.0.1}:8080:80"  # 개발 서버(dev-server.sh)는 사람이 여기로 붙는다(운영 front-a 의 443 자리)
     environment:
       EDGE_WS_UPSTREAM: ${EDGE_WS_UPSTREAM:-edge_frontends}
       NGINX_ENVSUBST_FILTER: ^EDGE_

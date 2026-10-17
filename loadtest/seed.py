@@ -1,6 +1,7 @@
 """부하 시험용 계정 N개와 로그인 세션을 만든다. 실제 로그인과 같은 경로(start_login)를 쓴다.
 
-사용(백엔드 컨테이너 안): python /load/seed.py 100  →  /data/sessions.json (세션 키 목록)
+사용(백엔드 컨테이너 안): python /load/seed.py 100 [--questions]  →  /data/sessions.json (세션 키 목록)
+--questions: 교실 학습용 예제 문제은행도 넣는다(부하 시험 DB 만. 사람이 쓰는 개발 서버 DB 에는 넣지 않는다)
 """
 import json
 import os
@@ -21,9 +22,10 @@ from accounts.models import Profile  # noqa: E402
 from accounts.session_policy import start_login  # noqa: E402
 from django.core.management import call_command  # noqa: E402
 
-call_command("seed_learning_questions", verbosity=0)  # 실사용 모방의 교실 학습(예제 문제은행, 이미 있으면 그대로)
+if "--questions" in sys.argv:
+    call_command("seed_learning_questions", verbosity=0)  # 실사용 모방의 교실 학습(예제 문제은행, 이미 있으면 그대로)
 
-count = int(sys.argv[1]) if len(sys.argv) > 1 else 100
+count = int(next((arg for arg in sys.argv[1:] if arg.isdigit()), 100))
 store = import_module(settings.SESSION_ENGINE).SessionStore
 keys = []
 for i in range(count):

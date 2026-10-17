@@ -76,7 +76,28 @@ python loadtest/run.py --label real-moveonly --out <폴더> --users 100 --backen
 - 지금까지의 결과: `results/`.
 - 주의: 개발 서버를 띄운 채 손으로 `docker compose --profile load run load …` 를 하면 mysql·backend 가 다시 만들어져 DB 가 비워질 수 있다. 손으로 생성기를 돌릴 때는 `run --no-deps` 를 쓴다(run.py 는 그렇게 한다).
 
-## 개발 서버로 띄우기 (사람이 접속해 보기)
+## 개발 서버: 운영에 올릴 구조 + 실사용 모방 봇 (사람과 함께)
+
+운영에 올릴 구조 그대로 띄운다: 브라우저 → edge nginx(`:8080`, 운영 front-a 자리) → HTTP 는 프론트, 웹소켓은 nginx(`least_conn`) → 소켓 프로세스 4개 + 작업 하나 + Redis.
+
+```bash
+bash loadtest/dev-server.sh            # dev/ 에서. LAN 주소를 빼면 이 맥의 en0. 접속: http://<LAN>:8080/
+```
+
+사람이 접속해 있는 동안 **봇만 붙인다**(아무것도 다시 띄우지 않는다 — 접속한 사람이 끊기지 않고 DB 도 그대로다):
+
+```bash
+python loadtest/run.py --attach --backends 4 --edge direct --behavior real --users 50 \
+  --ramp 30 --warmup 10 --measure 600 --label dev-real-u50 --out loadtest/results   # 50명 × 초당 10건, 10분
+docker ps -q --filter name=campus-load-load-run | xargs docker rm -f                 # 중간에 멈출 때
+```
+
+- 봇 계정은 `load000`~(`seed.py` 가 만들고 그 계정만 다시 로그인시킨다). 개발 서버 DB 에 예제 문제은행은 넣지 않는다(`--attach` 는 `--questions` 를 빼고 시드).
+  학습 문제가 없으면 봇의 학습 단계가 `action_errors` 에 남는다(문제은행은 백엔드 `import_learning_bank`).
+- 봇 한 명은 실제 사람 약 1.5명분이다(계획 M8). 50명 ≈ 사람 75명분. 10/17 확인: 봇 50명만으로 가장 바쁜 프로세스 52.9%, 거절 0건, 키 → 움직임 상위 5% 34ms.
+- 끄기: `docker compose -f loadtest/compose.yaml --profile dev --profile multi --profile edge stop`.
+
+## 개발 서버로 띄우기 (예전 구조: 한 프로세스, 프론트 중계)
 
 같은 조건(운영 코어 하나·MySQL 8.4)의 백엔드에 프론트를 붙여 내부망에 연다. 프론트가 HTTP·WebSocket 을 백엔드로 중계한다(운영 front-a 와 같은 구조).
 

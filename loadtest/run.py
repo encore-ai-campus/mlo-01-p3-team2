@@ -89,6 +89,8 @@ def main():
     parser.add_argument("--backends", type=int, default=0, help="여러 프로세스(계획 M5): daphne 개수. 0 이면 지금처럼 run-campus.py 하나")
     parser.add_argument("--via-frontend", action="store_true", help="프론트 중계(운영 코어 하나)를 거쳐 붙는다(계획 M6)")
     parser.add_argument("--edge", choices=("relay", "direct"), help="운영 front-a 의 edge nginx 로 붙는다. relay = WebSocket 도 프론트 중계(지금), direct = WebSocket 만 백엔드로 바로")
+    parser.add_argument("--attach", action="store_true",
+                        help="떠 있는 개발 서버(dev-server.sh)에 봇만 붙인다. 아무것도 다시 띄우지 않는다(사람이 접속해 있어도 된다). --backends·--edge 는 그 서버의 구성")
     args = parser.parse_args()
     args.via_frontend = args.via_frontend or args.edge is not None  # HTTP 는 두 경우 모두 프론트를 지난다
     args.redis = args.redis or args.backends > 0
@@ -96,7 +98,10 @@ def main():
            "CAMPUS_REDIS_URL": "redis://redis:6379/0" if args.redis else ""}
     hosts = "backend,localhost" + (",nginx" if args.backends else "") + (",frontend" if args.via_frontend else "") + (",edge" if args.edge else "")
     env.update(BACKEND_HOSTS=hosts)
-    if args.backends:
+    if args.attach:
+        env.update(CAMPUS_HOST="edge" if args.edge else "nginx" if args.backends else "backend",
+                   CAMPUS_PORT="80" if args.edge else "8000" if args.backends else "9003")
+    elif args.backends:
         env.update(BACKEND_RUN="daphne -b 0.0.0.0 -p 9003 config.asgi:application", CAMPUS_HOST="nginx", CAMPUS_PORT="8000")
         # nginx 는 시작할 때 backend 이름을 모든 복제 주소로 푼다: 백엔드를 늘린 뒤 함께 새로 띄운다
         compose("--profile", "multi", "up", "-d", "--wait", "--force-recreate", "--scale", f"backend={args.backends}", "backend", "jobs", "nginx",
@@ -104,7 +109,9 @@ def main():
     else:
         compose("--profile", "multi", "stop", "jobs", "nginx", env=env, capture_output=True)
         compose("up", "-d", "--wait", "--force-recreate", "--scale", "backend=1", "backend", env=env, capture_output=True)
-    if args.via_frontend:
+    if args.attach:
+        pass
+    elif args.via_frontend:
         # 브라우저 → 프론트 중계(Python 하나, 운영 코어 하나) → 백엔드(nginx 또는 하나). 운영 front-a 와 같다
         env.update(FRONTEND_CPU_QUOTA=str(args.quota), FRONTEND_HOSTS="frontend,localhost,edge",
                    FRONTEND_BACKEND_URL="http://nginx:8000" if args.backends else "http://backend:9003")
@@ -113,7 +120,9 @@ def main():
         env.update(CAMPUS_HOST="frontend", CAMPUS_PORT="8004")
     else:
         compose("--profile", "dev", "stop", "frontend", env=env, capture_output=True)
-    if args.edge:
+    if args.attach:
+        pass
+    elif args.edge:
         # edge 는 시작할 때 upstream 이름을 주소로 푼다: 프론트·nginx 를 새로 띄운 뒤 띄운다
         direct = "nginx:8000" if args.backends else "backend:9003"
         env.update(EDGE_WS_UPSTREAM="edge_frontends" if args.edge == "relay" else direct)
@@ -124,7 +133,8 @@ def main():
         compose("--profile", "edge", "stop", "edge", env=env, capture_output=True)
     compose("exec", "-T", "mysql", "mysql", "-uroot", "-pload", "-e", "FLUSH STATUS", capture_output=True)  # Max_used_connections 를 이번 실행부터 센다
     since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
-    print(compose("exec", "-T", "backend", "python", "/load/seed.py", str(args.users), capture_output=True).stdout.strip())
+    seed = ["python", "/load/seed.py", str(args.users), *([] if args.attach else ["--questions"])]
+    print(compose("exec", "-T", "backend", *seed, capture_output=True).stdout.strip())
 
     generator = subprocess.Popen(
         [*COMPOSE, "run", "--rm", "--no-deps", "-T", "load", "python", "campus_load.py", "--users", str(args.users), "--moving", str(args.moving),
@@ -169,7 +179,7 @@ def main():
     server["log"] = {name: logs.count(text) for name, text in
                      (("traceback", "Traceback"), ("channel_full", "ChannelFull"), ("db_error", "OperationalError"))}
     result = {"label": args.label, "quota": args.quota, "delay_us": args.delay_us, "settings": args.settings, "redis": args.redis, "backends": args.backends,
-              "via_frontend": args.via_frontend, "edge": args.edge, "behavior": args.behavior,
+              "via_frontend": args.via_frontend, "edge": args.edge, "behavior": args.behavior, "attach": args.attach,
               "server": server, "client": summary}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
