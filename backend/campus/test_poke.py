@@ -148,12 +148,13 @@ class PokeControlTests(SimpleTestCase):
         self.consumer.broadcast.assert_not_awaited()
 
     async def test_recipients_do_not_receive_other_floor_or_private_effects(self):
-        packet = {"type": "poke", "floor": "rooftop"}
-        await self.consumer.presence_packet({"sender": "near", "payload": packet})
-        self.consumer.send_packet.assert_not_awaited()
-        self.consumer.controller.interior = {"subject": "python"}
-        await self.consumer.presence_packet({"sender": "near", "payload": {**packet, "floor": "campus"}})
-        self.consumer.send_packet.assert_not_awaited()
+        # 찌르기는 보낸 쪽이 고른 받는 사람(같은 층·교실 밖·SYNC_RANGE 안)에게만 간다(계획 M8)
+        self.room.players["near"]["floor"] = "rooftop"
+        self.assertEqual(self.consumer.poke_audience({"context": "world", "floor": "campus"}), {"self"})
+        self.room.players["near"]["floor"] = "campus"
+        self.room.interiors.add("near")
+        self.assertEqual(self.consumer.poke_audience({"context": "world", "floor": "campus"}), {"self"})
+        self.assertEqual(self.consumer.poke_audience({"context": "classroom", "subject": "python"}), {"self"})
 
 
 @override_settings(ALLOWED_HOSTS=["127.0.0.1", "testserver"], KAFKA_BOOTSTRAP_SERVERS="")

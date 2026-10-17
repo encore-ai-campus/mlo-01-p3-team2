@@ -1,7 +1,9 @@
 """여러 프로세스 사본(계획 M3): 다른 프로세스의 입장·이동·목록·퇴장·끊김을 같은 결과로 반영한다."""
+from unittest.mock import AsyncMock, patch
+
 from django.test import SimpleTestCase
 
-from . import cluster
+from . import cluster, consumers
 
 
 def message(kind, seq, proc="other", **fields):
@@ -64,3 +66,42 @@ class ClusterMirrorTests(SimpleTestCase):
         self.assertEqual(row["session"], cluster.session_hash("key"))
         self.c.apply(message("join", 1, entry={**row, "id": "me2", "state": {**row["state"], "id": "me2"}}))
         self.assertNotIn("channel", self.c.remote["me2"]["state"])  # 브라우저로 가는 상태에는 채널·세션이 없다
+
+
+class EffectTests(SimpleTestCase):
+    """찌르기·점프·채팅(계획 M8): 이 프로세스 소켓에는 바로, 다른 프로세스에는 0.1초 묶음에 한 번."""
+
+    async def test_effects_ride_the_moves_batch_once(self):
+        c = cluster.Cluster()
+        c.send = AsyncMock()
+        effect = {"payload": {"type": "jump"}, "to": None, "near": ["campus", 1, 2, 3]}
+        c.effects.append(effect)
+        with patch.object(cluster, "enabled", return_value=True):
+            await c.moved([])
+            await c.moved([])  # 보낼 것이 없으면 보내지 않는다
+        c.send.assert_awaited_once_with("moves", players=[], effects=[effect])
+        c.apply(message("moves", 1, players=[], effects=[effect]))
+        self.assertEqual(c.effects_in, [effect])
+
+    async def test_local_sockets_get_it_now_and_other_processes_only_when_someone_there_receives_it(self):
+        room = consumers.CampusRoom()
+        room.players = {"me": {"floor": "campus", "x": 0, "y": 0}, "peer": {"floor": "campus", "x": 10, "y": 0}}
+        room.sockets = {key: AsyncMock() for key in room.players}
+        room.cluster.remote = {"there": {"state": {"floor": "campus", "x": 5, "y": 0}, "proc": "other"}}
+        with patch.object(cluster, "enabled", return_value=True):
+            await consumers.share_effect(room, {"type": "poke_state"}, to={"me", "there"})
+            await consumers.share_effect(room, {"type": "poke_state"}, to={"peer"})  # 모두 이 프로세스에 있다
+            await consumers.share_effect(room, {"type": "chat"})
+        self.assertEqual((room.sockets["me"].send.await_count, room.sockets["peer"].send.await_count), (2, 2))
+        self.assertEqual([effect["to"] for effect in room.cluster.effects], [["there"], None])
+
+    async def test_effects_from_other_processes_reach_only_their_recipients(self):
+        room = consumers.CampusRoom()
+        room.players = {"me": {"floor": "campus", "x": 0, "y": 0}, "roof": {"floor": "rooftop", "x": 0, "y": 0}}
+        room.sockets = {key: AsyncMock() for key in room.players}
+        room.cluster.effects_in = [{"payload": {"type": "jump"}, "to": None, "near": ["campus", 0, 0, 100]},
+                                   {"payload": {"type": "poke_hit"}, "to": ["roof", "elsewhere"], "near": None}]
+        await consumers.send_to_sockets(room, [])
+        self.assertEqual([call.kwargs["text_data"] for call in room.sockets["me"].send.await_args_list], ['{"type": "jump"}'])
+        self.assertEqual([call.kwargs["text_data"] for call in room.sockets["roof"].send.await_args_list], ['{"type": "poke_hit"}'])
+        self.assertEqual(room.cluster.effects_in, [])

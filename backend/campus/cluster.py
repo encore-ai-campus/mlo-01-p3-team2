@@ -5,6 +5,7 @@ Redis 주소(settings.CAMPUS_REDIS_URL)가 없으면 아무 일도 하지 않는
 프로세스마다 채널 계층(campus.cluster 그룹)에 '프로세스 채널' 하나를 두고 서로 알린다.
 - 입장·퇴장: 생기는 즉시. 받은 프로세스는 자기 소켓에 join·leave 를 보낸다(welcome 과 join 사이에 빈틈이 없게).
 - 이동: 0.1초 묶음(flush_moves)마다 이 프로세스 사람의 변경만. 받은 쪽은 다음 자기 묶음에 합친다.
+- 효과(찌르기·점프·채팅, 계획 M8): 같은 0.1초 묶음에 실어 한 번. 받은 쪽은 자기 소켓 가운데 받을 사람에게 보낸다.
 - 전체 목록: 1초마다. 새로 뜬 프로세스는 이것을 받을 시간을 기다린 뒤 첫 소켓을 받는다.
 - 3초 동안 소식이 없는 프로세스의 사람은 지운다(프로세스가 죽었을 때 유령 방지).
 Redis 연결 풀에서는 같은 프로세스의 메시지도 순서가 바뀔 수 있다. 그래서 메시지마다 번호(seq)를 달고,
@@ -45,6 +46,8 @@ class Cluster:
     def __init__(self):
         self.remote = {}  # player_id → {"state", "channel", "session", "proc"}
         self.remote_moves = {}  # 다음 자기 묶음에 실을 다른 프로세스 사람의 상태
+        self.effects = []  # 다음 묶음에 실을 이 프로세스의 효과({"payload", "to", "near"})
+        self.effects_in = []  # 다른 프로세스에서 와서 이 프로세스 소켓에 보낼 효과
         self.heard = {}  # proc → 마지막으로 소식을 들은 시각
         self.tombstones = {}  # player_id → (떠난 메시지의 proc, seq, 시각)
         self.seq = 0
@@ -78,8 +81,9 @@ class Cluster:
             await self.send("leave", id=player_id)
 
     async def moved(self, states):
-        if enabled() and states:
-            await self.send("moves", players=states)
+        effects, self.effects = self.effects, []
+        if enabled() and (states or effects):
+            await self.send("moves", players=states, effects=effects)
 
     # ── 받기 ────────────────────────────────────────────────
     def stale(self, player_id, proc, seq):
@@ -105,6 +109,7 @@ class Cluster:
                 if row is not None and row["proc"] == proc:
                     row["state"] = state
                     self.remote_moves[state["id"]] = state
+            self.effects_in.extend(message.get("effects", ()))
         elif kind == "snapshot":
             listed = {entry["id"] for entry in message["players"]}
             for player_id in [pid for pid, row in self.remote.items() if row["proc"] == proc and pid not in listed]:

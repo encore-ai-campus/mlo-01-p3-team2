@@ -81,7 +81,7 @@ SLOW_DB_SECONDS = 1.0
 
 
 async def send_to_sockets(campus, payloads):
-    """다른 프로세스에서 온 입장·퇴장을 이 프로세스의 모든 소켓에 보낸다(계획 M3)."""
+    """다른 프로세스에서 온 입장·퇴장을 이 프로세스의 모든 소켓에, 효과는 받을 사람에게 보낸다(계획 M3·M8)."""
     for payload in payloads:
         text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
         for socket in list(campus.sockets.values()):
@@ -89,6 +89,50 @@ async def send_to_sockets(campus, payloads):
                 await socket.send(text_data=text)
             except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 소식을 막지 않는다
                 logging.getLogger(__name__).debug("Could not send a cluster presence change", exc_info=True)
+    effects, campus.cluster.effects_in = campus.cluster.effects_in, []
+    for effect in effects:
+        await deliver_effect(campus, effect["payload"], effect["to"], effect["near"])
+
+
+VIEW_RANGE = 1200  # 점프가 보이는 거리: 기본 확대(1.5)에서 2560×1440 화면의 모서리까지. 찌르기는 poke.SYNC_RANGE
+
+
+def nearby(state, floor, x, y, reach):
+    """그 사람이 이 층 (x, y) 의 효과를 보는가: 같은 층·교실 밖·reach 안."""
+    return (state.get("floor", "campus") == floor and not state.get("inClassroom")
+            and math.hypot(state["x"] - x, state["y"] - y) <= reach)
+
+
+async def deliver_effect(campus, payload, to=None, near=None):
+    """이 프로세스의 소켓에만 보낸다. to = 받는 player_id 들, near = (층, x, y, 거리), 둘 다 없으면 모두."""
+    if to is not None:
+        targets = [campus.sockets[player_id] for player_id in to if player_id in campus.sockets]
+    elif near is not None:
+        targets = [socket for player_id, socket in list(campus.sockets.items())
+                   if player_id in campus.players and nearby(campus.players[player_id], *near)]
+    else:
+        targets = list(campus.sockets.values())
+    if not targets:
+        return
+    text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    for socket in targets:
+        try:
+            await socket.send(text_data=text)
+        except Exception:  # noqa: BLE001 — 끊기는 중인 소켓 하나가 다른 사람의 효과를 막지 않는다
+            logging.getLogger(__name__).debug("Could not send a campus effect", exc_info=True)
+
+
+async def share_effect(campus, payload, to=None, near=None):
+    """찌르기·점프·채팅을 받을 사람에게 보낸다(계획 M8): 이 프로세스의 소켓에는 바로, 다른 프로세스에는 0.1초 묶음(cluster)에 한 번.
+
+    받는 사람마다 채널 계층 메시지(찌르기는 받는 사람마다 Redis PUBLISH)를 만들던 것이 100명에서 프로세스를 넘치게 했다.
+    """
+    to = None if to is None else list(to)
+    await deliver_effect(campus, payload, to, near)
+    if cluster.enabled():
+        remote = None if to is None else [player_id for player_id in to if player_id in campus.cluster.remote]
+        if remote is None or remote:
+            campus.cluster.effects.append({"payload": payload, "to": remote, "near": near})
 
 
 _background = set()
@@ -173,7 +217,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.poke_stream_id = None
         self.poke_direction = None
         self.poke_watchers = set()
-        self.pending_poke_states = {}
         self.last_checkpoint = self.last_seen
         self.position_changed_at = None
         identity = await socket_db.run(get_identity, self.user)
@@ -437,7 +480,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         c = self.controller
         return bool((c.keys and now - c.last_input <= poke.INPUT_LEASE) or c.route  # 키 유효 시간은 motion.tick 과 같은 0.35초
                     or (c.interior and (c.interior["actor"]["moving"] or now - c.last_classroom_transition < CLASSROOM_TRANSITION_DELAY))
-                    or self.poke_requested or self.poke_started is not None or self.pending_poke_states)
+                    or self.poke_requested or self.poke_started is not None)
 
     async def motion_loop(self):
         previous, resting = time.monotonic(), False
@@ -482,7 +525,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
         arguments = data.get("data", {})
         if not isinstance(arguments, dict):
             return
-        if await self.current_identity() is None:
+        # 점프(꾸밈 동작)는 조작마다 DB 를 보지 않는다(계획 M8): 소켓 DB 스레드는 하나라 포화되면 그 사람의 다음 메시지가 모두 밀렸다.
+        # 만료 시각 확인(메시지마다)·10초 세션 확인·로그아웃 알림이 지킨다. 상태를 바꾸는 조작은 그대로 확인한다
+        if action != "jump" and await self.current_identity() is None:
             await self.session_expired({"reason": self.policy_status.get("reason", "signed_out")})
             return
         self.last_seen = time.monotonic()
@@ -491,7 +536,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
                 if action == "jump":
                     result = await self.receive_jump(arguments)
                     await self.send_packet({"type": "control_result", "requestId": request_id, "result": result})
-                    await self.touch_activity()
+                    await self.touch_activity(wait=False)
                     return
                 if action == "poke":
                     result = await self.receive_poke(arguments)
@@ -528,7 +573,8 @@ class CampusConsumer(AsyncWebsocketConsumer):
         if self.controller.interior:
             await self.send_packet(packet)
         else:
-            await self.broadcast(packet)
+            pose = self.controller.pose
+            await share_effect(room, packet, near=(pose["floor"], pose["x"], pose["y"], VIEW_RANGE))
         return {"type": "jump", "id": packet["id"]}
 
     async def receive_poke(self, arguments):
@@ -582,26 +628,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
 
     async def send_poke_to(self, recipients, payload):
         # Cosmetic effects go directly to nearby sockets, never to the global presence group.
-        for player_id in recipients:
-            channel = room.channels.get(player_id) or room.cluster.remote.get(player_id, {}).get("channel")
-            if channel:
-                try:
-                    await self.channel_layer.send(channel, {
-                        "type": "presence.packet", "sender": self.player_id, "payload": payload,
-                    })
-                except ChannelFull:
-                    if payload['type'] == 'poke_state':
-                        self.pending_poke_states[player_id] = payload
-                else:
-                    if payload['type'] == 'poke_state':
-                        self.pending_poke_states.pop(player_id, None)
-
-    async def flush_poke_states(self):
-        for player_id, packet in list(self.pending_poke_states.items()):
-            if player_id not in room.channels and player_id not in room.cluster.remote:
-                self.pending_poke_states.pop(player_id, None)
-            else:
-                await self.send_poke_to({player_id}, packet)
+        await share_effect(room, payload, to=recipients)
 
     def poke_state(self, active, now):
         return {"type": "poke_state", "id": self.poke_stream_id, "actorId": self.player_id,
@@ -617,7 +644,6 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.poke_scope = None
 
     async def tick_poke(self):
-        await self.flush_poke_states()
         now = time.monotonic()
         if (not self.poke_requested or now - self.controller.last_input > poke.INPUT_LEASE
                 or time.time() * 1000 >= self.policy_status.get("expiresAt", 0)):
@@ -701,7 +727,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
             if self.player_id not in room.players:
                 return
             room.players[self.player_id] = self.state.copy()
-            await self.broadcast({"type": "chat", "message": {
+            await share_effect(room, {"type": "chat", "message": {
                 "id": message_id,
                 "playerId": self.player_id,
                 "nickname": identity["nickname"],
@@ -756,16 +782,9 @@ class CampusConsumer(AsyncWebsocketConsumer):
         })
 
     async def presence_packet(self, event):
-        payload = event["payload"]
-        if payload["type"] in {"poke", "poke_state", "poke_hit", "jump"}:
-            interior = getattr(self, "controller", None) and self.controller.interior
-            if payload.get("context") == "classroom":
-                if self.player_id != payload["actorId"] or not interior or interior["subject"] != payload.get("subject"):
-                    return
-            elif interior or payload["floor"] != self.state["floor"]:
-                return
-        if self.player_id in room.players and (event["sender"] != self.player_id or payload["type"] in {"chat", "poke", "poke_state", "poke_hit", "jump"}):
-            await self.send_packet(payload)
+        # 채널 계층으로 오는 방송은 이동(이름·아바타 바뀜, 예전 이동 방식)뿐이다. 찌르기·점프·채팅은 share_effect(계획 M8)
+        if self.player_id in room.players and event["sender"] != self.player_id:
+            await self.send_packet(event["payload"])
 
     async def direct_message(self, event):
         if self.player_id in room.players and settings.CAMPUS_DM_ENABLED:

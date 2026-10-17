@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from channels.db import database_sync_to_async
-from channels.exceptions import ChannelFull
 from channels.layers import get_channel_layer
 from django.contrib.sessions.models import Session
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
@@ -38,8 +37,6 @@ class ContinuousPokeTests(SimpleTestCase):
         c.poke_stream_id = None
         c.poke_direction = None
         c.poke_watchers = set()
-        c.pending_poke_states = {}
-        c.channel_layer = SimpleNamespace(send=AsyncMock())
         c.send_packet = AsyncMock()
         c.current_identity = AsyncMock(return_value={})
         c.touch_activity = AsyncMock()
@@ -49,6 +46,7 @@ class ContinuousPokeTests(SimpleTestCase):
                              "far": {"id": "far", "floor": "campus", "x": 900, "y": 100},
                              "roof": {"id": "roof", "floor": "rooftop", "x": 130, "y": 100}}
         self.room.channels = {key: "channel." + key for key in self.room.players}
+        self.room.sockets = {key: SimpleNamespace(send=AsyncMock()) for key in self.room.players}  # 찌르기는 소켓에 바로(계획 M8)
         self.room_patch = patch.object(consumers, "room", self.room)
         self.room_patch.start()
         self.addCleanup(self.room_patch.stop)
@@ -57,8 +55,7 @@ class ContinuousPokeTests(SimpleTestCase):
         self.addCleanup(self.time_patch.stop)
 
     def packets(self, recipient="self"):
-        return [call.args[1]["payload"] for call in self.consumer.channel_layer.send.await_args_list
-                if call.args[0] == "channel." + recipient]
+        return [json.loads(call.kwargs["text_data"]) for call in self.room.sockets[recipient].send.await_args_list]
 
     async def tick(self, seconds, *, refresh=True):
         self.clock[0] = seconds
@@ -158,18 +155,13 @@ class ContinuousPokeTests(SimpleTestCase):
         self.assertFalse(self.consumer.poke_requested)
         self.assertIsNone(self.consumer.poke_started)
 
-    async def test_slow_recipient_retries_the_latest_state_without_accumulating_hits(self):
-        self.consumer.channel_layer.send.side_effect = ChannelFull
+    async def test_a_broken_recipient_socket_does_not_stop_the_others(self):
+        self.room.sockets['near'].send.side_effect = RuntimeError('closing')
         await self.tick(0)
-        self.assertTrue(self.consumer.pending_poke_states['near']['active'])
+        self.assertTrue(self.packets('self')[0]['active'])
         self.consumer.poke_requested = False
         await self.tick(.1)
-        self.assertFalse(self.consumer.pending_poke_states['near']['active'])
-        self.assertEqual(len(self.consumer.pending_poke_states), 2)
-        self.consumer.channel_layer.send.side_effect = None
-        await self.tick(.2)
-        self.assertEqual(self.consumer.pending_poke_states, {})
-        self.assertFalse(self.packets('near')[-1]['active'])
+        self.assertFalse(self.packets('self')[-1]['active'])
 
 
 @override_settings(ALLOWED_HOSTS=['127.0.0.1', 'testserver'], KAFKA_BOOTSTRAP_SERVERS='')
