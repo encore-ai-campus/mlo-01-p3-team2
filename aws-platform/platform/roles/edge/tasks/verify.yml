@@ -22,7 +22,7 @@
     argv: [/usr/bin/openssl, x509, -in, "/etc/letsencrypt/live/{{ edge_cert_name }}/fullchain.pem", -noout, -checkend, '3600']
   changed_when: false
 
-# EIP를 SAN으로 검증하면서 로컬 리스너에 연결한다. 임의 인증서 허용은 하지 않는다.
+# 도메인이 있으면 SNI와 호스트명을 검증하고, 기존 IP 모드도 유지한다.
 - name: 신뢰 가능한 HTTPS 연결 검증
   ansible.builtin.command:
     argv:
@@ -33,7 +33,7 @@
         with socket.create_connection(('127.0.0.1', 443), timeout=10) as raw:
             with ssl.create_default_context().wrap_socket(raw, server_hostname=sys.argv[1]) as tls:
                 print(tls.version())
-      - "{{ edge_public_ip }}"
+      - "{{ edge_domain or edge_public_ip }}"
   changed_when: false
 
 - name: HTTP 일반 요청 처리 확인
@@ -43,6 +43,19 @@
     follow_redirects: none
     use_proxy: false
   changed_when: false
+  register: edge_http_response
+
+- name: 도메인 이동 대상 확인
+  ansible.builtin.assert:
+    that:
+      - edge_http_response.location == 'https://' ~ edge_domain ~ '/'
+  when: edge_domain | length > 0
+
+- name: 도메인 인증서 잔여 수명 검증
+  ansible.builtin.command:
+    argv: [/usr/bin/openssl, x509, -in, "/etc/letsencrypt/live/{{ edge_domain_cert_name }}/fullchain.pem", -noout, -checkend, '3600']
+  changed_when: false
+  when: edge_domain | length > 0
 
 - name: 갱신 타이머 상태 확인
   ansible.builtin.command: systemctl is-active edge-certbot-renew.timer

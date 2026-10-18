@@ -8,6 +8,12 @@
       - edge_frontend_upstreams is not string
       - not (edge_frontend_mode | bool) or edge_frontend_upstreams | length == 1
       - edge_certbot_version is version('5.4.0', '>=')
+      - edge_domain == '' or edge_domain is match('^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$')
+      - edge_domain == '' or edge_game_backend_host is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+      - edge_domain == '' or edge_game_backend_port | int > 0
+      - edge_domain == '' or edge_game_backend_port | int < 65536
+      - edge_domain == '' or edge_domain_cert_name == edge_domain
+      - edge_domain == '' or edge_http_redirect | bool
     fail_msg: 실제 EIP와 허용할 사용자 IPv4 CIDR, Certbot 5.4 이상을 지정한다.
 
 - name: IP와 CIDR 형식 확인
@@ -89,6 +95,17 @@
   ansible.builtin.set_fact:
     edge_tls_ready: "{{ edge_certificate_before.stat.exists }}"
 
+- name: 기존 도메인 인증서 확인
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ edge_domain_cert_name }}/fullchain.pem"
+    follow: true
+  register: edge_domain_certificate_before
+  when: edge_domain | length > 0
+
+- name: 도메인 HTTPS 준비 상태 선택
+  ansible.builtin.set_fact:
+    edge_domain_tls_ready: "{{ edge_domain_certificate_before.stat.exists | default(false) }}"
+
 # 인증서가 없으면 HTTP 검증 경로만 열고, 재실행이면 기존 HTTPS를 유지한다.
 - name: 인증서 발급 전 Nginx 설정
   ansible.builtin.template:
@@ -153,6 +170,10 @@
 - name: HTTPS 설정 활성화
   ansible.builtin.set_fact:
     edge_tls_ready: true
+
+- name: 도메인 인증서 준비
+  ansible.builtin.import_tasks: domain-certificate.yml
+  when: edge_domain | length > 0
 
 - name: HTTPS와 Front 분산 설정
   ansible.builtin.template:

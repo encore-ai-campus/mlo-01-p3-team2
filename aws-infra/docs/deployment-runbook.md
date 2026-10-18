@@ -705,8 +705,10 @@ ALB 제거만으로 Front HTTPS 설치가 완료되지는 않는다. 현재 코�
 생성 인벤토리에서 다음 값을 확인한다. Inventory는 현재 구현상 서비스 서버와 Bastion이 실행 중이어야 생성할 수 있다.
 
 - game_frontend와 ad_frontend 그룹에 각각 front-a·front-b가 있다.
-- 각 Front의 public_ip는 자기 EIP이고 edge_frontend_upstreams는 대응 Backend 사설 IP:8000 한 개다.
-- edge_frontend_mode=true, edge_http_redirect=true, edge_https_allowed_cidrs=[0.0.0.0/0]이다.
+- 각 Front의 public_ip는 자기 EIP다. 도메인이 없는 광고 Front는 대응 Backend 사설 IP:8000을 사용한다.
+- 게임 도메인은 platform.json의 frontend_domains.front-a에 bootcampmetaverse.site를 지정한다. 저장소 config/game-front-domain.example.json의 항목을 기존 프로필에 병합하며, 예제로 프로필 전체를 교체하지 않는다.
+- 게임 도메인 모드의 edge_frontend_upstreams는 127.0.0.1:8004다. WebSocket 목적지는 frontend_backend_nodes로 선택한 서버의 실제 사설 IP:8000이며, 현재 로컬 프로필은 game-server-test다.
+- edge_frontend_mode=true이며 edge_http_redirect는 게임 도메인에서 true, 기존 IP 방식에서 false다. edge_https_allowed_cidrs는 public_http_cidrs(없으면 game_client_cidrs)를 따른다. 임시 전체 IP 허용을 영구 설정으로 넣지 않는다.
 - 광고 Front만 edge_client_max_body_size=3m이며 게임 Front는 역할 기본값 1m을 사용한다.
 - Account 1 네 서비스에는 account1_service_restricted=true가 있고 SSH는 준비된 Bastion·개인키를 경유한다.
 
@@ -722,7 +724,7 @@ export ANSIBLE_CONFIG="$PWD/ansible.cfg"
 
 게임 Front는 게임 Backend, 광고 Front는 광고 Backend의 사설 IP:8000으로 전달한다. /static/·/assets/도 해당 Backend로 넘기며 두 Front 사이의 전달은 구성하지 않는다. 각 Front 80은 전체 IPv4 공개, 443은 222.112.208.66~72의 7개 /32로 제한하고 송신도 전체 IPv4를 허용한다. Account 1 Backend 8000 수신은 해당 Front·상대 Backend SG만, 네 서비스 SSH 22는 Bastion SG만 허용한다. 동일한 제한이 서버 방화벽에도 적용되도록 인벤토리와 Ansible 적용 결과를 확인한다.
 
-HTTP의 /.well-known/acme-challenge/는 검증 파일을 제공하고 나머지 경로는 HTTPS로 308 리다이렉트한다. 공인 IP HTTPS 구성에는 HSTS를 추가하지 않는다. 설치 후 각 Front에서 인증서·갱신 타이머, HTTP 리다이렉트, 대응 Backend 응답을 따로 확인한다. TLS 성공만으로 Django·광고 앱 배포까지 완료된 것은 아니다. 앱 실행·정적 파일 제공·환경변수는 별도 작업이다.
+HTTP의 /.well-known/acme-challenge/는 검증 파일을 제공한다. 게임 도메인 모드는 나머지 경로를 도메인 HTTPS로 308 이동하고, 광고의 기존 IP 모드는 404를 반환한다. 공인 IP HTTPS 구성에는 HSTS를 추가하지 않는다. 설치 후 각 Front에서 인증서·갱신 타이머, HTTP 리다이렉트, 대응 Backend 응답을 따로 확인한다. TLS 성공만으로 Django·광고 앱 배포까지 완료된 것은 아니다. 앱 실행·정적 파일 제공·환경변수는 별도 작업이다.
 
 접속 장소의 공인 IP가 바뀌어도 공개 웹 80·443의 허용 목록은 바꾸지 않는다. 관리 SSH가 필요하면 admin_public_cidrs를 확인한다. Front 재생성으로 EIP가 바뀌면 Inventory를 다시 생성하고 각 Front의 인증서·Nginx와 앱에서 사용하는 외부 주소를 갱신한다.
 

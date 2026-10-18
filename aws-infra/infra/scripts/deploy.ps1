@@ -171,6 +171,12 @@ function Write-DeploymentInventory {
             if (-not $instance.PublicIpAddress) { throw "$($record.Name)의 공인 IP가 없습니다." }
             $backendRole = if ($record.Role -eq 'game_frontend') { 'game' } else { 'ad' }
             $backendRecords = @($records | Where-Object { $_.Account -eq 'account1' -and $_.Role -eq $backendRole })
+            # 테스트 Backend를 추가해도 Front는 구성에 지정한 기존 서버를 계속 사용한다.
+            $backendSelection = $platform.PSObject.Properties['frontend_backend_nodes']
+            if ($backendSelection -and $backendSelection.Value.PSObject.Properties[$record.Name]) {
+                $selectedBackend = $backendSelection.Value.($record.Name)
+                $backendRecords = @($backendRecords | Where-Object { $_.Name -eq $selectedBackend })
+            }
             if ($backendRecords.Count -ne 1) { throw "$backendRole Backend는 정확히 한 대여야 합니다." }
             $backendInstance = $live[$backendRecords[0].Id]
             if (-not $backendInstance.PrivateIpAddress) { throw "$backendRole Backend 사설 IP가 없습니다." }
@@ -190,6 +196,19 @@ function Write-DeploymentInventory {
             # 광고 업로드만 3m까지 전달하고 게임 Front는 역할 기본값을 사용한다.
             if ($record.Role -eq 'ad_frontend') { $hostVars.edge_client_max_body_size = '3m' }
             $hostVars.edge_frontend_upstreams = @(@{ host = $backendInstance.PrivateIpAddress; port = 8000 })
+            # 게임 도메인은 명시한 Front에만 적용한다. IP 인증서는 이동용으로 유지한다.
+            $domainSettings = $platform.PSObject.Properties['frontend_domains']
+            if ($domainSettings -and $domainSettings.Value.PSObject.Properties[$record.Name]) {
+                $domain = [string]$domainSettings.Value.($record.Name)
+                if ($record.Role -ne 'game_frontend' -or $domain -notmatch '^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$') {
+                    throw 'frontend_domains는 게임 Front의 유효한 소문자 DNS 이름이어야 합니다.'
+                }
+                $hostVars.edge_domain = $domain
+                $hostVars.edge_http_redirect = $true
+                $hostVars.edge_frontend_upstreams = @(@{ host = '127.0.0.1'; port = 8004 })
+                $hostVars.edge_game_backend_host = $backendInstance.PrivateIpAddress
+                $hostVars.edge_game_backend_port = 8000
+            }
         }
         if ($record.Role -eq 'edge') {
             if (-not $instance.PSObject.Properties['PublicIpAddress'] -or -not $instance.PublicIpAddress) { throw '진입 서버의 EIP가 없습니다.' }

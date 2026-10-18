@@ -1,6 +1,6 @@
 # site.yml
 
-2026-10-13 HTTPS play의 대상은 edge:game_frontend:ad_frontend다. 기존 설치 역할을 각 Front 호스트에서 독립적으로 실행하며 Django나 광고 앱 배포를 추가하지 않는다.
+2026-10-18 HTTPS play의 대상은 edge:game_frontend:ad_frontend다. 게임은 도메인·IP 이동용 인증서와 로컬 앱/WebSocket 전달 경로를, 광고는 기존 IP 모드를 사용한다. Django나 광고 앱 자체를 배포하지 않는다. 도메인은 edge_domain으로 선택하며 [현재 운영 구성](../../../../aws-infra/docs/operations/current-state.md)과 원격 재배포 전 상태를 구분한다.
 
 [탐색 시작점](../ROUTING-README.md) · [역할 지도](roles/README.md) · [원본 파일](../../site.yml)
 

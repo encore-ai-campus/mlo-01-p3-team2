@@ -1,6 +1,6 @@
 # 전체 EC2 중지·시작
 
-`infra/scripts/power-all.ps1`은 선택한 배포 구성의 Bastion·서비스 EC2를 계정별로 병렬 중지·시작한다. 기본 구성은 `infra/config/profiles/current`이며, 현재 이 구성에는 5개 계정의 EC2 18대가 있다. 실행 위치와 관계없이 스크립트 위치에서 기본 구성을 찾는다.
+`infra/scripts/power-all.ps1`은 선택한 배포 구성의 Bastion·서비스 EC2를 계정별로 병렬 중지·시작한다. 기본 구성은 `infra/config/profiles/current`이며, 2026-10-18 현재 이 구성에는 테스트 Backend를 포함한 5개 계정의 EC2 19대가 있다. 실행 위치와 관계없이 스크립트 위치에서 기본 구성을 찾는다.
 
 ```powershell
 # C:\third-project\aws에서 전체 EC2 중지
@@ -51,3 +51,9 @@ python .\infra\tests\test_power_all.py pwsh
 ```
 
 2026-10-14 검증: Windows PowerShell 5.1과 PowerShell 7에서 각각 13개 모의 시나리오가 통과했다. 실제 `current` 구성에 `-Action Stop -WhatIf`를 실행해 5개 계정의 18대, 소유자·태그와 중지 권한도 확인했다. 확인 당시 18대 모두 `running`이었으며, 실제 중지·시작과 클러스터 재기동 시험은 수행하지 않았다.
+
+## 현재 자동 예약 — 2026-10-18 조회
+
+5개 계정의 aws-infra-office-hours 그룹은 ec2-start-0900(이름 유지)을 평일 08:30, ec2-stop-2200을 매일 22:00 Asia/Seoul에 실행한다. 모두 ENABLED다. 대상은 기존 18대이며 game-server-test는 두 예약 모두 제외된다. power-all.ps1의 current 19대와 예약 대상을 혼동하지 않는다.
+
+수동 Stop은 자동 예약을 비활성화하지 않는다. 이번 문서 정리는 예약·서버 상태를 바꾸지 않았다. [서버별 현재 상태와 주소](current-state.md)를 참고한다. 아래 명령 실행 성공은 DB 복제·앱 정상 상태까지 보장하지 않는다.

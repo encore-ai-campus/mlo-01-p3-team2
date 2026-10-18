@@ -1,5 +1,7 @@
 # platform
 
+2026-10-18 운영 기준은 [현재 운영 구성](../../aws-infra/docs/operations/current-state.md)이다. 게임 Front는 bootcampmetaverse.site, 광고 Front는 IP HTTPS다. 도메인·IP 인증서와 Front 앱·WebSocket 경로를 재현하는 edge 코드는 로컬 검증 완료, 원격 재배포 전이다. EC2 19대는 조회 당시 중지 상태다. [edge 역할](docs/platform-routing/roles/edge/README.md)에 설정·검증 범위를 정리했다.
+
 실행 코드·설정·문서를 저장소 루트의 `aws-platform/platform/`에 함께 둔다. 아래 명령은 이 디렉터리에서 실행한다.
 
 막 생성된 Ubuntu 24.04 LTS(기본) 또는 Amazon Linux 2023 VM에 Ansible로 보안 설정과 역할별 구축을 한다. OS는 서버에서 자동 감지한다. 설계와 결정 사항은 [자동화 설계](../design/infra-automation-design.md)에 있다.
@@ -10,13 +12,13 @@
 
 MySQL 역할은 전체 mysql 그룹 3~9대의 단일 Primary InnoDB Cluster를 구축한다. Group Replication의 MYSQL 통신 스택(기본 3306)과 자동 Primary 선출을 사용하며, game·ad·spark·mysql·backend의 기존 서버에 로컬 MySQL Router를 설치·bootstrap·서비스 실행한다. 앱의 읽기·쓰기 접속은 기본 127.0.0.1:6446, 읽기 전용은 6447이다. 공유 설정은 [MySQL·Router 변수 지도](docs/platform-routing/inventory/group_vars/all/mysql.yml.md)에 있다. 설치 경계는 [MySQL 역할](docs/platform-routing/roles/mysql/README.md)과 [backend 역할의 Router](docs/platform-routing/roles/backend/README.md)를 따른다.
 
-기본 및 `profiles/current` 배포 프로필에는 MySQL EC2 3대(mysql-1/account3, mysql-2/account5, mysql-3/account4)가 정의되어 있고 서비스 EC2는 총 17대다. 선택 Bastion은 별도다. 2026-10-13 로컬 확인 기준으로 `inventory/hosts.current.yml`에는 mysql-1·mysql-2·mysql-3와 Front별 그룹 `game_frontend`·`ad_frontend`가 포함되어 있다. `ansible.cfg`는 이 파일을 기본 인벤토리로 사용한다. 서버를 생성·교체하거나 주소가 바뀌면 [배포 절차의 Inventory 단계](../../aws-infra/docs/deployment-runbook.md#6-현재-ec2-주소로-인벤토리-생성)로 갱신하고 대상 그룹과 접속을 확인한다. 인벤토리 등록은 실제 EC2 가동·MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. 기존 ReplicaSet의 데이터 이전은 별도 계획으로 진행하며 이 역할은 기존 메타데이터를 삭제해 자동 전환하지 않는다.
+기본 배포 프로필에는 MySQL EC2 3대(mysql-1/account3, mysql-2/account5, mysql-3/account4)가 정의되어 있고 기본 서비스 EC2는 17대다. 로컬 current·실제 AWS는 테스트 Backend를 포함한 서비스 18대와 Bastion 1대다. 2026-10-13 로컬 확인 기준으로 `inventory/hosts.current.yml`에는 mysql-1·mysql-2·mysql-3와 Front별 그룹 `game_frontend`·`ad_frontend`가 포함되어 있다. `ansible.cfg`는 이 파일을 기본 인벤토리로 사용한다. 서버를 생성·교체하거나 주소가 바뀌면 [배포 절차의 Inventory 단계](../../aws-infra/docs/deployment-runbook.md#6-현재-ec2-주소로-인벤토리-생성)로 갱신하고 대상 그룹과 접속을 확인한다. 인벤토리 등록은 실제 EC2 가동·MySQL 설치·Cluster 가입 완료를 뜻하지 않는다. 기존 ReplicaSet의 데이터 이전은 별도 계획으로 진행하며 이 역할은 기존 메타데이터를 삭제해 자동 전환하지 않는다.
 
 MySQL 설치 후 Router 역할을 실행한다. 아래 명령은 운영자가 준비 조건을 확인한 뒤 실행하는 명령이며 이번 작업에서는 EC2에 실행하지 않았다.
 
 ```bash
 # WSL의 플랫폼 폴더·기존 가상환경·선택한 인벤토리를 먼저 지정한다.
-cd /mnt/c/third_project/aws-platform/platform
+cd /mnt/c/third-project/aws/aws-platform/platform
 source "$HOME/.venvs/platform/bin/activate"
 export ANSIBLE_CONFIG="$PWD/ansible.cfg"
 inventoryFile="$PWD/inventory/hosts.current.yml"
@@ -58,7 +60,7 @@ Spark 연동 테스트는 MYSQL_HOST=127.0.0.1과 MYSQL_PORT=6446을 사용한�
 운영 PC의 WSL에서 준비한 Ansible 가상환경을 활성화한다. `ansible.cfg`의 기본 인벤토리는 `inventory/hosts.current.yml`이다. 이 파일이 없는 새 체크아웃에서는 먼저 해당 프로필의 Inventory를 생성한다. 다른 프로필·팀 접속용·수동 인벤토리를 쓰면 `-i`로 파일을 명시한다. 수동 인벤토리는 [예시](inventory/hosts.example.yml)를 참고해 별도로 작성하되 MySQL 3~9대와 HTTPS 대상 그룹 `edge`·`game_frontend`·`ad_frontend`를 구성한다. 기존 `hosts.yml`은 자동으로 읽지 않는다.
 
 ```bash
-cd /mnt/c/third_project/aws-platform/platform
+cd /mnt/c/third-project/aws/aws-platform/platform
 source "$HOME/.venvs/platform/bin/activate"
 export ANSIBLE_CONFIG="$PWD/ansible.cfg"
 inventoryFile="$PWD/inventory/hosts.current.yml"
@@ -146,8 +148,8 @@ bash scripts/setup-team-access.sh \
 
 ~~~bash
 # 현재 인벤토리로 account1의 프록시를 준비한다. 필요하면 account4, spark 또는 all로 바꾼다.
-bash /mnt/c/third_project/aws-platform/platform/scripts/setup-proxy.sh \
-  --inventory /mnt/c/third_project/aws-platform/platform/inventory/hosts.current.yml \
+bash /mnt/c/third-project/aws/aws-platform/platform/scripts/setup-proxy.sh \
+  --inventory /mnt/c/third-project/aws/aws-platform/platform/inventory/hosts.current.yml \
   --limit account1
 ~~~
 
@@ -173,8 +175,8 @@ Windows에서는 PC의 WSL에서 실행한다. Ansible이 Windows 마운트의 �
 
 ```bash
 # WSL에서 기존 플랫폼 디렉터리와 설치한 Ansible 환경을 사용한다.
-cd /mnt/c/third_project/aws-platform/platform
-export ANSIBLE_CONFIG=/mnt/c/third_project/aws-platform/platform/ansible.cfg
+cd /mnt/c/third-project/aws/aws-platform/platform
+export ANSIBLE_CONFIG=/mnt/c/third-project/aws/aws-platform/platform/ansible.cfg
 
 inventoryFile="$PWD/inventory/hosts.current.yml"
 
@@ -204,8 +206,8 @@ Master RPC 7077·내부 Master UI 8080, Worker RPC 7100, Driver 7078–7094·Blo
 
 [setup-team-access.sh](scripts/setup-team-access.sh)는 준비된 EC2 Instance Connect Endpoint·AWS 인증·서버 공개키·인벤토리를 사용한다. 운영 PC의 WSL/Linux에서 전용 SSH 설정과 접속용 인벤토리를 생성하고 배스천 SSH·프라이빗 서버 ping을 확인한다. Endpoint·IAM·보안그룹과 원격 계정은 먼저 준비해야 한다. 개인키는 배스천으로 복사하지 않는다. common/tasks/main.yml은 users가 비어 있거나 미정의여도 sudo 파일에 관리 주석을 남겨 빈 content 오류를 방지하며 visudo로 문법을 검사한다. 이번 문서 작업에서 원격 접속은 실행하지 않았다.
 
-## 진입 서버의 무료 IP HTTPS
+## 게임 도메인과 광고 IP HTTPS
 
-[edge.yml](docs/platform-routing/edge.yml.md)은 Ubuntu 24.04 진입 서버에 common·firewall·Nginx·Certbot 5.8.0을 설치한다. 서버 EIP와 사용자 출발지 CIDR을 구분해 입력한다. HTTP80은 인증서 검증 경로만 제공하고 HTTPS443은 사용자 CIDR을 검사한다. 최초 시험 발급 이후 운영 인증서를 연결하고 자동 갱신을 구성한다. 실제 실행 전에는 서버·인증서가 생성되지 않는다.
+[edge.yml](docs/platform-routing/edge.yml.md)은 Ubuntu 24.04 진입 서버에 common·firewall·Nginx·Certbot 5.8.0을 설치한다. 서버 EIP와 사용자 출발지 CIDR을 구분해 입력한다. HTTP80은 ACME 검증 경로와 게임 도메인 이동(광고 IP 모드는 404)을 제공하며 HTTPS443은 지정 CIDR을 검사한다. 게임은 도메인 인증서와 IP 이동용 인증서를 함께 관리한다. 최초 시험 발급 이후 운영 인증서를 연결하고 자동 갱신을 구성한다. 실제 실행 전에는 서버·인증서가 생성되지 않는다.
 
 [edge 역할의 입력과 실행 예](docs/platform-routing/roles/edge/README.md)를 따른다. 단일 서버 인벤토리는 기존 inventory/group_vars 밖에 두면 DB Vault 없이 실행할 수 있다. Front 목록이 비어 있으면 HTTPS 준비 화면만 제공한다. Front 앱 배포와 데이터 전달은 별도다. 사용자 공인 IP가 바뀌면 AWS SG와 edge_https_allowed_cidrs를 함께 갱신하고 firewall,edge 태그를 재적용한다. 서버 EIP가 같으면 인증서 주소는 유지한다.

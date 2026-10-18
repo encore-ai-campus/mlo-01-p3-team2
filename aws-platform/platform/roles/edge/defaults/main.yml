@@ -18,3 +18,10 @@ edge_http_redirect: false
 edge_frontend_mode: false
 # 광고 Front의 인벤토리에서만 3m으로 덮어쓴다.
 edge_client_max_body_size: "1m"
+
+# 도메인이 없는 Front는 기존 IP 인증서와 전달 방식을 유지한다.
+edge_domain: ""
+edge_domain_cert_name: "{{ edge_domain }}"
+edge_game_backend_host: ""
+edge_game_backend_port: 8000
+edge_static_root: /var/www/playdata-campus/static/

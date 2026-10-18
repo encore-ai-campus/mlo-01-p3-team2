@@ -1,8 +1,8 @@
 # 인벤토리와 접속·Secret 지도
 
-## Front별 입력 — 2026-10-13
+## Front별 입력 — 2026-10-18
 
-deploy.ps1이 account1의 두 Front에 EIP·공개 HTTPS CIDR·HTTP 리다이렉트·단일 Backend 주소를 기록한다. 네 서비스의 account1_service_restricted는 Bastion 전용 SSH 및 Backend별 8000 제한을 켠다. 기존 생성 인벤토리는 자동 변경되지 않으며 실제 배포 후 Inventory를 다시 실행해야 한다.
+deploy.ps1은 두 Front의 EIP·프로필 HTTPS 허용 목록을 기록한다. 게임 도메인이 있으면 도메인 이동·127.0.0.1:8004·선택 Backend WebSocket 주소를 기록하고, 광고 IP 모드는 Backend:8000·HTTP 404다. frontend_domains·frontend_backend_nodes는 platform.json에 둔다. 생성된 인벤토리는 자동 갱신되지 않으므로 프로필 변경 후 Inventory를 다시 실행한다. Account 1 서비스는 Bastion SSH와 Backend별 8000 제한을 사용한다.
 
 [탐색 시작점](../../ROUTING-README.md)
 

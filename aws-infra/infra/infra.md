@@ -77,7 +77,7 @@ S3 상태는 foundation/workload 계정별 10개와 shared/connectivity 1개, �
 
 생성 후 Inventory → Proxy는 [deploy.ps1 실행 안내](scripts/scripts.md#비용별-구성-선택과-일괄-배포)를 따른다. Proxy 완료 후 Vault·데이터 마운트를 준비하고 WSL에서 서비스 역할을 실행한다. 클러스터 설치는 각 역할 전체를 대상으로 검증까지 완료한다. 현재 플랫폼 MySQL은 3~9대가 필요하며 기본 설정도 세 대다. mysql-3를 포함한 최신 인벤토리와 새 서버의 Proxy·데이터 마운트·방화벽을 먼저 준비한다. [MySQL·Router 역할](../../aws-platform/platform/docs/platform-routing/roles/mysql/README.md)의 준비 조건과 인벤토리 재생성을 먼저 확인한다.
 
-현재 데이터 EBS의 prevent_destroy=true다. 사양·노드 이름·계정·AZ 변경 계획에 데이터 삭제·교체가 포함되면 보호 설정 때문에 계획이 실패할 수 있다. 자동 백업·이전·파일시스템 확장은 없다. 전체 정리는 Plan·Apply 또는 단일 Destroy의 [삭제 절차](../docs/operations-recovery.md#6-전체-인프라-삭제)로 분리하고 상태 밖 수동 자원이나 상태 S3 버킷을 삭제한다고 가정하지 않는다.
+현재 데이터 EBS의 prevent_destroy=false다. 따라서 이 설정으로 데이터 삭제·교체를 막지 않는다. 자동 백업·이전·파일시스템 확장은 없다. 전체 정리는 [삭제 절차](../docs/operations-recovery.md#6-전체-인프라-삭제)를 따르며 명시적 데이터 삭제 선택과 계획 검사는 별도다.
 
 ## 6. 테스트와 이관 이력
 

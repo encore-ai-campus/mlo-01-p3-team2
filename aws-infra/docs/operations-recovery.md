@@ -1,5 +1,7 @@
 # 복원·운영 절차
 
+2026-10-18 운영 기준은 [현재 구성](operations/current-state.md)이다. 현재 전원·예약 안내는 [ec2-power](operations/ec2-power.md)를 따르며 기존 18대 예약과 수동 current 19대 대상을 구분한다. 게임은 bootcampmetaverse.site를 사용하고 IP HTTPS는 도메인으로 이동한다.
+
 [배포 절차로 돌아가기](deployment-runbook.md) · [배포 명령 설명](../infra/scripts/scripts.md) · [코드 탐색](infra-routing/ROUTING-README.md)
 
 배포 중 발생한 오류의 확인·복구와 이미 만든 환경의 운영 명령을 모은 문서다. scripts.md에 있던 절차를 이곳으로 옮겼다. 아래 명령을 위에서부터 전부 실행하지 않고 해당 증상·작업의 절만 선택한다. 이 문서의 복원은 설정·접속·배포 흐름 복구를 뜻하며 삭제된 DB 데이터나 EBS를 되살리는 절차는 포함하지 않는다.
@@ -230,7 +232,7 @@ Prepare가 갱신한 기본 topology의 키 경로와 선택한 프로필의 키
 
 workload가 생성한 역할별 service_console_ssh 규칙도 전체 삭제 대상이다. 삭제 검사기는 정확한 자원 주소와 문자열 역할 키 형식을 허용하며 단계·태그·계정·삭제 전용 검사를 유지한다. 관련 함수를 수정한 뒤에는 이전 실패 실행 ID를 재사용하지 않고 새 Plan을 만든다. [삭제 검사 문서](infra-routing/scripts/lib/infra-destroy.ps1.md)를 참고한다.
 
-현재 [compute의 데이터 EBS 보호](infra-routing/terraform/README.md#compute)는 prevent_destroy=true다. 아래 명령은 지정한 옵션으로 Plan 전에 잠시 해제하고 종료 시 원래 값으로 복원한다. `-DeleteDataVolumes`만으로는 이 보호가 해제되지 않으며, 별도 Plan·Apply에서도 자동 해제하지 않는다. 이전 구현 당시의 false 값은 [검증 이력](infra-routing/verification.md)에 당시 상태로 남긴다.
+현재 [compute의 데이터 EBS 보호](infra-routing/terraform/README.md#compute)는 prevent_destroy=false다. true인 구성을 사용하면 DisableDataVolumeProtection으로 Plan 전에 잠시 해제하고 종료 시 원래 값으로 복원한다. DeleteDataVolumes 선택은 이 lifecycle 값과 별개다. 실제 삭제 계획과 적용 범위를 확인한다.
 
 ### 한 번의 명령으로 전체 삭제
 

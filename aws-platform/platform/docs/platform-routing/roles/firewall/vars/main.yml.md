@@ -27,4 +27,4 @@ YAML·Jinja는 routing-doc-sync의 Python AST 자동 심볼 검사 범위 밖이
 
 ## Edge HTTPS 추가
 
-edge 그룹은 HTTP80을 모든 출처에 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.
+edge 그룹은 HTTP80을 전체 허용하고 HTTPS443은 edge_https_allowed_cidrs가 있을 때만 해당 IPv4 CIDR을 허용한다. 현재 Account 1 Front는 별도 restricted 분기로 OS 80·443을 허용하며 SG·Nginx의 CIDR 제한을 함께 사용한다. HTTP 응답은 게임 도메인의 308 또는 광고 IP 방식의 404로 구분한다.

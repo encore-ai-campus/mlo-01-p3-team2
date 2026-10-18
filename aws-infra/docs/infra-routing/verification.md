@@ -568,3 +568,7 @@ Assert-InfraBastionPlan과 Assert-InfraDeletePlan의 정확한 허용 주소에 
 사용자가 HTTP 80 전체 IPv4 허용(인증서 검증용), HTTPS 443의 222.112.208.66~72 7개 /32 제한을 확정했다. 현재 workload 선언과 제공된 Account 1 Plan을 대조해 관련 안내·구성도·운영 문서를 수정했다. 웹 수신 규칙은 HTTP 2개 + HTTPS 14개 = 16개다. 허용 목록이 비어도 HTTP 2개는 유지하며 HTTPS 규칙만 생성하지 않는다.
 
 사용자가 제공한 Plan은 16 add / 0 change / 16 destroy이며, 변경 대상은 모두 Account 1 SG 인바운드 규칙이다. 삭제는 기존 Front 규칙 4개, Kafka·MySQL→Backend 8000 규칙 10개, 집 IP SSH 규칙 2개다. EC2·EBS·EIP 변경은 출력에 없다. 이 기록은 제공된 Plan 검토이며 Apply 성공 기록이 아니다. 이번 문서 수정에서는 AWS 명령·배포·테스트를 실행하지 않았다. 이전 28개 웹 규칙 모의 테스트 기록은 정책 변경 전 이력으로 보존했다.
+
+## 2026-10-18 게임 도메인 코드와 문서 동기화
+
+게임 Front 도메인·IP 이동용 인증서·로컬 앱·WebSocket 경로를 코드에 반영했다. 템플릿 6개 검사, PowerShell 실제 Front 분기의 게임/광고/선택 Backend/잘못된 도메인 검사, edge.yml 문법 검사가 통과했다. 원격 재배포·nginx -t·인증서 재발급은 하지 않았다. 운영 상태는 별도 AWS 읽기 조회로 EC2 19대 stopped, 연결 EBS 4,280GiB, 기존 18대의 평일 08:30 시작·매일 22:00 중지 예약을 확인했다. 과거 검증 결과는 원래 날짜 기준으로 보존한다.

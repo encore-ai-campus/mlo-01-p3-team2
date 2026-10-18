@@ -36,6 +36,6 @@ SSH는 운영 PC의 키로 Bastion을 경유한다. 개인키를 Bastion에 복�
 
 ## 데이터와 애플리케이션
 
-데이터 EBS는 생성·연결만 하며 포맷·마운트·파일시스템 확장은 자동화하지 않았다. MySQL /var/lib/mysql, Ubuntu MongoDB /var/lib/mongodb, Kafka /var/lib/kafka/data, Spark /var/lib/spark, ZooKeeper /var/lib/zookeeper가 실제 사용할 디스크를 설치 전에 확인한다. 마운트가 없으면 OS 디스크에 데이터가 기록된다. 현재 라우팅 문서 기준 compute의 prevent_destroy=true는 데이터 EBS 삭제·교체 보호이며 백업이나 데이터 이전 기능은 아니다.
+데이터 EBS는 생성·연결만 하며 포맷·마운트·파일시스템 확장은 자동화하지 않았다. MySQL /var/lib/mysql, Ubuntu MongoDB /var/lib/mongodb, Kafka /var/lib/kafka/data, Spark /var/lib/spark, ZooKeeper /var/lib/zookeeper가 실제 사용할 디스크를 설치 전에 확인한다. 마운트가 없으면 OS 디스크에 데이터가 기록된다. 현재 compute의 prevent_destroy=false는 삭제·교체를 막지 않는다. true인 구성의 보호도 백업이나 데이터 이전 기능은 아니다.
 
 edge의 Nginx·Certbot·외부 80·443, Front·game·ad 애플리케이션, Kafka 업무 Consumer, Spark 업무 잡과 원본 장기 보관·백업·복구·데이터 이전은 별도다. 전체 인프라 삭제 기능은 이 폴더가 아닌 [destroy-all.ps1](../scripts/destroy-all.ps1)에 있으며 데이터 EBS도 삭제할 수 있다.
