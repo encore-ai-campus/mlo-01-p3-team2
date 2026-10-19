@@ -6,7 +6,6 @@ KAFKA_BOOTSTRAP_SERVERS = ""
 # authoritative-controller tests explicitly override this compatibility setting.
 CAMPUS_TEST_LEGACY_MOVEMENT = True
 CAMPUS_SESSION_CLEANUP_ENABLED = False
-CAMPUS_RAFFLE_SCHEDULER_ENABLED = False
 DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
     'NAME': BASE_DIR / 'test-kafka-source.sqlite3',
     'TEST': {'NAME': str(BASE_DIR / 'test-kafka.sqlite3')}}}

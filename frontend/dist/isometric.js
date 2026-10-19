@@ -49,7 +49,11 @@
       if(drawing)poly([a,d,E,A],side);else poly([b,c,C,B],side);poly([d,c,C,E],front);poly([A,B,C,E],top);
     }
     function ellipse(x,y,rx,ry,color){g.beginPath();g.ellipse(x,y,rx,ry,0,0,Math.PI*2);g.fillStyle=color;g.fill();}
-    function shadow(o,z=0){plane(o.x+4,o.y+5,o.w,o.h,z+.2,'#493c3021',null);}
+    // Contact shadow: anchored at the footprint so objects sit on the floor, spreading slightly toward the viewer.
+    function shadow(o,z=0){
+      if(!['stool','ottoman'].includes(o.type)){plane(o.x,o.y,o.w+3,o.h+4,z+.2,'#493c3021',null);return;}
+      const cx=o.x+o.w/2+1.5,cy=o.y+o.h/2+2;poly(Array.from({length:24},(_,i)=>p(cx+Math.cos(i*Math.PI/12)*(o.w/2+1.5),cy+Math.sin(i*Math.PI/12)*(o.h/2+1.5),z+.2)),'#493c3021',null);
+    }
     function label(value,x,y,size=13,fg='#4e5d56',bg='#fffaf0ee',z=0) {
       const q=p(x,y,z);g.font=`600 ${size}px ${font}`;const w=g.measureText(value).width+20;
       g.fillStyle=bg;g.beginPath();g.roundRect(q.x-w/2,q.y-10,w,22,5);g.fill();
@@ -126,6 +130,11 @@
       g.font=`700 10px ${font}`;g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e5fbff';g.fillText('18F',q.x,q.y+17);
       g.restore();
     }
+    // 프레임마다 그리는 포털 빛에는 shadowBlur 를 쓰지 않는다(계획 B3): 흐림은 그릴 때마다 GPU 가 둘레 화소를 다시 번지게 한다.
+    // 같은 선·점을 굵고 옅게 한 번 더 그려 번짐을 흉내 낸다. 한 번만 그려 두는 바닥·게시판은 그대로 흐림을 쓴다.
+    function glowStroke(color,blur){const {strokeStyle,lineWidth,globalAlpha}=g;g.strokeStyle=color;g.lineWidth=lineWidth+blur*2;g.globalAlpha=globalAlpha*.3;g.stroke();g.strokeStyle=strokeStyle;g.lineWidth=lineWidth;g.globalAlpha=globalAlpha;g.stroke();}
+    function glowFill(color,blur){const {strokeStyle,lineWidth,lineJoin,globalAlpha}=g;g.strokeStyle=color;g.lineWidth=blur*2;g.lineJoin='round';g.globalAlpha=globalAlpha*.3;g.stroke();g.strokeStyle=strokeStyle;g.lineWidth=lineWidth;g.lineJoin=lineJoin;g.globalAlpha=globalAlpha;g.fill();}
+    function glowEllipse(x,y,rx,ry,color,glow,blur){const alpha=g.globalAlpha;g.globalAlpha=alpha*.3;ellipse(x,y,rx+blur,ry+blur,glow);g.globalAlpha=alpha;ellipse(x,y,rx,ry,color);}
     function portalEnergy(o,base,t=0) {
       const cx=o.x+o.w/2,cy=o.y+o.h/2,q=p(cx,cy,base),center=q.y-54,seconds=t/1000;
       g.save();
@@ -134,7 +143,7 @@
       circlePlane(cx,cy,27+pulse*12,base+.7,null,'#99e8ff');g.globalAlpha=1;
       g.save();g.beginPath();g.ellipse(q.x,center,24,45,0,0,Math.PI*2);g.clip();
       // Two flowing ribbons give the interior a slow, continuous swirl.
-      g.lineCap='round';g.shadowColor='#e1faff';g.shadowBlur=3;
+      g.lineCap='round';
       for(let strand=0;strand<2;strand++) {
         g.beginPath();
         for(let i=0;i<=44;i++) {
@@ -143,7 +152,7 @@
           const y=center+(u*2-1)*44;
           if(i)g.lineTo(x,y);else g.moveTo(x,y);
         }
-        g.strokeStyle=strand?'#a7efffc2':'#f2fdfff2';g.lineWidth=strand?1.4:2.2;g.stroke();
+        g.strokeStyle=strand?'#a7efffc2':'#f2fdfff2';g.lineWidth=strand?1.4:2.2;glowStroke('#e1faff',3);
       }
       for(let i=0;i<5;i++) {
         const u=(seconds*.19+i*.2)%1;
@@ -151,13 +160,12 @@
         ellipse(q.x+Math.sin(i*2.4+seconds*.65)*15,center+40-u*80,1.1+i%2*.5,1.6,'#f0fcff');
       }
       g.restore();
-      g.lineCap='round';g.shadowColor='#bcf5ff';g.shadowBlur=5;
+      g.lineCap='round';
       for(let i=0;i<3;i++) {
         const angle=seconds*.7+i*Math.PI*2/3;
         g.beginPath();g.ellipse(q.x,center,28,49,0,angle,angle+Math.PI*.34);
-        g.strokeStyle='#effeffe0';g.lineWidth=2;g.stroke();
+        g.strokeStyle='#effeffe0';g.lineWidth=2;glowStroke('#bcf5ff',5);
       }
-      g.shadowBlur=3;
       for(let i=0;i<10;i++) {
         const u=(seconds*.16+i*.113)%1;
         const x=q.x+Math.sin(i*2.37+seconds*.5)*(33+(i%3)*4),y=q.y-6-u*116;
@@ -166,7 +174,7 @@
         g.fillStyle=i%3?'#eaffff':'#94dfff';g.beginPath();
         g.moveTo(x,y-size*2);g.lineTo(x+size*.55,y-size*.55);g.lineTo(x+size*2,y);
         g.lineTo(x+size*.55,y+size*.55);g.lineTo(x,y+size*2);g.lineTo(x-size*.55,y+size*.55);
-        g.lineTo(x-size*2,y);g.lineTo(x-size*.55,y-size*.55);g.closePath();g.fill();
+        g.lineTo(x-size*2,y);g.lineTo(x-size*.55,y-size*.55);g.closePath();glowFill('#bcf5ff',3);
       }
       g.restore();
     }
@@ -214,7 +222,7 @@
       const cx=o.x+o.w/2,cy=o.y+o.h/2,base=groundHeight(cx,cy),q=p(cx,cy,base),seconds=t/1000;
       const scale=o.portalScale||1;
       const aroundExtinguisher=o.type==='fire-extinguisher',height=aroundExtinguisher?32:22;
-      g.save();g.lineCap='round';g.shadowColor='#d6fff0';g.shadowBlur=2;
+      g.save();g.lineCap='round';
       if(scale!==1){g.translate(q.x,q.y);g.scale(scale,scale);g.translate(-q.x,-q.y);}
       if(aroundExtinguisher){
         // Leave the red body, handle and white label clear while light moves around it.
@@ -227,15 +235,15 @@
         g.globalAlpha=.36+.09*Math.sin(seconds+strand);
         g.beginPath();g.moveTo(q.x+side*(aroundExtinguisher?10:2),q.y-1);
         g.bezierCurveTo(q.x+side*(aroundExtinguisher?12:3)-sway,q.y-height*.27,q.x+side*(aroundExtinguisher?15:5)+sway,q.y-height*.64,q.x+side*(aroundExtinguisher?17:7)+sway,q.y-height);
-        g.strokeStyle=trail;g.lineWidth=.8;g.stroke();
+        g.strokeStyle=trail;g.lineWidth=.8;glowStroke('#d6fff0',2);
       }
       for(let i=0;i<4;i++){
         const u=(seconds*.22+i*.25)%1,x=q.x+(aroundExtinguisher?(i%2?1:-1)*(10+u*6):Math.sin(i*2.6+seconds*.35)*(1.5+u*7)),y=q.y-2-u*height;
         g.globalAlpha=Math.sin(u*Math.PI)*.7;
-        ellipse(x,y,.7,1.1,'#f2ffff');
+        glowEllipse(x,y,.7,1.1,'#f2ffff','#d6fff0',2);
       }
       g.globalAlpha=.4+.06*Math.sin(seconds*1.2);
-      g.shadowBlur=3;ellipse(q.x,q.y-.5,4.5,1.8,'#efffff');g.restore();
+      glowEllipse(q.x,q.y-.5,4.5,1.8,'#efffff','#d6fff0',3);g.restore();
     }
     function playdataNoticeboard(width,height) {
       g.save();g.scale(width/510,height/100);
@@ -411,7 +419,7 @@
         return;
       }
       const {x,y,w,h,type}=o,c=o.color;
-      if(!o.mounted&&!window.CampusDoors.isDoor(o)&&!['monitor','laptop','notebook','festival-banner','stair-handrail','stair-rail','stairs','glass-door','floor-portal'].includes(type))shadow(o,base);
+      if(!o.mounted&&!['monitor','laptop','notebook','festival-banner','stair-handrail','stair-rail','stairs','floor-portal'].includes(type))shadow(o,base);
       if(['desk','coffee','roundtable'].includes(type)) {
         for(const [lx,ly] of [[x+3,y+3],[x+w-6,y+3],[x+3,y+h-6],[x+w-6,y+h-6]])leg(lx,ly,base,17);
         box(x,y,w,h,base+17,4,c||(['coffee','roundtable'].includes(type)?'#f8f5e9':'#e4c99b'),'#bea37c','#a48a63');
@@ -427,7 +435,7 @@
         const back=o.dir==='up'?{x,y:y+h-4,w,h:4}:o.dir==='down'?{x,y,w,h:4}:o.dir==='left'?{x:x+w-4,y,w:4,h}:{x,y,w:4,h};
         box(back.x,back.y,back.w,back.h,base+12,13,c||'#7f9393','#647c80','#526b6f');
       } else if(['stool','ottoman'].includes(type)) {
-        const q=p(x+w/2,y+h/2,base),rx=(w+h)*.28,ry=rx*.56;
+        const q=p(x+w/2,y+h/2,base),rx=(w+h)/4,ry=rx*P.tilt;// the projected floor circle, so the seat stays inside its footprint
         g.fillStyle=c||'#b89b70';g.fillRect(q.x-rx,q.y-13,rx*2,13);ellipse(q.x,q.y,rx,ry,c||'#b89b70');
         ellipse(q.x,q.y-13,rx,ry,c||'#b89b70');ellipse(q.x-2,q.y-15,rx*.65,ry*.65,'#ffffff16');
       } else if(['sofa','bench'].includes(type)) {
@@ -684,18 +692,6 @@
         circlePlane(cx,cy,r-27,base+27,'#75c4d2','#4e9cac');
         for(const rr of [48,81,110])circlePlane(cx,cy,rr,base+27.4,null,'#c8f1ebaa');
         cylinder(cx,cy,23,base+27,46,'#e0e8d6','#a4baa9');cylinder(cx,cy,59,base+69,7,'#dce5d5','#adc4b2');circlePlane(cx,cy,48,base+76,'#a4dce0',null);
-      } else if(type==='raffle-buzzer') {
-        const cx=x+w/2,cy=y+h/2,status=o.raffle?.event?.status||'draft';
-        circlePlane(cx,cy,48,base+.5,'#f0dfb977','#bba87a');
-        cylinder(cx,cy,31,base+1,9,'#af9477','#7d7264');
-        cylinder(cx,cy,23,base+10,48,'#ece2cc','#bdae94');
-        cylinder(cx,cy,32,base+58,6,'#454f51','#303c3e');
-        cylinder(cx,cy,27,base+64,12,status==='open'?'#f07464':'#bf6861','#a33837');
-        circlePlane(cx,cy,22,base+76.4,'#ea5149','#f9b290');
-        const light=p(cx+11,cy+13,base+59);ellipse(light.x,light.y,3.5,2.5,status==='open'?'#8ee8ad':status==='drawn'?'#f4cd74':'#97a4a0');
-        label('EVENT',cx,cy,12,'#765a3b','#fff6db',base+94);
-        const q=p(o.interactionPoint[0],o.interactionPoint[1],base+2);circlePlane(o.interactionPoint[0],o.interactionPoint[1],16,base+1,'#fff7e0cc','#ac8754');
-        g.font=`700 12px ${font}`;g.fillStyle='#80643b';g.textAlign='center';g.textBaseline='middle';g.fillText('E',q.x,q.y);
       } else if(type==='wall-poster') {
         const image=displayImages.get(o.id);
         if(image){
@@ -795,25 +791,6 @@
         stairTreads(o);stairRail(o,'left');stairRail(o,'right');
       } else if(type==='stair-rail') {
         stairRail(o.stairFlight,o.side);
-      } else if(window.CampusDoors.isDoor(o)) {
-        const opening=window.CampusDoors.leaf(o,false),leaf=window.CampusDoors.leaf(o),height=46;
-        const along=t=>({x:leaf.start.x+leaf.dx*t,y:leaf.start.y+leaf.dy*t});
-        const a=leaf.start,b=leaf.end;
-        poly([p(a.x,a.y,base+2),p(b.x,b.y,base+2),p(b.x,b.y,base+height),p(a.x,a.y,base+height)],o.type==='sliding-door'?'#c6d7ceaa':'#9bcfd169','#739e9d',1.4);
-        if(o.type==='sliding-door'){
-          const track=window.CampusDoors.leaf(o,true);
-          line(p(opening.start.x,opening.start.y,base+49),p(track.end.x,track.end.y,base+49),'#8ca59a',3.5);
-          line(p(opening.start.x,opening.start.y,base+1),p(track.end.x,track.end.y,base+1),'#a9bdb3',1.4);
-        }
-        for(const point of [opening.start,opening.end])line(p(point.x,point.y,base),p(point.x,point.y,base+49),'#9cadab',2.5);
-        line(p(opening.start.x,opening.start.y,base+49),p(opening.end.x,opening.end.y,base+49),'#c2d3cf',3);
-        for(const point of [a,b])line(p(point.x,point.y,base+2),p(point.x,point.y,base+height),'#688d8c',1.8);
-        for(const z of [2,height])line(p(a.x,a.y,base+z),p(b.x,b.y,base+z),'#92b9b6',2);
-        const l=along(.12),r=along(.88),handle=along(.82);
-        poly([p(l.x,l.y,base+19),p(r.x,r.y,base+19),p(r.x,r.y,base+27),p(l.x,l.y,base+27)],'#e4f3ee8c',null);
-        line(p(l.x,l.y,base+7),p(r.x,r.y,base+39),'#f6fffdaf',1);
-        line(p(handle.x,handle.y,base+15),p(handle.x,handle.y,base+30),'#425e60',3);
-        for(const z of [10,36])line(p(a.x,a.y,base+z-2),p(a.x,a.y,base+z+2),'#4e7374',3);
       } else if(type==='glass-wall'||type==='sliding-door') {
         const span=type==='sliding-door'?Math.min(w,28):Math.max(w,h),axis=w>=h?'x':'y';
         const sx=type==='sliding-door'?x-span:x,sy=y+(axis==='x'?h*.5:0);
@@ -826,7 +803,7 @@
       }
       for(const child of o.children||[])furniture(child,base+(type==='counter'||type==='bar'?27:21));
     }
-    function footprint(o){if(window.CampusDoors.isDoor(o))return window.CampusDoors.footprint(o);return o.collision?{x:o.x+o.collision.x,y:o.y+o.collision.y,w:o.collision.w,h:o.collision.h}:o;}
+    function footprint(o){return o.collision?{x:o.x+o.collision.x,y:o.y+o.collision.y,w:o.collision.w,h:o.collision.h}:o;}
     const supportTypes=new Set(['desk','counter','bar','coffee','roundtable']);
     const supportedTypes=new Set(['monitor','laptop','notebook','water','coffee-machine','bin']);
     const objects=D.objects.map(o=>({...o,children:[]})),attached=new Set();
@@ -834,6 +811,8 @@
       const support=objects.find(s=>supportTypes.has(s.type)&&o.x+o.w/2>=s.x&&o.x+o.w/2<=s.x+s.w&&o.y+o.h/2>=s.y&&o.y+o.h/2<=s.y+s.h);
       if(support){support.children.push(o);attached.add(o.id);}
     }
+    // Items on one tabletop are painted back to front, not in the order the map lists them.
+    for(const o of objects)o.children.sort((a,b)=>a.x+a.w/2+a.y+a.h/2-(b.x+b.w/2+b.y+b.h/2));
     const floorCanvas=makeCanvas(P.width*resolution,P.height*resolution);g=floorCanvas.getContext('2d');g.scale(resolution,resolution);
     const floors=D.surfaces||[...D.rooms,...(D.entrance?[D.entrance]:[])];
     const floorColors={wood:'#e3cda8',class:'#ebeade',hall:'#f2ede2',office:'#e3e6dc',meeting:'#dfc8a5',stone:'#d5ddd5',orange:'#f2d9c2',yellow:'#f4e9be',roof:'#eeeade'};
@@ -878,7 +857,7 @@
     }
     D.paintFloor?.({g,P});
     function cacheSprite(o,paint,isWall=false) {
-      const r=footprint(o),area=window.CampusDoors.isDoor(o)?window.CampusDoors.bounds(o):o,corners=[[area.x-12,area.y-12],[area.x+area.w+12,area.y-12],[area.x+area.w+12,area.y+area.h+12],[area.x-12,area.y+area.h+12]].map(([x,y])=>p(x,y));
+      const r=footprint(o),area=o,corners=[[area.x-12,area.y-12],[area.x+area.w+12,area.y-12],[area.x+area.w+12,area.y+area.h+12],[area.x-12,area.y+area.h+12]].map(([x,y])=>p(x,y));
       const b={x:Math.floor(Math.min(...corners.map(q=>q.x))-7),y:Math.floor(Math.min(...corners.map(q=>q.y))-groundHeight(o.x+o.w/2,o.y+o.h/2)-(o.renderHeight||110))};
       b.w=Math.ceil(Math.max(...corners.map(q=>q.x))-b.x+7);b.h=Math.ceil(Math.max(...corners.map(q=>q.y))-b.y+10+(o.renderDepth||0));
       if(o.type==='plaza-display') {
@@ -909,8 +888,22 @@
         }
       } else sprites.push(cacheSprite(o,()=>furniture(o,groundHeight(o.x+o.w/2,o.y+o.h/2))));
     }
+    const wallTop=w=>w.topZ??w.height??D.wallHeight??35;
+    // An end that butts into an equal or taller wall stops at its face, so the caps meet flush.
+    // At an L corner only the y-axis wall gives way; otherwise both would paint a face inside the other.
+    const wallReach=(wall,x,y)=>{const alongY=wall.x1===wall.x2,inside=(a,b,v,open)=>open?v>Math.min(a,b)&&v<Math.max(a,b):v>=Math.min(a,b)&&v<=Math.max(a,b);
+      return D.walls.some(w=>w!==wall&&wallTop(w)>=wallTop(wall)&&(w.y1===w.y2?y===w.y1&&inside(w.x1,w.x2,x,!alongY):x===w.x1&&inside(w.y1,w.y2,y,true)))?-5:5;};
+    // Segments only exist for depth sorting: paint them without their own end outlines so a wall reads as one piece.
+    function wallBox(x,y,w,h,z,height,[top,front,side],alongX,first,last) {
+      const a=p(x,y,z),b=p(x+w,y,z),c=p(x+w,y+h,z),d=p(x,y+h,z),A=p(x,y,z+height),B=p(x+w,y,z+height),C=p(x+w,y+h,z+height),E=p(x,y+h,z+height);
+      poly([b,c,C,B],side,side,.8);poly([d,c,C,E],front,front,.8);poly([A,B,C,E],top,top,.8);
+      const ink='#67584670',edge=(m,n)=>line(m,n,ink,.65);
+      if(alongX){edge(A,B);edge(E,C);edge(d,c);if(first){edge(A,E);edge(d,E);}if(last){edge(b,c);edge(c,C);edge(b,B);}}
+      else{edge(A,E);edge(B,C);edge(b,c);if(first){edge(A,B);edge(b,B);}if(last){edge(d,c);edge(c,C);edge(d,E);}}
+    }
     for(const wall of D.walls) {
       const dx=wall.x2-wall.x1,dy=wall.y2-wall.y1,cuts=new Set([0,1]);
+      const alongX=dy===0,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len,reach=[wallReach(wall,wall.x1,wall.y1),wallReach(wall,wall.x2,wall.y2)];
       // Split at terrain boundaries so wall feet meet each tread exactly.
       if(Number.isFinite(wall.topZ))for(const surface of D.surfaces||[]){
         const edges=dy===0?[surface.x,surface.x+surface.w]:dx===0?[surface.y,surface.y+surface.h]:[];
@@ -923,8 +916,13 @@
           const a=start+(end-start)*i/steps,b=start+(end-start)*(i+1)/steps;
           const x1=wall.x1+dx*a,y1=wall.y1+dy*a,x2=wall.x1+dx*b,y2=wall.y1+dy*b;
           const z=groundHeight((x1+x2)/2,(y1+y2)/2),h=Number.isFinite(wall.topZ)?wall.topZ-z:wall.height??D.wallHeight??35;
-          const o={type:'wall',x:Math.min(x1,x2)-5,y:Math.min(y1,y2)-5,w:Math.abs(x2-x1)+10,h:Math.abs(y2-y1)+10,renderHeight:h+14,occludes:wall.occludes};
-          sprites.push(cacheSprite(o,()=>{if(D.wallShadows!==false)shadow(o,z);box(o.x,o.y,o.w,o.h,z,h,wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387');box(o.x,o.y,o.w,o.h,z+h,4,D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449');},true));
+          // Inner cuts overlap by half a unit only, enough to hide anti-aliasing hairlines.
+          const e1=a===0?reach[0]:.5,e2=b===1?reach[1]:.5,X1=x1-ux*e1,Y1=y1-uy*e1,X2=x2+ux*e2,Y2=y2+uy*e2;
+          const fx=alongX?0:5,fy=alongX?5:0,forward=ux+uy>0,first=forward?a===0:b===1,last=forward?b===1:a===0;
+          const o={type:'wall',x:Math.min(X1,X2)-fx,y:Math.min(Y1,Y2)-fy,w:Math.abs(X2-X1)+fx*2,h:Math.abs(Y2-Y1)+fy*2,renderHeight:h+14,occludes:wall.occludes};
+          const ends=[first&&reach[forward?0:1]>0,last&&reach[forward?1:0]>0],trim=first?0:.5,foot={x:o.x+(alongX?trim:0),y:o.y+(alongX?0:trim),w:o.w-(alongX?trim+(last?0:3.5):0),h:o.h-(alongX?0:trim+(last?0:4.5))};
+          const body=[wall.color||D.wallColor||'#eee5d0',D.wallColor?'#cad5ca':'#c8b99a',D.wallColor?'#b5c3b5':'#b4a387'],cap=[D.wallColor?'#e7eee3':'#8d775b',D.wallColor?'#c9d4c3':'#917656',D.wallColor?'#b2c2ab':'#786449'];
+          sprites.push(cacheSprite(o,()=>{if(D.wallShadows!==false)shadow(foot,z);wallBox(o.x,o.y,o.w,o.h,z,h,body,alongX,...ends);wallBox(o.x,o.y,o.w,o.h,z+h,4,cap,alongX,...ends);},true));
         }
       }
     }
@@ -948,18 +946,31 @@
       if(behind)sprite.depth=Math.max(sprite.depth,behind.depth+.01);
     }
     }
-    function orderSlidingLeaves(){
-      for(const leaf of sprites.filter(s=>s.o.type==='sliding-door'&&s.o.interactiveDoor&&s.o.open)){
-        for(const wall of sprites.filter(s=>s.isWall))if(overlaps(leaf.r,wall.r))leaf.depth=Math.max(leaf.depth,wall.depth+.02);
-      }
-    }
-    orderSlidingLeaves();
     // Draw mounted panels after every supporting wall segment so the wall cannot cover half of a wide board.
     for(const sprite of sprites.filter(s=>s.o.mounted))for(const support of sprites.filter(s=>s.isWall)){
       const a=sprite.r,b=support.r;
       if(a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y)sprite.depth=Math.max(sprite.depth,support.depth+.01);
     }
-    sprites.sort((a,b)=>a.depth-b.depth);
+    // Centre depth alone misorders long or touching props, letting a prop cover one that stands in front of it.
+    // Keep depth order as the tie-break, but draw a sprite after every overlapping sprite whose footprint lies
+    // wholly behind it, and after anything it explicitly occludes.
+    function orderSprites(){
+      sprites.sort((a,b)=>a.depth-b.depth);
+      const n=sprites.length,next=sprites.map(()=>[]),need=new Array(n).fill(0),index=new Map(sprites.map((s,i)=>[s.o.id,i]));
+      const edge=(i,j)=>{next[i].push(j);need[j]++;};
+      const behind=(A,B)=>(B.x>=A.x+A.w&&B.y<A.y+A.h&&B.y+B.h>A.y)||(B.y>=A.y+A.h&&B.x<A.x+A.w&&B.x+B.w>A.x);
+      for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(i!==j&&overlaps(sprites[i].b,sprites[j].b)&&behind(sprites[i].r,sprites[j].r))edge(i,j);
+      sprites.forEach((s,j)=>{for(const id of s.o.occludes||[])if(index.has(id))edge(index.get(id),j);});
+      // ponytail: O(n²) pairs and an O(n) scan per pick; fine for a few hundred sprites, use a heap if maps grow.
+      const done=new Array(n).fill(false),order=[];
+      for(let k=0;k<n;k++){
+        let pick=-1;for(let i=0;i<n;i++)if(!done[i]&&need[i]===0){pick=i;break;}
+        if(pick<0)pick=done.indexOf(false);// a cycle: fall back to depth order
+        done[pick]=true;order.push(sprites[pick]);for(const j of next[pick])need[j]--;
+      }
+      sprites.splice(0,n,...order);
+    }
+    orderSprites();
     const hitSprites=objects.filter(o=>o.name).map(o=>sprites.find(s=>s.o.id===o.id)||cacheSprite(o,()=>{
       furniture(o,groundHeight(o.x,o.y)+27);
       if(o.portalGlow){const glow=sprites.find(s=>s.o.id===o.id+'-glow');if(glow)compactPortalBase(glow.o);}
@@ -1020,18 +1031,6 @@
     function repaintScene(){sg.setTransform(1,0,0,1,0,0);sg.clearRect(0,0,scene.width,scene.height);sg.setTransform(resolution,0,0,resolution,0,0);city?.draw(sg);sg.drawImage(floorCanvas,0,0,P.width,P.height);for(const s of sprites){drawSprite(sg,s);if(s.o.type==='fountain'){g=sg;fountainWater(s.o,0);}if(s.o.type==='floor-portal'){g=sg;if(s.o.portalStyle==='compact')compactPortalEnergy(s.o);else portalEnergy(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2));}else if(s.o.type==='stair-portal'||(s.o.type==='fire-extinguisher'&&s.o.portalGlow)){g=sg;compactPortalEnergy(s.o);}}for(const sprite of sprites.filter(sprite=>sprite.o.type==='wall-sign'))drawSprite(sg,sprite);drawLabels(sg);}
     repaintScene();
     function setDisplayImage(id,image){const s=sprites.find(s=>s.o.id===id&&(s.o.type==='plaza-display'||s.o.type==='wall-poster'));if(!s)return false;const depth=s.depth;displayImages.set(id,image);Object.assign(s,cacheSprite(s.o,()=>furniture(s.o,groundHeight(s.o.x+s.o.w/2,s.o.y+s.o.h/2))));s.depth=depth;repaintScene();return true;}
-    function setRaffleState(state){
-      const targets=sprites.filter(s=>s.o.type==='raffle-buzzer');
-      for(const sprite of targets){sprite.o.raffle=state;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(sprite.o.x+sprite.o.w/2,sprite.o.y+sprite.o.h/2))));}
-      if(targets.length)repaintScene();
-    }
-    function setDoorState(id,open){
-      const door=D.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o)),sprite=sprites.find(s=>s.o.id===id);
-      if(!door||!sprite||typeof open!=='boolean')return false;
-      door.open=sprite.o.open=open;Object.assign(sprite,cacheSprite(sprite.o,()=>furniture(sprite.o,groundHeight(door.x,door.y))));
-      orderSlidingLeaves();
-      sprites.sort((a,b)=>a.depth-b.depth);hitSprites.sort((a,b)=>b.depth-a.depth);repaintScene();return true;
-    }
     function drawActor(ctx,actor,t,zoom,labelText,self) {
       const q=projectActor(actor);ctx.save();ctx.translate(q.x,q.y);
       const jumpHeight=window.CampusJump?.height(actor,t)||0,jumpScale=window.CampusJump?.squash(actor,t)||1;
@@ -1054,14 +1053,24 @@
     function drawName(ctx,actor,zoom,labelText,self,t=performance.now()) {
       const q=projectActor(actor),scale=1/Math.max(zoom,.55);ctx.save();ctx.translate(q.x,q.y-(window.CampusJump?.height(actor,t)||0)-(window.CampusAvatars?.size||40)-12*scale);ctx.scale(scale,scale);ctx.font=`600 11px ${font}`;const w=Math.min(155,ctx.measureText(labelText).width+16);ctx.fillStyle='#ffffffec';ctx.beginPath();ctx.roundRect(-w/2,-9,w,18,5);ctx.fill();ctx.fillStyle=self?'#256b59':'#3e5764';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(labelText,0,0,w-8);ctx.restore();
     }
-    function compare(a,b) {
-      if(Boolean(a.actor)!==Boolean(b.actor)) {
-        const actor=a.actor?a:b,prop=a.actor?b:a,r=prop.r;
-        const front=actor.actor.x>r.x+r.w||actor.actor.y>r.y+r.h;
-        const back=actor.actor.x<r.x||actor.actor.y<r.y;
-        if(front!==back)return (a.actor?1:-1)*(front?1:-1);
-      }
-      return a.depth-b.depth;
+    // Sorting actors into the sprite list with a pairwise rule is not transitive, so a long prop could end up in
+    // front of someone standing behind it. Instead slot each actor right after the last sprite on screen with it
+    // that lies behind it, judged at the prop's floor point nearest the actor rather than at its centre.
+    function placeActors(visible,actors){
+      const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
+      const slots=actors.map(actor=>{
+        const q=projectActor(actor),area={x:q.x-14,y:q.y-50,w:28,h:54},depth=p(actor.x,actor.y).y;let at=0;
+        visible.forEach((s,i)=>{
+          if(!overlaps(s.b,area))return;
+          const r=s.r,inside=actor.x>=r.x&&actor.x<=r.x+r.w&&actor.y>=r.y&&actor.y<=r.y+r.h;
+          if(inside?s.depth<=depth:p(clamp(actor.x,r.x,r.x+r.w),clamp(actor.y,r.y,r.y+r.h)).y<depth)at=i+1;
+        });
+        return {actor,at,depth};
+      }).sort((a,b)=>a.at-b.at||a.depth-b.depth);
+      const entities=[];let k=0;
+      visible.forEach((s,i)=>{while(k<slots.length&&slots[k].at===i)entities.push(slots[k++]);entities.push(s);});
+      while(k<slots.length)entities.push(slots[k++]);
+      return entities;
     }
     function draw(ctx,{camera,actors,t=0,path=[],hover,nearby,viewportWidth,viewportHeight,showNicknames=true,floorOverlay}) {
       city?.draw(ctx);
@@ -1071,7 +1080,7 @@
       if(path.length){ctx.strokeStyle='#2586789c';ctx.lineWidth=1.5/camera.zoom;ctx.setLineDash([4/camera.zoom,5/camera.zoom]);ctx.beginPath();let q=projectGround(actors[0].x,actors[0].y);ctx.moveTo(q.x,q.y);for(const a of path){q=projectGround(a.x,a.y);ctx.lineTo(q.x,q.y);}ctx.stroke();ctx.setLineDash([]);}
       const focused=hover||nearby;if(focused&&focused.type!=='stairs'&&focused.type!=='floor-portal'){const r=footprint(focused);plane(r.x-3,r.y-3,r.w+6,r.h+6,groundHeight(r.x+r.w/2,r.y+r.h/2)+.5,'#37a29022','#258876');}
       const visible=sprites.filter(s=>{const b=s.b;return b.x*camera.zoom+camera.x<viewportWidth&&b.y*camera.zoom+camera.y<viewportHeight&&(b.x+b.w)*camera.zoom+camera.x>0&&(b.y+b.h)*camera.zoom+camera.y>0;});
-      const entities=[...visible,...actors.map(actor=>({actor,depth:p(actor.x,actor.y).y}))].sort(compare);
+      const entities=placeActors(visible,actors);
       for(const e of entities){
         if(e.actor){drawActor(ctx,e.actor,t,camera.zoom);continue;}
         const blocked=e.isWall&&actors.some(a=>{const q=projectActor(a),b=e.b;return q.x>b.x+10&&q.x<b.x+b.w-10&&q.y>b.y+55&&q.y<b.y+b.h+7&&q.y<e.depth+20;});
@@ -1093,7 +1102,7 @@
       const v=o.displayAxis==='y'?P.vector(0,-1):{x:1,y:0};
       return [[-sw/2,-44-sh],[sw/2,-44-sh],[sw/2,-44],[-sw/2,-44]].map(([x,y])=>({x:q.x+v.x*x,y:q.y+v.y*x+y}));
     }
-    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,setDoorState,setRaffleState,displayPolygon};
+    return {projection:P,scene,draw,footprint,drawActor,hitTest,projectGround,projectActor,unprojectGround,setDisplayImage,displayPolygon};
   }
   window.CampusIsometric={createProjection,create};
 })();

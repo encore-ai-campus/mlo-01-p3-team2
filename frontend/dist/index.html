@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <link rel="stylesheet" href="raffle.css">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#167d79">
@@ -319,36 +318,8 @@
       </div>
     </section>
   </dialog>
-  <dialog id="raffleDialog" class="raffle-dialog" aria-labelledby="raffleTitle">
-    <div class="raffle-heading"><div><span class="eyebrow">ROOFTOP EVENT</span><h2 id="raffleTitle">옥상 기프티콘 이벤트</h2></div><button id="raffleClose" type="button" class="close-button" aria-label="이벤트 창 닫기">×</button></div>
-    <div class="raffle-content">
-      <p id="raffleSurveyNotice" class="raffle-survey-notice">설문 조사를 완료해야 이벤트에 등록됩니다.</p>
-      <div class="raffle-participation"><span id="raffleStatusBadge" class="raffle-badge">준비 중</span><h3 id="raffleParticipationTitle">부저를 누르고 설문에 참여하세요</h3><p id="raffleParticipationHint">이벤트가 열리면 옥상 부저 옆에서 참여해 주세요.</p>
-        <button id="raffleJoin" class="raffle-buzzer-button" type="button" disabled><span aria-hidden="true">●</span><strong id="raffleJoinLabel">이벤트 준비 중</strong></button>
-        <a id="raffleSurveyLink" class="raffle-survey-link" target="_blank" rel="noopener noreferrer" hidden>설문 조사 열기 <span aria-hidden="true">↗</span></a>
-        <p id="raffleSurveyUnavailable" class="raffle-survey-unavailable" hidden>설문 제출 확인 연결을 준비 중입니다.</p>
-        <p id="raffleStatus" class="raffle-message" role="status" aria-live="polite"></p><p id="raffleScheduleLabel" class="raffle-schedule-label"></p><p id="raffleLastWinner" class="raffle-last-winner" hidden></p>
-        <section id="raffleWinnerContact" class="raffle-winner-contact" hidden aria-labelledby="raffleWinnerContactTitle"><span class="raffle-contact-label">당첨자 전용</span><h3 id="raffleWinnerContactTitle">기프티콘 수령 안내</h3><p id="raffleWinnerContactEvent" class="raffle-contact-event"></p><p id="raffleWinnerContactMessage" role="status" aria-live="polite"></p><img id="raffleWinnerContactQr" class="raffle-contact-qr" width="240" height="240" alt="카카오톡 1:1 오픈채팅 입장 QR" loading="lazy" decoding="async" referrerpolicy="no-referrer" hidden><button id="raffleWinnerContactRefresh" class="toolbtn" type="button">안내 새로고침</button></section>
-      </div>
-      <section class="raffle-participants" aria-labelledby="raffleParticipantsTitle"><div class="raffle-list-heading"><h3 id="raffleParticipantsTitle">참가 완료</h3><span id="raffleParticipantCount">0명</span></div><p class="raffle-list-hint">이벤트마다 계정당 한 번 참여해요.</p><ul id="raffleParticipantList" class="raffle-participant-list"></ul><p id="raffleParticipantEmpty" class="raffle-empty">아직 참가자가 없어요.</p></section>
-      <section id="raffleAdmin" class="raffle-admin" hidden aria-labelledby="raffleAdminTitle"><h3 id="raffleAdminTitle">관리자 운영</h3><div class="raffle-admin-actions"><button id="rafflePrepare" type="button" class="toolbtn">새 이벤트 준비</button><button id="raffleOpen" type="button" class="btn solid">참여 시작</button><button id="raffleDraw" type="button" class="btn quiet">지금 추첨</button></div>
-        <details id="raffleSurveyConnectionDetails"><summary>설문 제출 확인 연결</summary><p id="raffleSurveyConnectionStatus" class="raffle-connection-status" role="status"></p><p>Google 연결 코드를 실행·배포한 뒤 표시된 주소와 연결 키를 입력해 주세요.</p><a href="/api/raffle/survey/script/" class="toolbtn">Google 연결 코드 다운로드</a><form id="raffleSurveyConnectionForm"><label for="raffleSurveyEndpoint">Google 연결 주소</label><input id="raffleSurveyEndpoint" type="url" maxlength="500" placeholder="https://script.google.com/macros/s/…/exec" required><label for="raffleSurveyKey">연결 키</label><input id="raffleSurveyKey" type="password" minlength="32" maxlength="128" autocomplete="off" required><button id="raffleSurveySave" type="submit" class="toolbtn">설문 연결</button></form></details>
-        <details id="raffleWinnerContactDetails"><summary>당첨자 오픈채팅 QR</summary><p>등록한 QR은 당첨된 계정에만 표시됩니다. 같은 안내를 다음 이벤트에서도 사용해요.</p><p id="raffleWinnerContactStatus" class="raffle-connection-status" role="status" aria-live="polite"></p><img id="raffleWinnerContactPreview" class="raffle-contact-qr" width="220" height="220" alt="등록된 당첨자 오픈채팅 QR 미리보기" hidden referrerpolicy="no-referrer"><form id="raffleWinnerContactForm"><label for="raffleWinnerContactImage">카카오톡 1:1 오픈채팅 QR 이미지</label><input id="raffleWinnerContactImage" type="file" accept="image/png,image/jpeg,image/webp" required><p>PNG·JPG·WEBP, 최대 2MB. 카카오톡에서 저장한 선명한 QR 이미지를 등록해 주세요.</p><button id="raffleWinnerContactUpload" type="submit" class="toolbtn">QR 이미지 등록</button></form><p>Google 설문지의 이메일 질문을 삭제하고, 설정의 이메일 주소 수집도 꺼 주세요. 설문 소유자는 최신 연결 코드의 setupRaffleSurvey를 다시 실행해 적용할 수 있습니다.</p></details>
-        <details id="raffleScheduleDetails"><summary>이벤트 이름 · 시간 설정</summary><form id="raffleScheduleForm"><label for="raffleEventName">이벤트 이름</label><input id="raffleEventName" maxlength="100" value="옥상 기프티콘 이벤트" required><div class="raffle-time-fields"><div><label for="raffleOpensAt">참여 시작 (한국 시간)</label><input id="raffleOpensAt" type="datetime-local" step="1"></div><div><label for="raffleDrawAt">추첨 (한국 시간)</label><input id="raffleDrawAt" type="datetime-local" step="1"></div></div><p>시간을 비우면 관리자 버튼으로 진행해요. 추첨 때는 참여한 계정 중 한 명을 뽑아요.</p><button id="raffleScheduleSave" type="submit" class="toolbtn">설정 저장</button></form></details>
-      </section>
-    </div>
-  </dialog>
-  <dialog id="raffleDrawDialog" class="raffle-draw-dialog" aria-labelledby="raffleDrawTitle" aria-describedby="raffleDrawStatus">
-    <button id="raffleDrawClose" class="raffle-draw-close" type="button" aria-label="추첨창 닫기">×</button>
-    <div class="raffle-draw-content"><span class="raffle-live-label">PLAYDATA · LIVE DRAW</span><p id="raffleDrawEventName" class="raffle-draw-event-name"></p><h2 id="raffleDrawTitle">오늘의 행운은 누구에게?</h2><p id="raffleDrawStatus" class="raffle-draw-status" role="status" aria-live="polite">추첨을 시작합니다.</p>
-      <div class="raffle-machine" aria-hidden="true"><div class="raffle-machine-top"><span>★</span><strong>LUCKY DRAW</strong><span>★</span></div><div class="raffle-slot-window"><div id="raffleReel" class="raffle-reel"><span id="raffleReelPrevious"></span><strong id="raffleReelCurrent"></strong><span id="raffleReelNext"></span></div><span class="raffle-slot-pointer">▶</span></div><div class="raffle-machine-footer"><i></i><span>ONE LUCKY WINNER</span><i></i></div></div>
-      <p id="raffleWinnerAnnouncement" class="raffle-winner-announcement" role="status" aria-live="polite"></p><button id="raffleShowResult" type="button" class="raffle-result-button">결과 먼저 보기</button><section id="raffleDrawWinnerContact" class="raffle-winner-contact" hidden aria-labelledby="raffleDrawWinnerContactTitle"><span class="raffle-contact-label">당첨자 전용</span><h3 id="raffleDrawWinnerContactTitle">기프티콘 수령 안내</h3><p id="raffleDrawWinnerContactEvent" class="raffle-contact-event"></p><p id="raffleDrawWinnerContactMessage" role="status" aria-live="polite"></p><img id="raffleDrawWinnerContactQr" class="raffle-contact-qr" width="240" height="240" alt="카카오톡 1:1 오픈채팅 입장 QR" loading="lazy" decoding="async" referrerpolicy="no-referrer" hidden><button id="raffleDrawWinnerContactRefresh" class="toolbtn" type="button">안내 새로고침</button></section><button id="raffleReturn" type="button" class="raffle-result-button" hidden>캠퍼스로 돌아가기</button>
-    </div>
-  </dialog>
-  <script src="raffle.js"></script>
   <!-- learning-panels -->
   <script src="booth-panel.js"></script>
-  <script src="classroom-doors.js"></script>
   <script src="map-data.js"></script>
   <script src="rooftop-data.js"></script>
   <script src="stair-motion.js"></script>
@@ -371,8 +342,9 @@
   <!-- learning-assets -->
   <script src="campus-guide.js"></script>
   <script src="campus-space-guide.js"></script>
-  <script src="ad-visibility.js"></script>
-  <script src="campus-ads.js"></script>
+  <!-- 광고는 멈췄다(운영 10/16): 광고 모듈 대신 옥상 사진 순환이 같은 호출 지점(CampusAds)을 받는다 -->
+  <script src="roof-slideshow-config.js"></script>
+  <script src="roof-slideshow.js"></script>
   <script src="messages.js"></script>
   <script src="campus.js"></script>
 </body>

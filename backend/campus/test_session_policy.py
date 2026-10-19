@@ -92,6 +92,19 @@ class SessionSocketTests(TransactionTestCase):
                 position = await database_sync_to_async(lambda: Profile.objects.get(user=self.alice).last_position)()
                 self.assertEqual(position["x"], 1740)
 
+    async def test_a_server_close_leaves_its_code_and_policy_reason(self):
+        """재로그인의 원인을 운영 로그로 가린다(계획 0c): 서버가 4401 로 끊으면 세션 정책의 사유가 한 줄 남는다."""
+        now = timezone.now()
+        with patch("accounts.session_policy.timezone.now", return_value=now) as clock, \
+                self.assertLogs("campus.consumers", "WARNING") as logs:
+            async with self.connections(self.a) as (ws,):
+                await ws.receive_json_from()
+                clock.return_value = now + timedelta(seconds=30)
+                await ws.send_json_to({"type": "ping"})
+                self.assertEqual((await ws.receive_json_from())["type"], "session_expired")
+                self.assertEqual((await ws.receive_output())["code"], 4401)
+        self.assertTrue(any("closed by server code=4401 policy=idle" in line for line in logs.output), logs.output)
+
     async def test_server_guard_expires_without_client_logout_or_activity_requests(self):
         now = timezone.now()
         with patch("accounts.session_policy.timezone.now", return_value=now) as clock, \

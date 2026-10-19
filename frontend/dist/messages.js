@@ -130,7 +130,8 @@
     });
     window.addEventListener('focus',()=>{refreshStatus();if(panel.open)loadThread().catch(error=>status(error.message));});
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshStatus();});
-    const interval=setInterval(async()=>{if(stopped||document.hidden)return;await refreshStatus();if(panel.open){try{await refreshInbox();await loadThread();}catch(error){status(error.message);}}},15000);
+    // 새 쪽지는 소켓(private_message)이 알려 주므로, 소켓이 붙어 있고 쪽지함이 닫혀 있으면 15초 조회를 하지 않는다(계획 4g)
+    const interval=setInterval(async()=>{if(stopped||document.hidden||(!panel.open&&window.CampusApp?.presence?.connected))return;await refreshStatus();if(panel.open){try{await refreshInbox();await loadThread();}catch(error){status(error.message);}}},15000);
     window.addEventListener('pagehide',()=>{clearInterval(interval);clearTimeout(searchTimer);clearTimeout(refreshTimer);});
     updateButton();refreshStatus();
     return {open,get available(){return meta.canStart||meta.hasInbox;},get blocking(){return panel.open;}};

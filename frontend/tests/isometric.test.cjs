@@ -19,7 +19,7 @@ test('screen arrow directions map back to the same visible directions',()=>{
     assert.ok(Math.abs(visible.x-x)<1e-8&&Math.abs(visible.y-y)<1e-8);
   }
 });
-test('enlarged map merges classroom 3/4 with only glass doors and a mounted board, and keeps the vertical worktable',()=>{
+test('enlarged map merges classroom 3/4 with only a mounted board, and keeps the vertical worktable',()=>{
   assert.equal(D.width,2448);assert.equal(D.height,1230);assert.equal(D.spaceScale,1.5);
   assert.deepEqual(Array.from(D.rooms.filter(r=>r.floor==='class'),r=>r.name).sort(),['Python 학습교실','SQL 학습교실','강의실 3·4','강의실 5','강의실 6','강의실 7']);
   const merged=D.rooms.find(r=>r.id==='class3-4');assert.equal(merged.w,916.5);assert.equal(merged.h,364.5);
@@ -29,7 +29,7 @@ test('enlarged map merges classroom 3/4 with only glass doors and a mounted boar
   const board=D.objects.find(o=>o.id==='class3-4-noticeboard');assert.equal(board.roomId,merged.id);
   assert.equal(board.mounted,true);assert.equal(board.solid,false);assert.equal(board.w,510);assert.equal(board.panelHeight,100);
   assert.equal(board.x+board.w/2,merged.x+merged.w/2);assert.ok(board.y>=merged.y&&board.y+board.h<=merged.y+7);
-  assert.ok(D.objects.filter(o=>o.roomId===merged.id).every(o=>o.type==='glass-door'||o===board));
+  assert.ok(D.objects.filter(o=>o.roomId===merged.id).every(o=>o===board));
   const dividerX=(769+72)*D.spaceScale;
   assert.equal(D.walls.some(w=>w.x1===dividerX&&w.x2===dividerX&&w.y1<merged.y+merged.h),false);
   assert.ok(D.walls.some(w=>w.x1===dividerX&&w.x2===dividerX&&w.y1===369*D.spaceScale));
@@ -37,7 +37,7 @@ test('enlarged map merges classroom 3/4 with only glass doors and a mounted boar
   assert.ok(support.height>=board.mountHeight+board.panelHeight);
   const printer=D.objects.find(o=>o.type==='printer'&&o.roomId==='lounge1'),frontY=84*D.spaceScale;
   assert.ok(D.walls.filter(w=>w.y1===frontY&&w.y2===frontY).every(w=>w.x2<=printer.x||w.x1>=printer.x+printer.w));
-  const printerSide=D.walls.find(w=>w.x1===2043&&w.x2===2043&&w.y1===36);assert.ok(printerSide.y2<=printer.y+printer.h);
+  const printerSide=D.walls.find(w=>w.x1===2043&&w.x2===2043&&w.y1===36);assert.ok(printerSide.x1>=printer.x+printer.w);assert.equal(printerSide.y2,frontY);
   const worktable=D.objects.find(o=>o.id==='lounge1-worktable');assert.equal(worktable.w,42);assert.equal(worktable.h,172.5);
   assert.equal(D.objects.filter(o=>o.workSeat).length,4);
   assert.equal(D.rooms.find(r=>r.id==='lounge1').target[0],1893);

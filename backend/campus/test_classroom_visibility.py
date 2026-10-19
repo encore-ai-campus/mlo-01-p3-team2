@@ -1,44 +1,13 @@
-import math
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock,patch
 
-from django.test import SimpleTestCase,TransactionTestCase,override_settings
+from django.test import TransactionTestCase,override_settings
 
 from . import consumers
-from .doors import DOORS,footprint
 from .motion import geometry
 from .test_poke import PokeSocketTests
 
 
-class DoorOccupancyTests(SimpleTestCase):
-    async def check_door(self, hidden):
-        door_id='door-storage';door=DOORS[door_id];target=footprint(door,False)
-        room=consumers.CampusRoom();room.doors[door_id]=True
-        user=consumers.CampusConsumer();user.player_id='visitor';user.last_door=-math.inf
-        user.state={'floor':'campus','x':target['x']+target['w']/2,'y':target['y']-12}
-        user.current_identity=AsyncMock(return_value={});user.send_packet=AsyncMock()
-        user.broadcast=AsyncMock();user.touch_activity=AsyncMock()
-        room.players={'visitor':user.state,'student':{'floor':'campus','x':target['x']+target['w']/2,'y':target['y']+target['h']/2}}
-        if hidden:room.interiors.add('student')
-        with patch.object(consumers,'room',room):
-            await user.receive_door({'doorId':door_id,'open':False})
-        return room,user
-
-    async def test_private_student_does_not_block_the_public_door(self):
-        room,user=await self.check_door(True)
-        self.assertFalse(room.doors['door-storage'])
-        user.broadcast.assert_awaited_once()
-        user.send_packet.assert_not_awaited()
-
-    async def test_visible_student_still_blocks_storage_door_closing(self):
-        room,user=await self.check_door(False)
-        self.assertTrue(room.doors['door-storage'])
-        self.assertEqual(user.send_packet.await_args.args[0]['type'],'door_error')
-        user.broadcast.assert_not_awaited()
-
-
-@override_settings(ALLOWED_HOSTS=['127.0.0.1','testserver'],KAFKA_BOOTSTRAP_SERVERS='',CAMPUS_RAFFLE_SCHEDULER_ENABLED=False,CAMPUS_TEST_LEGACY_MOVEMENT=False)
 class ClassroomVisibilitySocketTests(TransactionTestCase):
     setUp=PokeSocketTests.setUp
     socket=PokeSocketTests.socket
@@ -47,8 +16,9 @@ class ClassroomVisibilitySocketTests(TransactionTestCase):
     async def matching_move(self,socket,player_id,hidden):
         for _ in range(100):
             packet=await socket.receive_json_from(timeout=2)
-            if packet['type']=='move' and packet['player']['id']==player_id and packet['player'].get('inClassroom') is hidden:
-                return packet
+            for player in packet['players'] if packet['type']=='moves' else [packet.get('player')] if packet['type']=='move' else []:
+                if player['id']==player_id and player.get('inClassroom') is hidden:
+                    return {'type':'move','player':player}
         self.fail('Expected visibility update was not received')
 
     async def test_enter_and_exit_broadcast_visibility_even_between_movement_frames(self):

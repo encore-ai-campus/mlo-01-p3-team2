@@ -182,6 +182,7 @@ class CheckpointTimingTests(SimpleTestCase):
 
     async def move(self, x):
         await self.consumer.receive_movement({**self.consumer.state, "x": x, "moving": True}, authoritative=True)
+        await asyncio.sleep(0)  # 저장은 이동 처리 밖에서 돈다(계획 3단계): 한 차례 양보해 시작하게 한다
 
     async def test_stationary_user_never_calls_position_storage_even_when_forced(self):
         for tick in [5, 10, 15]:
@@ -205,7 +206,7 @@ class CheckpointTimingTests(SimpleTestCase):
         await self.consumer.checkpoint()
         self.assertEqual(self.consumer.store_position.await_count, 2)
         self.assertEqual(self.consumer.store_position.await_args.args[0]["x"], 160)
-        self.assertGreater(self.consumer.broadcast.await_count, 2)
+        self.assertEqual(self.room.pending_moves[self.consumer.player_id]["x"], 160)  # 다른 사람에게는 0.1초 묶음으로 계속 간다(계획 1d)
 
     async def test_stopped_user_saves_final_changed_position_once(self):
         self.clock[0] = 1
@@ -254,6 +255,7 @@ class CheckpointTimingTests(SimpleTestCase):
     async def test_floor_transition_and_leave_flush_before_five_seconds(self):
         self.clock[0] = 1
         await self.consumer.receive_movement({**self.consumer.state, "floor": "rooftop", "moving": True}, authoritative=True)
+        await asyncio.sleep(0)
         self.assertEqual(self.consumer.store_position.await_args.args[2], "campus")
         self.clock[0] = 2
         await self.move(150)
@@ -274,13 +276,10 @@ class CheckpointTimingTests(SimpleTestCase):
 
 
 @override_settings(ALLOWED_HOSTS=["127.0.0.1", "testserver"], KAFKA_BOOTSTRAP_SERVERS="",
-                   CAMPUS_TEST_LEGACY_MOVEMENT=True, CAMPUS_RAFFLE_SCHEDULER_ENABLED=False)
+                   CAMPUS_TEST_LEGACY_MOVEMENT=True)
 class MovementSocketTests(TransactionTestCase):
     def setUp(self):
         consumers.room = consumers.CampusRoom()
-        from raffle.models import Control
-
-        Control.objects.get_or_create(pk=1)
         self.user = get_user_model().objects.create_user(username="movement-socket")
         Profile.objects.create(user=self.user, nickname="이동 확인", cohort="mlo-1", setup_complete=True)
         self.client = Client()

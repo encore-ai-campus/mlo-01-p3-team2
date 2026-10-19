@@ -28,6 +28,4 @@ if __name__ == "__main__":
         start_menu_updater()
         from accounts.session_cleanup import start_session_cleanup
         start_session_cleanup()
-        from raffle.scheduler import start_raffle_scheduler
-        start_raffle_scheduler()
     execute_from_command_line([str(root / "manage.py"), "runserver", f"{options.bind}:{port}", *server_args])

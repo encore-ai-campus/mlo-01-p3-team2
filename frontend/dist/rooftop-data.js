@@ -4,7 +4,7 @@
   const campus=window.CampusData;
   campus.id='campus';campus.name='18F 캠퍼스';campus.spawn=[campus.entrance.x+campus.entrance.w/2,campus.entrance.y-36];
   const stairs=campus.objects.find(o=>o.type==='stairs');
-  Object.assign(stairs,{id:'campus-roof-stairs',name:'옥상으로 올라가기',roomId:'stairs',toFloor:'rooftop',stairDirection:'up',stairSteps:8,stairRise:4,stairRun:52,stairEntrySide:'left',stairRails:false,portalGlow:true,renderHeight:100,arrival:[2325,1565],approach:[stairs.x+stairs.w/2,stairs.y+stairs.h*.12],description:'라운지 쪽 옆문으로 평평한 발판에 들어와 계단 위쪽으로 걸어 올라가거나 가까이에서 E를 누르면 옥상 광장으로 이동합니다.',tags:['옥상 연결','유튜브 · 심리 테스트 · 게임 부스']});
+  Object.assign(stairs,{id:'campus-roof-stairs',name:'옥상으로 올라가기',roomId:'stairs',toFloor:'rooftop',stairDirection:'up',stairSteps:6,stairRise:8,stairRun:52,stairEntrySide:'left',stairRails:false,portalGlow:true,renderHeight:100,arrival:[2325,1565],approach:[stairs.x+stairs.w/2,stairs.y+stairs.h*.12],description:'라운지 쪽 옆문으로 평평한 발판에 들어와 계단 위쪽으로 걸어 올라가거나 가까이에서 E를 누르면 옥상 광장으로 이동합니다.',tags:['옥상 연결','유튜브 · 심리 테스트 · 게임 부스']});
   stairs.portalAnchor=[stairs.x+stairs.w/2,stairs.y+stairs.stairRun*.7];
   const extinguisher=campus.objects.find(o=>o.id==='extinguisher-meeting2');
   const lounge2=campus.rooms.find(r=>r.id==='lounge2');
@@ -40,7 +40,7 @@
   for(const y of [520,1590]){planter(750,y,130);obj('terrace-bench',825,y+60,26,70);}
   for(let i=0;i<terrace.levels;i++){
     const x=terrace.x+i*step;
-    for(const y of [310,650,1040,1400])obj('terrace-bench',x+11,y,22,y===650?230:240);
+    for(const [y,h] of [[310,240],[670,210],[1040,200],[1400,240]])obj('terrace-bench',x+11,y,22,h);
     for(const y of [590,1310]){obj('planter',x+10,y,24,74);if(i%2===0)tree(x+2,y+15);}
     if(i%2===1)for(const [y,c] of [[1250,'#e6b451'],[1650,'#8bb5ac']])obj('ottoman',x+11,y,23,23,{color:c});
   }
@@ -49,9 +49,10 @@
   function booth(x,roomId,platform,color,title){
     const y=200,w=280,h=300,r=rooms.find(r=>r.id===roomId);
     obj('rug',x,y,w,h,{solid:false,color:platform==='youtube'?'#f8e6e6':platform==='psych'?'#eee9f8':platform==='game'?'#e0e7f6':'#ebe9dc'});
-    obj('exhibition-booth',x,y,w,h,{name:r.name,roomId,platform,title,color,entrance:'bottom',solid:false,collision:{x:0,y:0,w,h:10},renderHeight:175,description:r.description,tags:r.tags});
+    const backdrop=obj('exhibition-booth',x,y,w,h,{name:r.name,roomId,platform,title,color,entrance:'bottom',solid:false,collision:{x:0,y:0,w,h:10},renderHeight:175,description:r.description,tags:r.tags});
     obj('booth-collider',x,y,w,10,{solid:true});
-    for(const sx of [x,x+w-10])obj('booth-side',sx,y,10,h,{solid:true,color,renderHeight:70});
+    // The side panels stand in front of the backdrop they touch, so someone between them is drawn in the right layer.
+    for(const sx of [x,x+w-10])obj('booth-side',sx,y,10,h,{solid:true,color,renderHeight:70,occludes:[backdrop.id]});
   }
   booth(1440,'festival-youtube','youtube','#ed383b','YouTube');
   booth(1755,'festival-instagram','psych','#8171b6','PSYCHOLOGY TEST');
@@ -77,7 +78,6 @@
   const boothObjects=objects.slice(boothObjectStart);
   obj('fountain',1530,750,300,300,{id:'roof-fountain',name:'광장 분수대',roomId:'roof-plaza',solid:true,renderHeight:185,description:'부스 앞 광장에 놓인 원형 분수대입니다. 분수 둘레의 통로로 이동할 수 있습니다.',tags:['광장 쉼터']});
   obj('plaza-display',2038,1385,24,250,{id:'roof-ad-board',name:'광고 · 행사 게시판',roomId:'roof-plaza',source:'ad',title:'',imageUrl:'',imageOnly:true,displayAxis:'y',screenWidth:300,screenHeight:168,solid:true,renderHeight:230,description:'18층 연결 계단 왼편에서 광고와 행사 안내 이미지를 표시하는 게시판입니다. 게시판을 선택하면 이미지를 크게 볼 수 있습니다.',tags:['광고 이미지','행사 안내']});
-  obj('raffle-buzzer',1490,350,54,56,{id:'roof-event-buzzer',name:'기프티콘 이벤트 부저',roomId:'roof-plaza',action:'raffle',interactionPoint:[1540,384],solid:true,collision:{x:10,y:10,w:32,h:36},renderHeight:100});
   // Walkable paving connects the fountain court, seating and the front entrance.
   obj('plaza-paving',1436,656,488,488,{style:'fountain',solid:false});
   obj('plaza-paving',1930,260,96,1300,{style:'walkway',solid:false});
@@ -117,7 +117,6 @@
   }
   const shortcut=obj('floor-portal',105,1570,80,80,{id:'roof-lounge2-portal',name:'18F 라운지 2로 이동',roomId:'roof-upper',toFloor:'campus',arrival:[extinguisher.x+extinguisher.w+18,extinguisher.y+extinguisher.h/2],approach:[145,1610],confirmTransfer:true,solid:false,portalStyle:'compact',portalScale:1.5,portalRadius:12,portalLabel:'18F',renderHeight:80,description:'소화기와 연결된 왕복 포탈입니다. 들어가거나 가까이에서 E를 누르면 18층 라운지 2로 이동할지 확인합니다.',tags:['18층 라운지 2 연결','예 · 아니오']});
   for(const [i,o] of objects.filter(o=>o.type==='balloons').entries()){const [, ,x,y]=boothLayout[i];Object.assign(o,{x:x+285,y:y+170});}
-  obj('wall-poster',1630,65,640,2,{id:'roof-wall-event-poster',name:'옥상 이벤트 안내',roomId:'roof-plaza',source:'event',imageUrl:'assets/rooftop-event-banner.png',posterHeight:640*937/1679,posterBottom:48,mounted:true,solid:false,renderHeight:416,description:'높은 벽면에 부착한 옥상 이벤트 참여 안내입니다. 사진을 선택하면 크게 볼 수 있습니다.',tags:['옥상 이벤트','기프티콘 안내']});
   const rooftop={id:'rooftop',name:'RF 옥상 광장',width,height,padding:140,paddingTop:440,rooms,objects,walls,surfaces,terrace,elevationAt,wallHeight:18,wallColor:'#e8eee8',spawn:[2325,1565],portals:[{x:down.x,y:down.y+78,w:down.w,h:32,objectId:down.id},{x:shortcut.x+14,y:shortcut.y+14,w:52,h:52,objectId:shortcut.id}]};
   window.CampusWorlds={campus,rooftop};
 })();

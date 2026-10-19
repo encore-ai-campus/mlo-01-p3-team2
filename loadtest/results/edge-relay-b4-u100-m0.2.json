@@ -1,0 +1,116 @@
+{
+ "label": "edge-relay-b4-u100-m0.2",
+ "quota": 5000,
+ "delay_us": 250,
+ "settings": "config.settings",
+ "redis": true,
+ "backends": 4,
+ "via_frontend": true,
+ "edge": "relay",
+ "server": {
+  "prod_core_pct": 29.0,
+  "throttled_period_pct": 16.5,
+  "db_per_s": {
+   "Questions": 232.0,
+   "Com_select": 148.2,
+   "Com_insert": 7.8,
+   "Com_update": 23.8,
+   "Com_delete": 0.0,
+   "Connections": 5.7
+  },
+  "db_threads_connected_end": 6,
+  "db_max_used_connections": 8,
+  "redis_prod_core_pct": 2.3,
+  "redis_commands_per_s": 123.4,
+  "backends_prod_core_pct": [
+   29.1,
+   23.5,
+   21.3,
+   22.4
+  ],
+  "busiest_prod_core_pct": 29.1,
+  "backends_total_prod_cores": 0.96,
+  "jobs_prod_core_pct": 0.2,
+  "nginx_prod_core_pct": 7.4,
+  "connections_per_backend": [
+   39,
+   24,
+   18,
+   21
+  ],
+  "frontend_prod_core_pct": 30.5,
+  "frontend_throttled_period_pct": 1.0,
+  "edge_prod_core_pct": 8.1,
+  "log": {
+   "traceback": 0,
+   "channel_full": 0,
+   "db_error": 0
+  }
+ },
+ "client": {
+  "users": 100,
+  "moving": 0.2,
+  "client": "new",
+  "welcomed": 100,
+  "recv_per_s": {
+   "control_event": 0.2,
+   "control_state": 230.4,
+   "moves": 970.7,
+   "pong": 20.0
+  },
+  "recv_total_per_s": 1221.3,
+  "sent_per_s": {
+   "input": 215.2,
+   "ping": 20.0
+  },
+  "own_state_gap_ms": {
+   "n": 13361,
+   "p50": 34.4,
+   "p95": 36.3,
+   "p99": 42.2,
+   "max": 1959.7
+  },
+  "input_to_moving_ms": {
+   "n": 251,
+   "p50": 1.4,
+   "p95": 5.4,
+   "p99": 24.0,
+   "max": 36.7
+  },
+  "peer_move_gap_ms": {
+   "n": 29088,
+   "p50": 102.8,
+   "p95": 112.3,
+   "p99": 204.9,
+   "max": 226.9
+  },
+  "http_per_s": 5.2,
+  "http_ms": {
+   "n": 310,
+   "p50": 49.3,
+   "p95": 90.9,
+   "p99": 124.2,
+   "max": 152.3
+  },
+  "http_ms_by_path": {
+   "/accounts/session/activity/": {
+    "n": 310,
+    "p50": 49.3,
+    "p95": 90.9,
+    "p99": 124.2,
+    "max": 152.3
+   }
+  },
+  "http_status": {
+   "/accounts/session/activity/ 200": 310
+  },
+  "closes": {},
+  "generator_loop_lag_ms": {
+   "n": 2374,
+   "p50": 1.0,
+   "p95": 2.4,
+   "p99": 3.9,
+   "max": 8.4
+  }
+ }
+}

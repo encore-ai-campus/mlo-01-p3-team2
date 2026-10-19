@@ -45,7 +45,6 @@ INSTALLED_APPS = [
     "learning.apps.LearningConfig",
     "eventing.apps.EventingConfig",
     "community.apps.CommunityConfig",
-    "raffle.apps.RaffleConfig",
     "ad_bridge.apps.AdBridgeConfig",
 ]
 MIDDLEWARE = [
@@ -62,8 +61,14 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = []  # Presentation data only; HTML belongs to frontend.
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
-# Local prototype: one server process shares presence and movement in memory.
-CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+# Redis 주소가 있으면 여러 프로세스가 채널 계층·공유 상태를 Redis 로 나눈다(계획 M2·M3).
+# 없으면 지금처럼 한 프로세스의 메모리로 돈다(로컬 개발·시험·되돌리기).
+CAMPUS_REDIS_URL = os.environ.get("CAMPUS_REDIS_URL", "").strip()
+if CAMPUS_REDIS_URL:
+    # 방송 한 번이 PUBLISH 한 번이다(기본 계층은 방송마다 Redis 를 네 번 오간다). 비교는 loadtest/settings_redis_core.py
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer", "CONFIG": {"hosts": [CAMPUS_REDIS_URL]}}}
+else:
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
 DATABASE_ENGINE = os.environ.get("DATABASE_ENGINE", "sqlite").strip().lower()
 if DATABASE_ENGINE == "mysql":
@@ -106,23 +111,6 @@ SESSION_COOKIE_AGE = CAMPUS_LOGIN_MAX_AGE_SECONDS
 CAMPUS_SESSION_CLEANUP_ENABLED = os.environ.get("CAMPUS_SESSION_CLEANUP_ENABLED", "1") == "1"
 CAMPUS_SESSION_CLEANUP_TIME = os.environ.get("CAMPUS_SESSION_CLEANUP_TIME", "04:00")
 CAMPUS_SESSION_CLEANUP_STATE = DATA_DIR / "var" / "session-cleanup.json"
-
-# Raffle dates are unset until an administrator chooses them in the campus UI.
-# The local server reads completed Google submissions; it needs no public callback URL.
-CAMPUS_RAFFLE_SURVEY_URL = os.environ.get(
-    "CAMPUS_RAFFLE_SURVEY_URL",
-    "https://docs.google.com/forms/d/e/1FAIpQLSf4dkDBcM-7uXtJNXjgsYUsstKRHDPUQ_M3WfCaZne_CUcIEA/viewform?usp=publish-editor",
-).strip()
-CAMPUS_RAFFLE_SURVEY_FORM_ID = os.environ.get("CAMPUS_RAFFLE_SURVEY_FORM_ID", "117DNOSfnLfgmBkv-DkWruqjXKeuFQe--UbeeEg2L34c").strip()
-CAMPUS_RAFFLE_SURVEY_POLL_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_SURVEY_POLL_SECONDS", "10"))
-CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS", "20"))
-if min(CAMPUS_RAFFLE_SURVEY_POLL_SECONDS, CAMPUS_RAFFLE_SURVEY_REQUEST_TIMEOUT_SECONDS) <= 0:
-    raise ValueError("Survey polling and request timeout must be positive seconds")
-CAMPUS_RAFFLE_SCHEDULER_ENABLED = os.environ.get("CAMPUS_RAFFLE_SCHEDULER_ENABLED", "1") == "1"
-CAMPUS_RAFFLE_POLL_SECONDS = float(os.environ.get("CAMPUS_RAFFLE_POLL_SECONDS", "1"))
-CAMPUS_RAFFLE_ANIMATION_SECONDS = int(os.environ.get("CAMPUS_RAFFLE_ANIMATION_SECONDS", "10"))
-if CAMPUS_RAFFLE_POLL_SECONDS <= 0 or not 1 <= CAMPUS_RAFFLE_ANIMATION_SECONDS <= 60:
-    raise ValueError("Raffle polling must be positive and animation must be 1~60 seconds")
 
 LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = "Asia/Seoul"

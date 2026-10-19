@@ -23,7 +23,7 @@
   const lunchWheel=window.CampusLunchWheel?.create();
   let menuRequest=null,menuVersion=0;
   let directMessages=null;
-  const isDialogOpen=(includeClassroom=true)=>directMessages?.blocking||(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusGuide?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking||raffleUI.blocking;
+  const isDialogOpen=(includeClassroom=true)=>directMessages?.blocking||(includeClassroom&&classroom.blocking)||window.CampusLearning?.blocking||window.CampusGuide?.blocking||window.CampusSession?.ending||floorTransition.blocking||dialog.open||boardDialog.open||exitDialog.open||transferDialog.open||$('settingsDialog').open||social.isTyping||boothUI.blocking;
   const renderers=new Map();
   const displayRefresh=new Map();
   let renderer=window.CampusIsometric.create({data:D}), P=renderer.projection, scene=renderer.scene;
@@ -31,6 +31,11 @@
   const camera={x:0,y:0,zoom:DEFAULT_ZOOM,follow:true}, player={...initialPosition,avatar,color:window.CampusAvatars.definitions[avatar].color,moving:false,step:0,walkTime:0};
   let logoutPending=false,serverHints={};
   let vw=0,vh=0,dpr=1,nearby=null,hover=null,lastRoom='',lastTime=0,toastTimer;
+  // 그리기 상한(계획 B1·B2): 화면 주사율·Retina 배율과 상관없이 초당 60번, 캔버스 1920×1680 화소까지만 그린다(비율 유지, 원래 배율보다 키우지 않는다)
+  const FRAME_MS=1000/60,MAX_CANVAS_WIDTH=1920,MAX_CANVAS_HEIGHT=1680;let nextFrameAt=0;
+  const pixelScale=(width,height)=>Math.min(devicePixelRatio||1,2,MAX_CANVAS_WIDTH/width,MAX_CANVAS_HEIGHT/height);
+  // 1ms 여유: 60Hz 화면의 시각 흔들림으로 프레임을 놓치지 않는다. 120·144Hz 에서는 평균 60번이 된다
+  const frameDue=t=>{if(t<nextFrameAt-1)return false;nextFrameAt=Math.max(nextFrameAt+FRAME_MS,t);return true;};
   const keys=new Set();
   const movementKeys=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright']);
   const suppressedKeys=new Set();
@@ -50,13 +55,12 @@
   const social=window.CampusSocial.create({config:accountConfig,onFocus(){keys.clear();player.moving=false;},onSend:text=>presence.sendChat(text),getSelfId:()=>presence.selfId});
   let pendingTransfer=null;
   const boothUI=window.CampusBoothPanel.create({onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});}});
-  const raffleUI=window.CampusRaffle.create({onStart:(id,resume)=>presence.joinRaffle(id,{resume}),onOpen(){keys.clear();player.moving=false;},onClose(){keys.clear();canvas.focus({preventScroll:true});},onState:state=>{for(const view of renderers.values())view.setRaffleState(state);},isNear:()=>serverHints.nearbyId==='roof-event-buzzer',notify:toast});
-  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,onPoke:()=>poke.setHeld(true),
+  const classroom=window.CampusClassroom?.create({getPlayer:()=>player,getControl:()=>presence,pixelScale,onPoke:()=>poke.setHeld(true),
     onOpen(){keys.clear();player.moving=false;jump.reset();},
     onJump:()=>jump.trigger(),
     onExit(){keys.clear();focusPlayer();canvas.focus({preventScroll:true});}
   })||{blocking:false,applyState(){},tick(){}};
-  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>{social.setConnected(value);raffleUI.setConnected(value);},onDoors:states=>{for(const [id,open] of Object.entries(states))applyDoorState(id,open);},onDoor:state=>applyDoorState(state.doorId,state.open),onDoorError:message=>toast(message),onRaffle:state=>raffleUI.receive(state),onRaffleEntry:message=>raffleUI.onEntry(message),onRaffleSurvey:message=>raffleUI.onSurvey(message),onRaffleError:message=>raffleUI.onError(message)});
+  const presence=window.CampusPresence.create({player,width:D.width,height:D.height,floors:worlds,onRestore:position=>restorePosition(position),onState:state=>applyControlState(state),onControlEvent:event=>applyControlEvent(event),onPoke:event=>poke.receive(event),onJump:event=>jump.receive(event),onAuthExpired(){keys.clear();player.moving=false;},onChat:message=>social.receive(message),onChatError:message=>social.reportError(message),onConnectionChange:value=>social.setConnected(value),onControlError:message=>toast(message)});
   const poke=window.CampusPoke.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,getInput:()=>classroom.blocking?classroom.inputKeys:[...keys],isBlocked:()=>isDialogOpen(false),notify:toast});
   const jump=window.CampusJump.create({getPlayer:()=>player,getPresence:()=>presence,getClassroom:()=>classroom,isBlocked:()=>isDialogOpen(false),notify:toast});
   directMessages=window.CampusMessages.create({config:JSON.parse($('campusViewConfig')?.textContent||'{}').privateMessages||{},
@@ -102,7 +106,7 @@
     $('cameraStatus').textContent=camera.follow?'내 위치 고정':'자유 보기 · 드래그';$('cameraHint').textContent=camera.follow?'내 위치 화면':'자유 보기';canvas.style.cursor=isAdmin&&!camera.follow?'grab':'default';
   }
   function resize(){
-    const oldWidth=vw,oldHeight=vh,r=viewport.getBoundingClientRect();vw=r.width;vh=r.height;dpr=Math.min(devicePixelRatio||1,2);
+    const oldWidth=vw,oldHeight=vh,r=viewport.getBoundingClientRect();vw=r.width;vh=r.height;dpr=pixelScale(vw,vh);
     canvas.width=Math.round(vw*dpr);canvas.height=Math.round(vh*dpr);
     if(camera.follow)focusPlayer();else{camera.x+=(vw-oldWidth)/2;camera.y+=(vh-oldHeight)/2;}updateZoom();
   }
@@ -115,6 +119,7 @@
     social.render(t,{actors,camera,projectActor:actor=>{const q=renderer.projectActor(actor);return {...q,y:q.y-window.CampusJump.height(actor,t)};},selfId:presence.selfId,floor:D.id,avatarSize:window.CampusAvatars.size});
   }
   function update(t){
+    if(!frameDue(t)){requestAnimationFrame(update);return;}
     const dt=Math.min((t-lastTime)/1000,.04)||.016;lastTime=t;
     if(!classroom.blocking)presence.setInput(!isDialogOpen()?[...keys]:[]);
     jump.tick(t);classroom.tick(t,dt);poke.tick(t);checkExit();
@@ -126,7 +131,7 @@
     focusPlayer();
     const r=D.rooms.find(room=>room.id===serverHints.roomId);if(r&&r.id!==lastRoom){lastRoom=r.id;spaceGuide.setRoom(r.id);$('currentRoom').textContent=r.name;for(const b of document.querySelectorAll('[data-room]')){b.classList.toggle('active',b.dataset.room===r.id);b.setAttribute('aria-current',b.dataset.room===r.id?'location':'false');}}
     nearby=D.objects.find(object=>object.id===serverHints.nearbyId)||null;
-    $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent=window.CampusDoors.isDoor(nearby)?(nearby.open?'닫기':'열기'):'보기';}
+    $('interactionPrompt').hidden=!nearby;if(nearby){$('interactionPrompt').querySelector('span').textContent=nearby.name;$('interactionPrompt').querySelector('button').textContent='보기';}
     render(t);requestAnimationFrame(update);
   }
   function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,2800);}
@@ -137,7 +142,6 @@
     if(D.id!==position.floor){
       D=worlds[position.floor];window.CampusData=D;
       renderer=renderers.get(D.id)||window.CampusIsometric.create({data:D});renderers.set(D.id,renderer);P=renderer.projection;scene=renderer.scene;
-      renderer.setRaffleState(raffleUI.state);
     }
     Object.assign(player,{floor:D.id,x:position.x,y:position.y,targetX:position.x,targetY:position.y,dir:position.dir,moving:false,walkTime:0});
     window.CampusStairs.resetActor(D,player);
@@ -221,8 +225,6 @@
     if(floorTransition.blocking||window.CampusSession?.ending)return;
     if(item.id==='roof-ad-board'){window.CampusAds?.clickRoof();return;}
     if(item.info===false)return;
-    if(window.CampusDoors.isDoor(item)){toggleDoor(item);return;}
-    if(item.action==='raffle'){raffleUI.open();return;}
     if(item.action==='booth'){presence.command('open_booth',{objectId:item.id}).then(()=>boothUI.open(item)).catch(error=>toast(error.message));return;}
     if(item.toFloor&&(keyboard||item.confirmTransfer)){useStairs(item);return;}
     if(item.type==='noticeboard'){showBoard();return;}
@@ -239,17 +241,6 @@
     showBoardChoices(false);
     for(const card of boardCards){card.setAttribute('aria-pressed','false');card.querySelector('.board-card-state').textContent='선택하기';}
     $('boardSelection').textContent='';boardDialog.showModal();$('boardMenuCard').focus({preventScroll:true});
-  }
-  function applyDoorState(id,open){
-    const door=worlds.campus.objects.find(o=>o.id===id&&window.CampusDoors.isDoor(o));
-    if(!door||typeof open!=='boolean'||door.open===open)return;
-    door.open=open;const view=renderers.get('campus');view?.setDoorState(id,open);
-  }
-  function toggleDoor(door){
-    if(isDialogOpen())return;
-    keys.clear();presence.setInput([]);
-    if(!presence.requestDoor(door.id,!door.open))toast('연결된 뒤 문을 열고 닫을 수 있어요.');
-    canvas.focus({preventScroll:true});
   }
   function cancelMenuRequest(){lunchWheel?.cancel();menuRequest?.abort();menuRequest=null;menuVersion++;$('boardMenuImage').onload=$('boardMenuImage').onerror=null;$('boardMenuImage').removeAttribute('src');}
   function showBoardChoices(focus=true){
@@ -343,10 +334,11 @@
   exitDialog.addEventListener('cancel',e=>{e.preventDefault();cancelExit();});
   dialog.addEventListener('click',e=>{const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();});
   $('interactionPrompt').querySelector('button').onclick=()=>nearby&&showDetail(nearby);
-  function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar);$('avatarPreview').src=`assets/characters/${id}-preview.png`;$('avatarName').textContent=window.CampusAvatars.definitions[id].name;}
+  // 이미지 주소·이름이 같으면 다시 넣지 않는다(계획 5단계)
+  function updateAvatarPreview(){const id=window.CampusAvatars.resolve(player.avatar),src=`assets/characters/${id}-preview.png`,name=window.CampusAvatars.definitions[id].name;if($('avatarPreview').getAttribute('src')!==src)$('avatarPreview').src=src;if($('avatarName').textContent!==name)$('avatarName').textContent=name;}
   updateAvatarPreview();
   window.addEventListener('campus:avatar',updateAvatarPreview);
-  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:isAdmin,canFreeCamera:isAdmin,boothUI,raffleUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
+  window.CampusApp={showDetail,get scene(){return scene;},player,camera,screenToWorld,worldToScreen,canZoom:isAdmin,canFreeCamera:isAdmin,boothUI,floorTransition,social,presence,classroom,poke,get nearby(){return nearby;},get renderer(){return renderer;},get floor(){return D.id;},get data(){return D;},visibleActors,switchFloor,render,toast,zoomBy};
   window.addEventListener('campus:guide-open',()=>{keys.clear();suppressedKeys.clear();player.moving=false;presence.setInput([]);poke.setHeld(false);});
   requestAnimationFrame(update);
   window.dispatchEvent(new Event('campus:ready'));

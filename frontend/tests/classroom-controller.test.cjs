@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-function fixture(subject='python'){
+function fixture(subject='python',options={}){
  const nodes={},listeners={},inputs=[],opens=[],commands=[],errors=[];const ctx=new Proxy({},{get:()=>()=>{},set:()=>true});
  for(const id of ['classroomDialog','classroomCanvas','classroomPrompt','classroomAreaHint','classroom-title'])nodes[id]={open:false,events:{},addEventListener(n,fn){this.events[n]=fn;},focus(){},showModal(){this.open=true;},close(){this.open=false;this.events.close?.();},getContext(){return ctx;},getBoundingClientRect(){return {width:800,height:600};}};
  let response={type:'learning_open',subject,questionType:'fill_blank'},exited=0;
@@ -8,7 +8,7 @@ function fixture(subject='python'){
  const c=vm.createContext({window,performance:{now:()=>0},document:{getElementById:id=>nodes[id],addEventListener(n,fn){listeners[n]=fn;}}});
  vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist/keyboard.js'),'utf8'),c);
  for(const file of ['classroom-map.js','classroom.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../learning/static/learning',file),'utf8'),c);
- const controller=window.CampusClassroom.create({getPlayer:()=>({avatar:'female-2',color:'#91a7a1'}),getControl:()=>control,onExit(){exited++;}});
+ const controller=window.CampusClassroom.create({getPlayer:()=>({avatar:'female-2',color:'#91a7a1'}),getControl:()=>control,onExit(){exited++;},...options});
  const state={subject,actor:{x:320,y:455,dir:'up',moving:false},nearby:null};
  const key=(name,key,extra={})=>listeners[name]({key,preventDefault(){},stopImmediatePropagation(){},target:{closest:()=>false},...extra});
  return {controller,window,nodes,inputs,commands,opens,errors,state,key,setResponse(value){response=value;},get exited(){return exited;}};
@@ -26,4 +26,10 @@ test('E opens the type and subject returned by the server and shows rejected int
 test('typing and learning dialogs block movement and repeated E requests',()=>{
  const f=fixture();f.controller.applyState(f.state);f.key('keydown','w',{target:{closest:()=>true}});f.controller.tick(100,.04);assert.deepEqual(f.inputs.at(-1),[]);
  f.key('keydown','e',{repeat:true});assert.equal(f.commands.length,0);f.window.CampusLearning.blocking=true;f.key('keydown','d');f.key('keydown','e');f.controller.tick(140,.04);assert.deepEqual(f.inputs.at(-1),[]);assert.equal(f.commands.length,0);
+});
+test('classroom canvas follows the map pixel cap (plan B2)',()=>{
+ const f=fixture('python',{pixelScale:(width,height)=>Math.min(2,1920/width,1680/height)});f.controller.applyState(f.state);f.controller.tick(100,.04);
+ assert.deepEqual([f.nodes.classroomCanvas.width,f.nodes.classroomCanvas.height],[1600,1200]);
+ const g=fixture('python',{pixelScale:()=>1.25});g.controller.applyState(g.state);g.controller.tick(100,.04);
+ assert.deepEqual([g.nodes.classroomCanvas.width,g.nodes.classroomCanvas.height],[1000,750]);
 });

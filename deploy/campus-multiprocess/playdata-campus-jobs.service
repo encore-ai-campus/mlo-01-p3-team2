@@ -1,0 +1,23 @@
+[Unit]
+# 백그라운드 작업 하나(식단 사진·만료 세션 정리·Kafka outbox). 소켓 프로세스가 몇 개든 이것은 하나만 띄운다
+Description=Playdata campus background jobs
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/backend
+# 지금의 playdata-backend 와 같은 값(.env 가 있으면 .env 가 이긴다)
+Environment=PYTHONUNBUFFERED=1
+Environment=DJANGO_DEBUG=0
+EnvironmentFile=/home/ubuntu/backend/.env
+Environment=CAMPUS_REDIS_URL=redis://127.0.0.1:6379/0
+ExecStart=/home/ubuntu/backend/.venv/bin/python manage.py campus_jobs
+Restart=always
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

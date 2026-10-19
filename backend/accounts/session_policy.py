@@ -152,5 +152,5 @@ def session_context(request):
         "logoutUrl": reverse("accounts:logout"), "loginUrl": reverse("accounts:login"),
         "csrfToken": get_token(request),
         "activityIntervalSeconds": settings.CAMPUS_SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS,
-        "status": check_session(session.session_key),
+        "status": getattr(request, "campus_session_status", None) or check_session(session.session_key),  # 미들웨어가 이 요청에서 구한 상태(계획 4e)
     }}
