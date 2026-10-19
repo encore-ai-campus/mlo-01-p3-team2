@@ -1,4 +1,6 @@
 > Status: Approved  
+
+이 문서는 설계·구현 당시의 계획 기록이다. 현재 2026-10-18 운영 배치·도메인·예약은 [현재 운영 구성](../../aws-infra/docs/operations/current-state.md), 실행 가능한 역할은 [플랫폼 안내](../platform/README.md)를 기준으로 확인한다.
 > 기준 문서: [infra-automation-design.md](infra-automation-design.md)  
 > 목적: 인프라 자동화(`platform/`)를 어떤 순서로, 어떤 완료 기준으로 구현할지 정의하는 계획 문서
 

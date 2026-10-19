@@ -4,7 +4,7 @@
 
 | 역할 | 문서 | 대상·호출 |
 | --- | --- | --- |
-| edge | [Nginx·공인 IP HTTPS](edge/README.md) | game_frontend·ad_frontend 및 이전 edge 그룹. edge.yml 또는 site.yml --tags edge. |
+| edge | [게임 도메인·광고 IP HTTPS](edge/README.md) | game_frontend·ad_frontend 및 이전 edge 그룹. edge.yml 또는 site.yml --tags edge. |
 | common | [공통 보안과 시간 동기화](common/README.md) | 모든 서버. Bastion을 먼저 구성한다. |
 | firewall | [nftables 방화벽](firewall/README.md) | 모든 서버. Bastion에 먼저 적용한다. |
 | pkg | [공용 패키지 설치와 APT 저장소](pkg/README.md) | 다른 역할이 include_role의 tasks_from으로 호출하는 보조 역할. |

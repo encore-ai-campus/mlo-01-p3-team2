@@ -1,5 +1,7 @@
 # 설정 파일 지도
 
+2026-10-18 대조: 아래 기본 topology는 18대이고 로컬 current는 game-server-test를 추가한 19대다. 현재 배치·EBS·예약은 [운영 기준](../../operations/current-state.md), 게임 도메인 선택은 [설정 예제](../../../infra/config/game-front-domain.example.json)를 따른다. frontend_domains·frontend_backend_nodes를 기존 platform.json에 병합하며 프로필 전체를 교체하지 않는다.
+
 ## 2026-10-13 현재 Account 1 구성
 
 기본 및 profiles/current의 front-a는 game_frontend, front-b는 ad_frontend이며 둘 다 Public A·t3.small·EIP다. game-server와 ad-server는 Private A·t3.large·공인 IP 없음이다. edge-1과 edge_front 연결, SSH·Proxy·인터넷 송신 목록의 edge 항목을 제거했다. 노드 키·디스크·다른 계정·공통 A/C 서브넷은 유지한다.

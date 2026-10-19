@@ -2,7 +2,7 @@
 
 ## Account 1 Front 인벤토리 — 2026-10-13
 
-game_frontend·ad_frontend마다 현재 public_ip, edge_https_allowed_cidrs=[0.0.0.0/0], edge_http_redirect=true, edge_frontend_mode=true를 기록한다. account1의 game 또는 ad Backend가 정확히 한 대인지 검사하고 그 실제 사설 IP:8000을 edge_frontend_upstreams에 넣는다. 네 서비스에는 account1_service_restricted=true를 기록해 SSH를 Bastion으로 제한한다. 다른 계정의 호스트 변수는 유지한다.
+game_frontend·ad_frontend마다 public_ip, 프로필의 HTTPS 허용 CIDR, edge_frontend_mode=true를 기록한다. frontend_backend_nodes가 있으면 게임/광고 역할 중 선택한 노드를 사용하고 정확히 한 대인지 검사한다. 게임 도메인은 frontend_domains에 선언하며 로컬 Front:8004와 선택 Backend:8000 WebSocket 경로로 분리한다. 도메인이 없으면 Backend:8000과 HTTP 404를 유지한다. account1_service_restricted는 Bastion SSH와 Backend API 제한에 사용한다.
 
 기존 hosts.current.yml을 수동 편집하는 대신 AWS 적용 후 Inventory를 다시 실행한다. 이 명령은 IP 수집만 수행하며 인증서 발급·서버 설치는 하지 않는다.
 
@@ -22,7 +22,7 @@ ProfileDirectory는 필수이며 호출한 PowerShell 디렉터리 기준의 상
 | --- | --- |
 | topology.tfvars.json | nodes의 account·instance_type·AZ·디스크·노드 수와 계정/네트워크 설정 |
 | traffic.tfvars.json | 역할 간 연결·외부 허용 범위·프록시 포트 |
-| platform.json | inventory_name, ssh_user, 계정별 ssh_keys, role_groups, wsl_distribution, ansible_venv |
+| platform.json | inventory_name, ssh_user, 계정별 ssh_keys, role_groups, wsl_distribution, ansible_venv, 선택 frontend_domains·frontend_backend_nodes |
 
 NewProfile은 현재 infra/config의 topology·traffic을 복사하고 플랫폼 설정을 생성한다. 초기 사양·노드 수를 자동으로 낮추지 않는다. 기존 세 파일 중 하나라도 있으면 덮어쓰지 않는다. 기본 개인키 경로는 WSL 사용자의 ~/.ssh/project-key이며 platform.json에서 바꾼다. 개인키 내용은 읽거나 복사하지 않는다.
 
@@ -71,8 +71,10 @@ Get-Command가 System32와 WindowsApps 등 여러 WSL 실행 경로를 반환해
 
 ## Front HTTPS 설치 입력과 기존 edge 호환
 
-현재 Inventory는 Front별 EIP·공개 CIDR 0.0.0.0/0·리다이렉트와 단일 Backend 주소를 기록한다. 이전 role=edge 호스트만 traffic.game_client_cidrs를 사용한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
+현재 Inventory는 Front별 EIP와 public_http_cidrs(없으면 game_client_cidrs)를 기록한다. 도메인이 없으면 Backend:8000과 HTTP 404, frontend_domains에 지정한 게임 Front는 도메인·HTTP 이동·로컬 앱 127.0.0.1:8004와 선택 Backend WebSocket 주소를 기록한다. 이전 role=edge 호스트만 traffic.game_client_cidrs를 사용한다. 공인 IP가 없으면 생성에 실패한다. 정규 인벤토리의 SSH는 기존처럼 사설 IP·Bastion 경로를 사용한다.
 
 Deploy는 EC2 생성·Inventory·Proxy까지 실행한다. HTTPS 설치는 [site.yml](../../../../aws-platform/platform/site.yml)의 edge 역할에서, 두 Front의 HTTPS만 설치할 때는 [edge.yml](../../../../aws-platform/platform/edge.yml)에서 실행한다. edge 단독 초기 구축에는 Bastion이 없으므로 public_ip, 허용 CIDR, 키 경로, proxy_enabled=false를 가진 별도 인벤토리를 사용한다.
 
 ad_frontend 호스트에만 edge_client_max_body_size=3m을 기록한다. game_frontend에는 이 변수를 기록하지 않아 Ansible 역할 기본값 1m을 사용한다. 변경 후 Inventory 재생성과 광고 Front Nginx 설정 적용이 필요하다.
+
+게임 도메인·Backend 선택 예제는 [game-front-domain.example.json](../../../infra/config/game-front-domain.example.json)이다. 프로필 전체를 교체하지 않고 항목을 병합한다. 로컬 current의 front-a는 bootcampmetaverse.site와 game-server-test를 선택한다. 재생성 전 선택 노드의 출력·태그·실행 상태를 확인한다. 잘못된 도메인과 게임 이외 역할의 도메인 지정은 거부한다. 로컬 검사는 infra/tests/test_front_domain.ps1이다.

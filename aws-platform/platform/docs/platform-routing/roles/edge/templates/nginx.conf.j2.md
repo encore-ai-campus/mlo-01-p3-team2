@@ -2,8 +2,8 @@
 
 [역할 개요](../README.md) · [원본](../../../../../roles/edge/templates/nginx.conf.j2)
 
-edge_http_redirect=true이면 HTTP80의 ACME 경로는 webroot로 제공하고 나머지 요청은 해당 서버 EIP의 HTTPS로 308 이동한다. 기본 false인 기존 호출은 404를 유지한다. 인증서가 준비되기 전에는 443과 인증서 경로를 렌더링하지 않는다.
+/etc/nginx/nginx.conf 전체를 렌더링한다. edge_domain이 비어 있으면 기존 IP 서버와 단일 upstream을 유지한다. edge_http_redirect 기본 false는 일반 HTTP 404, true는 ACME 경로 외 HTTPS 이동이다.
 
-각 Front는 자신의 EIP 인증서와 하나의 Backend 사설 IP:8000을 사용한다. 공개 Front의 CIDR은 0.0.0.0/0이다. edge_frontend_mode에서는 Host 원문을 전달하고 X-Forwarded-For는 실제 접속 IP로 덮어쓴다. /static/·/assets/를 따로 서빙하지 않고 Backend로 전달한다. IP 주소용 HSTS는 추가하지 않는다. 기존 빈 목록의 준비 화면은 legacy 호출에만 남아 있다.
+게임 도메인 모드는 HTTP를 도메인으로 이동하고, IP 인증서로 받는 HTTPS default server도 도메인으로 308 이동한다. 도메인 인증서가 준비돼야 도메인 HTTPS 서버를 생성한다. 최초 설치에서 없는 인증서 경로를 참조하지 않는다.
 
-HTTPS server 블록의 client_max_body_size는 edge_client_max_body_size를 사용한다. 광고 Front는 3m, 게임 Front는 기본 1m이다. 제한을 초과한 요청은 Nginx가 413으로 응답하며 Backend까지 전달되지 않는다.
+도메인 /는 로컬 Front 127.0.0.1:8004, /static/은 edge_static_root, /ws/campus/는 선택 Backend의 edge_game_backend_host:edge_game_backend_port다. /api/ads/는 503 ads_disabled를 유지한다. 도메인·광고 앱 서버에는 로컬 검증 IP와 edge_https_allowed_cidrs 뒤 deny all을 둔다. 현재 프로필은 7개 /32이며 0.0.0.0/0 임시 HTTPS 허용을 저장하지 않는다. 광고는 Backend:8000에 전달하고 3m 제한, 게임은 1m이다. HSTS는 추가하지 않는다.

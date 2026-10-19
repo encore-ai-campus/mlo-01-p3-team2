@@ -46,7 +46,7 @@ account1_service_restricted가 아닌 일반 분기의 from과 self는 SSH 22를
 
 ## 기존 Edge HTTPS 호환
 
-기존 edge 분기는 HTTP80을 전체 허용한다. 현재 두 Front에는 Account 1 분기가 적용돼 80·443을 전체 허용한다. HTTPS443은 edge_https_allowed_cidrs가 있을 때 해당 IPv4 CIDR만 허용한다. 목록이 없으면443을 열지 않는다. Nginx도 같은 CIDR을 검사하고 HTTP80의 ACME 경로 외 요청을404로 차단한다. 사용자 공인 IP 변경 시 AWS SG·nftables·Nginx를 함께 갱신한다. 기존 다른 역할 규칙은 보존한다.
+기존 edge 분기는 80을 전체 허용하고 443은 edge_https_allowed_cidrs로 제한한다. 현재 account1_service_restricted인 게임·광고 Front의 OS 방화벽은 80·443을 허용하고 AWS SG와 Nginx가 HTTPS의 지정 CIDR을 제한한다. 게임 도메인은 HTTP ACME 외 요청을 도메인으로 이동하고 광고의 IP 템플릿은 404다. SG·OS·Nginx는 서로 다른 계층이다.
 
 
 ## 2026-10-15 Backend API 역방향 연결 제거

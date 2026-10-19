@@ -1,4 +1,6 @@
 > Status: Approved  
+
+이 문서는 설계·구현 당시의 계획 기록이다. 현재 2026-10-18 운영 배치·도메인·예약은 [현재 운영 구성](../../aws-infra/docs/operations/current-state.md), 실행 가능한 역할은 [플랫폼 안내](../platform/README.md)를 기준으로 확인한다.
 > 승격일: 2026-10-05  
 > 목적: 막 생성된 Linux VM에 Ansible로 보안 설정과 역할별 구축을 수행하는 인프라 자동화의 범위, 구성, 결정 사항을 정의하는 기준 문서
 

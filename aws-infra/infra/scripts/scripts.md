@@ -1,5 +1,7 @@
 # 실행 명령어와 계정별 배포 구성
 
+운영 대조: 2026-10-18. 아래 기본 topology 표는 18대이며, 실제 current는 game-server-test를 추가한 19대다. [현재 운영 구성](../../docs/operations/current-state.md)에 도메인·계정 배치·예약을 정리했다. 새 프로필은 current를 자동 복제하지 않는다.
+
 실제 생성·설치 순서는 [배포 절차](../../docs/deployment-runbook.md)를 따른다. S3·AMI·접속 IP 복원, 배스천 운영, SSH 키 전환과 전체 삭제는 [복원·운영 절차](../../docs/operations-recovery.md)로 옮겼다. 장애가 발생하면 배포 절차의 장애 표에서 해당 절차로 이동한다.
 
 현재 환경의 서버를 잠시 껐다 켤 때는 [전체 EC2 중지·시작](../../docs/operations/ec2-power.md)의 `power-all.ps1 -Action Stop` 또는 `-Action Start`를 사용한다.

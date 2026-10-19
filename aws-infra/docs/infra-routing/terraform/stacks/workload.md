@@ -70,7 +70,7 @@ SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 �
 | ALB → ad-server | /ads/* 규칙, ad 대상 그룹 HTTP 8000. alb_ad 연결로 ALB SG를 참조하는 양쪽 규칙 |
 | 외부 관리자 → Bastion | admin_public_cidrs → SSH 22. 현재 관리자 CIDR 한 항목이 설정됨 |
 
-ALB의 외부 HTTP 포트와 내부 대상 포트는 별개다. Bastion의 인터넷 HTTPS 443 egress도 ALB의 외부 인바운드와 별개다. Account 1 workload는 edge-1·Front 두 대·game-server·ad-server 다섯 대를 생성하며 Bastion은 [전용 단계](bastion.md)에서 생성한다. topology에 Bastion을 남겨 SSH·Proxy SG 규칙은 계속 계산한다. 광고 서버는 Private A이고 game-server와 서로 다른 EC2이므로 각각 HTTP 8000을 사용한다. 프로그램 설치와 정적 파일 배포는 [bootstrap 범위](../../bootstrap/README.md)다.
+선택적 ALB의 외부 HTTP 포트와 내부 대상 포트는 별개다. 현재 ALB·edge-1은 없다. Account 1 기본 workload는 front-a·front-b·game-server·ad-server·flatten-1 다섯 대이고 current에는 game-server-test가 추가된다. Bastion은 [전용 단계](bastion.md)에서 관리한다. 게임·광고 Backend는 각각 8000을 사용하며 실제 앱 설치는 [bootstrap 범위](../../bootstrap/README.md)와 별개다.
 
 ## 모든 서버의 A 배치 — 2026-10-13
 
@@ -78,7 +78,7 @@ ALB의 외부 HTTP 포트와 내부 대상 포트는 별개다. Bastion의 인�
 
 공통 az_ids와 foundation의 A·C 서브넷·라우팅 및 connectivity의 Peering 구조는 유지한다. compute는 노드의 subnet_tier와 az로 서브넷을 선택하므로 배치 설정 변경을 그대로 사용한다. 기존 환경은 새 workload Plan에서 EC2·데이터 EBS 교체와 EIP 연결 변경을 검토하고, 적용 후 Inventory와 IP를 참조하는 서버 설정을 갱신한다. AWS 적용과 실제 A 배치 확인은 이번 작업에서 실행하지 않았다.
 
-workload.tftest.hcl은 계정별 기존 서버 수·역할 검사를 유지하고 서비스 노드의 az=a를 검사한다. 추가 all_service_nodes_use_a_subnets run은 compute 모듈을 AWS mock으로 직접 검사해 서비스 18대가 실제로 Public A 또는 Private A 서브넷을 선택하는지 확인한다. 선택 Bastion은 기존 전용 단계의 Public A 배치를 유지한다.
+workload.tftest.hcl은 기본 topology의 계정별 서버·역할·A 서브넷 선택을 검사한다. 기본 서비스는 17대이며 current의 추가 테스트 Backend는 별도 프로필 변경이다. 아래 과거 테스트 실행 기록을 현재 19대 AWS 동작 검증으로 읽지 않는다.
 
 ## 선행 상태 확인
 
@@ -130,7 +130,7 @@ account1의 최초 전체 Plan은 7개 추가였으며 MySQL 규칙 3개 외에 
 
 ## ALB 비활성화 설정
 
-2026-10-11 기본 및 current 설정의 ALB를 끄고 전용 연결 3개를 제거했다. 기존 local.alb_enabled·module.alb.count·model.flows 계산으로 처리하므로 workload 구현 파일은 변경하지 않았다. ALB 모듈·DNS와 ALB 전용 규칙은 생성하지 않으며 당시 서비스 EC2 17대와 Front EIP 두 개, 다른 서비스 연결을 유지했다. 이후 edge-1 도입 당시에는 서비스 EC2 18대·EIP 3개였으나, 현재 edge 제거 후 서비스 EC2 17대·EIP 2개다. 기존 foundation 출력에 ALB SG가 남은 전환 단계와 SG 정리 후를 모두 모의 검사한다. 실제 원격 상태 전환과 자원 삭제는 검증하지 않았다.
+2026-10-11 기본 및 current 설정의 ALB를 끄고 전용 연결 3개를 제거했다. 기존 local.alb_enabled·module.alb.count·model.flows 계산으로 처리하므로 workload 구현 파일은 변경하지 않았다. ALB 모듈·DNS와 ALB 전용 규칙은 생성하지 않으며 당시 서비스 EC2 17대와 Front EIP 두 개, 다른 서비스 연결을 유지했다. 이후 edge-1 도입 당시에는 서비스 EC2 18대·EIP 3개였으나, 기본 edge 제거 구성은 서비스 EC2 17대·Front EIP 2개다. 현재 운영은 테스트 Backend 추가로 서비스 18대이며 Bastion EIP도 별도로 사용한다. 기존 foundation 출력에 ALB SG가 남은 전환 단계와 SG 정리 후를 모두 모의 검사한다. 실제 원격 상태 전환과 자원 삭제는 검증하지 않았다.
 
 foundation을 먼저 적용해 사용 중인 ALB SG를 삭제하지 않도록 [배포 순서](../../../deployment-runbook.md#alb-비활성화-적용-순서)를 따른다.
 

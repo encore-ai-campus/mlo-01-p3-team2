@@ -1,0 +1,32 @@
+---
+# DNS A 레코드가 Front EIP를 가리켜야 한다. 기존 인증서는 만료가 임박할 때만 갱신한다.
+- name: 도메인 인증서 요청 인자 준비
+  ansible.builtin.set_fact:
+    edge_domain_certbot_argv: >-
+      {{ [edge_certbot_venv ~ '/bin/certbot', 'certonly', '--non-interactive',
+          '--agree-tos', '--webroot', '--webroot-path', edge_acme_webroot,
+          '-d', edge_domain, '--cert-name', edge_domain_cert_name, '--keep-until-expiring']
+         + (['--email', edge_acme_email] if edge_acme_email | length > 0
+            else ['--register-unsafely-without-email']) }}
+
+- name: 최초 도메인 인증서 발급 사전 검증
+  ansible.builtin.command:
+    argv: "{{ edge_domain_certbot_argv + ['--dry-run'] }}"
+  when: edge_acme_preflight | bool and not edge_domain_certificate_before.stat.exists
+  changed_when: false
+
+- name: 도메인 인증서 발급 또는 유효 인증서 유지
+  ansible.builtin.command:
+    argv: "{{ edge_domain_certbot_argv + ['--server', edge_acme_server] }}"
+  changed_when: false
+
+- name: 발급된 도메인 인증서 확인
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ edge_domain_cert_name }}/fullchain.pem"
+    follow: true
+  register: edge_domain_certificate_after
+  failed_when: not edge_domain_certificate_after.stat.exists
+
+- name: 도메인 HTTPS 활성화
+  ansible.builtin.set_fact:
+    edge_domain_tls_ready: true

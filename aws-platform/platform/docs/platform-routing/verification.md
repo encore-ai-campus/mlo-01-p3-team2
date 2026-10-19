@@ -349,3 +349,7 @@ site.yml의 mysql_router/backend 태그는 MySQL 전체 그룹의 계정 준비�
 배포 준비가 된 운영자는 platform 디렉터리의 기존 WSL 가상환경에서 ansible-playbook -i inventory/hosts.current.yml site.yml --tags mysql_router --ask-vault-pass를 실행한다. 기본 실행은 --limit을 생략한다. 일부 대상만 선택하려면 MySQL 전체 그룹도 포함한다(예: --limit 'mysql:ad'). 실제 장애 전환과 애플리케이션의 재접속 처리는 별도 검증 범위다.
 
 라우팅 후속 확인: routing-doc-sync의 인식된 참조 2건(file_match·signature_match), 불일치 0건·diagnostics 0건. 결과는 needs_review / role_status=not_verified이며 YAML/Jinja 의미까지 자동 검증한 결과가 아니다. 새 Python 실행 함수 선언은 AST JSON으로 대조했고 변경 문서의 로컬 링크 210개에서 누락 경로가 없었다.
+
+## 2026-10-18 게임 도메인 코드와 문서 동기화
+
+게임 Front 도메인·IP 이동용 인증서·로컬 앱·WebSocket 경로를 코드에 반영했다. 템플릿 6개 검사, PowerShell 실제 Front 분기의 게임/광고/선택 Backend/잘못된 도메인 검사, edge.yml 문법 검사가 통과했다. 원격 재배포·nginx -t·인증서 재발급은 하지 않았다. 운영 상태는 별도 AWS 읽기 조회로 EC2 19대 stopped, 연결 EBS 4,280GiB, 기존 18대의 평일 08:30 시작·매일 22:00 중지 예약을 확인했다. 과거 검증 결과는 원래 날짜 기준으로 보존한다.

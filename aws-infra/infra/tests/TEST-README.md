@@ -10,7 +10,7 @@
 
 현재 테스트에는 [Spark 포트·콘솔 SSH 검사 지도](../../docs/infra-routing/tests/README.md)가 있다. Spark 포트 범위 검사는 model 4개·security-rules 1개·workload 4개이며, 콘솔 SSH 검사는 workload의 계정별 5개다. 검사 선언이 있다는 사실만으로 현재 환경에서 모두 통과했다고 기록하지 않는다. 기존 workload 테스트의 최종 통과 여부 미확인 기록도 아래에 유지한다. 라우팅 문서가 확인한 account1_default_closed의 이전 5개 노드 기대값은 현재 4개 workload 노드와 불일치하므로 기존 테스트 전체가 현재 코드에서 통과한다고 안내하지 않는다.
 
-현재 [compute 데이터 EBS 보호](../../docs/infra-routing/terraform/README.md#compute)는 prevent_destroy=true다. 아래 보호 관련 실패와 임시 코드 사본의 보호 해제는 당시 시험 조건이다. 최신 전체 삭제 실행기는 [Destroy와 보호 복원](../../docs/infra-routing/scripts/destroy-all.ps1.md)을 제공하며, DeleteDataVolumes만으로 보호를 해제하지 않는다. 실제 AWS 삭제·provider 실행 순서·원격 동시 실행은 별도 검증 범위다.
+현재 [compute 데이터 EBS 보호](../../docs/infra-routing/terraform/README.md#compute)는 prevent_destroy=false다. 아래 시험 기록은 각 테스트가 지정한 보호 조건을 사용한다. 최신 전체 삭제 실행기는 [Destroy와 보호 복원](../../docs/infra-routing/scripts/destroy-all.ps1.md)을 제공하며 실제 AWS 삭제는 별도 검증 범위다.
 
 ## 서비스 콘솔 SSH 삭제 경계 검사 기록 — 2026-10-10
 
@@ -65,4 +65,4 @@ Terraform 테스트는 AWS mock provider와 terraform_remote_state override를 �
 
 ## 평탄화 Consumer 변경 연결
 
-flatten-1은 account2 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. Consumer 프로그램 배포와 Kafka의 OS 방화벽 허용은 별도 확인 대상이다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
+flatten-1은 account1 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. Consumer 프로그램 배포와 Kafka의 OS 방화벽 허용은 별도 확인 대상이다. foundation의 account2_private, workload의 account2_three_nodes·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 이번 문서 작업은 테스트 실행 결과를 새로 주장하지 않는다.
