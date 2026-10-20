@@ -1,0 +1,4 @@
+.side-footer .avatar-preview { width: 40px; height: 46px; object-fit: contain; image-rendering: pixelated; flex: 0 0 auto; }
+.side-footer > div { min-width: 0; flex: 1; }
+.side-footer .avatar-button { padding: 7px 9px; border: 1px solid #dce4df; border-radius: 8px; background: #fff; color: #167d79; font-size: 11px; font-weight: 650; }
+.side-footer .avatar-button:hover { background: #edf7f3; }

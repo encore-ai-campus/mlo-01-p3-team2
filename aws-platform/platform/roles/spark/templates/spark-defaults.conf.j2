@@ -1,0 +1,7 @@
+# Ansible로 관리한다 (roles/spark).
+spark.master {{ spark_master_url }}
+# 임의 포트 대신 AWS에서 허용한 시작 포트와 재시도 범위 안에서 통신한다.
+# 같은 서버의 Driver·Executor BlockManager 포트 충돌도 이 범위에서 재시도한다.
+spark.driver.port {{ spark_driver_port }}
+spark.blockManager.port {{ spark_block_manager_port }}
+spark.port.maxRetries {{ spark_port_max_retries }}

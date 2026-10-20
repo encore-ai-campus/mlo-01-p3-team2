@@ -1,0 +1,42 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › <a href="{% url 'operator:advertiser_list' %}">광고주</a> › {{ account.username }}{% endblock %}
+{% block content %}
+<h2>계정</h2>
+<p>{{ account.nickname }}({{ account.class_label }}) · 가입 {{ account.created_at|kst }} · 마지막 로그인 {{ account.last_login|kst|default:"없음" }}</p>
+<p>상태: {% if account.is_active %}활성{% else %}<strong>비활성</strong> — 로그인할 수 없고 이 광고주의 광고가 나가지 않습니다{% endif %}
+  · <a href="{% url 'admin:auth_user_password_change' account.user_id %}">비밀번호 초기화</a></p>
+{% if account.is_active %}
+<form method="post" action="{% url 'operator:advertiser_active' account.user_id %}" data-confirm="이 계정을 비활성화합니다. 로그인한 세션이 모두 끝나고 이 광고주의 광고가 바로 나가지 않습니다.">{% csrf_token %}
+  <input type="hidden" name="active" value="0">
+  <label for="deactivate-reason">비활성화 사유</label>
+  <input type="text" name="reason" id="deactivate-reason" maxlength="200" required>
+  <button type="submit">비활성화</button>
+</form>
+{% else %}
+<form method="post" action="{% url 'operator:advertiser_active' account.user_id %}">{% csrf_token %}
+  <input type="hidden" name="active" value="1">
+  <label for="reactivate-reason">사유(선택)</label>
+  <input type="text" name="reason" id="reactivate-reason" maxlength="200">
+  <button type="submit">다시 활성화</button>
+</form>
+{% endif %}
+
+<h2>포인트</h2>
+{% if wallet %}
+<p>잔액 <strong>{{ wallet.balance|points }}</strong> · 오늘 소진 {{ wallet.spent_today|points }} (예산 일 {{ wallet.budget_day|date:"Y-m-d" }}, {{ wallet.resets_at|kst }}에 바뀜)</p>
+<h3 id="adjust">포인트 조정</h3>
+<p class="help">원장은 고치지 않고 새 항목을 더합니다. 잔액을 0 밑으로 내릴 수 없고, 사유와 함께 감사 로그에 남습니다.</p>
+<form method="post" action="{% url 'operator:advertiser_adjust' account.user_id %}">{% csrf_token %}
+  {{ adjust_form.as_div }}
+  <button type="submit">조정</button>
+</form>
+{% else %}
+<p><strong>지갑 없음</strong> — 가입 절차(계정·지갑·가입 지급)를 거치지 않고 만들어진 계정입니다. 포인트를 조정할 수 없고, 비활성화는 위에서 할 수 있습니다.</p>
+{% endif %}
+
+<h3>원장 (최신순)</h3>
+<div class="module">
+  {% include "console/_ledger.html" %}
+</div>
+{% endblock %}

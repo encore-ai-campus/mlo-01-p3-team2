@@ -1,0 +1,4 @@
+---
+common_ssh_service: sshd
+common_chrony_service: chronyd
+common_packages: [chrony, sudo]

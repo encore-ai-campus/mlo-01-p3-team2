@@ -1,0 +1,134 @@
+---
+# MongoDB: Standalone(1대) 또는 Replica Set(3대). 모드는 서버 대수에서 정해진다.
+# 인증은 처음부터 켠다(authorization + Replica Set은 keyfile). 첫 계정은 localhost exception으로 만든다.
+# 첫 번째 서버(YAML 순서)에서 초기화와 계정 작업을 한다.
+- name: Secret 확인
+  ansible.builtin.assert:
+    that:
+      - vault_mongodb_passwords is defined
+      - vault_mongodb_passwords.keys() | sort | list == ['dev', 'monitor', 'root']
+      - vault_mongodb_passwords.values() | select('equalto', '') | list | length == 0
+      - groups['mongodb'] | length == 1 or vault_mongodb_keyfile is defined
+      - groups['mongodb'] | length == 1 or (vault_mongodb_keyfile | regex_replace('\s', '')) is match('^[A-Za-z0-9+/=]{6,1024}$')
+    fail_msg: >-
+      vault_mongodb_passwords에 root, dev, monitor가 모두 있고 값이 비어 있지 않아야 한다.
+      3대 구성이면 vault_mongodb_keyfile도 있어야 하고, 공백을 뺀 6~1024자의 base64 문자여야 한다
+      (inventory/group_vars/all/vault.example.yml 참고).
+  no_log: true
+
+- name: 역할 내부 값 계산
+  ansible.builtin.set_fact:
+    mongodb_replset: "{{ groups['mongodb'] | length > 1 }}"
+    mongodb_is_first: "{{ inventory_hostname == groups['mongodb'][0] }}"
+    mongodb_cache_gb: "{{ [ansible_facts['memtotal_mb'] * mongodb_cache_ratio / 1024, mongodb_cache_min_gb] | max | round(2) }}"
+
+# Replica Set이면 드라이버가 멤버를 찾아 Primary로 연결하므로, 첫 번째 서버가 Secondary가 되어도 계정 작업이 된다.
+- name: 접속 주소 계산
+  ansible.builtin.set_fact:
+    mongodb_uri: "{{ 'mongodb://' ~ ip ~ ':' ~ mongodb_port ~ '/admin?replicaSet=' ~ mongodb_replset_name if mongodb_replset else 'mongodb://127.0.0.1:' ~ mongodb_port ~ '/admin' }}"
+
+# --- 설치 ---
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 커널 호환 (Ubuntu)
+  ansible.builtin.include_tasks: kernel-debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: MongoDB 저장소 등록
+  ansible.builtin.include_tasks: "repo-{{ ansible_facts['os_family'] | lower }}.yml"
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ mongodb_packages }}"
+
+# --- 설정과 시작 ---
+# 별도 EBS를 미리 마운트한 경우에도 MongoDB가 데이터 경로에 쓸 수 있어야 한다.
+- name: 데이터 디렉터리 소유권 설정
+  ansible.builtin.file:
+    path: "{{ mongodb_data_dir }}"
+    state: directory
+    owner: "{{ mongodb_user }}"
+    group: "{{ mongodb_group }}"
+    mode: "0755"
+
+- name: keyfile 배포
+  ansible.builtin.copy:
+    content: "{{ vault_mongodb_keyfile }}"
+    dest: "{{ mongodb_keyfile }}"
+    owner: "{{ mongodb_user }}"
+    group: "{{ mongodb_group }}"
+    mode: "0400"
+  when: mongodb_replset
+  notify: Restart mongod
+  no_log: true
+
+- name: MongoDB 설정 배포
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mongod
+
+# 설정이 바뀌었으면 시작 전에 반영한다 (멈춰 있으면 이 단계에서 시작된다).
+- name: 설정 반영
+  ansible.builtin.meta: flush_handlers
+
+- name: mongod 활성화
+  ansible.builtin.service:
+    name: mongod
+    state: started
+    enabled: true
+
+- name: mongod 응답 대기
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ mongodb_port }}"
+    timeout: 120
+
+# --- 초기화와 계정 (첫 번째 서버에서만) ---
+- name: root 계정 확인
+  ansible.builtin.command: mongosh --nodb --quiet
+  args:
+    stdin: |
+      try { connect('mongodb://127.0.0.1:{{ mongodb_port }}/admin').auth('root', process.env.MONGO_ROOT_PASSWORD); print('INFRA_ROOT_OK'); }
+      catch (e) { print('INFRA_ROOT_MISSING'); }
+  environment:
+    MONGO_ROOT_PASSWORD: "{{ vault_mongodb_passwords.root }}"
+  register: mongodb_root_check
+  changed_when: false
+  when: mongodb_is_first
+  no_log: "{{ mongodb_no_log }}"
+
+- name: Replica Set 초기화와 root 계정 생성
+  ansible.builtin.command: mongosh --nodb --quiet
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'bootstrap.js.j2') }}"
+  environment:
+    MONGO_ROOT_PASSWORD: "{{ vault_mongodb_passwords.root }}"
+  register: mongodb_bootstrap
+  changed_when: "'INFRA_' in mongodb_bootstrap.stdout"
+  when: mongodb_is_first and 'INFRA_ROOT_MISSING' in mongodb_root_check.stdout
+  no_log: "{{ mongodb_no_log }}"
+
+- name: dev, monitor 계정
+  ansible.builtin.command: mongosh --nodb --quiet
+  args:
+    stdin: "{{ lookup('ansible.builtin.template', 'accounts.js.j2') }}"
+  environment:
+    MONGO_ROOT_PASSWORD: "{{ vault_mongodb_passwords.root }}"
+    MONGO_DEV_PASSWORD: "{{ vault_mongodb_passwords.dev }}"
+    MONGO_MONITOR_PASSWORD: "{{ vault_mongodb_passwords.monitor }}"
+  register: mongodb_accounts
+  changed_when: "'INFRA_' in mongodb_accounts.stdout"
+  when: mongodb_is_first
+  no_log: "{{ mongodb_no_log }}"
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

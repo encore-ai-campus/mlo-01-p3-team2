@@ -1,0 +1,30 @@
+---
+# hosts.yml의 proxy_enabled: true로 사용한다. 기존 인벤토리는 기본적으로 비활성이다.
+proxy_port: 3128
+proxy_client_cidrs:
+  - 10.10.0.0/16
+  - 10.20.0.0/16
+  - 10.30.0.0/16
+  - 10.40.0.0/16
+  - 10.50.0.0/16
+
+# 배스천을 재생성하면 인벤토리의 ip만 갱신한다.
+proxy_bastion_host: "{{ groups.get('bastion', []) | first | default('') }}"
+proxy_url: >-
+  {{ 'http://' ~ hostvars[proxy_bastion_host].ip ~ ':' ~ (proxy_port | string)
+     if proxy_enabled | default(false) | bool and proxy_bastion_host | length > 0 else '' }}
+proxy_is_client: "{{ proxy_enabled | default(false) | bool and 'bastion' not in group_names }}"
+
+# 내부 API와 EC2 메타데이터는 프록시를 거치지 않는다. CIDR 지원 여부에 기대지 않고 IP를 나열한다.
+proxy_no_proxy: >-
+  {{ (['localhost', '127.0.0.1', '::1', '169.254.169.254']
+      + groups.get('all', [])
+      + (groups.get('all', []) | map('extract', hostvars, 'ip') | list)) | unique | join(',') }}
+proxy_environment: >-
+  {{ {'http_proxy': proxy_url if proxy_is_client | bool else '',
+      'https_proxy': proxy_url if proxy_is_client | bool else '',
+      'no_proxy': proxy_no_proxy}
+     if proxy_enabled | default(false) | bool else {} }}
+
+proxy_check_url: https://archive.ubuntu.com/ubuntu/
+proxy_check_download_url: https://archive.ubuntu.com/ubuntu/dists/noble/InRelease

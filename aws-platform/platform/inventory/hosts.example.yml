@@ -1,0 +1,26 @@
+---
+# 복사해서 hosts.yml로 쓴다: cp hosts.example.yml hosts.yml
+# 비밀번호 같은 Secret은 여기에 쓰지 않는다 (Ansible Vault). 팀원 공개키는 Secret이 아니다.
+all:
+  vars:
+    ansible_user: ubuntu    # Ubuntu 24.04 LTS(기본). Amazon Linux 2023이면 ec2-user
+    ansible_ssh_private_key_file: ~/.ssh/infra.pem
+    users:
+      - { name: alice, pubkey: "ssh-ed25519 AAAA... alice" }
+      - { name: bob,   pubkey: "ssh-ed25519 AAAA... bob" }
+  children:
+    bastion:
+      hosts:
+        bastion-01: { ip: 10.10.0.10, public_ip: 203.0.113.10 }
+    mysql:
+      hosts:
+        mysql-01: { ip: 10.30.20.11 }
+        mysql-02: { ip: 10.50.20.11 }
+        mysql-03: { ip: 10.20.20.11 }
+    game:
+      hosts:
+        game-01: { ip: 10.10.20.21 }  # 같은 서버에 로컬 Router를 설치한다.
+    kafka:
+      hosts:
+        kafka-01: { ip: 10.30.20.21 }
+        # ... 역할(그룹)별로 서버를 나열

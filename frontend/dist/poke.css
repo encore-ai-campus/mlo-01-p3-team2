@@ -1,0 +1,10 @@
+.campus-poke-button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:7px 12px;border:1px solid #c9d8cd;border-radius:10px;background:#fffdf6;color:#34674f;font:600 12px "Malgun Gothic",system-ui,sans-serif;box-shadow:0 2px 8px #27473714;cursor:pointer;touch-action:manipulation}
+.campus-poke-button kbd{padding:1px 5px;border:1px solid #c7d4c9;border-radius:4px;background:#edf4e9;color:inherit;font-family:inherit;font-size:11px;font-weight:700}
+.campus-poke-button:hover:not(:disabled){background:#edf5e9;border-color:#90b69b}
+.campus-poke-button:focus-visible{outline:3px solid #75a883;outline-offset:3px}
+.campus-poke-button:disabled{opacity:.6;cursor:default}
+.classroom-screen>.campus-poke-button{position:absolute;top:14px;right:14px;z-index:3}
+@media(pointer:coarse){.campus-poke-button{min-height:44px;min-width:88px}}
+@media(max-width:480px){.classroom-screen>.campus-poke-button{top:10px;right:10px}}
+
+.campus-poke-button[aria-pressed="true"]{background:#dceee0;border-color:#79ab88;color:#285f3b}

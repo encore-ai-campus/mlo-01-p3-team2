@@ -1,0 +1,15 @@
+---
+- name: Edge 지원 OS 확인
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version == '24.04'
+    fail_msg: Edge 역할은 Ubuntu 24.04에서 지원한다.
+
+# NAT·Bastion이 없는 최초 Public 서버도 외부 HTTPS만으로 설치할 수 있다.
+- name: 공식 Ubuntu 저장소 HTTPS 전환
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+    regexp: 'http://(?:[A-Za-z0-9-]+\.)*((?:archive|security)\.ubuntu\.com/ubuntu)'
+    replace: 'https://\1'
+    backup: true

@@ -1,0 +1,22 @@
+# Ansible로 관리한다 (roles/mongodb).
+storage:
+  dbPath: {{ mongodb_data_dir }}
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: {{ mongodb_cache_gb }}
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+net:
+  port: {{ mongodb_port }}
+  bindIp: 127.0.0.1,{{ ip }}
+security:
+  authorization: enabled
+{% if mongodb_replset %}
+  keyFile: {{ mongodb_keyfile }}
+replication:
+  replSetName: {{ mongodb_replset_name }}
+{% endif %}

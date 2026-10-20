@@ -1,0 +1,16 @@
+// 신규 인스턴스만 준비한다. 가입된 멤버에는 configureInstance를 다시 호출하지 않는다.
+// 가입 전에 생성한 관리 계정으로 서버의 사설 IP에 접속한다.
+var connection = {
+  scheme: 'mysql',
+  user: 'failover',
+  password: {{ vault_mysql_passwords.failover | to_json }},
+  host: {{ ip | to_json }},
+  port: {{ mysql_port }}
+};
+shell.connect(connection);
+var check = dba.checkInstanceConfiguration(connection);
+// Cluster 요구 설정이 부족할 때만 설정을 적용하고 재시작한다.
+if (check.status !== 'ok') {
+  dba.configureInstance(connection, {restart: true});
+  print('INFRA_CONFIGURED');
+}

@@ -1,0 +1,139 @@
+{% extends "console/base.html" %}
+{% load static kst console_format console_chart console_icons %}
+{% block title %}대시보드{% endblock %}
+{% block crumb %} / 대시보드{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>대시보드</h1><p>{% if campaign_count %}광고 성과와 오늘의 예산을 한눈에 확인하세요.{% else %}처음 오셨군요. 캠페인을 만들고 첫 광고를 집행해 보세요.{% endif %}</p></div>
+  <div class="actions">{% if campaign_count %}<a class="button" href="{% url 'ad_create' %}">{% icon "plus" 14 %}광고 만들기</a>{% else %}<a class="button" href="{% url 'campaign_create' %}">{% icon "plus" 14 %}캠페인 만들기</a>{% endif %}</div>
+</div>
+{% endblock %}
+{% block content %}
+{% if not campaign_count and wallet %}
+<div class="notice">가입을 환영해요! 광고에 쓸 {{ wallet.balance|p }}가 있어요<span class="detail">캠페인을 만들고 광고를 추가하면 승인 절차 없이 바로 집행을 시작할 수 있습니다.</span></div>
+{% endif %}
+
+<form method="get" class="period autosubmit" aria-label="기간 고르기">
+  {% icon "clock" 16 %}
+  <span class="sr-only">{{ form.days.label_tag }}</span>{{ form.days }}
+  <input type="hidden" name="metric" value="{{ metric }}">
+  <button type="submit" class="secondary js-hide">보기</button>
+  <span class="range">{{ report.start|kst:"%Y.%m.%d %H:%M" }} — {{ report.end|kst:"%m.%d %H:%M" }} KST · 직전 {{ days }}일과 비교</span>
+  <span class="status info">오늘 집계 중</span>
+</form>
+
+<section class="cards" aria-label="지표">
+  {% for name, label in metrics %}
+  <div class="card metric">
+    <div class="muted">{{ label }}</div>
+    <div class="value{% if name == 'spent' %} accent{% endif %}">{% if name == "spent" %}{{ report.totals|metric:name|p }}{% else %}{{ report.totals|metric:name|number }}{% endif %}</div>
+    {% if name == "clicks" %}<div class="muted">클릭률 {{ report.totals.ctr|percent }}</div>
+    {% elif name == "conversions" %}<div class="muted">전환율 {{ report.totals.conversion_rate|percent }}</div>
+    {% else %}<div class="muted{% if report|change_up:name %} up{% endif %}">{% if report|change_up:name %}▲ {% endif %}직전 {{ days }}일 대비 {{ report|change:name }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<div class="split">
+  <section class="card" id="trend" aria-label="{{ metric_label }} 추세">
+    <form method="get" class="section-head autosubmit" data-swap="trend">
+      <div><h2>{{ metric_label }} 추세</h2><p class="muted">일별 성과 · 오늘(점선)은 아직 집계 중입니다</p></div>
+      <div class="inline">
+        <input type="hidden" name="days" value="{{ days }}">
+        <span class="sr-only">{{ form.metric.label_tag }}</span>{{ form.metric }}
+        <button type="submit" class="secondary js-hide">보기</button>
+      </div>
+    </form>
+    {% if campaign_count %}
+    {% trend_chart report.rows metric metric_label today %}
+    {% else %}
+    <div class="empty">{% icon "chart" 22 %}<p class="muted">집행을 시작하면 일별 노출·클릭·전환이 여기에 표시돼요.</p></div>
+    {% endif %}
+    <details class="as-table">
+      <summary>표로 보기</summary>
+      <div class="table-wrap">
+        <table>
+          <caption class="muted">그래프와 같은 값</caption>
+          <thead><tr><th scope="col">날짜</th>{% for name, label in metrics %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+          <tbody>
+          {% for row in report.rows %}
+            <tr{% if row.date == today %} class="partial"{% endif %}>
+              <td>{{ row.date|date:"Y-m-d" }}{% if row.date == today %} (집계 중){% endif %}</td>
+              {% for name, label in metrics %}<td class="num">{{ row.totals|metric:name|number }}</td>{% endfor %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="card wallet" aria-label="포인트">
+    <div class="muted label">사용 가능한 포인트</div>
+    {% if wallet %}
+    <div class="big">{{ wallet.balance|p }}</div>
+    <dl>
+      <div><dt>오늘 소진</dt><dd><strong>{{ wallet.spent_today|p }}</strong></dd></div>
+    </dl>
+    {% if daily_budget_total %}
+    <progress value="{% if wallet.spent_today > daily_budget_total %}{{ daily_budget_total }}{% else %}{{ wallet.spent_today }}{% endif %}" max="{{ daily_budget_total }}">{{ wallet.spent_today }} / {{ daily_budget_total }}</progress>
+    <p class="muted">집행 중 캠페인의 일예산 합계 {{ daily_budget_total|p }} 중 {% widthratio wallet.spent_today daily_budget_total 100 %}%</p>
+    {% else %}
+    <progress value="0" max="1">0</progress>
+    <p class="muted">{% if campaign_count %}집행 중인 캠페인이 없어요{% else %}아직 만든 캠페인이 없어요{% endif %}</p>
+    {% endif %}
+    <dl>
+      <div><dt>예산 초기화</dt><dd>{{ wallet.resets_at|kst:"%Y-%m-%d %H:%M" }} KST</dd></div>
+    </dl>
+    {% else %}
+    <p class="muted">지갑이 없습니다. 관리자에게 문의하세요.</p>
+    {% endif %}
+    <a class="button secondary wide" href="{% url 'points' %}">포인트 내역 보기 {% icon "arrow" 14 %}</a>
+  </section>
+</div>
+
+{% if not campaign_count %}
+<section class="card" aria-label="시작하기">
+  <div class="section-head"><div><h2>시작하기</h2><p class="muted">세 단계면 첫 광고가 나갑니다.</p></div><span class="muted"><strong>0 / 3 완료</strong></span></div>
+  <ol class="steps">
+    <li class="current"><span class="no">1</span><div><strong>캠페인 만들기</strong><p class="muted">기간과 일예산을 정합니다. 예산은 매일 {% if wallet %}{{ wallet.resets_at|kst:"%H:%M" }} KST에{% else %}정해진 시각에{% endif %} 새로 시작해요.</p></div><a class="button" href="{% url 'campaign_create' %}">캠페인 만들기</a></li>
+    <li><span class="no">2</span><div><strong>소재 올리기</strong><p class="muted">배너 이미지와 이동 주소를 등록합니다. 여러 광고에서 다시 쓸 수 있어요.</p></div><a class="button secondary" href="{% url 'creative_list' %}">소재 보기</a></li>
+    <li><span class="no">3</span><div><strong>광고 만들기</strong><p class="muted">구성과 입찰을 고르고, 확인 후 바로 집행합니다.</p></div><span class="button disabled" aria-disabled="true">캠페인 먼저 필요</span></li>
+  </ol>
+</section>
+{% endif %}
+
+<section aria-label="알림" id="alerts">
+  {% for alert in alerts %}
+  <div class="alert {{ alert.severity }}"><span class="badge">{{ alert.severity|severity_label }}</span>{{ alert.message }}<span class="detail">{{ alert.since|kst }}부터</span>
+    {% if alert.target_type == "campaign" %}<a class="go" href="{% url 'campaign_detail' alert.target_id %}">캠페인 보기 {% icon "arrow" 14 %}</a>
+    {% elif alert.target_type == "ad_group" %}<a class="go" href="{% url 'ad_group_detail' alert.target_id %}">광고 보기 {% icon "arrow" 14 %}</a>
+    {% elif alert.target_type == "wallet" %}<a class="go" href="{% url 'points' %}">포인트 보기 {% icon "arrow" 14 %}</a>{% endif %}
+  </div>
+  {% empty %}
+  {% if campaign_count %}<p class="muted">지금 확인할 알림이 없습니다.</p>{% endif %}
+  {% endfor %}
+</section>
+
+{% if campaign_count %}
+<section aria-label="상위 캠페인">
+  <div class="section-head"><h2>상위 캠페인</h2><a href="{% url 'campaign_list' %}">전체 보기 {% icon "arrow" 14 %}</a></div>
+  <div class="card table">
+    <div class="table-wrap">
+      <table>
+        <caption class="sr-only">이 기간에 소진 포인트가 많은 순으로 {{ top_limit }}개까지</caption>
+        <thead><tr><th scope="col">캠페인</th><th scope="col">상태</th>{% for name, label in metrics %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for campaign, totals in top %}
+          <tr><td>{{ campaign.name }}</td><td><span class="status {{ campaign.status|lower }}">{{ campaign.status|status_label }}</span></td>{% for name, label in metrics %}<td class="num">{% if name == "spent" %}{{ totals|metric:name|p }}{% else %}{{ totals|metric:name|number }}{% endif %}</td>{% endfor %}</tr>
+        {% empty %}
+          <tr><td colspan="6">이 기간에 성과가 있는 캠페인이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'console/autosubmit.js' %}" defer></script>{% endblock %}

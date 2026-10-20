@@ -1,0 +1,385 @@
+{
+  "event_uuid": {
+    "ko": "사건 식별자",
+    "definition": "사건 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "event",
+      "uuid"
+    ]
+  },
+  "user_uuid": {
+    "ko": "사용자 식별자",
+    "definition": "사용자 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "user",
+      "uuid"
+    ]
+  },
+  "session_uuid": {
+    "ko": "접속 이력 식별자",
+    "definition": "접속 이력 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "session",
+      "uuid"
+    ]
+  },
+  "class_group_uuid": {
+    "ko": "사건 당시 소속 반 식별자",
+    "definition": "사건 당시 소속 반 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "class_group",
+      "uuid"
+    ]
+  },
+  "message_uuid": {
+    "ko": "채팅 메시지 식별자",
+    "definition": "채팅 메시지 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "message",
+      "uuid"
+    ]
+  },
+  "floor_uuid": {
+    "ko": "발송·관측 당시 층 식별자",
+    "definition": "발송·관측 당시 층 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "floor",
+      "uuid"
+    ]
+  },
+  "post_uuid": {
+    "ko": "게시글 식별자",
+    "definition": "게시글 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "post",
+      "uuid"
+    ]
+  },
+  "zone_uuid": {
+    "ko": "사건 당시 구역 식별자",
+    "definition": "사건 당시 구역 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "zone",
+      "uuid"
+    ]
+  },
+  "comment_uuid": {
+    "ko": "댓글 식별자",
+    "definition": "댓글 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "comment",
+      "uuid"
+    ]
+  },
+  "parent_comment_uuid": {
+    "ko": "상위 댓글 식별자",
+    "definition": "상위 댓글 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "parent",
+      "comment",
+      "uuid"
+    ]
+  },
+  "content_uuid": {
+    "ko": "콘텐츠 식별자",
+    "definition": "콘텐츠 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "content",
+      "uuid"
+    ]
+  },
+  "category_uuid": {
+    "ko": "사건 당시 카테고리 식별자",
+    "definition": "사건 당시 카테고리 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "category",
+      "uuid"
+    ]
+  },
+  "attempt_uuid": {
+    "ko": "답안 시도 식별자",
+    "definition": "답안 시도 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "attempt",
+      "uuid"
+    ]
+  },
+  "question_uuid": {
+    "ko": "문제 식별자",
+    "definition": "문제 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "question",
+      "uuid"
+    ]
+  },
+  "question_type": {
+    "ko": "문제 유형",
+    "definition": "객관식 또는 빈칸 답안 유형",
+    "domain": "QUESTION_TYPE",
+    "words": [
+      "question",
+      "type"
+    ]
+  },
+  "choice_uuid": {
+    "ko": "선택지 식별자",
+    "definition": "선택지 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "choice",
+      "uuid"
+    ]
+  },
+  "from_floor_uuid": {
+    "ko": "출발 층 식별자",
+    "definition": "출발 층 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "from",
+      "floor",
+      "uuid"
+    ]
+  },
+  "to_floor_uuid": {
+    "ko": "도착 층 식별자",
+    "definition": "도착 층 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "to",
+      "floor",
+      "uuid"
+    ]
+  },
+  "ledger_uuid": {
+    "ko": "포인트 지급 장부 식별자",
+    "definition": "포인트 지급 장부 식별자",
+    "domain": "UUID_V4_JSON",
+    "words": [
+      "ledger",
+      "uuid"
+    ]
+  },
+  "schema_version": {
+    "ko": "Raw 계약 버전",
+    "definition": "Raw 계약 버전",
+    "domain": "STRING",
+    "words": [
+      "schema",
+      "version"
+    ]
+  },
+  "event_type": {
+    "ko": "Raw 사건 유형",
+    "definition": "Raw 사건 유형",
+    "domain": "STRING",
+    "words": [
+      "event",
+      "type"
+    ]
+  },
+  "occurred_at": {
+    "ko": "사건 발생 시각",
+    "definition": "사건 발생 시각",
+    "domain": "UTC_INSTANT",
+    "words": [
+      "occurred",
+      "at"
+    ]
+  },
+  "source": {
+    "ko": "발행 서버 출처",
+    "definition": "발행 서버 출처",
+    "domain": "STRING",
+    "words": [
+      "source"
+    ]
+  },
+  "fingerprint_algorithm": {
+    "ko": "지문 알고리즘",
+    "definition": "지문 알고리즘",
+    "domain": "ALGORITHM",
+    "words": [
+      "fingerprint",
+      "algorithm"
+    ]
+  },
+  "fingerprint": {
+    "ko": "Raw 또는 Std 데이터의 지문",
+    "definition": "Raw 또는 Std 데이터의 지문",
+    "domain": "FINGERPRINT",
+    "words": [
+      "fingerprint"
+    ]
+  },
+  "end_reason": {
+    "ko": "접속 종료 사유",
+    "definition": "접속 종료 사유",
+    "domain": "END_REASON",
+    "words": [
+      "end",
+      "reason"
+    ]
+  },
+  "channel_code": {
+    "ko": "채팅 채널 코드",
+    "definition": "채팅 채널 코드",
+    "domain": "CHANNEL",
+    "words": [
+      "channel",
+      "code"
+    ]
+  },
+  "revision": {
+    "ko": "게시글·댓글 수정 차수",
+    "definition": "게시글·댓글 수정 차수",
+    "domain": "INTEGER",
+    "words": [
+      "revision"
+    ]
+  },
+  "domain": {
+    "ko": "콘텐츠 학습·휴식 분류",
+    "definition": "콘텐츠 학습·휴식 분류",
+    "domain": "CONTENT_DOMAIN",
+    "words": [
+      "domain"
+    ]
+  },
+  "content_kind": {
+    "ko": "콘텐츠 종류",
+    "definition": "콘텐츠 종류",
+    "domain": "CONTENT_KIND",
+    "words": [
+      "content",
+      "kind"
+    ]
+  },
+  "action": {
+    "ko": "Raw 콘텐츠 열기 동작",
+    "definition": "Raw 콘텐츠 열기 동작",
+    "domain": "CONTENT_OPEN_ACTION",
+    "words": [
+      "action"
+    ],
+    "std_domain": "STD_ACTION"
+  },
+  "is_correct": {
+    "ko": "서버의 정답 판정",
+    "definition": "서버의 정답 판정",
+    "domain": "BOOLEAN",
+    "words": [
+      "is",
+      "correct"
+    ]
+  },
+  "x": {
+    "ko": "X 좌표",
+    "definition": "X 좌표",
+    "domain": "FINITE_DOUBLE",
+    "words": [
+      "x"
+    ]
+  },
+  "y": {
+    "ko": "Y 좌표",
+    "definition": "Y 좌표",
+    "domain": "FINITE_DOUBLE",
+    "words": [
+      "y"
+    ]
+  },
+  "input_kind": {
+    "ko": "이동 입력 종류",
+    "definition": "이동 입력 종류",
+    "domain": "INPUT_KIND",
+    "words": [
+      "input",
+      "kind"
+    ]
+  },
+  "delta": {
+    "ko": "실제 포인트 지급량",
+    "definition": "실제 포인트 지급량",
+    "domain": "POSITIVE_INT",
+    "words": [
+      "delta"
+    ]
+  },
+  "balance_after": {
+    "ko": "지급 직후 잔액",
+    "definition": "지급 직후 잔액",
+    "domain": "INTEGER",
+    "words": [
+      "balance",
+      "after"
+    ]
+  },
+  "std_schema_version": {
+    "ko": "Std 데이터 형식 계약 버전",
+    "definition": "Std 데이터 형식 계약 버전",
+    "domain": "STRING",
+    "words": [
+      "std",
+      "schema",
+      "version"
+    ]
+  },
+  "parser_version": {
+    "ko": "표준화 코드 배포 버전",
+    "definition": "표준화 코드 배포 버전",
+    "domain": "STRING",
+    "words": [
+      "parser",
+      "version"
+    ]
+  },
+  "processed_at": {
+    "ko": "표준화 결과 생성 UTC 시각",
+    "definition": "표준화 결과 생성 UTC 시각",
+    "domain": "UTC_INSTANT",
+    "words": [
+      "processed",
+      "at"
+    ]
+  },
+  "status": {
+    "ko": "표준화 처리 성공·실패 상태",
+    "definition": "표준화 처리 성공·실패 상태",
+    "domain": "STD_STATUS",
+    "words": [
+      "status"
+    ]
+  },
+  "error_code": {
+    "ko": "실패 사유 코드",
+    "definition": "실패 사유 코드",
+    "domain": "ERROR_CODE",
+    "words": [
+      "error",
+      "code"
+    ]
+  },
+  "error_detail": {
+    "ko": "원문 값을 포함하지 않는 오류 설명",
+    "definition": "원문 값을 포함하지 않는 오류 설명",
+    "domain": "STRING",
+    "words": [
+      "error",
+      "detail"
+    ]
+  }
+}

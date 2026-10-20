@@ -1,0 +1,38 @@
+{% extends "console/base.html" %}
+{% load console_icons %}
+{% block title %}캠페인 만들기{% endblock %}
+{% block crumb %} / <a href="{% url 'campaign_list' %}">캠페인</a> / 캠페인 만들기{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>캠페인 만들기</h1><p>광고를 묶을 기간과 일예산을 설정하세요. 만든 뒤 광고를 추가합니다.</p></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="split form-split">
+  <section class="card">
+    <form method="post" novalidate>{% csrf_token %}{{ form.request_key }}
+      {% if form.errors %}
+      <div class="notice error" role="alert">입력한 내용을 확인해 주세요 · {{ form.errors|length }}개 항목<span class="detail">표시된 칸을 고치면 캠페인을 만들 수 있습니다.</span>{% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}</div>
+      {% endif %}
+      <h2>기본 정보</h2>
+      <div class="field">{{ form.name.as_field_group }}</div>
+      <div class="pair">
+        <div class="field">{{ form.starts_at.as_field_group }}</div>
+        <div class="field">{{ form.ends_at.as_field_group }}</div>
+      </div>
+      <div class="field">{{ form.daily_budget.as_field_group }}</div>
+      {% if not form.errors %}<div class="notice info">예산은 매일 09:00 KST에 새로 시작해요<span class="detail">남은 일예산은 다음 날로 넘어가지 않습니다.</span></div>{% endif %}
+      <div class="form-foot"><a class="button secondary" href="{% url 'campaign_list' %}">취소</a><button type="submit">캠페인 만들기</button></div>
+    </form>
+  </section>
+  <aside class="card guide" aria-label="다음 단계">
+    <h2>다음 단계</h2>
+    <ol class="vsteps">
+      <li class="current"><span class="no">1</span>캠페인의 기간·일예산 설정</li>
+      <li><span class="no">2</span>광고의 구성과 입찰 설정</li>
+      <li><span class="no">3</span>소재를 선택한 뒤 집행</li>
+    </ol>
+    <p class="muted">모든 시각은 한국 표준시(KST) 기준입니다.</p>
+  </aside>
+</div>
+{% endblock %}

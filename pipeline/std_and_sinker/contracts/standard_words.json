@@ -1,0 +1,198 @@
+{
+  "event": {
+    "ko": "사건",
+    "definition": "플랫폼이 발행한 행동 사실"
+  },
+  "uuid": {
+    "ko": "식별자",
+    "definition": "내부 UUIDv4 식별자"
+  },
+  "user": {
+    "ko": "사용자",
+    "definition": "내부 사용자 주체"
+  },
+  "session": {
+    "ko": "접속 세션",
+    "definition": "인증 쿠키와 구분되는 접속 이력"
+  },
+  "class_group": {
+    "ko": "소속 반",
+    "definition": "사건 당시 소속 반"
+  },
+  "schema": {
+    "ko": "스키마",
+    "definition": "데이터 형식 계약"
+  },
+  "version": {
+    "ko": "버전",
+    "definition": "계약 또는 코드 버전"
+  },
+  "type": {
+    "ko": "유형",
+    "definition": "사건 종류"
+  },
+  "occurred": {
+    "ko": "발생",
+    "definition": "사건 발생 시점"
+  },
+  "at": {
+    "ko": "시각",
+    "definition": "UTC 시각"
+  },
+  "source": {
+    "ko": "출처",
+    "definition": "발행 서버"
+  },
+  "fingerprint": {
+    "ko": "지문",
+    "definition": "canonical JSON 내용 해시"
+  },
+  "algorithm": {
+    "ko": "알고리즘",
+    "definition": "지문 계산 방식"
+  },
+  "end": {
+    "ko": "종료",
+    "definition": "접속 종료"
+  },
+  "reason": {
+    "ko": "사유",
+    "definition": "종료 원인"
+  },
+  "message": {
+    "ko": "메시지",
+    "definition": "수락한 채팅 메시지"
+  },
+  "channel": {
+    "ko": "채널",
+    "definition": "채팅 채널"
+  },
+  "code": {
+    "ko": "코드",
+    "definition": "허용된 분류값"
+  },
+  "floor": {
+    "ko": "층",
+    "definition": "메타버스 층"
+  },
+  "post": {
+    "ko": "게시글",
+    "definition": "공용 게시글"
+  },
+  "revision": {
+    "ko": "수정 차수",
+    "definition": "사건 당시 게시글·댓글 버전"
+  },
+  "zone": {
+    "ko": "구역",
+    "definition": "메타버스 위치 구역"
+  },
+  "comment": {
+    "ko": "댓글",
+    "definition": "게시글 댓글"
+  },
+  "parent": {
+    "ko": "상위",
+    "definition": "상위 댓글 참조"
+  },
+  "content": {
+    "ko": "콘텐츠",
+    "definition": "외부 링크·문제 묶음"
+  },
+  "category": {
+    "ko": "카테고리",
+    "definition": "사건 당시 콘텐츠 분류"
+  },
+  "domain": {
+    "ko": "콘텐츠 영역",
+    "definition": "학습·휴식 분류; 값 도메인과 구분"
+  },
+  "kind": {
+    "ko": "종류",
+    "definition": "콘텐츠 또는 입력 종류"
+  },
+  "action": {
+    "ko": "행동",
+    "definition": "분석용 동작 코드"
+  },
+  "attempt": {
+    "ko": "답안 시도",
+    "definition": "서버가 수락한 답안 시도"
+  },
+  "question": {
+    "ko": "문제",
+    "definition": "객관식 또는 빈칸 문제"
+  },
+  "choice": {
+    "ko": "선택지",
+    "definition": "제출한 선택지"
+  },
+  "is": {
+    "ko": "여부",
+    "definition": "불리언 접두사"
+  },
+  "correct": {
+    "ko": "정답",
+    "definition": "서버의 정답 판정"
+  },
+  "x": {
+    "ko": "X 좌표",
+    "definition": "수평 위치"
+  },
+  "y": {
+    "ko": "Y 좌표",
+    "definition": "수직 위치"
+  },
+  "input": {
+    "ko": "입력",
+    "definition": "이동 입력"
+  },
+  "from": {
+    "ko": "출발",
+    "definition": "출발 층"
+  },
+  "to": {
+    "ko": "도착",
+    "definition": "도착 층"
+  },
+  "ledger": {
+    "ko": "장부",
+    "definition": "확정 포인트 지급 행"
+  },
+  "delta": {
+    "ko": "지급량",
+    "definition": "실제 지급량"
+  },
+  "balance": {
+    "ko": "잔액",
+    "definition": "포인트 잔액"
+  },
+  "after": {
+    "ko": "직후",
+    "definition": "지급 확정 직후"
+  },
+  "std": {
+    "ko": "표준화",
+    "definition": "표준화"
+  },
+  "parser": {
+    "ko": "변환 파서",
+    "definition": "변환 파서"
+  },
+  "processed": {
+    "ko": "처리",
+    "definition": "처리"
+  },
+  "status": {
+    "ko": "처리 상태",
+    "definition": "처리 상태"
+  },
+  "error": {
+    "ko": "오류",
+    "definition": "오류"
+  },
+  "detail": {
+    "ko": "오류 설명",
+    "definition": "오류 설명"
+  }
+}

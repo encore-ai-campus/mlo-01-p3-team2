@@ -1,0 +1,9 @@
+# Ansible로 관리한다 (roles/common). 파일명 00-은 sshd가 첫 값을 우선하므로 다른 drop-in보다 먼저 읽히게 하기 위함이다.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+{% if 'bastion' in group_names %}
+# ProxyJump(Bastion 경유)용
+AllowTcpForwarding yes
+{% endif %}

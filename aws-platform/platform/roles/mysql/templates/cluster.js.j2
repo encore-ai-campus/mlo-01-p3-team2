@@ -1,0 +1,69 @@
+// 첫 인벤토리 노드는 구축 담당일 뿐, 운영 중 Primary를 고정하지 않는다.
+var password = {{ vault_mysql_passwords.failover | to_json }};
+var nodes = [{% for h in groups['mysql'] %}{{ hostvars[h].ip | to_json }}{% if not loop.last %}, {% endif %}{% endfor %}];
+function connect(host) {
+  shell.connect({user: 'failover', password: password, host: host, port: {{ mysql_port }}});
+}
+function scalar(sql) {
+  return Number(shell.getSession().runSql(sql).fetchOne()[0]);
+}
+connect(nodes[0]);
+var metadata = scalar("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'mysql_innodb_cluster_metadata'");
+var cluster;
+if (metadata > 0) {
+  // 인증 오류나 기존 ReplicaSet 오류를 신규 Cluster 생성으로 처리하지 않는다.
+  cluster = dba.getCluster({{ mysql_cluster_name | to_json }});
+} else {
+  if (scalar('SELECT COUNT(*) FROM performance_schema.replication_group_members') > 0) {
+    throw new Error('관리되지 않는 Group Replication을 자동으로 채택하지 않습니다.');
+  }
+  cluster = dba.createCluster({{ mysql_cluster_name | to_json }}, {
+    multiPrimary: false,
+    communicationStack: 'MYSQL',
+    manualStartOnBoot: false,
+    autoRejoinTries: {{ mysql_cluster_auto_rejoin_tries }},
+    exitStateAction: 'READ_ONLY',
+    consistency: 'BEFORE_ON_PRIMARY_FAILOVER'
+  });
+  print('INFRA_CREATED');
+}
+var state = cluster.status().defaultReplicaSet;
+if (state.topologyMode !== 'Single-Primary' || state.status.indexOf('OK') !== 0) {
+  throw new Error('정족수가 있는 단일 Primary Cluster가 필요합니다. 강제 승격은 수행하지 않습니다.');
+}
+var expected = nodes.map(function (host) { return host + ':{{ mysql_port }}'; });
+Object.keys(state.topology).forEach(function (address) {
+  if (expected.indexOf(address) === -1) {
+    throw new Error('인벤토리에 없는 기존 멤버가 있습니다: ' + address);
+  }
+});
+// 실제 Primary로 접속한 뒤 가입과 재가입을 진행한다.
+var primaryHost = state.primary.split(':')[0];
+if (nodes.indexOf(primaryHost) === -1) {
+  throw new Error('Primary 주소가 인벤토리와 일치하지 않습니다.');
+}
+connect(primaryHost);
+cluster = dba.getCluster({{ mysql_cluster_name | to_json }});
+nodes.forEach(function (host) {
+  var address = host + ':{{ mysql_port }}';
+  var member = cluster.status().defaultReplicaSet.topology[address];
+  var uri = 'failover:' + encodeURIComponent(password) + '@' + address;
+  if (!member) {
+    // clone은 대상 데이터를 교체하므로 업무 데이터가 있으면 기본적으로 거부한다.
+    var candidate = mysql.getSession({user: 'failover', password: password, host: host, port: {{ mysql_port }}});
+    var hasMetadata = Number(candidate.runSql("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'mysql_innodb_cluster_metadata'").fetchOne()[0]);
+    var dataCount = Number(candidate.runSql("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','sys','information_schema','performance_schema')").fetchOne()[0]);
+    candidate.close();
+    if (hasMetadata > 0 || (dataCount > 0 && !{{ mysql_cluster_allow_clone_data_loss | bool | to_json }})) {
+      throw new Error('기존 메타데이터 또는 업무 데이터가 있는 신규 멤버의 clone을 중단합니다: ' + address);
+    }
+    cluster.addInstance(uri, {recoveryMethod: 'clone'});
+    print('INFRA_ADDED ' + address);
+  } else if (member.status === 'OFFLINE' || member.status === '(MISSING)') {
+    // 기존 멤버는 데이터 재복사 없이 증분 복구로 재가입한다. 실패하면 수동 점검한다.
+    cluster.rejoinInstance(uri, {recoveryMethod: 'incremental'});
+    print('INFRA_REJOINED ' + address);
+  } else if (member.status !== 'ONLINE' && member.status !== 'RECOVERING') {
+    throw new Error('자동 재가입 대상이 아닌 멤버 상태입니다: ' + address + ' ' + member.status);
+  }
+});

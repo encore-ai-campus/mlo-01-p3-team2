@@ -1,0 +1,27 @@
+---
+# Ubuntu에만 필요한 공통 설정
+
+# apt가 서비스 패키지를 설치·업그레이드할 때 needrestart가 서비스를 자동으로 다시 시작하면 클러스터가 흔들린다.
+# 다시 시작이 필요한 서비스는 목록으로만 알리게 한다 (포팅 계획 D2).
+- name: needrestart는 서비스를 다시 시작하지 않고 목록만 만든다
+  ansible.builtin.copy:
+    dest: /etc/needrestart/conf.d/90-infra.conf
+    content: |
+      # Ansible로 관리한다 (roles/common).
+      $nrconf{restart} = 'l';
+    owner: root
+    group: root
+    mode: "0644"
+
+# Ubuntu의 chrony는 기본 시간원이 Ubuntu NTP 풀이라서, 설계의 시간원(Amazon Time Sync Service)을 추가한다.
+# 풀은 예비로 남는다 (포팅 계획 D3). AL2023은 기본 설정이 이미 Amazon Time Sync라 필요 없다.
+- name: chrony에 Amazon Time Sync 시간원 추가
+  ansible.builtin.copy:
+    dest: /etc/chrony/sources.d/amazon.sources
+    content: |
+      # Ansible로 관리한다 (roles/common).
+      server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart chrony

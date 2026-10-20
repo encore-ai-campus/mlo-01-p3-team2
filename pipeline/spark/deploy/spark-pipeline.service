@@ -1,0 +1,35 @@
+[Unit]
+Description=Kafka standardized events to MySQL Spark Driver
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=spark
+Group=spark
+WorkingDirectory=/opt/pipeline/spark/current
+EnvironmentFile=/etc/spark-pipeline/pipeline.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredentialEncrypted=mysql-password:/etc/credstore.encrypted/spark-pipeline-mysql
+ExecStart=/opt/pipeline/spark/.venv/bin/python /opt/pipeline/spark/current/deploy/launch.py --env-file /etc/spark-pipeline/pipeline.env
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=90
+StateDirectory=spark-pipeline
+StateDirectoryMode=0750
+UMask=0077
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/spark-pipeline /opt/pipeline/spark/tmp
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

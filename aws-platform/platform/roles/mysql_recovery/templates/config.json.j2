@@ -1,0 +1,14 @@
+{
+  "clusterName": {{ mysql_recovery_cluster_name | to_json }},
+  "clusterId": {{ hostvars[mysql_recovery_coordinator].mysql_recovery_identity.cluster_id | to_json }},
+  "groupUuid": {{ hostvars[mysql_recovery_coordinator].mysql_recovery_identity.group_uuid | to_json }},
+  "user": "failover",
+  "password": {{ vault_mysql_passwords.failover | to_json }},
+  "port": {{ mysql_recovery_port }},
+  "nodes": [
+{% for h in groups['mysql'] | sort %}
+    {"host": {{ hostvars[h].ip | to_json }}, "uuid": {{ hostvars[h].mysql_recovery_identity.uuid | to_json }}}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ]
+}

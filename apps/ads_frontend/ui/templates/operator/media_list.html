@@ -1,0 +1,32 @@
+{% extends "operator/_base.html" %}
+{% load kst %}
+{% block crumbs %} › 매체{% endblock %}
+{% block content %}
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">이름</th><th scope="col">상태</th><th scope="col">등록 (KST)</th><th scope="col">바꾸기</th></tr></thead>
+    <tbody>
+    {% for m in media %}
+      <tr>
+        <td><a href="{% url 'operator:media_detail' m.media_id %}">{{ m.name }}</a></td>
+        <td>{% if m.is_active %}활성{% else %}비활성{% endif %}</td>
+        <td>{{ m.created_at|kst }}</td>
+        <td>
+          <form method="post" action="{% url 'operator:media_active' m.media_id %}">{% csrf_token %}
+            <input type="hidden" name="active" value="{% if m.is_active %}0{% else %}1{% endif %}">
+            <button type="submit">{% if m.is_active %}비활성으로{% else %}활성으로{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4">등록된 매체가 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<h2>매체 등록</h2>
+<form method="post" id="media-create">{% csrf_token %}
+  {{ form.as_div }}
+  <button type="submit">등록</button>
+</form>
+{% endblock %}

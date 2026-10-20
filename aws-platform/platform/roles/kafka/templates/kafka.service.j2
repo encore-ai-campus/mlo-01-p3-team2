@@ -1,0 +1,21 @@
+# Ansible로 관리한다 (roles/kafka).
+[Unit]
+Description=Apache Kafka (KRaft broker + controller)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ kafka_user }}
+Group={{ kafka_user }}
+Environment=JAVA_HOME={{ java_home }}
+Environment="KAFKA_HEAP_OPTS=-Xms{{ kafka_heap_mb }}m -Xmx{{ kafka_heap_mb }}m"
+Environment=LOG_DIR={{ kafka_log_dir }}
+Environment="KAFKA_LOG4J_OPTS=-Dlog4j2.configurationFile=file:{{ kafka_config_dir }}/log4j2.yaml"
+ExecStart={{ kafka_home }}/bin/kafka-server-start.sh {{ kafka_config_dir }}/server.properties
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=100000
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

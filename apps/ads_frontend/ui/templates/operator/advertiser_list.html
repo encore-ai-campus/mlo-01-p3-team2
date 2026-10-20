@@ -1,0 +1,29 @@
+{% extends "operator/_base.html" %}
+{% load kst console_format %}
+{% block crumbs %} › 광고주{% endblock %}
+{% block content %}
+<p class="help">최근 가입한 광고주부터 보입니다. 사용량은 상한 검사와 같은 기준입니다(업로드는 교체한 과거 이미지까지 포함). 비활성화하면 로그인할 수 없고 그 광고주의 광고도 나가지 않습니다.</p>
+<div class="module">
+  <table>
+    <thead><tr><th scope="col">아이디</th><th scope="col">닉네임(반)</th><th scope="col">상태</th><th scope="col">캠페인</th><th scope="col">소재</th><th scope="col">업로드</th><th scope="col">잔액</th><th scope="col">가입 (KST)</th><th scope="col">마지막 로그인 (KST)</th></tr></thead>
+    <tbody>
+    {% for a in page %}{% with u=usage|get_item:a.user_id %}
+      <tr>
+        <td><a href="{% url 'operator:advertiser_detail' a.user_id %}">{{ a.username }}</a></td>
+        <td>{{ a.nickname }}({{ a.class_label }})</td>
+        <td>{% if a.is_active %}활성{% else %}<strong>비활성</strong>{% endif %}</td>
+        <td>{{ u.campaigns }} / {{ u.campaign_limit }}</td>
+        <td>{{ u.creatives }} / {{ u.creative_limit }}</td>
+        <td>{{ u.image_bytes|filesizeformat }} / {{ u.image_bytes_limit|filesizeformat }}</td>
+        <td>{% with balance=balances|get_item:a.user_id %}{% if balance is None %}지갑 없음{% else %}{{ balance|points }}{% endif %}{% endwith %}</td>
+        <td>{{ a.created_at|kst }}</td>
+        <td>{{ a.last_login|kst|default:"없음" }}</td>
+      </tr>
+    {% endwith %}{% empty %}
+      <tr><td colspan="9">광고주가 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "console/_pager.html" %}
+{% endblock %}

@@ -1,0 +1,37 @@
+{
+  "event_type": "comment_updated",
+  "schema_version": "1.0",
+  "std_schema_version": "1.0",
+  "fields": [
+    {
+      "name": "comment_uuid",
+      "nullable": false
+    },
+    {
+      "name": "post_uuid",
+      "nullable": false
+    },
+    {
+      "name": "parent_comment_uuid",
+      "nullable": true
+    },
+    {
+      "name": "revision",
+      "nullable": false
+    }
+  ],
+  "copy_fields": [
+    "user_uuid",
+    "session_uuid",
+    "class_group_uuid",
+    "comment_uuid",
+    "post_uuid",
+    "parent_comment_uuid",
+    "revision"
+  ],
+  "constants": {
+    "event_type": "COMMENT_UPDATED",
+    "action": "UPDATE"
+  },
+  "double_fields": []
+}

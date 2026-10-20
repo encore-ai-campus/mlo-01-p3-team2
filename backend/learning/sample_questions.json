@@ -1,0 +1,242 @@
+[
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "list",
+    "question_text": "리스트 끝에 요소를 추가하는 메서드는?",
+    "code_snippet": null,
+    "correct_answer": "append()",
+    "explanation": "append()는 리스트 끝에 요소를 추가합니다.",
+    "choices": [
+      "add()",
+      "append()",
+      "push()",
+      "insertLast()"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "list",
+    "question_text": "리스트 numbers의 맨 끝에 숫자 4를 추가하려고 합니다. 빈칸에 들어갈 메서드 이름을 괄호 없이 쓰세요.",
+    "code_snippet": "numbers.____(4)",
+    "correct_answer": "append",
+    "explanation": "append()는 리스트 끝에 요소를 추가합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "variable",
+    "question_text": "값의 자료형을 확인하는 함수는?",
+    "code_snippet": null,
+    "correct_answer": "type()",
+    "explanation": "type()은 객체의 자료형을 반환합니다.",
+    "choices": [
+      "type()",
+      "kind()",
+      "typeof()",
+      "classof()"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "variable",
+    "question_text": "정수 42의 자료형을 확인하려고 합니다. 빈칸에 들어갈 파이썬 내장 함수 이름을 괄호 없이 쓰세요.",
+    "code_snippet": "____(42)",
+    "correct_answer": "type",
+    "explanation": "type()은 객체의 자료형을 반환합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "string",
+    "question_text": "문자열 길이를 구하는 함수는?",
+    "code_snippet": null,
+    "correct_answer": "len()",
+    "explanation": "len()은 문자열 등의 길이를 반환합니다.",
+    "choices": [
+      "size()",
+      "length()",
+      "len()",
+      "countAll()"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "string",
+    "question_text": "문자열 \"Python\"의 글자 수를 구하려고 합니다. 빈칸에 들어갈 파이썬 내장 함수 이름을 괄호 없이 쓰세요.",
+    "code_snippet": "____(\"Python\")",
+    "correct_answer": "len",
+    "explanation": "len()은 문자열 등의 길이를 반환합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "operator",
+    "question_text": "나눗셈의 나머지를 구하는 연산자는?",
+    "code_snippet": null,
+    "correct_answer": "%",
+    "explanation": "%는 나눗셈의 나머지를 구합니다.",
+    "choices": [
+      "/",
+      "//",
+      "%",
+      "**"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "operator",
+    "question_text": "7을 3으로 나눈 나머지를 구하려고 합니다. 빈칸에 들어갈 연산자를 쓰세요.",
+    "code_snippet": "7 ____ 3",
+    "correct_answer": "%",
+    "explanation": "%는 나눗셈의 나머지를 구합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "condition",
+    "question_text": "조건이 참일 때 실행하는 키워드는?",
+    "code_snippet": null,
+    "correct_answer": "if",
+    "explanation": "if는 조건에 따라 코드 실행을 분기합니다.",
+    "choices": [
+      "if",
+      "for",
+      "def",
+      "try"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "condition",
+    "question_text": "score가 60 이상일 때만 \"pass\"를 한 번 출력하려고 합니다. 빈칸에 들어갈 조건문 키워드를 쓰세요.",
+    "code_snippet": "____ score >= 60:\n    print(\"pass\")",
+    "correct_answer": "if",
+    "explanation": "if는 조건에 따라 코드 실행을 분기합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "loop",
+    "question_text": "반복 가능한 객체의 요소를 순회하는 키워드는?",
+    "code_snippet": null,
+    "correct_answer": "for",
+    "explanation": "for는 반복 가능한 객체의 요소를 순회합니다.",
+    "choices": [
+      "if",
+      "for",
+      "class",
+      "except"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "loop",
+    "question_text": "리스트 [1, 2]의 요소를 순서대로 item에 넣어 출력하려고 합니다. 빈칸에 들어갈 반복문 키워드를 쓰세요.",
+    "code_snippet": "____ item in [1, 2]:\n    print(item)",
+    "correct_answer": "for",
+    "explanation": "for는 반복 가능한 객체의 요소를 순회합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "function",
+    "question_text": "함수를 정의하는 키워드는?",
+    "code_snippet": null,
+    "correct_answer": "def",
+    "explanation": "def로 함수를 정의합니다.",
+    "choices": [
+      "func",
+      "define",
+      "def",
+      "function"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "function",
+    "question_text": "\"hello\"를 반환하는 일반 함수 greet를 정의하려고 합니다. 빈칸에 들어갈 키워드를 쓰세요.",
+    "code_snippet": "____ greet():\n    return \"hello\"",
+    "correct_answer": "def",
+    "explanation": "def로 함수를 정의합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "dictionary",
+    "question_text": "딕셔너리에서 키에 대응하는 값을 기본값과 함께 조회하는 메서드는?",
+    "code_snippet": null,
+    "correct_answer": "get()",
+    "explanation": "get()은 키가 없으면 지정한 기본값을 반환합니다.",
+    "choices": [
+      "find()",
+      "get()",
+      "fetch()",
+      "read()"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "dictionary",
+    "question_text": "딕셔너리 person을 변경하지 않고 \"name\" 키의 값을 조회하려고 합니다. 키가 없으면 \"unknown\"을 반환하는 메서드 이름을 괄호 없이 쓰세요.",
+    "code_snippet": "person.____(\"name\", \"unknown\")",
+    "correct_answer": "get",
+    "explanation": "get()은 키가 없으면 지정한 기본값을 반환합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "set",
+    "question_text": "집합에 요소 하나를 추가하는 메서드는?",
+    "code_snippet": null,
+    "correct_answer": "add()",
+    "explanation": "set의 add()는 요소 하나를 추가합니다.",
+    "choices": [
+      "append()",
+      "push()",
+      "add()",
+      "insert()"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "set",
+    "question_text": "집합(set) values에 숫자 3을 원소로 추가하려고 합니다. 빈칸에 들어갈 메서드 이름을 괄호 없이 쓰세요.",
+    "code_snippet": "values.____(3)",
+    "correct_answer": "add",
+    "explanation": "set의 add()는 요소 하나를 추가합니다."
+  },
+  {
+    "question_type": "multiple_choice",
+    "difficulty": "beginner",
+    "category": "exception",
+    "question_text": "예외를 처리하는 블록의 키워드는?",
+    "code_snippet": null,
+    "correct_answer": "except",
+    "explanation": "except 블록에서 지정한 예외를 처리합니다.",
+    "choices": [
+      "catch",
+      "except",
+      "error",
+      "else"
+    ]
+  },
+  {
+    "question_type": "fill_blank",
+    "difficulty": "beginner",
+    "category": "exception",
+    "question_text": "try 블록에서 발생한 ValueError를 처리해 \"invalid\"를 출력하려고 합니다. 빈칸에 들어갈 예외 처리 키워드를 쓰세요.",
+    "code_snippet": "try:\n    int(\"x\")\n____ ValueError:\n    print(\"invalid\")",
+    "correct_answer": "except",
+    "explanation": "except 블록에서 지정한 예외를 처리합니다."
+  }
+]

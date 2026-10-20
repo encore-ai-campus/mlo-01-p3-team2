@@ -1,0 +1,8 @@
+{
+  "frontend_domains": {
+    "front-a": "bootcampmetaverse.site"
+  },
+  "frontend_backend_nodes": {
+    "front-a": "game-server-test"
+  }
+}

@@ -1,0 +1,19 @@
+{% extends "accounts/base.html" %}
+{% load static %}
+{% block title %}프로필 설정{% endblock %}
+{% block heading %}닉네임과 캐릭터{% endblock %}
+{% block description %}캠퍼스에서 사용할 이름과 {{ course_label }} 과정의 캐릭터를 골라 주세요.{% endblock %}
+{% block extra_head %}<script src="{% static 'accounts/avatar-picker.js' %}?v=course-signup-v1" defer></script>{% endblock %}
+{% block content %}
+  <p class="signup-step">2 / 2 · 프로필 설정 <span class="cohort-badge">{{ cohort_label }}</span></p>
+  <form method="post" action="{% url 'accounts:setup' %}" class="auth-form">
+    {% csrf_token %}
+    {% include "accounts/form_fields.html" %}
+    {% include "accounts/avatar_picker.html" %}
+    <button type="submit" class="auth-submit">저장하고 캠퍼스 입장</button>
+  </form>
+  <form method="post" action="{% url 'accounts:logout' %}" class="setup-logout">
+    {% csrf_token %}
+    <button type="submit">나중에 설정하고 로그아웃</button>
+  </form>
+{% endblock %}

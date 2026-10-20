@@ -1,0 +1,101 @@
+"""서비스의 예외를 화면으로 바꾸는 **한 곳**(설계 §6.6 규칙 2, 계획 §8.1.1). 뷰는 서비스를 부르고, 예외는 여기로 넘긴다.
+
+- 입력 오류(`ValidationError`, 위치가 있는 `InvalidRequest`, 이미지 거절)와 상태 충돌(409)은 **폼 오류**나 메시지가 된다.
+- 없음(404)·권한 없음(403)은 화면에 적지 않고 그 HTTP 응답으로, 서버 쪽 문제(5xx)와 모르는 예외는 그대로 다시 던진다.
+"""
+from django.contrib import messages
+from django.core.exceptions import NON_FIELD_ERRORS, PermissionDenied, ValidationError
+from django.http import Http404
+
+from assets.api import ImageRejected
+from foundation.api import errors
+
+
+HANDLED = (ValidationError, ImageRejected, errors.ApiError)  # 뷰가 잡아서 여기로 넘기는 예외(그 밖의 것은 버그라 잡지 않는다)
+
+
+def fetch(read, *args, **kwargs):
+    """화면을 그리려고 읽는 서비스 호출. 없음·권한 없음은 404·403 응답으로 바꾼다."""
+    try:
+        return read(*args, **kwargs)
+    except errors.ApiError as e:
+        _not_shown(e)
+        raise
+
+
+def _not_shown(error):
+    """화면에 적지 않을 예외면 알맞게 던진다."""
+    if isinstance(error, errors.NotFound):
+        raise Http404 from error
+    if isinstance(error, errors.Forbidden):
+        raise PermissionDenied(str(error)) from error
+    if isinstance(error, errors.ApiError) and error.status >= 500:
+        raise error
+    if not isinstance(error, HANDLED):
+        raise error
+
+
+def _field(form, pointer, pointers):
+    """서비스 오류의 위치(`/name`, `/campaign/name`) → 폼 칸. 정한 대응이 없으면 위치의 마지막 조각이 폼의 칸일 때 그 칸, 아니면 폼 전체."""
+    if pointers and pointer in pointers:
+        return pointers[pointer]
+    last = pointer.rsplit("/", 1)[-1]
+    return last if last in form.fields else None
+
+
+def form_errors(form, error, pointers=None, image_field=None):
+    """`error` 를 `form` 의 오류로 붙인다. `pointers`: 서비스 오류 위치 → 폼 칸 이름. `image_field`: 이미지 거절을 붙일 칸."""
+    _not_shown(error)
+    if isinstance(error, ValidationError):
+        if hasattr(error, "error_dict"):
+            for field, texts in error.message_dict.items():
+                form.add_error(field if field != NON_FIELD_ERRORS and field in form.fields else None, texts)
+        else:
+            form.add_error(None, error.messages)
+    elif isinstance(error, ImageRejected):
+        form.add_error(image_field, str(error))
+    elif error.errors:
+        for item in error.errors:
+            form.add_error(_field(form, item.get("pointer", ""), pointers), item["message"])
+    else:
+        form.add_error(None, message_of(error))
+
+
+def status_of(error):
+    """폼을 다시 그릴 때의 응답 코드: 상태 충돌(낙관적 잠금 등)은 409, 그 밖의 입력 오류는 400."""
+    return error.status if isinstance(error, errors.ApiError) else 400
+
+
+def submit(form, call, **kwargs):
+    """폼 하나의 제출: 입력이 맞으면 `call(cleaned_data)` 하고 `(결과, None)`. 폼이 거르면 `(None, 400)`, 서비스가 거절하면 그 폼에 오류를 붙이고
+    (`form_errors` — `kwargs` 는 그 인자) `(None, status_of)`. 뷰는 status 가 `None` 이면 완료로 가고, 아니면 그 코드로 폼을 다시 그린다."""
+    if not form.is_valid():
+        return None, 400
+    try:
+        return call(form.cleaned_data), None
+    except HANDLED as e:
+        form_errors(form, e, **kwargs)
+        return None, status_of(e)
+
+
+def run_action(request, call, *args, success=None, **kwargs):
+    """폼이 없는 동작(목록·상세의 버튼): 서비스를 부르고 결과를 메시지 한 줄로 남긴다. 실패는 `message_of`(없음·권한 없음은 404·403), 성공은 `success`."""
+    try:
+        call(*args, **kwargs)
+    except HANDLED as e:
+        messages.error(request, message_of(e))
+    else:
+        if success:
+            messages.success(request, success)
+
+
+def message_of(error):
+    """폼이 없는 동작(목록의 버튼 등)의 결과 메시지 한 줄."""
+    _not_shown(error)
+    if isinstance(error, ValidationError):
+        return " ".join(error.messages)
+    if isinstance(error, ImageRejected):
+        return str(error)
+    if error.errors:
+        return " ".join(item["message"] for item in error.errors)
+    return error.detail or error.title

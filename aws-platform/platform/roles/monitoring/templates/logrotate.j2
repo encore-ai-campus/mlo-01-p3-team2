@@ -1,0 +1,11 @@
+# Ansible로 관리한다 (roles/monitoring). 서버의 디스크 보호용이다. 원본은 이미 Monitoring 서버에 모인다.
+# 파일 이름이 날짜로 정해지고(dateext), 서비스를 건드리지 않도록 복사 후 비운다(copytruncate).
+{{ monitor_server_logs | join(' ') }} {
+    daily
+    rotate {{ monitor_logrotate_days }}
+    dateext
+    copytruncate
+    missingok
+    notifempty
+    nocompress
+}

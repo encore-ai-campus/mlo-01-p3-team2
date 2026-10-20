@@ -1,0 +1,103 @@
+---
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 패키지 설치
+  ansible.builtin.include_role:
+    name: pkg
+    tasks_from: install
+  vars:
+    pkg_names: "{{ common_packages }}"
+
+# 팀원 계정: 모든 서버에 만든다. 접속 계정(AL2023은 ec2-user, Ubuntu는 ubuntu)은 자동화 계정으로 그대로 둔다.
+- name: 팀원 계정 생성
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    shell: /bin/bash
+  loop: "{{ users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: 팀원 공개키 등록
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ item.pubkey }}"
+    exclusive: true
+  loop: "{{ users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# 키 인증만 쓰므로 비밀번호가 없다. sudo도 비밀번호 없이 허용한다.
+# 한 파일에 전체 목록을 선언해, YAML에서 빠진 팀원의 sudo 권한은 사라진다.
+# 팀원 목록이 비어도 주석을 남겨 copy에 빈 content가 전달되지 않도록 한다.
+- name: 팀원 sudo 허용
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-team
+    content: |
+      # Ansible로 관리하는 팀원 sudo 권한.
+      {% for u in users | default([]) %}
+      {{ u.name }} ALL=(ALL) NOPASSWD:ALL
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: sshd 보안 설정
+  block:
+    - name: sshd drop-in 디렉터리
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: "0755"
+
+    - name: sshd 보안 설정 배포
+      ansible.builtin.template:
+        src: sshd-hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sshd
+
+    - name: sshd 설정 문법 확인
+      ansible.builtin.command: sshd -t
+      changed_when: false
+  rescue:
+    # 깨진 설정이 디스크에 남으면 다음 재시작 때 sshd가 못 뜨므로 되돌린다.
+    - name: 깨진 sshd 설정 제거
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/00-hardening.conf
+        state: absent
+
+    - name: sshd 설정 실패
+      ansible.builtin.fail:
+        msg: sshd 설정 문법 검사에 실패해 설정을 되돌렸다. 서버 로그와 sshd_config를 확인한다.
+
+# 뒤 task가 실패해도 reload가 누락되지 않도록 바로 반영한다. 재실행 때는 파일이 이미 있어
+# 변경으로 잡히지 않으므로, 여기서 반영하지 않으면 실행 중인 sshd가 옛 설정으로 남는다.
+- name: sshd 설정 반영
+  ansible.builtin.meta: flush_handlers
+
+- name: 시간대 UTC
+  community.general.timezone:
+    name: UTC
+
+# 시간원은 Amazon Time Sync다. AL2023은 기본 설정이 이미 그렇고, Ubuntu는 os-debian.yml이 추가한다.
+- name: Ubuntu 전용 설정
+  ansible.builtin.include_tasks: os-debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: chrony 활성화
+  ansible.builtin.service:
+    name: "{{ common_chrony_service }}"
+    state: started
+    enabled: true
+
+# chrony 설정이 바뀌었으면 검증 전에 반영한다.
+- name: chrony 설정 반영
+  ansible.builtin.meta: flush_handlers
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

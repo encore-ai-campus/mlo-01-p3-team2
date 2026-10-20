@@ -1,0 +1,141 @@
+{% extends "console/base.html" %}
+{% load kst console_format console_icons %}
+{% block title %}{{ group.name }}{% endblock %}
+{% block crumb %} / <a href="{% url 'campaign_detail' group.campaign_id %}">{{ page.campaign_name }}</a> / {{ group.name }}{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div>
+    <h1>{{ group.name }} <span class="status {% if group.enabled %}active{% else %}ended{% endif %}">{% if group.enabled %}켜짐{% else %}꺼짐{% endif %}</span></h1>
+    <p><a href="{% url 'campaign_detail' group.campaign_id %}">{{ page.campaign_name }}</a> / 광고 상세</p>
+  </div>
+  <form method="post" action="{% url 'ad_group_enabled' group.ad_group_id %}" class="actions">{% csrf_token %}
+    <input type="hidden" name="enabled" value="{% if group.enabled %}0{% else %}1{% endif %}">
+    <button type="submit" class="secondary wide-sm">{% if group.enabled %}광고 끄기{% else %}광고 켜기{% endif %}</button>
+  </form>
+</div>
+{% endblock %}
+{% block content %}
+<div class="split">
+  <div class="column">
+    <section class="card" aria-label="입찰">
+      <h2>입찰과 구성</h2>
+      <p class="muted">현재 입찰</p>
+      {% if group.current_bid %}
+      <p class="now"><strong>{{ group.current_bid.amount|p }}</strong><span class="status version">버전 {{ group.current_bid.bid_version }}</span></p>
+      {% else %}
+      <p class="now none"><strong>입찰이 없습니다.</strong> 입찰을 넣어야 광고가 나갑니다.</p>
+      {% endif %}
+      {% if bid_form.non_field_errors %}<div class="notice error" role="alert">{{ bid_form.non_field_errors }}</div>{% endif %}
+      <form method="post" action="{% url 'ad_group_bid' group.ad_group_id %}" class="bid">{% csrf_token %}{{ bid_form.expected_version }}
+        <div class="field">{{ bid_form.amount.as_field_group }}</div>
+        <button type="submit">새 입찰 넣기</button>
+      </form>
+      <p class="helptext">입찰은 고치지 않고 새 버전으로 더합니다(이력에 남습니다).</p>
+      <p class="helptext">하한 미만이면 그 구성에는 노출되지 않고, 상한을 넘으면 상한 금액이 적용됩니다. 적용 금액은 구성의 비율로 노출·클릭·전환에 나뉘어 과금됩니다(반응마다 내림).</p>
+    </section>
+
+    {% if effects %}
+    <section class="card table" aria-label="구성별 결과">
+      <div class="table-wrap">
+        <table>
+          <caption class="muted">현재 입찰의 구성별 결과(지금 정책 기준) · 예상 과금은 반응마다(내림)</caption>
+          <thead><tr><th scope="col">구성</th><th scope="col">유형</th><th scope="col">하한 ~ 상한</th><th scope="col">결과</th><th scope="col" class="num">적용금액</th><th scope="col" class="num">노출 / 클릭 / 전환</th></tr></thead>
+          <tbody>
+          {% for slot, e, charges in effects %}
+            <tr><td>{% if slot %}{{ slot.media_name }} · {{ slot.name }}{% else %}{{ e.slot_id }}{% endif %}</td><td>{% if slot %}{{ slot.audience|audience_label }}{% endif %}</td><td>{% if slot %}{{ slot.policy.floor|p }} ~ {{ slot.policy.cap|p }}{% endif %}</td><td>{{ e.reason|effect_label }}</td><td class="num">{% if e.applied_amount is not None %}{{ e.applied_amount|p }}{% else %}—{% endif %}</td><td class="num">{% if charges %}{{ charges.IMPRESSION|number }} / {{ charges.CLICK|number }} / {{ charges.CONVERSION|p }}{% else %}—{% endif %}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page.bids %}
+    <section class="card" aria-label="입찰 변경 이력">
+      <h2>입찰 변경 이력</h2>
+      <div class="table-wrap">
+        <table class="plain">
+          <caption class="sr-only">입찰 변경 이력</caption>
+          <thead><tr><th scope="col">버전</th><th scope="col">금액</th><th scope="col">넣은 시각 (KST)</th></tr></thead>
+          <tbody>
+          {% for b in page.bids %}<tr><td>v{{ b.bid_version }}{% if b.bid_version == group.current_bid.bid_version %} <span class="status active">현재</span>{% endif %}</td><td>{{ b.amount|p }}</td><td>{{ b.created_at|kst:"%m.%d %H:%M" }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="card" aria-label="광고 설정">
+      <h2>광고 설정</h2>
+      {% if name_form.non_field_errors %}<div class="notice error" role="alert">{{ name_form.non_field_errors }}</div>{% endif %}
+      <form method="post" action="{% url 'ad_group_name' group.ad_group_id %}" class="bid">{% csrf_token %}{{ name_form.updated_at }}
+        <div class="field">{{ name_form.name.as_field_group }}</div>
+        <button type="submit" class="secondary">이름 저장</button>
+      </form>
+      <form method="post" action="{% url 'ad_group_slots' group.ad_group_id %}" class="rule">{% csrf_token %}
+        {% if slots_form.non_field_errors %}<div class="notice error" role="alert">{{ slots_form.non_field_errors }}</div>{% endif %}
+        {{ slots_form.updated_at }}
+        <fieldset class="slots">
+          <legend>노출할 구성</legend>
+          {% for s in page.choices %}
+          <label class="slot"><input type="checkbox" name="slot_ids" value="{{ s.slot_id }}"{% if s.slot_id|stringformat:"s" in slots_form.slot_ids.value %} checked{% endif %}>
+            <span class="name">{{ s.media_name }} · {{ s.name }} · {{ s.audience|audience_label }}</span><span class="muted">하한 {{ s.policy.floor|p }} / 상한 {{ s.policy.cap|p }} / 기준가 {{ s.policy.base|p }} · {{ s.policy|shares }}</span></label>
+          {% empty %}
+          <p class="muted">고를 수 있는 구성이 없습니다.</p>
+          {% endfor %}
+        </fieldset>
+        {{ slots_form.slot_ids.errors }}
+        {% if page.inactive_linked %}
+        <p class="helptext">지금 꺼진 구성: {% for s in page.inactive_linked %}{{ s.media_name }} · {{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %} — 구성을 다시 저장하면 빠집니다.</p>
+        {% endif %}
+        <div class="form-end"><button type="submit" class="secondary">구성 저장</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="aside-cards">
+    <section class="card creative-preview" aria-label="이미지">
+      <h2>현재 노출 소재</h2>
+      {% for c in page.images %}{% if c.creative_id == group.creative_id %}
+      <figure>
+        <img class="preview" src="{% url 'creative_image_file' c.creative_id %}" alt="{{ c.title }} 이미지">
+        <figcaption><strong><a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a></strong><span class="url">{{ c.redirect_url }}</span>
+          <span class="status active">선택됨</span>{% if c.archived %}<span class="muted">(삭제한 이미지)</span>{% endif %}</figcaption>
+      </figure>
+      {% endif %}{% endfor %}
+      {% if not group.creative_id %}<p class="muted">고른 이미지가 없습니다. 이미지가 없으면 광고가 나가지 않습니다.</p>{% endif %}
+      <details class="choose">
+        <summary class="button secondary wide">다른 소재 선택</summary>
+        <p class="helptext">바꾸면 다음 결정부터 적용되고, 이미 나간 광고는 그대로입니다. 제목·이동 주소 수정과 이미지 교체는 <a href="{% url 'creative_list' %}">소재</a>에서 합니다.</p>
+        {% for c in page.images %}{% if c.creative_id != group.creative_id %}{# 보관한 이미지는 선택된 것일 때만 목록에 있다 #}
+        <div class="choice">
+          <img class="thumb" src="{% url 'creative_image_file' c.creative_id %}" alt="" width="72" height="40" loading="lazy">
+          <p><a href="{% url 'creative_detail' c.creative_id %}">{{ c.title }}</a><span class="muted">{{ c.redirect_url|domain }}</span></p>
+          <form method="post" action="{% url 'ad_group_creative_select' group.ad_group_id %}">{% csrf_token %}<input type="hidden" name="creative_id" value="{{ c.creative_id }}">
+            <button type="submit" class="link" aria-label="이 이미지로 바꾸기: {{ c.title }}">선택</button>
+          </form>
+        </div>
+        {% endif %}{% empty %}
+        <p class="muted">다른 이미지가 없습니다. 아래에서 올린 뒤 고르세요.</p>
+        {% endfor %}
+      </details>
+    </section>
+
+    <div class="notice info">새 이미지 업로드 ≠ 소재 변경<span class="detail">이미지를 올린 뒤, 노출할 소재를 ‘다른 소재 선택’에서 따로 골라야 합니다.</span></div>
+
+    <section class="upload" aria-label="이미지 업로드">
+      <details class="choose"{% if upload_form.errors %} open{% endif %}>
+        <summary class="button secondary wide">이미지 올리기</summary>
+        <form method="post" action="{% url 'ad_group_creative_upload' group.ad_group_id %}" enctype="multipart/form-data" novalidate>{% csrf_token %}
+          {% if upload_form.non_field_errors %}<div class="notice error" role="alert">{{ upload_form.non_field_errors }}</div>{% endif %}
+          <div class="field">{{ upload_form.title.as_field_group }}</div>
+          <div class="field">{{ upload_form.redirect_url.as_field_group }}</div>
+          <div class="field dropzone">{{ upload_form.image.as_field_group }}</div>
+          <p class="helptext">올리기만 합니다. 올린 이미지는 <a href="{% url 'creative_list' %}">소재</a> 목록에도 남습니다.</p>
+          <button type="submit" class="wide">올리기</button>
+        </form>
+      </details>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+<div class="account-nav">
+  <span class="account-name" title="{{ nickname }}">{{ nickname }}</span>
+</div>
+{{ presence_config|json_script:"campusPresenceConfig" }}
+{{ view_config|json_script:"campusViewConfig" }}
+{{ session_policy_config|json_script:"campusSessionPolicyConfig" }}

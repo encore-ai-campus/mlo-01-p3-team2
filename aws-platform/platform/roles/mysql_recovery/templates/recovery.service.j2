@@ -1,0 +1,23 @@
+[Unit]
+Description=Safely recover the existing MySQL cluster after a complete outage
+Wants=network-online.target
+After=network-online.target mysql.service
+RequiresMountsFor={{ mysql_recovery_data_mount }} /var/lib/mysql
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+RuntimeDirectory=mysql-cluster-recovery
+RuntimeDirectoryMode=0700
+Environment=MYSQLSH_USER_CONFIG_HOME=/run/mysql-cluster-recovery
+ExecStartPre=/usr/local/sbin/mysql-check-data-mount
+# flock은 수동 실행과 타이머 실행이 겹치는 경우도 막는다.
+ExecStart=/usr/bin/flock -n /run/mysql-cluster-recovery/recovery.lock /usr/bin/mysqlsh --js --no-wizard --quiet-start=2 --log-level=error --file=/usr/local/lib/mysql-cluster-recovery/recovery.js
+TimeoutStartSec=600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,14 @@
+{# 소재 목록 칸: 그 캠페인의 광고그룹에 연결된 소재 전부(6-9c — 광고가 고른 것은 "선택됨", 6-9d. 꺼진 광고·하한 미만·예산 소진에도 붙으므로 "나가는 중"이라고 하지 않는다, 6-16l). 썸네일(관리자 전용 경로 — 중단 중에도 보인다, 누르면 원본을 새 탭), 제목, 이동 주소(도메인 강조, https 만 링크 — 새 탭이라 운영 화면은 남는다, 6-8b) #}
+{% load console_format %}
+{% for cr in creatives %}
+  <div class="creative">
+    {% url 'operator:asset' cr.image_name as asset %}<a href="{{ asset }}" target="_blank" rel="noopener noreferrer"><img src="{{ asset }}" alt="소재 이미지: {{ cr.title }}" width="96" height="54" loading="lazy"></a>
+    <div>
+      {{ cr.title }}{% if cr.creative_id in selected %} <strong>(선택됨)</strong>{% endif %}<br>
+      <strong>{{ cr.redirect_url|domain }}</strong><br>
+      {% if cr.redirect_url|slice:":8" == "https://" %}<a href="{{ cr.redirect_url }}" target="_blank" rel="noopener noreferrer nofollow">{{ cr.redirect_url|truncatechars:80 }}</a>{% else %}{{ cr.redirect_url|truncatechars:80 }}{% endif %}
+    </div>
+  </div>
+{% empty %}
+  <span class="help">소재 없음</span>
+{% endfor %}

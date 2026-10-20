@@ -1,0 +1,22 @@
+---
+# 모든 서버에 읽기 전용 수집 설정(target.yml)을 하고, Monitoring 서버에는 수집 루프(collector.yml)를 올린다.
+# 대상 설정이 모든 서버에서 끝난 뒤 수집이 시작되도록 같은 play 안에서 순서대로 실행한다.
+- name: OS별 변수 로드
+  ansible.builtin.include_vars: "{{ ansible_facts['distribution'] | lower }}.yml"
+
+- name: 값 계산
+  ansible.builtin.set_fact:
+    monitoring_ips: "{{ groups['monitoring'] | map('extract', hostvars, 'ip') | list }}"
+    monitor_service_units: "{{ monitor_units['all'] + (group_names | select('in', monitor_units) | map('extract', monitor_units) | flatten) }}"
+    monitor_service_log_paths: "{{ group_names | select('in', monitor_log_paths) | map('extract', monitor_log_paths) | flatten | list }}"
+
+- name: 수집 대상 설정
+  ansible.builtin.import_tasks: target.yml
+
+- name: 수집 서버 설정
+  ansible.builtin.import_tasks: collector.yml
+  when: inventory_hostname in groups['monitoring']
+
+- name: 검증
+  ansible.builtin.import_tasks: verify.yml
+  tags: [verify]

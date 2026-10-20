@@ -1,0 +1,4 @@
+# pyspark==4.2.0 is supplied by the pinned Spark distribution/container.
+PyMySQL[rsa]==1.1.2
+python-dotenv==1.2.4
+xxhash==3.8.1

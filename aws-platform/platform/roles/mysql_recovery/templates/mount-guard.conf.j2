@@ -1,0 +1,5 @@
+[Unit]
+RequiresMountsFor={{ mysql_recovery_data_mount }} /var/lib/mysql
+
+[Service]
+ExecStartPre=/usr/local/sbin/mysql-check-data-mount

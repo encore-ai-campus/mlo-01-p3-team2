@@ -1,0 +1,7 @@
+// 현재 Primary에서 Router별 출처 IP에 한정된 메타데이터 계정을 준비한다.
+shell.connect({user: 'failover', password: {{ vault_mysql_passwords.failover | to_json }}, host: {{ ip | to_json }}, port: {{ mysql_port }}});
+var cluster = dba.getCluster({{ mysql_cluster_name | to_json }});
+{% for h in mysql_router_hosts %}
+var exists = Number(shell.getSession().runSql("SELECT COUNT(*) FROM mysql.user WHERE user = 'router' AND host = '{{ hostvars[h].ip }}'").fetchOne()[0]) > 0;
+cluster.setupRouterAccount('router@{{ hostvars[h].ip }}', {password: {{ vault_mysql_passwords.router | to_json }}, update: exists});
+{% endfor %}

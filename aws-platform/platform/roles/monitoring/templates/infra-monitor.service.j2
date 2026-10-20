@@ -1,0 +1,15 @@
+# Ansible로 관리한다 (roles/monitoring).
+[Unit]
+Description=Infra monitor collector (SSH pull)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitor_collector_user }}
+Group={{ monitor_collector_user }}
+ExecStart={{ monitor_libexec_dir }}/collector.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

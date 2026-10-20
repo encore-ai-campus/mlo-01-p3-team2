@@ -1,0 +1,62 @@
+---
+# 모든 노드: 서비스 상태
+- name: 서비스 상태 조회
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+  loop: "{{ spark_services }}"
+  register: spark_svc
+
+- name: 서비스 상태 검증
+  ansible.builtin.assert:
+    that:
+      - spark_svc.results | map(attribute='status') | map(attribute='ActiveState') | unique | list == ['active']
+      - spark_svc.results | map(attribute='status') | map(attribute='UnitFileState') | unique | list == ['enabled']
+
+# Master: 활성 1(ALIVE) + 나머지 대기(STANDBY), 그리고 활성 Master에 모든 Worker가 등록되어야 한다.
+# 선출과 Worker 등록에 시간이 걸리므로 첫 번째 서버에서 전체 Master를 한 번에 재시도하며 확인한다.
+- name: Master 상태 조회
+  ansible.builtin.shell: |
+    for ip in {{ groups['spark'][:spark_master_count] | map('extract', hostvars, 'ip') | join(' ') }}; do
+      # 내부 Master 조회가 방화벽에 막혀도 한 요청을 무한정 기다리지 않는다.
+      curl --fail --silent --show-error --connect-timeout 3 --max-time 10 --noproxy '*' http://$ip:{{ spark_master_webui_port }}/json/ | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("aliveworkers", 0))'
+    done
+  register: spark_masters
+  until: >-
+    spark_masters.rc == 0
+    and spark_masters.stdout_lines | select('match', '^ALIVE ' ~ (groups['spark'] | length) ~ '$') | list | length == 1
+    and spark_masters.stdout_lines | select('match', '^STANDBY ') | list | length == spark_master_count - 1
+  retries: 30
+  delay: 5
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == groups['spark'][0]
+
+- name: Master 이중화 검증
+  ansible.builtin.assert:
+    that:
+      - spark_masters.stdout_lines | select('match', '^ALIVE ' ~ (groups['spark'] | length) ~ '$') | list | length == 1
+      - spark_masters.stdout_lines | select('match', '^STANDBY ') | list | length == spark_master_count - 1
+    fail_msg: "Master 상태가 기대와 다르다(상태 Worker수): {{ spark_masters.stdout_lines | default([]) }}"
+  when: inventory_hostname == groups['spark'][0]
+
+# 작은 PySpark 작업(client mode): 실행기의 Python 버전, 계산, 커넥터 클래스 로딩
+- name: 검증 작업 배포
+  ansible.builtin.template:
+    src: infra-check.py.j2
+    dest: "{{ spark_data_dir }}/infra-check.py"
+    owner: root
+    group: root
+    mode: "0644"
+  when: inventory_hostname == groups['spark'][0]
+
+- name: PySpark 작업 제출
+  ansible.builtin.command: >-
+    {{ spark_home }}/bin/spark-submit --deploy-mode client --driver-memory 512m
+    --executor-memory 512m --total-executor-cores 2 {{ spark_data_dir }}/infra-check.py
+  environment:
+    SPARK_CONF_DIR: "{{ spark_config_dir }}"
+  become_user: "{{ spark_user }}"
+  register: spark_job
+  changed_when: false
+  failed_when: "'INFRA_SPARK_OK' not in spark_job.stdout"
+  when: inventory_hostname == groups['spark'][0]

@@ -1,0 +1,38 @@
+{
+  "parser_version": "1.1.0",
+  "parser_versions": [
+    "1.0.0",
+    "1.1.0"
+  ],
+  "manifest_fields": [
+    {
+      "name": "schema_version"
+    },
+    {
+      "name": "event_type"
+    },
+    {
+      "name": "occurred_at"
+    },
+    {
+      "name": "source"
+    },
+    {
+      "name": "fingerprint_algorithm"
+    },
+    {
+      "name": "fingerprint"
+    }
+  ],
+  "data_fields": [
+    {
+      "name": "user_uuid"
+    },
+    {
+      "name": "session_uuid"
+    },
+    {
+      "name": "class_group_uuid"
+    }
+  ]
+}

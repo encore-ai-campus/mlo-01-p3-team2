@@ -1,0 +1,14 @@
+// 기존 dev 계정은 보존하고 Router 대상의 새 출처만 추가한다.
+shell.connect({user: 'failover', password: {{ vault_mysql_passwords.failover | to_json }}, host: {{ ip | to_json }}, port: {{ mysql_port }}});
+{% for h in mysql_router_hosts %}
+var address = {{ hostvars[h].ip | to_json }};
+var exists = Number(shell.getSession().runSql("SELECT COUNT(*) FROM mysql.user WHERE user = 'dev' AND host = ?", [address]).fetchOne()[0]) > 0;
+if (!exists) {
+    shell.getSession().runSql("CREATE USER 'dev'@'{{ hostvars[h].ip }}' IDENTIFIED BY '{{ vault_mysql_passwords.dev }}'");
+    shell.getSession().runSql("GRANT {{ mysql_dev_privileges }}, SHOW DATABASES ON *.* TO 'dev'@'{{ hostvars[h].ip }}'");
+{% for schema in mysql_system_schemas %}
+    shell.getSession().runSql("REVOKE {{ mysql_dev_privileges }} ON {{ schema }}.* FROM 'dev'@'{{ hostvars[h].ip }}'");
+{% endfor %}
+    print('INFRA_ROUTER_DEV_CREATED');
+}
+{% endfor %}

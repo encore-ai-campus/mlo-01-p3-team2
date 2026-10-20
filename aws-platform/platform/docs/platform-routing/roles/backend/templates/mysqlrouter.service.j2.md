@@ -1,0 +1,20 @@
+# roles/backend/templates/mysqlrouter.service.j2
+
+[탐색 시작점](../../../../ROUTING-README.md) · [영역 안내](../README.md) · [원본 파일](../../../../../roles/backend/templates/mysqlrouter.service.j2)
+
+## 역할
+
+mysqlrouter 전용 사용자로 기본 설정 파일을 읽고 systemd에서 시작·자동 시작·실패 시 재시작한다.
+
+## 템플릿 입력
+
+Jinja 출력식이며 Python 심볼 참조가 아니다. 루프·macro의 로컬 변수도 포함한다.
+
+```jinja
+{{ backend_router_user }}
+{{ backend_router_config }}
+```
+
+## 검증 범위
+
+관련 MySQL·Router 템플릿을 로컬에서 렌더링하고 AdminAPI 모의 시나리오 및 Ansible 인벤토리 검사·playbook 문법 검사를 수행했다. EC2 설치·실제 복제·장애 전환은 실행하지 않았다. YAML·Jinja·JavaScript는 routing-doc-sync의 Python AST 자동 심볼 검사 범위 밖이다. [검증 기록](../../../verification.md)에서 범위를 확인한다.

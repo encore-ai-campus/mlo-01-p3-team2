@@ -1,0 +1,50 @@
+{% extends "console/base.html" %}
+{% load kst console_format %}
+{% block title %}포인트{% endblock %}
+{% block crumb %} / 포인트{% endblock %}
+{% block page_head %}
+<div class="page-head">
+  <div><h1>포인트</h1><p>잔액과 지급·과금·관리자 조정 내역을 확인하세요.</p></div>
+</div>
+{% endblock %}
+{% block content %}
+{% if wallet %}
+<section class="cards" aria-label="잔액">
+  <div class="card metric"><div class="muted">사용 가능한 잔액</div><div class="value accent">{{ wallet.balance|p }}</div><div class="muted">현재 지갑 잔액</div></div>
+  <div class="card metric"><div class="muted">오늘 소진</div><div class="value">{{ wallet.spent_today|p }}</div><div class="muted">예산 일 기준 · {{ wallet.resets_at|kst:"%H:%M" }} KST 초기화</div></div>
+  <div class="card metric"><div class="muted">다음 예산 초기화</div><div class="value">{{ wallet.resets_at|kst:"%H:%M" }} KST</div><div class="muted">{{ wallet.resets_at|kst:"%Y.%m.%d" }}</div></div>
+</section>
+{% else %}
+<div class="notice warning">지갑이 없습니다. 관리자에게 문의하세요.</div>
+{% endif %}
+<div class="notice info">잔액이 적용금액보다 적으면 광고가 나가지 않아요<span class="detail">포인트 지급·과금·조정은 모두 원장에 남습니다. 원장은 고치지 않고, 잘못된 내역은 반대 부호의 새 항목으로 바로잡습니다.</span></div>
+
+<section aria-label="원장 내역">
+  <div class="section-head"><h2>포인트 원장</h2><span class="muted">최신 내역부터 표시</span></div>
+  <div class="card table">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">시각 (KST)</th><th scope="col">종류</th><th scope="col" class="num">금액</th><th scope="col" class="num">잔액</th><th scope="col">내용</th><th scope="col" class="num">못 받은 포인트</th></tr></thead>
+        <tbody>
+        {% for e in entries %}
+          <tr>
+            <td>{{ e.created_at|kst:"%m.%d %H:%M" }}</td>
+            <td><span class="status entry {{ e.entry_type|lower }}">{{ e.entry_type|entry_label }}</span></td>
+            <td class="num{% if e.amount > 0 %} plus{% endif %}">{% if e.amount > 0 %}+{% endif %}{{ e.amount|p }}</td>
+            <td class="num">{{ e.balance_after|p }}</td>
+            <td class="wrap">{% if e.campaign_id %}{{ names|get_item:e.campaign_id }}{% endif %}{{ e.note }}</td>
+            <td class="num">{% if e.shortfall %}{{ e.shortfall|p }}{% else %}—{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="none">원장 항목이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <nav class="pager" aria-label="원장 쪽 이동">
+    {% if request.GET.before %}<a class="button secondary" href="{{ request.path }}">처음으로</a>{% endif %}
+    {% if next_cursor %}<a class="button secondary" href="{% querystring before=next_cursor %}" rel="next">이전 내역</a>{% endif %}
+  </nav>
+</section>
+{% endblock %}

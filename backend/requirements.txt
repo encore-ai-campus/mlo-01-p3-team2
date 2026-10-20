@@ -1,0 +1,9 @@
+Django>=5.2.8,<5.3
+channels[daphne]>=4.3.2,<4.4
+channels-redis>=4.3,<4.4
+redis>=8.1,<9
+Pillow>=12.0,<13.0
+python-dotenv>=1.0,<2.0
+confluent-kafka>=2.6,<3.0
+xxhash>=3.5,<4.0
+mysqlclient>=2.2.7,<3.0

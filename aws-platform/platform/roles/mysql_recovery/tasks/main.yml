@@ -1,0 +1,146 @@
+---
+- name: 전체 3대와 지정된 실행 서버 확인
+  ansible.builtin.assert:
+    that:
+      - groups['mysql'] | length == 3
+      - mysql_recovery_coordinator in groups['mysql']
+      - ansible_play_hosts_all | sort == groups['mysql'] | sort
+    fail_msg: MySQL 3대 전체를 대상으로 설치해야 합니다. --limit 사용을 피하세요.
+
+- name: 현재 데이터 디스크 UUID 확인
+  ansible.builtin.command:
+    argv: [findmnt, -n, -M, "{{ mysql_recovery_data_mount }}", -o, UUID]
+  register: mysql_recovery_disk
+  changed_when: false
+  check_mode: false
+
+- name: MySQL 데이터 디렉터리의 마운트 확인
+  ansible.builtin.command:
+    argv: [findmnt, -n, -M, /var/lib/mysql, -o, UUID]
+  register: mysql_recovery_bind
+  changed_when: false
+  check_mode: false
+
+- name: 데이터가 실제 데이터 볼륨에 있는지 확인
+  ansible.builtin.assert:
+    that:
+      - mysql_recovery_disk.stdout | trim | length > 0
+      - mysql_recovery_disk.stdout | trim == mysql_recovery_bind.stdout | trim
+
+- name: 기존 DB 식별자 읽기
+  ansible.builtin.command:
+    argv:
+      - mysql
+      - -uroot
+      - -S
+      - /var/run/mysqld/mysqld.sock
+      - --batch
+      - --skip-column-names
+      - -e
+      - >-
+        SELECT JSON_OBJECT('uuid', @@server_uuid, 'group_uuid', @@global.group_replication_group_name,
+        'datadir', @@datadir, 'cluster_id', cluster_id, 'cluster_name', cluster_name, 'cluster_type', cluster_type)
+        FROM mysql_innodb_cluster_metadata.clusters;
+  environment:
+    MYSQL_PWD: "{{ vault_mysql_passwords.root }}"
+  register: mysql_recovery_discovery
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: 비밀번호 없는 식별자 저장
+  ansible.builtin.set_fact:
+    mysql_recovery_identity: "{{ mysql_recovery_discovery.stdout | from_json }}"
+  no_log: true
+
+- name: 기존 클러스터 일치 확인
+  ansible.builtin.assert:
+    that:
+      - mysql_recovery_identity.cluster_name == mysql_recovery_cluster_name
+      - mysql_recovery_identity.cluster_type == 'gr'
+      - mysql_recovery_identity.datadir == '/var/lib/mysql/'
+      - mysql_recovery_identity.group_uuid | length > 0
+      - mysql_recovery_identity.cluster_id == hostvars[mysql_recovery_coordinator].mysql_recovery_identity.cluster_id
+      - mysql_recovery_identity.group_uuid == hostvars[mysql_recovery_coordinator].mysql_recovery_identity.group_uuid
+
+- name: 설치 디렉터리 준비
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/systemd/system/mysql.service.d
+    - /usr/local/lib/mysql-cluster-recovery
+
+- name: 데이터 볼륨 기동 검사 설치
+  ansible.builtin.template:
+    src: check-data-mount.sh.j2
+    dest: /usr/local/sbin/mysql-check-data-mount
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: 데이터 볼륨 검사 실행
+  ansible.builtin.command: /usr/local/sbin/mysql-check-data-mount
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: MySQL 시작 전 마운트 검사 연결
+  ansible.builtin.template:
+    src: mount-guard.conf.j2
+    dest: /etc/systemd/system/mysql.service.d/30-data-mount-guard.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: 지정된 한 서버에만 복구 도구 설치
+  when: inventory_hostname == mysql_recovery_coordinator
+  block:
+    - name: 비밀 설정 디렉터리 준비
+      ansible.builtin.file:
+        path: /etc/mysql-cluster-recovery
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: 복구 설정 저장
+      ansible.builtin.template:
+        src: config.json.j2
+        dest: /etc/mysql-cluster-recovery/config.json
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+
+    - name: 복구 코드 설치
+      ansible.builtin.copy:
+        src: recovery.js
+        dest: /usr/local/lib/mysql-cluster-recovery/recovery.js
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: 서비스와 타이머 설치
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "/etc/systemd/system/mysql-cluster-recovery.{{ item.suffix }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - {src: recovery.service.j2, suffix: service}
+        - {src: recovery.timer.j2, suffix: timer}
+
+- name: 서비스 정의 반영 (DB를 재시작하지 않음)
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: 자동 검사 타이머 활성화
+  ansible.builtin.systemd_service:
+    name: mysql-cluster-recovery.timer
+    enabled: "{{ mysql_recovery_enable_timer | bool }}"
+    state: "{{ 'started' if mysql_recovery_enable_timer | bool else 'stopped' }}"
+  when: inventory_hostname == mysql_recovery_coordinator
