@@ -64,14 +64,13 @@ sudo systemctl disable --now mysql-cluster-recovery.timer
 
 별도 알림 서비스나 CloudWatch 사용자 지정 지표는 추가하지 않는다. 이 도구가 AWS에서 EC2를 시작하지는 않는다. EC2 시작/중지는 기존 EventBridge Scheduler가 담당한다.
 
-## 로컬 테스트
+## 문법 확인
 
 ```bash
-node --test tests/mysql_recovery.test.cjs
 ansible-playbook mysql-recovery.yml --syntax-check
 ```
 
-모의 테스트는 GTID 최신 서버 선택, 정상 무변경, 전체 중단, 부분 장애, 접속 실패, 데이터 분기, 잘못된 메타데이터, 검증 중 상태 변화와 복구 후 검증 실패를 다룬다. 실제 서버의 복구와 게임 Router 조회는 별도로 확인해야 한다.
+실제 서버의 복구와 게임 Router 조회는 별도로 확인해야 한다.
 
 ## 2026-10-15 설치 검증 (한국 시간)
 

@@ -1,5 +1,5 @@
 """화면 데이터(설계 §6.6 "6-15 분리"): 백엔드는 우리 화면의 HTML 을 그리지 않고 `{"presentation": {"template", "context"}}` 를 돌려준다.
-프론트(apps/ads_frontend)가 같은 템플릿으로 그린다 — 시험은 그 렌더러를 그대로 써서 HTML 을 본다(tests/support/presentation.py).
+프론트(apps/ads_frontend)가 같은 템플릿으로 그린다.
 
 값의 모양: 값 객체(dataclass)는 필드 + 속성, UUID 는 문자열, 시각·날짜는 표시를 붙인 ISO(`{"$dt": …}`·`{"$date": …}`), 폼은 `{"$form": …}`
 (칸마다 그리는 데 필요한 것 — 프론트가 같은 위젯으로 다시 만든다), 쪽 나누기는 `{"$page": …}`. 그 밖의 것(ORM 객체 등)은 실수로 새지 않게

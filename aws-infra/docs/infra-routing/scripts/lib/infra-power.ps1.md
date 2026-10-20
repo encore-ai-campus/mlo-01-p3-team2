@@ -2,7 +2,7 @@
 
 같은 폴더의 infra-common.ps1을 로드한다. Invoke-PowerAws는 Invoke-InfraCapturedCommand로 출력·종료 코드를 수집하며, 제한 시간·DryRunOperation 판정·오류 메시지는 유지한다. 자식 프로세스의 환경 해제 범위와 Check·Change 각각의 인증 검사는 그대로다.
 
-[공통 함수 지도](README.md) · [원본](../../../../infra/scripts/lib/infra-power.ps1) · [전체 전원 실행기](../power-all.ps1.md) · [모의 테스트](../../tests/power-tests.md)
+[공통 함수 지도](README.md) · [원본](../../../../infra/scripts/lib/infra-power.ps1) · [전체 전원 실행기](../power-all.ps1.md)
 
 power-all.ps1의 계정별 자식 작업에서 실행하는 AWS CLI 작업자다. 입력은 AwsCommand·TargetJson·Operation(Stop/Start)·Mode(Check/Change)·TimeoutSeconds다. 자체적으로 계정 전체를 검색하지 않고 부모가 전달한 EC2 ID만 조회한다.
 

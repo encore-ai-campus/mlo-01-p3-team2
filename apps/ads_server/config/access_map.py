@@ -1,7 +1,7 @@
 """URL 접두사 → 역할 표. **접근 통제의 단일 출처**다.
 
 새 URL 은 아래 접두사 밑에 추가하면 자동으로 보호된다. 역할 접두사 밖의 URL 은
-공개(@login_not_required)이거나 "로그인만 필요"로 명시해야 하며, tests/ops/test_access.py 의 URL 전수 점검이 이를 강제한다.
+공개(@login_not_required)이거나 "로그인만 필요"로 명시해야 한다.
 """
 from django.core.exceptions import ImproperlyConfigured
 

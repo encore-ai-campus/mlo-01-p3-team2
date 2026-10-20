@@ -39,55 +39,6 @@ The existing EC2 `spark-env.sh` sets `SPARK_LOCAL_DIRS=/opt/pipeline/spark/tmp`.
 The service permits writes to that Spark scratch directory as well as its own
 state directory; source releases and configuration remain read-only to the Driver.
 
-## Isolated end-to-end fixture
-
-Generate locally using an environment with the existing Spark requirements:
-
-```sh
-pipeline/spark/.venv/bin/python pipeline/spark/deploy/make_smoke_fixture.py \
-  --output /private/tmp/spark-smoke-run \
-  --topic spark_smoke_RUN \
-  --database spark_smoke_RUN \
-  --runtime-directory /var/lib/spark-pipeline/smoke/RUN
-```
-
-The generator standardizes the existing 15 successful Raw event-type fixtures,
-randomizes all UUIDs while preserving shared identifiers, and recalculates the Std
-fingerprints. It validates all 18 generated messages: 15 valid events, one exact
-duplicate, one bad checksum, and one malformed JSON input. Its registry routes all
-15 schemas through the isolated topic. `expected_rows.json` contains the precise
-15 fact rows and two error rows; `manifest.json` includes per-table counts.
-
-Create a fresh one-partition test topic with replication factor three and a fresh
-test database, migrate that database, then copy the generated files to the runtime
-directory. Create a separate smoke environment by merging the production settings
-with `smoke.env.fragment` (the fragment must override matching keys). Publish
-`producer.lines` once using the Kafka installation's console producer:
-
-```sh
-kafka-console-producer.sh --bootstrap-server VERIFIED_BROKER:9092 \
-  --topic spark_smoke_RUN \
-  --producer-property acks=all --producer-property enable.idempotence=true \
-  --property parse.headers=true --property parse.key=true \
-  --property headers.separator=, --property headers.key.separator=: \
-  < producer.lines
-```
-
-The default header delimiter and key separator are literal tabs. Every generated
-line is `event_type:VALUE,std_schema_version:1.0<TAB>USER_UUID<TAB>JSON`.
-All expected offsets assume the new topic starts at zero and the file is published
-exactly once. Use a transient systemd unit with the same credential and service
-identity to invoke `launch.py --env-file /path/to/smoke.env --available-now --report
-/var/lib/spark-pipeline/smoke/RUN/report.json`. Do not run the production service at
-the same time: Driver ports and Executor resources are deliberately fixed.
-
-Compare MySQL rows to `expected_rows.json` (normalize retrieved MySQL datetimes to
-`YYYY-MM-DD HH:MM:SS.ffffff` and booleans to true/false). Require three live
-Executors in the completed report. Repeat the same available-now job with the same
-checkpoint; it must report zero input rows, the same query ID, and unchanged table
-contents. After successful verification remove only the isolated topic, database,
-checkpoint, and transient unit, then start the production service.
-
 ## EC2 Driver 작업 제출 방식
 
 `spark-1`의 systemd 서비스 `spark-pipeline.service`가 `launch.py`를 실행한다.

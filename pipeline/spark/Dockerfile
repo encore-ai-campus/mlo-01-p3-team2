@@ -20,6 +20,6 @@ ENV PYSPARK_PYTHON=python3
 COPY spark_pipeline/ /opt/pipeline/srcs/spark/spark_pipeline/
 COPY contracts/ /opt/pipeline/srcs/spark/contracts/
 COPY migrations/ /opt/pipeline/srcs/spark/migrations/
-COPY stream.py migrate.py build_contracts.py runtime_probe.py test_driver.py .env.example /opt/pipeline/srcs/spark/
+COPY stream.py migrate.py build_contracts.py runtime_probe.py .env.example /opt/pipeline/srcs/spark/
 WORKDIR /opt/pipeline/srcs/spark
 USER 185

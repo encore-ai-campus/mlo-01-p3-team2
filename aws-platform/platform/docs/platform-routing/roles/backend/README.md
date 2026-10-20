@@ -19,6 +19,6 @@ site.yml의 game:ad:spark:mysql:backend가 대상이다. 역할 이름 backend�
 
 ## 운영 검증
 
-역할 verify는 정상 구축과 연결을 검사한다. Primary 중단 후 자동 선출·Router 재접속·쓰기 성공·복귀 노드 ONLINE은 배포 환경에서 별도로 확인한다. 연결이 끊긴 트랜잭션의 처리는 앱에서 구현해야 한다. [로컬 검증](../../tests/README.md) · [검증 기록](../../verification.md)
+역할 verify는 정상 구축과 연결을 검사한다. Primary 중단 후 자동 선출·Router 재접속·쓰기 성공·복귀 노드 ONLINE은 배포 환경에서 별도로 확인한다. 연결이 끊긴 트랜잭션의 처리는 앱에서 구현해야 한다. [검증 기록](../../verification.md)
 
 site.yml의 Router 계정 준비 play가 완료된 뒤 설치한다. 계정 준비·실행 범위는 [최상위 지도](../../site.yml.md#router-단독-실행)를 따른다.

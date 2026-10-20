@@ -14,4 +14,4 @@
 
 실행 옵션은 각 파일별 문서와 실행 명령 안내에서 확인한다. Plan과 Apply, 인벤토리 생성과 프로그램 설치는 서로 다른 동작이다. Proxy는 프록시 준비를 실행하며 DB·Kafka·Spark 설치 역할은 플랫폼 [site.yml](../../../../aws-platform/platform/docs/platform-routing/site.yml.md)에서 찾는다.
 
-보호 조건을 수정할 때는 [테스트 지도](../tests/README.md)에서 모의 실행기·삭제 회귀 테스트를 함께 확인한다.
+보호 조건을 수정할 때는 테스트 지도에서 모의 실행기·삭제 회귀 테스트를 함께 확인한다.

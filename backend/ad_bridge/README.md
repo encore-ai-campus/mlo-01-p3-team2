@@ -1,6 +1,6 @@
 # 게임 광고 브리지 — #71
 
-이 패키지는 `backend/ad_bridge/`에서 실행한다. `ad-bridge/scripts/`는 기존 원본과 회귀 테스트 참고용이며 이번 신규 구현의 실행 경로가 아니다.
+이 패키지는 `backend/ad_bridge/`에서 실행한다. `ad-bridge/scripts/`는 기존 원본 참고용이며 이번 신규 구현의 실행 경로가 아니다.
 
 ## 현재 연결
 
@@ -64,14 +64,9 @@ python backend/manage.py dispatch_ad_reactions --help
 ## 검증
 
 ```powershell
-# 운영 DB·광고 서버에 접속하지 않는 공유 저장·회차·이동 API 테스트
-python backend/manage.py test ad_bridge.tests --settings=ad_bridge.tests.settings --noinput
-# 서버 이동·재접속 검증용 SQLite 테스트 DB
-python backend/manage.py test campus.test_motion campus.test_authoritative_socket campus.test_reconnect_transitions --settings=config.kafka_test_settings --noinput
-# 화면 계산과 기존 게임 JavaScript 회귀 테스트
-node --test frontend/tests/*.test.cjs
+# 설정과 마이그레이션 파일 상태 확인
+python backend/manage.py check
+python backend/manage.py makemigrations --check --dry-run
 ```
 
-기존 브리지 회귀 테스트는 저장소 루트에서 `PYTHONPATH`에 `backend`와 `ad-bridge`를 넣고 `ad_bridge.tests.settings`로 `test.api test.decisions test.impressions test.delivery test.results test.game test.storage`를 실행한다. 마이그레이션 테스트는 과거 모델을 사용하고 최신 마이그레이션으로 복구한다.
-
-실제 광고 서버의 슬롯·키·이미지 출처, MySQL 동시 요청, 실제 브라우저 두 개에서의 교체·클릭·차감, EC2 배포는 별도 검증 대상이다. 테스트의 모의 응답과 SQLite 통과를 운영 검증 완료로 해석하지 않는다.
+실제 광고 서버의 슬롯·키·이미지 출처, MySQL 동시 요청, 실제 브라우저 두 개에서의 교체·클릭·차감, EC2 배포는 별도 검증 대상이다.

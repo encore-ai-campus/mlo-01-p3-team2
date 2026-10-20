@@ -25,7 +25,7 @@ PowerShell 5.1 공통 함수 모음이다. 아래 선언은 원본 PowerShell을
 - 환경 저장·복원: infra.ps1, bastion.ps1, destroy-all.ps1. 각 실행기의 환경 변수 목록과 finally 시점은 호출부가 결정한다.
 - CLI 출력 수집: Invoke-BastionAws, Invoke-PowerAws, Invoke-KeyAws, Invoke-InfraDestroyAws. 명령 인수·제한 시간·DryRunOperation·허용된 없음 오류·오류 메시지는 각 래퍼가 결정한다.
 - 저장 계획 읽기: Get-SavedDeleteSummary, Assert-SavedBastionPlan, Assert-SavedEdgePlan. Plan 직후와 Apply 직전 검사를 모두 유지하며 캐시하지 않는다.
-- 회귀 검사: [test_common.ps1](../../../../infra/tests/test_common.ps1). 환경 복원, 네이티브 오류 수집, 계획 재읽기를 로컬에서 검사한다.
+- 회귀 검사: test_common.ps1. 환경 복원, 네이티브 오류 수집, 계획 재읽기를 로컬에서 검사한다.
 
 ## 설정 검사의 범위
 

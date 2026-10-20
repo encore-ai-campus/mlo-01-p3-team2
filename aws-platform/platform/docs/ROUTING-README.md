@@ -2,7 +2,7 @@
 
 2026-10-18 실제 배치·도메인·예약·검증 범위는 [현재 운영 구성](../../../aws-infra/docs/operations/current-state.md)에서 확인한다.
 
-[실행 안내](../README.md) · [인벤토리](platform-routing/inventory/README.md) · [역할 지도](platform-routing/roles/README.md) · [검증 코드](platform-routing/tests/README.md) · [검증 기록](platform-routing/verification.md)
+[실행 안내](../README.md) · [인벤토리](platform-routing/inventory/README.md) · [역할 지도](platform-routing/roles/README.md) · [검증 기록](platform-routing/verification.md)
 
 ## 경로 대응 기준
 
@@ -18,7 +18,6 @@
 | roles | [역할 지도](platform-routing/roles/README.md) | common·firewall·pkg·java·DB·Kafka·ZooKeeper·Spark·backend·monitoring |
 | roles/각 역할 | 역할 지도의 해당 README | defaults·vars·meta·tasks·handlers·templates·files의 실제 파일별 설명 |
 | scripts | [스크립트 지도](platform-routing/scripts/README.md) | 준비된 Endpoint를 이용한 팀 접속 설정, 컨트롤 노드의 프록시 일괄 준비와 배스천 패키지 설치 |
-| tests | [검증 코드 지도](platform-routing/tests/README.md) | Spark 서비스 연동 코드와 역할별 검증 작업 연결 |
 | site.yml·프록시 playbook | [site.yml](platform-routing/site.yml.md)·[bootstrap-proxy](platform-routing/bootstrap-proxy.yml.md)·[prepare-proxy](platform-routing/prepare-proxy.yml.md) | 설치 순서·태그·실행 대상과 프록시 준비의 경계 |
 
 EC2 생성·사양·계정별 네트워크·전체 삭제 실행기는 [인프라 라우팅 문서](../../../aws-infra/docs/infra-routing/ROUTING-README.md)에서 찾는다. 역할별 README에서 작업 파일로, 작업 파일에서 원본과 템플릿 설명으로 이동한다.
@@ -46,10 +45,9 @@ EC2 생성·사양·계정별 네트워크·전체 삭제 실행기는 [인프�
 | Kafka KRaft·리스너·토픽 검증 변경 | [kafka](platform-routing/roles/kafka/README.md) | roles/kafka/ |
 | ZooKeeper ensemble·Spark 복구 변경 | [zookeeper](platform-routing/roles/zookeeper/README.md) | roles/zookeeper/ |
 | Spark Master·Worker·JAR·Python 변경 | [spark](platform-routing/roles/spark/README.md) | roles/spark/ |
-| Spark 데몬·작업 포트와 AWS SG 범위 맞추기 | [Spark 통신 포트](platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) · [인프라 포트 범위 테스트](../../../aws-infra/docs/infra-routing/tests/README.md#spark-포트-범위) | Spark defaults·환경·Worker unit·작업 설정, aws-infra의 선택한 traffic 구성 |
+| Spark 데몬·작업 포트와 AWS SG 범위 맞추기 | [Spark 통신 포트](platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | Spark defaults·환경·Worker unit·작업 설정, aws-infra의 선택한 traffic 구성 |
 | 로컬 Router bootstrap·서비스·접속 검증 변경 | [backend](platform-routing/roles/backend/README.md) | roles/backend/ |
 | 수집 권한·주기·하트비트·로그 보관 변경 | [monitoring](platform-routing/roles/monitoring/README.md) | roles/monitoring/ |
-| PySpark와 서비스 연동 테스트 찾기 | [검증 코드 지도](platform-routing/tests/README.md) | tests/spark_integration.py, Spark verify 템플릿 |
 
 ## 실행 연결
 

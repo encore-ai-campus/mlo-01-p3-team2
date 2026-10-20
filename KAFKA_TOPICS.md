@@ -216,13 +216,12 @@ Producer는 `acks=all`, `enable.idempotence=True`를 사용함. Kafka 전송 성
 
 2026-10-14 AWS 운영 환경에서 브로커 3대와 7개 Raw 토픽을 확인하고, 기존 대기 로그 716건의 ACK 발행과 실제 브로커 메시지 조회를 검증함. 이후에도 신규 로그 발행이 이어지는 것을 확인함. 이 확인은 플랫폼 발행 측까지이며 수신 서비스의 정제·집계 완료를 뜻하지 않음. 2026-10-15 AWS의 MySQL Outbox로 이전하고 기존 데이터·UUID·발행 상태를 보존함. Kafka 3대·7개 토픽·실제 메시지 조회와 대기 0건을 재확인함. 좌표가 포함된 `raw_data`·`payload_json`은 숫자 원문과 fingerprint를 유지하도록 MySQL에서 LONGTEXT + JSON_VALID 검사로 저장함. Django와 Kafka에서는 기존 JSON 객체로 사용하며 토픽·이벤트·스키마 버전은 변경하지 않음. 연결 주소·인증값은 운영 `.env`에서 관리하고 저장소에 넣지 않음.
 
-백엔드 폴더에서 다음 명령으로 검증할 수 있음. 동시 제출 검증을 위해 별도의 파일 테스트 DB를 사용함.
+백엔드 폴더에서 설정과 마이그레이션 파일 상태를 확인할 수 있음.
 
 ```powershell
 cd C:\3rd-pr-f\backend
 python manage.py check
 python manage.py makemigrations --check --dry-run
-python manage.py test learning.tests eventing.test_publisher campus.test_publisher_startup campus.test_movement_outbox --settings=config.kafka_test_settings --noinput
 ```
 
 실행 방법은 [RUN_GUIDE.md](RUN_GUIDE.md)를 참고함.

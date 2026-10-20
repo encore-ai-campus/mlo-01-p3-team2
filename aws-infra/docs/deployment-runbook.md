@@ -475,7 +475,7 @@ ansible -i "$inventory" 'mysql:mongodb:kafka:spark' -b \
 | game | 로컬 Router 대상, MySQL 접근 허용 | 앱 런타임·Kafka 연결·그 밖의 OS 방화벽은 별도 확인 |
 | ad·consumer | 전용 앱·평탄화 프로그램 설치 역할 없음 | 앱 역할·Kafka 권한·OS 방화벽을 별도 확정. 그룹 이름 변경만으로 앱이 설치되지는 않음 |
 
-기본 배치의 Spark SG는 account2·3·4에 있다. 규칙 변경은 해당 구성의 각 계정 workload를 새 Plan → 검토 → Apply로 반영한다. [Spark 포트 범위 테스트](infra-routing/tests/README.md#spark-포트-범위)는 정적·모의 전달 검사용이며 AWS 반영이나 서비스 설치 성공을 증명하지 않는다. 전체 site.yml 한 번이 모든 애플리케이션까지 설치하는 명령은 아니다.
+기본 배치의 Spark SG는 account2·3·4에 있다. 규칙 변경은 해당 구성의 각 계정 workload를 새 Plan → 검토 → Apply로 반영한다. 전체 site.yml 한 번이 모든 애플리케이션까지 설치하는 명령은 아니다.
 
 ## 10. 공통 OS 설정과 방화벽
 

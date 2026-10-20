@@ -32,7 +32,7 @@
 
 현재 nodes 객체에는 노드별 enabled 필드가 없다. workload는 account 일치와 role != bastion으로 서비스 EC2만 선택한다. topology.nodes.bastion은 foundation SG·SSH·Proxy 역할 계산과 전용 bastion 단계 입력으로 유지한다. alb.enabled는 ALB 활성화 여부만 제어한다. alb.certificate_arn은 공통 입력 타입에 남아 있지만 현재 HTTP ALB 모듈에는 전달하지 않으며 빈 문자열도 허용한다.
 
-port_end를 생략하면 flow의 끝 값은 시작 포트와 같다. 지정된 끝 키는 ports에 존재하고 시작 이상이어야 한다. [model 포트 범위 테스트](../../../infra/terraform/modules/model/tests/port-ranges.tftest.hcl)는 이 조건과 Spark SG 조합 확장을 검사하도록 선언돼 있다. 실제 SG 속성·중복 범위 병합 검사는 [테스트 지도](../tests/README.md#spark-포트-범위)에서 이어서 확인한다.
+port_end를 생략하면 flow의 끝 값은 시작 포트와 같다. 지정된 끝 키는 ports에 존재하고 시작 이상이어야 한다.
 
 ## network
 
@@ -53,7 +53,7 @@ port_end를 생략하면 flow의 끝 값은 시작 포트와 같다. 지정된 �
 | [security-groups/main.tf](../../../infra/terraform/modules/security-groups/main.tf), [versions.tf](../../../infra/terraform/modules/security-groups/versions.tf) | name·vpc_id·roles로 역할별 aws_security_group 생성. ids 출력. 규칙은 workload가 소유 |
 | [security-rules/main.tf](../../../infra/terraform/modules/security-rules/main.tf), [versions.tf](../../../infra/terraform/modules/security-rules/versions.tf) | ingress·egress·public_ingress·public_egress map으로 독립 SG 규칙 생성 |
 
-security-rules는 SG 참조용 peer 규칙과 IPv4 CIDR용 public 규칙을 각각 입출력으로 나눠 만든다. peer 규칙은 TCP port부터 선택적 port_end까지 허용하며, 끝 값이 없으면 단일 포트다. public 규칙은 기존 TCP 단일 포트를 유지한다. OS 사용자·파일 권한이나 DB 권한은 설정하지 않는다. 출력은 ingress, egress, public_ingress다. [포트 범위 테스트](../tests/README.md#spark-포트-범위)는 모델 입력, 실제 규칙 속성, workload의 합집합 전달을 구분해 검사한다.
+security-rules는 SG 참조용 peer 규칙과 IPv4 CIDR용 public 규칙을 각각 입출력으로 나눠 만든다. peer 규칙은 TCP port부터 선택적 port_end까지 허용하며, 끝 값이 없으면 단일 포트다. public 규칙은 기존 TCP 단일 포트를 유지한다. OS 사용자·파일 권한이나 DB 권한은 설정하지 않는다. 출력은 ingress, egress, public_ingress다.
 
 ## peering
 
@@ -104,4 +104,4 @@ instance 출력은 id, public_ip, private_ip, root_volume_id, key_name이다. VP
 
 ## 수정 후 확인 위치
 
-모듈을 바꾸면 사용하는 stack과 [Terraform 모의 테스트](../tests/README.md)를 함께 확인한다. provider 버전 변경 시 해당 versions.tf와 lock 파일을 같이 검토한다. 이 문서는 코드의 자원 선언과 관계를 대조했으며 Terraform validate·test 또는 AWS 배포 성공을 대신하지 않는다.
+모듈을 바꾸면 사용하는 stack의 입력과 출력을 함께 확인한다. provider 버전 변경 시 해당 versions.tf와 lock 파일을 같이 검토한다. 이 문서는 코드의 자원 선언과 관계를 대조했으며 Terraform validate·test 또는 AWS 배포 성공을 대신하지 않는다.

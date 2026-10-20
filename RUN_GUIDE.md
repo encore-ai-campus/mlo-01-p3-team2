@@ -128,26 +128,22 @@ HTTPS를 종료하는 Nginx는 `X-Forwarded-Proto`를 실제 외부 프로토콜
 
 ## 검증
 
-실제 운영 DB를 사용하지 않는 별도 파일 SQLite 테스트 설정을 제공함. 파일 DB로 동시 제출·원장·Outbox·마이그레이션을 검증함.
+백엔드 설정과 마이그레이션 파일 상태를 확인함.
 
 ```powershell
 cd backend
 python manage.py check
 python manage.py makemigrations --check --dry-run
-python manage.py test --settings=config.kafka_test_settings --noinput
 ```
 
-새 터미널 또는 루트에서 프론트 폴더로 이동해 렌더링과 HTTP 중계를 검증함.
+새 터미널 또는 루트에서 프론트 폴더로 이동해 설정을 확인함.
 
 ```powershell
 cd frontend
 python manage.py check
-python manage.py test pages --noinput
-node --test tests/*.test.cjs
-node learning/tests/test-kafka-ui.cjs
 ```
 
-JavaScript 검증에는 Node.js가 필요함. 마지막 학습 UI 검증은 Playwright와 Chrome을 사용하고 API 응답을 대체해 실제 사용자 데이터에 영향을 주지 않음. 실제 두 서비스의 브라우저 확인은 별도 데이터 폴더·포트로 수행해야 함. 테스트 설정의 좌표 수신 호환 모드는 기존 회귀 검증용이며, 운영 서버는 키 입력 기반 서버 판정을 사용함.
+실제 두 서비스의 브라우저 확인은 별도 데이터 폴더·포트로 수행해야 함. 운영 서버는 키 입력 기반 서버 판정을 사용함.
 
 AWS MySQL 저장·복제와 Kafka 발행 측을 확인함. 수신 측 처리·MongoDB 및 운영 광고 서비스 연결은 해당 팀 환경에서 별도 검증이 필요함.
 

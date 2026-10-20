@@ -143,7 +143,7 @@ internet_https_roles의 Bastion은 인터넷 TCP 443 송신을 허용한다. 다
 
 Spark의 전체 세 서버에 Worker·ZooKeeper를, 인벤토리 앞 두 서버에 Master를 배치한다. Master·Worker 데몬은 포트 재시도 0, 작업은 최대 16회를 사용한다. [Spark 설정](../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)과 선택한 traffic을 함께 맞춘다. 이전 초안의 Worker 7078·Driver 35000·BlockManager 35100은 현재 값이 아니다.
 
-[포트 범위 테스트](infra-routing/tests/README.md#spark-포트-범위)는 모델·SG 속성·workload 병합을 검사하도록 선언돼 있다. 실제 성공은 ZooKeeper leader/follower, Spark ALIVE/STANDBY·Worker 등록·PySpark 작업까지 따로 확인한다. SG 선언·서비스 active만으로 이 검증을 통과했다고 판단하지 않는다.
+포트 범위 테스트는 모델·SG 속성·workload 병합을 검사하도록 선언돼 있다. 실제 성공은 ZooKeeper leader/follower, Spark ALIVE/STANDBY·Worker 등록·PySpark 작업까지 따로 확인한다. SG 선언·서비스 active만으로 이 검증을 통과했다고 판단하지 않는다.
 
 ## Proxy·Peering·OS 방화벽
 

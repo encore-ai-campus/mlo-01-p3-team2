@@ -22,7 +22,6 @@
 | infra/scripts | [스크립트 지도](scripts/README.md) | 배포·배스천·전체 전원·전체 삭제·SSH 키 준비 실행기 |
 | infra/scripts/lib | [공통 함수 지도](scripts/lib/README.md) | 입력·상태·계획 검사, 삭제 보호 조건과 계정별 전원 작업자 |
 | infra/terraform/stacks·modules | [Terraform 지도](terraform/README.md) | 상태 소유권, 네 stack과 공통 모듈 연결 |
-| infra/tests·Terraform tests | [테스트 지도](tests/README.md) | 모의 실행기·삭제 회귀·콘솔 SSH·Spark 포트 범위 검사 |
 | infra/bootstrap | [설치 경계](bootstrap/README.md) | 인프라 생성과 플랫폼 프로그램 설치의 연결 |
 | infra/setup-windows | [도구 설치기](setup-windows/install-tools.ps1.md) | Windows 실행 도구 준비 |
 
@@ -37,7 +36,7 @@
 | 실행 옵션·저장 계획·계정 확인 흐름 파악 | [공통 실행기](scripts/infra.ps1.md) | [infra.ps1](../../infra/scripts/infra.ps1) |
 | 비용별 구성·EC2 생성·인벤토리·프록시 일괄 준비 | [구성별 배포](scripts/deploy.ps1.md) | [deploy.ps1](../../infra/scripts/deploy.ps1) |
 | 배스천 생성·삭제·상태 조회·중지·시작 | [배스천 관리](scripts/bastion.ps1.md) | [bastion.ps1](../../infra/scripts/bastion.ps1) |
-| 전체 서비스·Bastion 중지·시작 | [전체 전원 실행기](scripts/power-all.ps1.md) · [계정별 작업자](scripts/lib/infra-power.ps1.md) | [power-all.ps1](../../infra/scripts/power-all.ps1), [모의 테스트 구조](tests/power-tests.md) |
+| 전체 서비스·Bastion 중지·시작 | [전체 전원 실행기](scripts/power-all.ps1.md) · [계정별 작업자](scripts/lib/infra-power.ps1.md) | [power-all.ps1](../../infra/scripts/power-all.ps1) |
 | 전체 인프라 삭제 Plan·적용·진행 확인 | [전체 삭제 실행기](scripts/destroy-all.ps1.md) | [destroy-all.ps1](../../infra/scripts/destroy-all.ps1) |
 | 전체 삭제 순서·자원 범위·상태·결과 검사 | [삭제 공통 함수](scripts/lib/infra-destroy.ps1.md) | [infra-destroy.ps1](../../infra/scripts/lib/infra-destroy.ps1) |
 | CIDR·계정·상태 버킷·파일 해시 검사 수정 | [실행기 공통 함수](scripts/lib/infra-common.ps1.md) | [infra-common.ps1](../../infra/scripts/lib/infra-common.ps1) |
@@ -47,19 +46,17 @@
 | VPC·서브넷·IGW·NAT·SG 자체 생성 | [foundation](terraform/stacks/foundation.md) | [foundation stack](../../infra/terraform/stacks/foundation/main.tf) |
 | 계정 간 Peering·양방향 라우팅 변경 | [connectivity](terraform/stacks/connectivity.md) | [connectivity stack](../../infra/terraform/stacks/connectivity/main.tf) |
 | 보안규칙·EC2·EBS·ALB 변경 | [workload](terraform/stacks/workload.md) | [workload stack](../../infra/terraform/stacks/workload/main.tf) |
-| 서비스 EC2의 콘솔 SSH 접두사 목록 규칙 | [콘솔 SSH 범위](terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위) | [workload 선언](../../infra/terraform/stacks/workload/main.tf), [5개 계정 모의 테스트](../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) |
-| Spark의 고정 포트·재시도 범위와 SG 규칙 검사 | [Spark 포트 범위 테스트](tests/README.md#spark-포트-범위) · [플랫폼 Spark 설정](../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | traffic의 port_end → model.flows → workload 범위 병합 → security-rules |
+| 서비스 EC2의 콘솔 SSH 접두사 목록 규칙 | [콘솔 SSH 범위](terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위) | [workload 선언](../../infra/terraform/stacks/workload/main.tf) |
+| Spark의 고정 포트·재시도 범위와 SG 규칙 검사 | [플랫폼 Spark 설정](../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트) | traffic의 port_end → model.flows → workload 범위 병합 → security-rules |
 | Bastion EC2·OS 디스크·전용 키페어 변경 | [bastion](terraform/stacks/bastion.md) | [bastion stack](../../infra/terraform/stacks/bastion/main.tf) |
 | Squid 패키지 설치 범위 확인 | [Proxy 설치 스크립트](../../../aws-platform/platform/docs/platform-routing/scripts/install-squid.sh.md) | [install-squid.sh](../../../aws-platform/platform/scripts/install-squid.sh) |
 | 공통 자원 생성 방식 수정 | [Terraform 모듈 목록](terraform/README.md) | [modules](../../infra/terraform/modules) |
 | SSH 키 준비 | [키 준비 스크립트](scripts/prepare-key.sh.md) | [prepare-key.sh](../../infra/scripts/prepare-key.sh) |
 | 계정별 PEM 준비·기존 서버 공개키 등록 | [계정별 SSH 키 전환](scripts/account-keys.ps1.md) | [account-keys.ps1](../../infra/scripts/account-keys.ps1) |
 | Windows 도구 설치 동작 확인 | [설치 스크립트](setup-windows/install-tools.ps1.md) | [install-tools.ps1](../../infra/setup-windows/install-tools.ps1) |
-| 테스트와 모의 입력 찾기 | [테스트 지도](tests/README.md) | [실행기 테스트](../../infra/tests/test_runner.py), [fixtures](../../infra/tests/fixtures.json) |
-| Python 함수·시그니처 찾기 | [test_runner.py 구조](tests/test_runner.py.md) · [전체 삭제 테스트](tests/destroy-tests.md) · [전원 테스트](tests/power-tests.md) | routing-doc-sync AST 분석 결과 기준 |
 | EC2 생성 이후 설치 범위 확인 | [bootstrap 경계](bootstrap/README.md) | [현재 bootstrap 안내](../../infra/bootstrap/bootstrap.md) |
 
-account1의 flatten-1은 Private A, t3a.medium, role=consumer다. 기본 topology와 기존 current 프로필에 함께 반영하며 consumer_kafka·admin_nodes·forward_proxy로 Kafka·SSH·프록시를 연결한다. [평탄화 모의 검사](../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)와 [플랫폼 Kafka 방화벽 출처](../../../aws-platform/platform/docs/platform-routing/roles/firewall/vars/main.yml.md)를 함께 본다.
+account1의 flatten-1은 Private A, t3a.medium, role=consumer다. 기본 topology와 기존 current 프로필에 함께 반영하며 consumer_kafka·admin_nodes·forward_proxy로 Kafka·SSH·프록시를 연결한다. [플랫폼 Kafka 방화벽 출처](../../../aws-platform/platform/docs/platform-routing/roles/firewall/vars/main.yml.md)를 함께 본다.
 
 ## 실행 흐름
 
@@ -94,4 +91,4 @@ Python 구조는 지정한 routing-doc-sync 스킬로 확인했다. PowerShell·
 
 mysql-3는 account4 Private A의 t3a.small, OS 20GiB·데이터 gp3 100GiB이며 공인 IP가 없다. 기본 topology와 profiles/current에 함께 반영했다. [설정 지도](config/README.md#mysql-3-증설) → [workload 증설 경계](terraform/stacks/workload.md#mysql-3-증설과-alb-복원-보류) → [실제 AWS 검증](verification.md#2026-10-10-mysql-3-증설과-실제-aws-검증)에서 선언·적용·설치 준비 상태를 구분한다. 당시에는 설정에 ALB가 활성화돼 있어도 실제 ALB는 없어 복원을 보류했다. 현재 기본 및 current 설정은 ALB를 비활성화했으며 이번에 AWS 상태를 재조회하지 않았다.
 
-학원 IP·HTTP 공개·Private SSH 변경은 [설정 지도](config/README.md#traffic) → [workload 계산](terraform/stacks/workload.md#주요-계산-위치) → [학원 접속 검사](tests/README.md#학원-접속-검사) 순서로 확인한다.
+학원 IP·HTTP 공개·Private SSH 변경은 [설정 지도](config/README.md#traffic) → [workload 계산](terraform/stacks/workload.md#주요-계산-위치) 순서로 확인한다.

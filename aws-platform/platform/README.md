@@ -34,9 +34,9 @@ ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --ask-vault-pa
 
 Cluster 재실행은 현재 Primary에서 계정을 적용한다. 가입된 Cluster의 설정 파일이 바뀌면 동시 재시작을 막기 위해 중단하며 순차 유지보수 후 다시 실행한다. 관리 계정 비밀번호 변경·기존 토폴로지 이전·전체 중단 복구는 별도 운영 절차다. 정상 구축 verify와 실제 Primary 장애 검사는 구분한다. 장애 시 앱은 끊긴 연결을 다시 열어야 하며 트랜잭션 재시도 여부는 앱이 판단한다.
 
-Spark 연동 테스트는 MYSQL_HOST=127.0.0.1과 MYSQL_PORT=6446을 사용한다(포트 기본 6446). JDBC 작업을 수행하는 모든 Spark 노드에 Router가 필요하다. game 앱의 실제 DB 접속 설정과 연결 풀 재시도는 애플리케이션 배포에서 맞춘다.
+JDBC 작업을 수행하는 모든 Spark 노드에 Router가 필요하다. 로컬 Router의 쓰기 포트는 6446이다. game 앱의 실제 DB 접속 설정과 연결 풀 재시도는 애플리케이션 배포에서 맞춘다.
 
-로컬 검증은 WSL의 기존 Ansible 가상환경에서 `python tests/validate_mysql_cluster.py`와 `python tests/validate_router_scope.py`로 실행한다. 원격 접속 없이 템플릿·AdminAPI 모의 검증·Ansible 인벤토리 검사·site.yml 문법 검사를 수행한다. 실제 Primary 중단 → 새 Primary → Router 경유 쓰기 → 노드 복귀는 EC2에서 별도로 검증해야 한다.
+실제 Primary 중단 → 새 Primary → Router 경유 쓰기 → 노드 복귀는 EC2에서 별도로 검증해야 한다.
 
 ## 구현 상태와 과거 검증
 
@@ -91,7 +91,6 @@ ansible-playbook -i "$inventoryFile" site.yml --tags mysql_router --ask-vault-pa
 
 - 서버를 지우고 다시 만들 때 사설 IP가 같으면 SSH가 `Host key verification failed`로 거부된다. 개발자 PC에서 `ssh-keygen -R <IP>`로 옛 항목을 지운다.
 - 설치된 패키지·tarball·JAR·GPG 키는 재실행 때 다운로드를 생략하는 작업이 있지만, Proxy 준비는 외부 검사를 포함한다. NAT 0개 기본 구성에서는 Bastion Proxy를 사용하며 전체 실행을 무조건 오프라인 실행으로 해석하지 않는다.
-- 구축 후 Spark와 Kafka·MongoDB·MySQL의 연동은 [tests/spark_integration.py](tests/spark_integration.py)로 확인할 수 있다 (Spark 노드에서 `spark-submit`으로 제출, 환경변수는 파일 맨 위 설명 참고).
 
 ## Secret(Vault)
 
@@ -199,7 +198,7 @@ ansible-playbook -i "$inventoryFile" prepare-proxy.yml --tags proxy_verify --lim
 
 ## 현재 Spark 사설 통신
 
-Master RPC 7077·내부 Master UI 8080, Worker RPC 7100, Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 AWS traffic과 함께 맞춘다. 작업의 포트 재시도는 16회, Master·Worker 데몬은 0회다. Worker UI 8081은 원격 공개 SG 규칙이 없다. [Spark 설정 지도](docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)와 [인프라 규칙 검사](../../aws-infra/docs/infra-routing/tests/README.md#spark-포트-범위)를 함께 확인한다.
+Master RPC 7077·내부 Master UI 8080, Worker RPC 7100, Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 AWS traffic과 함께 맞춘다. 작업의 포트 재시도는 16회, Master·Worker 데몬은 0회다. Worker UI 8081은 원격 공개 SG 규칙이 없다. [Spark 설정 지도](docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 확인한다.
 
 
 ## 팀 접속과 빈 팀원 목록

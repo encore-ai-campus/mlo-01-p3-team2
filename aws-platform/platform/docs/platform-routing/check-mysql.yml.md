@@ -1,6 +1,6 @@
 # check-mysql.yml: Vault 인증과 MySQL 멤버 상태 조회
 
-[탐색 시작점](../ROUTING-README.md) · [원본](../../check-mysql.yml) · [MySQL 역할](roles/mysql/README.md) · [검증 지도](tests/README.md)
+[탐색 시작점](../ROUTING-README.md) · [원본](../../check-mysql.yml) · [MySQL 역할](roles/mysql/README.md)
 
 ## 대상과 입력
 

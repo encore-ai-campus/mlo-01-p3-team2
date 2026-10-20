@@ -1,6 +1,6 @@
 """API 오류. 뷰에서 던지면 ApiErrorMiddleware 가 `application/problem+json`(RFC 9457)으로 바꾼다.
 
-계약의 `Problem` 스키마(docs/ads-server/contracts/*.openapi.yaml)와 같은 `code`를 쓴다.
+오류 유형별 `code`를 응답에 함께 보낸다.
 """
 
 

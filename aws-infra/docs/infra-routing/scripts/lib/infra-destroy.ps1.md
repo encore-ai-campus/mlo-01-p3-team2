@@ -27,7 +27,7 @@ aws_vpc_security_group_ingress_rule.bastion_console_ssh[0]
 aws_vpc_security_group_ingress_rule.service_console_ssh["역할"]
 ```
 
-서비스 역할별 규칙도 workload가 생성하므로 전체 삭제 대상에 포함한다. 이 정확한 자원 이름과 문자열 키 형식만 추가로 허용하며 다른 단계·이름·태그 검사와 delete/no-op 제한은 유지한다. [회귀 검사](../../../../infra/tests/test_destroy_console_ssh.ps1)는 실제 AWS 없이 허용·거부 경계를 확인한다.
+서비스 역할별 규칙도 workload가 생성하므로 전체 삭제 대상에 포함한다. 이 정확한 자원 이름과 문자열 키 형식만 추가로 허용하며 다른 단계·이름·태그 검사와 delete/no-op 제한은 유지한다. 회귀 검사는 실제 AWS 없이 허용·거부 경계를 확인한다.
 
 두 Front의 송신 규칙도 [workload](../../../../infra/terraform/stacks/workload/main.tf)가 소유하므로 아래 정확한 Terraform 주소를 허용한다. 다른 역할 키·유사 이름·다른 단계는 거부하며 기존 태그와 변경 종류 검사는 유지한다.
 

@@ -25,7 +25,6 @@
 ## 문서와 파일 구조
 
 - [코드 탐색 목차](docs/bridge-routing/ROUTING-README.md): 파일·클래스·함수 위치와 역할.
-- [기능별 테스트 안내](scripts/test/README.md): 그룹과 단일 사례 실행 방법.
 - 광고 요청·반응·이미지·클릭 계약은 광고 서버의 C1/C3 v1.1을 기준으로 구현했다.
   계약 복제본은 현재 이 저장소에 포함하지 않으므로 광고 서버가 관리하는 계약을 함께 확인한다.
 
@@ -33,9 +32,8 @@
 ad-bridge/
 ├─ README.md
 ├─ docs/bridge-routing/           # 구현 파일별 탐색 문서
-├─ integration_tests/            # 광고 서버에서 실행하는 별도 계약 검사
 └─ scripts/
-   ├─ ad_bridge/                 # 실제 게임에 가져갈 패키지
+   └─ ad_bridge/                 # 실제 게임에 가져갈 패키지
    │  ├─ api/                    # 설정·HTTP·응답 타입·오류
    │  ├─ decisions/              # 광고 요청·발급 저장
    │  ├─ impressions/            # 최초 노출·소유권·중복·DB 처리
@@ -47,7 +45,6 @@ ad-bridge/
    │  ├─ migrations/             # 최초 스키마·재전송 필드
    │  ├─ models.py
    │  └─ django_urls.py          # 게임 URL include 진입점
-   └─ test/                      # 기능별 테스트·대체 저장소·임시 DB 설정
 ```
 
 ## 요청과 저장 흐름
@@ -206,49 +203,6 @@ python manage.py dispatch_ad_reactions --once
 
 연속 1초 노출 대기, 광고 면적 50% 기준, 구역 밖 연속 2초 후 재진입을 새 노출로 인정하는 규칙은
 논의한 후속 설계이며 아직 구현하지 않았다. 매초 반복 차감하는 코드도 없다.
-
-## 테스트
-
-이 저장소에서 테스트를 실행할 Python 환경을 준비한다. requirements 파일은 현재 저장소에 포함하지 않는다.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install "Django>=5.2.8,<5.3"
-
-# 실제 서버·매체 키·DB 없이 전체 단위 테스트를 실행한다.
-.\.venv\Scripts\python.exe -B scripts/test/run.py all
-
-# 임시 SQLite로 실제 ORM·마이그레이션을 별도 검사한다.
-.\.venv\Scripts\python.exe -B scripts/test/run.py storage
-.\.venv\Scripts\python.exe -B scripts/test/run.py retry_storage
-.\.venv\Scripts\python.exe -B scripts/test/run.py result_storage
-```
-
-실행기는 scripts를 import 경로에 추가하므로 PYTHONPATH를 따로 설정하지 않는다.
-실제 게임 DB나 광고 서버 DB를 사용하지 않는다.
-
-```powershell
-# 기능 전체 또는 한 사례만 실행한다.
-python -B scripts/test/run.py result_client
-python -B scripts/test/run.py results accepted
-python -B scripts/test/run.py results lookup_error
-python -B scripts/test/run.py retry due
-python -B scripts/test/run.py --list
-```
-
-위 python은 Django를 설치한 가상환경의 Python을 사용한다.
-
-| 검사 | 개수 | 검증 범위 |
-|---|---:|---|
-| all | 126 | 설정·HTTP·결정 저장·노출·재전송·명령·판정·게임 요청 경계 |
-| storage | 15 | 최초 저장·소유권·중복·트랜잭션 |
-| retry_storage | 17 | 일정·임대·경합·복구·마이그레이션 |
-| result_storage | 6 | 판정 저장·전송 정보 보존·확정 판정 보호 |
-| 합계 | 164 | 단위 테스트와 임시 DB 검사 |
-
-2026-10-12 README 갱신 시 위 네 그룹을 다시 실행해 모두 통과했다.
-임시 SQLite 검사가 실제 MySQL의 동시 처리·부하 검증을 대신하지는 않는다.
-integration_tests는 광고 서버의 별도 테스트 환경에서 실행하는 계약 검사이며 위 all에 포함하지 않는다.
 
 ## 별도 로컬 테스트 게임에서 확인한 결과
 

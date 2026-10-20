@@ -14,7 +14,7 @@ Master 선출·Worker 메모리·Python·커넥터 JAR·검증 제출 경로를 
 
 ## 구현 조건
 
-기본 Master 수는 2이며 그룹 대수 제한 assert는 없다. 시스템 Ansible Python과 PySpark Python은 별도로 관리한다. infra-check 검증과 외부 DB 연동 테스트는 서로 다른 파일이다.
+기본 Master 수는 2이며 그룹 대수 제한 assert는 없다. 시스템 Ansible Python과 PySpark Python은 별도로 관리한다. infra-check는 Driver·Worker 실행과 커넥터 클래스 로딩을 확인한다.
 
 ## 프라이빗 서버의 통신 포트
 
@@ -31,7 +31,7 @@ Master·Worker의 SPARK_DAEMON_JAVA_OPTS는 spark.port.maxRetries=0을 지정하
 
 ## 경로별 문서
 
-인프라 쪽 선언은 [traffic 설정](../../../../../../aws-infra/docs/infra-routing/config/README.md#traffic), 범위 전달·규칙 속성의 모의 검사는 [Spark 포트 범위 테스트](../../../../../../aws-infra/docs/infra-routing/tests/README.md#spark-포트-범위)로 연결된다. SG 검사와 원격 서비스 검사는 별개다. service unit을 만드는 위치는 [설치 작업](tasks/main.yml.md)이며 ZooKeeper 역할만 실행해도 spark-worker.service가 생성되는 구조는 아니다.
+인프라 쪽 선언은 [traffic 설정](../../../../../../aws-infra/docs/infra-routing/config/README.md#traffic)에서 확인한다. SG 검사와 원격 서비스 검사는 별개다. service unit을 만드는 위치는 [설치 작업](tasks/main.yml.md)이며 ZooKeeper 역할만 실행해도 spark-worker.service가 생성되는 구조는 아니다.
 
 | 소스 경로 | 대응 문서 | 책임 |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 # infra/scripts/power-all.ps1
 
-[스크립트 지도](README.md) · [원본](../../../infra/scripts/power-all.ps1) · [사용법](../../operations/ec2-power.md) · [계정별 작업자](lib/infra-power.ps1.md) · [모의 테스트](../tests/power-tests.md)
+[스크립트 지도](README.md) · [원본](../../../infra/scripts/power-all.ps1) · [사용법](../../operations/ec2-power.md) · [계정별 작업자](lib/infra-power.ps1.md)
 
 ## 입력과 대상
 
@@ -23,4 +23,4 @@ Invoke-PowerPhase(Phase)는 Check 또는 Change마다 계정별 Start-Job을 만
 
 Change 도중 일부 계정이 실패하면 성공한 계정의 상태를 되돌리지 않는다. 오류를 해결한 뒤 재실행하면 이미 원하는 상태인 EC2는 건너뛴다. Start 후에는 현재 공인 IP를 확인하고 Inventory를 갱신한다. DB·Kafka·Spark 클러스터 복구와 서비스 정상 여부는 플랫폼에서 별도로 확인한다.
 
-이 실행기는 Terraform Apply·자원 삭제·설치·예약 실행을 호출하지 않는다. 실제 전원 전환과 AWS 권한 검사는 실행 시점의 원격 확인이며 [테스트 구조](../tests/power-tests.md)의 모의 결과와 구분한다.
+이 실행기는 Terraform Apply·자원 삭제·설치·예약 실행을 호출하지 않는다. 실제 전원 전환과 AWS 권한 검사는 실행 시점의 원격 확인이며 테스트 구조의 모의 결과와 구분한다.

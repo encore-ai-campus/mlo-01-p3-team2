@@ -5,7 +5,6 @@
 
 **판정 사실로 읽는 모든 반응은 `scoped_reactions` 를 거친다**(설계 §10 "판정 사실의 범위"). 접수는 존재를 알리지 않으려고 남의 결정에 대한 보고도 저장하므로,
 범위가 없으면 다른 매체의 보고가 이 결정의 판정을 바꾼다. 범위는 **접수 때 정해지는 값**(`media_id`·보고된 `subject_id`)으로만 건다 — 판정 상태로 거르면 처리 순서에 따라 결과가 흔들린다.
-`tests/dev/boundaries/test_judgment_scope.py` 가 이 파일의 `Reaction.objects` 가 `scoped_reactions` 안에만 있음을 소스로 확인한다.
 """
 from datetime import timedelta
 

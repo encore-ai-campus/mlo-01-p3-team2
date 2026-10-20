@@ -73,7 +73,7 @@ def _compatible(have, spec):
 
 
 def _dependencies():
-    """설치된 패키지가 requirements.txt 의 운영 묶음(개발·시험 묶음 머리 앞까지 — 서버 묶음에는 운영 묶음만 있다)과 맞는가."""
+    """설치된 패키지가 requirements.txt 의 운영 의존성과 맞는가."""
     text = (Path(settings.BASE_DIR) / "requirements.txt").read_text(encoding="utf-8").partition("# ---- 개발·시험 ----")[0]
     wrong, count = [], 0
     for line in (raw.split("#")[0].strip() for raw in text.splitlines()):

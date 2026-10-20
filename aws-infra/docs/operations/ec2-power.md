@@ -42,14 +42,6 @@ MySQL을 포함한 DB·Kafka·Spark 클러스터 상태는 별도로 확인한�
 
 ## 검증
 
-`infra/tests/test_power_all.py`는 임시 사본과 가짜 AWS CLI로 시작·중지, 중복 실행, 미리보기, 잘못된 계정·태그·출력, 권한 부족, 전환 대기, 일부 실패와 시간 초과를 검사한다. 실제 AWS 전원을 변경하지 않는다.
-
-```powershell
-# aws-infra 폴더에서 PowerShell 5.1 또는 7 동작 검사
-python .\infra\tests\test_power_all.py powershell
-python .\infra\tests\test_power_all.py pwsh
-```
-
 2026-10-14 검증: Windows PowerShell 5.1과 PowerShell 7에서 각각 13개 모의 시나리오가 통과했다. 실제 `current` 구성에 `-Action Stop -WhatIf`를 실행해 5개 계정의 18대, 소유자·태그와 중지 권한도 확인했다. 확인 당시 18대 모두 `running`이었으며, 실제 중지·시작과 클러스터 재기동 시험은 수행하지 않았다.
 
 ## 현재 자동 예약 — 2026-10-18 조회

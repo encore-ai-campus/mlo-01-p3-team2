@@ -100,7 +100,6 @@ flowchart TB
 | [공통 실행 안내](infra/infra.md) | 입력·상태·배포·변경 경계 |
 | [배포 절차](docs/deployment-runbook.md) | PowerShell·WSL 명령, Vault, 설치·검증 순서 |
 | [서버 설치 경계](infra/bootstrap/bootstrap.md) | 포트·마운트·프록시·애플리케이션 설치 구분 |
-| [테스트](infra/tests/TEST-README.md) | 정적·모의 검사와 과거 실행 결과 |
 | [Windows 도구](infra/setup-windows/setup-windows.md) | 도구 설치와 별도 인증 준비 |
 
 기존 시험용 test/ 및 docs/test/ 경로는 현재 배포 안내가 아니다. 개편·이관 이력은 [구조 개편 설명](infra/terraform-restructure-plan.md)에 남긴다. 새 코드가 기존 상태·자원이나 데이터를 자동으로 이관하지 않는다.

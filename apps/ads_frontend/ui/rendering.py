@@ -1,7 +1,7 @@
 """화면 데이터를 HTML 로 그린다(설계 §6.6 "6-15 분리"). DB·검증 없이, 백엔드가 준 값만으로.
 
-백엔드 시험도 이 파일을 그대로 써서 화면을 그린다(apps/ads_server/tests/support/presentation.py) — 그래서 설정의 TEMPLATES 대신 화면 전용 엔진을 쓰고,
-설정은 두 쪽에 같은 것(STATIC_URL·URL 이름)만 기댄다. 값의 모양은 백엔드 foundation/presentation.py 와 짝이다."""
+설정의 TEMPLATES 대신 화면 전용 엔진을 쓴다.
+설정은 STATIC_URL·URL 이름에만 기댄다. 값의 모양은 백엔드 foundation/presentation.py 와 짝이다."""
 import datetime
 from contextvars import ContextVar
 from functools import lru_cache

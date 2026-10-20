@@ -19,11 +19,8 @@ Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad, game↔
 | [provider.tf](../../../../infra/terraform/stacks/workload/provider.tf) | 선택 계정의 AWS 프로필·계정 제한·태그 |
 | [variables.tf](../../../../infra/terraform/stacks/workload/variables.tf) | 공통 입력·SSH 공개키·model 호출 |
 | [versions.tf](../../../../infra/terraform/stacks/workload/versions.tf) | Terraform/provider 범위, S3 backend |
-| [workload.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/workload.tftest.hcl) | 계정별 서버 배치·기본 외부 차단·Peering 누락 모의 검사 |
-| [console-ssh.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/console-ssh.tftest.hcl) | 계정별 서비스 SG·접두사 목록·TCP 22 유지 및 Bastion 콘솔 규칙 미생성 모의 검사 |
-| [spark-ports.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/spark-ports.tftest.hcl) | Spark 세 계정의 포트 범위·7100·8080, 기존 규칙 키 및 같은 시작 포트의 끝 값 병합 검사 |
 
-평탄화 노드 flatten-1은 account1의 consumer 역할이다. 기존 local.nodes와 compute의 동적 입력으로 생성하고 service_console_ssh에도 consumer SG를 포함한다. 기본 설정의 [flatten.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/flatten.tftest.hcl)은 Private A·medium 사양·기존 서버 유지·브로커 두 계정(account4·5)의 규칙을 모의 검사한다.
+평탄화 노드 flatten-1은 account1의 consumer 역할이다. 기존 local.nodes와 compute의 동적 입력으로 생성하고 service_console_ssh에도 consumer SG를 포함한다. 기본 설정의 flatten.tftest.hcl은 Private A·medium 사양·기존 서버 유지·브로커 두 계정(account4·5)의 규칙을 모의 검사한다.
 
 ## 주요 계산 위치
 
@@ -56,7 +53,7 @@ Backend TCP 8000 인바운드는 game_frontend→game, ad_frontend→ad, game↔
 
 SG 쌍과 시작 포트를 규칙 키로 유지한다. 같은 키의 연결에 끝 포트가 여럿 있으면 최대값까지 합쳐 security-rules에 전달하므로, 기존 단일 포트를 범위로 바꿔도 Terraform 자원 주소는 유지된다. 현재 Spark Driver 7078–7094, BlockManager 7079–7095를 전달하고 Worker RPC 7100과 Master UI 8080을 Spark SG 사이에 추가한다. 현재 배치에서는 account2·3·4가 대상이며 다른 역할의 규칙 범위를 넓히지 않는다.
 
-[포트 범위 테스트](../../tests/README.md#spark-포트-범위)는 모델 입력·SG 자원 속성·이 단계의 병합을 구분한다. 실제 데몬·작업 포트는 [플랫폼 Spark 설정](../../../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)에서 맞춘다. SG 규칙을 추가하는 것만으로 Spark를 설치하거나 서비스를 시작하지 않는다.
+실제 데몬·작업 포트는 [플랫폼 Spark 설정](../../../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)에서 맞춘다. SG 규칙을 추가하는 것만으로 Spark를 설치하거나 서비스를 시작하지 않는다.
 
 ## 선택적으로 ALB를 활성화했을 때의 HTTP 접속 경로
 
@@ -126,7 +123,7 @@ account1의 최초 전체 Plan은 7개 추가였으며 MySQL 규칙 3개 외에 
 
 적용 대상은 account1~5 workload다. SG 외부 CIDR·ALB·EC2 배치·기존 클러스터 연결은 이번 변경에서 수정하지 않는다. 외부 사용자→Front 443이나 HTTPS 서버 배포도 포함하지 않는다. 실제 Plan에는 이 연결 외의 기존 코드·AWS 상태 차이가 함께 나타날 수 있으므로 전체 변경을 확인해야 한다.
 
-[application-flows 모의 검사](../../tests/README.md#애플리케이션-통신-검사) 5건과 flatten·Spark 회귀 8건을 통과했다. 실제 AWS Plan·Apply는 실행하지 않았다. OS firewall의 game·ad 수신 역할과 MySQL·MongoDB·Kafka 출처도 함께 수정했으며 원격 Ansible 적용은 별도다.
+application-flows 모의 검사 5건과 flatten·Spark 회귀 8건을 통과했다. 실제 AWS Plan·Apply는 실행하지 않았다. OS firewall의 game·ad 수신 역할과 MySQL·MongoDB·Kafka 출처도 함께 수정했으며 원격 Ansible 적용은 별도다.
 
 ## ALB 비활성화 설정
 
@@ -138,7 +135,7 @@ foundation을 먼저 적용해 사용 중인 ALB SG를 삭제하지 않도록 [�
 
 아래는 과거 도입 기록이다. 현재 edge는 없고 Account 1 서비스는 네 대·Front EIP는 두 개다. edge.tftest.hcl은 독립 Front와 edge 미생성을 검사한다.
 
-기본 및 current topology는 edge-1을, traffic은 edge_front·SSH·Proxy 연결을 선언한다. account1 foundation의 edge SG를 먼저 준비해야 한다. 정규 workload 서비스 수는 5/3/4/3/3대이며 Front EIP 두 개와 edge EIP 한 개를 사용한다. main.tf의 edge_ingress는 외부 80(ACME), 사용자 CIDR 443, 관리자 CIDR 22를 만들고 internet_https_roles는 edge의 인터넷 443 송신을 허용한다. [edge.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/edge.tftest.hcl)은 Public A·EIP·SG 연결·외부 허용 및 초기 구축의 단일 노드를 검사한다.
+기본 및 current topology는 edge-1을, traffic은 edge_front·SSH·Proxy 연결을 선언한다. account1 foundation의 edge SG를 먼저 준비해야 한다. 정규 workload 서비스 수는 5/3/4/3/3대이며 Front EIP 두 개와 edge EIP 한 개를 사용한다. main.tf의 edge_ingress는 외부 80(ACME), 사용자 CIDR 443, 관리자 CIDR 22를 만들고 internet_https_roles는 edge의 인터넷 443 송신을 허용한다. edge.tftest.hcl은 Public A·EIP·SG 연결·외부 허용 및 초기 구축의 단일 노드를 검사한다.
 
 ## edge 단독 초기 구축
 
@@ -148,7 +145,6 @@ edge_bootstrap_only는 기본 false인 기존 호환 기능이다. 현재 topolo
 
 connectivity_ready는 edge_bootstrap_guard에 의존하며, compute와 SG 규칙은 connectivity_ready 뒤에 생성된다. 삭제 시 역순으로 정리해 EC2·규칙 삭제가 중단돼도 초기 구축 표식이 남도록 한다.
 
-학원 접근 정책은 [school-access.tftest.hcl](../../../../infra/terraform/stacks/workload/tests/school-access.tftest.hcl)의 계정별 5개 모의 검사와 [테스트 지도](../../tests/README.md#학원-접속-검사)를 참고한다.
 
 
 ## 2026-10-15 Backend API 역방향 연결 제거

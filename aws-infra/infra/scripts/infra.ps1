@@ -7,7 +7,7 @@ param(
     [ValidateSet('foundation','connectivity','workload','bastion')]
     [string]$Stage,
     [Parameter(Mandatory)]
-    [ValidateSet('Validate','Test','Plan','Apply','Output')]
+    [ValidateSet('Validate','Plan','Apply','Output')]
     [string]$Action,
     # 오프라인 검증 시 이미 설치된 provider 디렉터리를 사용할 수 있다.
     [string]$PluginDirectory,
@@ -213,8 +213,6 @@ try {
     }
     if ($Action -eq 'Validate') {
         Invoke-InfraTerraform $terraformCommand $stackPath @('validate','-no-color')
-    } elseif ($Action -eq 'Test') {
-        Invoke-InfraTerraform $terraformCommand $stackPath @('test','-no-color')
     } elseif ($Action -eq 'Plan') {
         $inputsPath = Join-Path $workPath 'runtime.tfvars.json'
         $runtimeInputs = @{

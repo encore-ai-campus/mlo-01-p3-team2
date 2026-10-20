@@ -23,11 +23,11 @@
 
 ALB는 HTTP 80이고 /static/* → Front:80, /ads/* → ad:8000, 기본 → game:8000이다. certificate_arn은 공통 입력에 남아 있지만 ALB 모듈에 전달하지 않는다. HTTPS listener·자동 TLS는 없다. 서비스 콘솔 SSH는 리전별 IPv4 EC2 Instance Connect 접두사 목록의 22 규칙이며 Private 접속 경로를 새로 만드는 것은 아니다.
 
-Spark Worker 7100·Master UI 8080, 작업 Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 Spark SG 사이에 허용한다. port_end가 없으면 단일 포트이고 같은 SG 쌍·시작 포트는 최대 끝 값으로 합친다. [모듈·stack 테스트](../docs/infra-routing/tests/README.md#spark-포트-범위)와 [플랫폼 포트](../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 본다.
+Spark Worker 7100·Master UI 8080, 작업 Driver 7078–7094·BlockManager 7079–7095, ZooKeeper 2181·2888·3888을 Spark SG 사이에 허용한다. port_end가 없으면 단일 포트이고 같은 SG 쌍·시작 포트는 최대 끝 값으로 합친다. 모듈·stack 테스트와 [플랫폼 포트](../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 본다.
 
 ## 실행기와 비용별 구성
 
-infra.ps1은 Validate/Test/Plan/Apply/Output, 구성 선택과 저장 계획 검사를 담당한다. 온라인 동작은 실제 계정·backend 인증과 S3 버전 관리를 확인한다. 새 Plan에서 이전 계획을 무효화하고 성공한 Apply에서 계획과 manifest를 제거한다. 설정·코드·공개키·대상이 바뀌면 새 Plan이 필요하다.
+infra.ps1은 Validate/Plan/Apply/Output, 구성 선택과 저장 계획 검사를 담당한다. 온라인 동작은 실제 계정·backend 인증과 S3 버전 관리를 확인한다. 새 Plan에서 이전 계획을 무효화하고 성공한 Apply에서 계획과 manifest를 제거한다. 설정·코드·공개키·대상이 바뀌면 새 Plan이 필요하다.
 
 deploy.ps1 NewProfile은 topology·traffic·platform.json을 로컬 복사하고 노드 크기·대수·계정 배치를 선택하게 한다. 모든 프로필은 동일 원격 상태를 바꾸며 경로 해시로 로컬 캐시만 구분한다. Deploy는 foundation → connectivity → workload → bastion의 단계별 검토·적용 후 Inventory·Proxy를 수행한다. 자동 가격 비교·DB 설치·클러스터 데이터 이전은 포함하지 않는다.
 
@@ -43,4 +43,4 @@ bastion.ps1은 별도 상태의 생성·삭제와 중지·시작·재시작·현
 
 최초 개편 기록상 대체된 scripts/account1·상위 config·terraform 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 보관했다. 현재 실행기는 그 파일을 읽지 않는다. 과거 Account 1의 10.11.0.0/16와 로컬 상태가 새 10.10.0.0/16·S3 상태에 자동 이관되지 않는다. 상태 연결·import·데이터 이전은 별도 작업이다.
 
-[테스트 안내](tests/TEST-README.md)는 모의 CLI·mock provider 검사와 실제 배포를 구분한다. 기존 workload 테스트에 남은 노드 수·SG ID 기대값 차이를 새 Spark·콘솔 SSH 테스트가 해결한 것으로 기록하지 않는다. 이번 문서 작업에서는 테스트·AWS·설치 명령을 재실행하지 않았다. 비용 자료는 [docs/costs](../docs/costs/costs.md)로 옮겨졌으며 이전 ../costs 경로는 사용하지 않는다.
+테스트 안내는 모의 CLI·mock provider 검사와 실제 배포를 구분한다. 기존 workload 테스트에 남은 노드 수·SG ID 기대값 차이를 새 Spark·콘솔 SSH 테스트가 해결한 것으로 기록하지 않는다. 이번 문서 작업에서는 테스트·AWS·설치 명령을 재실행하지 않았다. 비용 자료는 [docs/costs](../docs/costs/costs.md)로 옮겨졌으며 이전 ../costs 경로는 사용하지 않는다.

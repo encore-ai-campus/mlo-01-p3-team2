@@ -9,7 +9,7 @@
 | [topology.tfvars.json](config/topology.tfvars.json) | 계정·AZ·노드·사양·디스크·AMI·공개키·HTTP ALB |
 | [traffic.tfvars.json](config/traffic.tfvars.json) | 관리자/사용자 CIDR, 포트와 역할 연결, 선택적 port_end |
 | [backend.json](config/backend.json) | 기존 S3 상태 버킷·프로필·key_prefix |
-| [infra.ps1](scripts/infra.ps1) | 계정·단계별 Validate/Test/Plan/Apply/Output |
+| [infra.ps1](scripts/infra.ps1) | 계정·단계별 Validate/Plan/Apply/Output |
 | [deploy.ps1](scripts/deploy.ps1) | 구성 복사·단계별 배포·현재 IP 인벤토리·프록시 준비 |
 | [bastion.ps1](scripts/bastion.ps1) | 별도 Bastion 생성·삭제·전원·현재 주소 조회 |
 | [account-keys.ps1](scripts/account-keys.ps1) | 기존 개인키의 공개키 준비·기존 서버 등록 |
@@ -81,7 +81,7 @@ S3 상태는 foundation/workload 계정별 10개와 shared/connectivity 1개, �
 
 ## 6. 테스트와 이관 이력
 
-[테스트 안내](tests/TEST-README.md)는 실행기 모의 테스트·Terraform 테스트·미해결 기대값을 구분한다. Validate·모의 테스트 성공은 실제 IAM·Peering·AMI·서비스 성능 확인과 다르다. 이번 문서 작업에서 이를 재실행하지 않았다.
+테스트 안내는 실행기 모의 테스트·Terraform 테스트·미해결 기대값을 구분한다. Validate·모의 테스트 성공은 실제 IAM·Peering·AMI·서비스 성능 확인과 다르다. 이번 문서 작업에서 이를 재실행하지 않았다.
 
 2026-10-09 개편 당시 대체된 소스는 C:\third_project\trash\aws-infra-legacy-20261009에 보관했다는 기록이 있다. 현재 실행기는 그 파일을 읽지 않는다. 과거 10.11.0.0/16 네트워크·로컬 상태가 새 10.10.0.0/16 S3 구성에 자동 이관된 것은 아니다. 실제 상태·자원 연결은 별도 이관 계획으로 확인한다.
 

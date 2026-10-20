@@ -1,2 +1,0 @@
-# 원인을 볼 때만 부하 시험 백엔드 컨테이너에 넣는다(운영 판과 섞지 않는다): docker compose -f loadtest/compose.yaml exec --index 1 backend pip install -r /load/requirements-diag.txt
-py-spy==0.4.0

@@ -125,18 +125,16 @@ foundation의 보안그룹 생성과 workload의 보안규칙 적용은 다른 �
 | `-Action` 값 | 수행하는 일 | AWS 자원에 변경 적용 |
 | --- | --- | --- |
 | `Validate` | backend 없이 초기화하고 Terraform 문법·구성을 검증 | 없음 |
-| `Test` | 선택한 stage에 작성된 모의 테스트 실행 | 없음 |
 | `Plan` | 실제 계정 확인, S3 상태 조회·잠금, 변경 계획 계산·저장 | 없음 |
 | `Apply` | 같은 계정·stage에 저장한 계획을 검증한 뒤 실제 적용 | 있음 |
 | `Output` | 저장된 Terraform 상태의 출력을 로컬 JSON으로 저장 | 자원 변경 없음 |
 
-`Validate`와 `Test`는 실제 AWS 계정에 배포하지 않는다. 초기화 과정에서 provider 다운로드는 필요할 수 있다.
-`Test`의 계정별 사례는 테스트 파일에 정의돼 있으므로 `-Account account2`를 지정했다고 Account 2 사례만 골라 실행하는 것은 아니다.
+`Validate`는 실제 AWS 계정에 배포하지 않는다. 초기화 과정에서 provider 다운로드는 필요할 수 있다.
 `Output`은 저장된 상태를 읽는 동작이며, 서버의 실시간 상태나 서비스 연결 성공을 점검하는 명령은 아니다.
 
 **`Apply`는 저장 계획을 바로 적용하며 별도 확인창을 띄우지 않는다.** 먼저 `Plan` 결과의 생성·변경·삭제 항목을 검토하고 실행한다. 설정·코드·공개키가 바뀌거나 저장 계획이 없으면 다시 `Plan`이 필요하다. 적용 성공 후에는 사용한 계획 파일을 지운다.
 
-`-Stage`와 `-Action`은 필수 옵션이다. infra.ps1의 지원 동작은 표의 5개이며 `-Action Destroy`나 전체 계정을 실행하는 `-Account all`은 없다. 전체 삭제 실행 방법은 [복원·운영 절차](../../docs/operations-recovery.md#6-전체-인프라-삭제)에서 확인한다.
+`-Stage`와 `-Action`은 필수 옵션이다. infra.ps1의 지원 동작은 표의 4개이며 `-Action Destroy`나 전체 계정을 실행하는 `-Account all`은 없다. 전체 삭제 실행 방법은 [복원·운영 절차](../../docs/operations-recovery.md#6-전체-인프라-삭제)에서 확인한다.
 선택 옵션 `-PluginDirectory`는 기존 provider 파일의 위치를 지정할 때 사용한다. AWS 계정이나 서버 배치를 선택하는 옵션은 아니다.
 
 ## 5. 실제 배포 전에 채울 값

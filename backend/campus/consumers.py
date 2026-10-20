@@ -188,7 +188,7 @@ class CampusConsumer(AsyncWebsocketConsumer):
         self.motion_task = None
         self.controller = None
         self.control_lock = asyncio.Lock()
-        self.server_control = not getattr(settings, "CAMPUS_TEST_LEGACY_MOVEMENT", False) or b"control=server" in self.scope.get("query_string", b"")
+        self.server_control = True
         self.session_group = None
         self.direct_message_group = None
         self.policy_status = None

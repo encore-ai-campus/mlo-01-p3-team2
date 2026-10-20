@@ -273,7 +273,7 @@ Python AST inventory에서 tests/spark_integration.py와 tests/validate_mysql_cl
 
 기존 문서 이동·수정과 이번 문서 변경이 섞여 있어 변경 전체를 독립적으로 스테이징할 수 없다. AGENTS.md의 구분 가능한 변경만 스테이징하는 규칙에 따라 기존 Git 인덱스를 유지하고 커밋하지 않았다.
 
-재현 실행기는 [validate_mysql_cluster.py](tests/validate_mysql_cluster.py.md), 세부 모의 시나리오는 [mysql_cluster.test.cjs](tests/mysql_cluster.test.cjs.md)에서 찾는다.
+재현 실행기는 validate_mysql_cluster.py, 세부 모의 시나리오는 mysql_cluster.test.cjs에서 찾는다.
 
 ## 2026-10-10 Cluster 사전 구성 관리 계정 수정
 

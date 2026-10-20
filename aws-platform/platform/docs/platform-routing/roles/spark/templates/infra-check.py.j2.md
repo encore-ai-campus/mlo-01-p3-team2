@@ -24,4 +24,3 @@ import는 sys와 pyspark.sql.SparkSession이다. 호출 표기에는 parallelize
 
 - [배포·제출 작업](../tasks/verify.yml.md)
 - [검증할 클래스·JAR 기본값](../defaults/main.yml.md)
-- [외부 서비스 연동 테스트](../../../tests/spark_integration.py.md)

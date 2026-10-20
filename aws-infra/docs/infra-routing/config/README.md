@@ -114,7 +114,7 @@ ZooKeeper 세 포트는 Spark 노드의 클라이언트 접속·동기화·리�
 
 Spark는 platform 역할의 Worker RPC 7100, Master UI 8080, Driver 시작 포트 7078, BlockManager 시작 포트 7079와 맞춘다. 작업의 spark.port.maxRetries=16에 맞춰 Driver는 7094, BlockManager는 7095까지 허용한다. 같은 서버의 Driver·Executor가 BlockManager 시작 포트를 함께 쓰면 다음 허용 포트로 재시도한다. 이 두 범위는 일부 겹치며 기존 규칙의 시작 포트와 Terraform 주소는 유지한다. Master·Worker 데몬은 별도로 포트 재시도를 0으로 설정해 지정 포트를 벗어나지 않는다. 포트를 바꾸면 aws-platform/platform/roles/spark/defaults/main.yml과 선택한 구성의 traffic을 함께 맞춰야 한다. 두 신규 연결도 Spark SG끼리만 허용한다.
 
-대응하는 [Spark 기본 변수](../../../../aws-platform/platform/docs/platform-routing/roles/spark/defaults/main.yml.md)와 [데몬·작업 통신 포트](../../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트), 인프라의 [포트 범위 테스트](../tests/README.md#spark-포트-범위)를 함께 확인한다. 기본 파일을 고쳐도 기존 NewProfile 복사본은 자동 갱신되지 않으므로 선택한 구성 폴더의 traffic도 대조해야 한다.
+대응하는 [Spark 기본 변수](../../../../aws-platform/platform/docs/platform-routing/roles/spark/defaults/main.yml.md)와 [데몬·작업 통신 포트](../../../../aws-platform/platform/docs/platform-routing/roles/spark/README.md#프라이빗-서버의-통신-포트)를 함께 확인한다. 기본 파일을 고쳐도 기존 NewProfile 복사본은 자동 갱신되지 않으므로 선택한 구성 폴더의 traffic도 대조해야 한다.
 
 ## backend와 계정별 배포 입력
 
@@ -149,7 +149,7 @@ foundation은 노드 역할 집합에서 account4/mysql SG를 추가하고, work
 
 ## 평탄화 Consumer 변경 연결
 
-flatten-1은 account1 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account1_proxy, workload의 account1_default_closed·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 2026-10-11 로컬 모의 검증 결과는 [애플리케이션 통신 검사](../tests/README.md#애플리케이션-통신-검사)에 기록했다.
+flatten-1은 account1 Private A의 t3a.medium·OS 20GiB·공인 IP 및 별도 데이터 디스크 없음으로 정의한다. role=consumer를 유지하고 Kafka·Spark 그룹에 넣지 않는다. traffic의 consumer_kafka는 consumer→Kafka TCP 9092, consumer_mongo는 consumer→MongoDB TCP 27017, forward_proxy는 consumer→Bastion TCP 3128, SSH 연결은 Bastion→consumer TCP 22를 허용한다. 역할별 흐름은 송신·수신 보안그룹 규칙으로 펼쳐진다. 플랫폼 방화벽의 Kafka·MongoDB 허용 출처에도 consumer를 포함한다. Consumer 프로그램 배포와 원격 방화벽 적용은 별도다. foundation의 account1_proxy, workload의 account1_default_closed·flatten.tftest.hcl·console-ssh.tftest.hcl과 fixtures.json의 consumer SG가 관련 검사 위치다. 2026-10-11 로컬 모의 검증 결과는 애플리케이션 통신 검사에 기록했다.
 
 ## 애플리케이션 통신 확장
 

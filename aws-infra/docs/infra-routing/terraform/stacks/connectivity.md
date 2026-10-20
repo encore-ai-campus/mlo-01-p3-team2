@@ -11,7 +11,6 @@
 | [states.tf](../../../../infra/terraform/stacks/connectivity/states.tf) | 5개 foundation 원격 상태와 postcondition, foundation_vpcs 출력 |
 | [variables.tf](../../../../infra/terraform/stacks/connectivity/variables.tf) | 공통 입력과 model 호출 |
 | [versions.tf](../../../../infra/terraform/stacks/connectivity/versions.tf) | Terraform/provider 범위, S3 backend |
-| [connectivity.tftest.hcl](../../../../infra/terraform/stacks/connectivity/tests/connectivity.tftest.hcl) | all_pairs, wrong_remote_account 모의 검사 |
 
 ## 연결 흐름
 

@@ -10,7 +10,6 @@
 | [provider.tf](../../../../infra/terraform/stacks/foundation/provider.tf) | 대상 계정의 profile·allowed_account_ids, 공통 태그 |
 | [variables.tf](../../../../infra/terraform/stacks/foundation/variables.tf) | topology·traffic·account_key·state_backend·ssh_public_key, model 호출 |
 | [versions.tf](../../../../infra/terraform/stacks/foundation/versions.tf) | Terraform/provider 범위, S3 backend |
-| [foundation.tftest.hcl](../../../../infra/terraform/stacks/foundation/tests/foundation.tftest.hcl) | Proxy 기본값·Account 2 Private 서브넷·AZ별 NAT 검사 |
 
 ## 처리와 출력
 

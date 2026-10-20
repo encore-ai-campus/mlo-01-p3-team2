@@ -1,6 +1,5 @@
 // 프론트 지도 데이터에서 서버 판정용 지도(backend/campus/data/worlds.json)를 만든다.
 // 지도(map-data·rooftop-data·classroom-map 등)를 고치면 dev/ 에서: node frontend/tools/export-worlds.cjs
-// frontend/tests/worlds-export.test.cjs 가 두 쪽이 어긋나면 실패한다.
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');

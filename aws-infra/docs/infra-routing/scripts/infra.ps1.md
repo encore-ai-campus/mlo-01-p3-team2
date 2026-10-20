@@ -12,7 +12,7 @@
 | --- | --- |
 | Account | account1~account5 또는 shared. 기본 account1 |
 | Stage | foundation / connectivity / workload / bastion. 필수 |
-| Action | Validate / Test / Plan / Apply / Output. 필수 |
+| Action | Validate / Plan / Apply / Output. 필수 |
 | PluginDirectory | 선택. init에 전달할 기존 provider 디렉터리 |
 | PlanMode | Create / Delete. 기본 Create. Delete는 Plan·Apply에만 허용 |
 | DestroyRunId | 전체 삭제 실행기의 GUID 32자 ID. 별도 .local 경로 사용, 실행 정보와 순서 검사 |
@@ -40,12 +40,11 @@ Bastion 외 단계의 Delete는 [전체 삭제 실행기](destroy-all.ps1.md)가
 | Action | Terraform 동작 | 동작의 범위 |
 | --- | --- | --- |
 | Validate | init -backend=false → validate | 문법·구성 검사. 실제 AWS 검증 아님 |
-| Test | init -backend=false → test | 해당 stack의 모의 테스트. 선택 Account로 테스트 run을 필터링하지 않음 |
 | Plan | S3 init → runtime.tfvars.json 작성 → plan -out | 변경 계획과 manifest 저장. Delete는 plan -destroy이며 Get-SavedDeleteSummary로 범위 검사·요약 저장. 실제 자원 적용 없음 |
 | Apply | S3 init → apply 저장 계획 | 별도 확인 질문 없이 저장 계획 적용. 성공 후 계획과 manifest 제거 |
 | Output | S3 init → output -json | 상태 출력을 outputs.json으로 저장. 실시간 서비스 상태 조회 아님 |
 
-Validate·Test도 provider가 없으면 다운로드가 필요할 수 있다. 스크립트는 브라우저 로그인이나 S3 버킷 생성을 수행하지 않는다.
+Validate도 provider가 없으면 다운로드가 필요할 수 있다. 스크립트는 브라우저 로그인이나 S3 버킷 생성을 수행하지 않는다.
 
 ConfigurationDirectory는 기존 backend·공개키 상대 경로 기준을 바꾸지 않는다. 지정한 구성의 절대 경로와 두 JSON 내용이 fingerprint에 추가된다. Delete/DestroyRunId에는 구성 선택을 허용하지 않는다. 비용별 구성의 생성과 일괄 실행은 [deploy.ps1](deploy.ps1.md)을 사용한다.
 
@@ -61,14 +60,14 @@ ConfigurationDirectory는 기존 backend·공개키 상대 경로 기준을 바�
 | Plan 런타임 입력 | 작업 폴더의 runtime.tfvars.json |
 | 상태 출력 | 작업 폴더의 outputs.json |
 | 온라인 TF_DATA_DIR | 작업 폴더의 terraform |
-| Validate/Test TF_DATA_DIR | 작업 폴더의 validate-terraform |
+| Validate TF_DATA_DIR | 작업 폴더의 validate-terraform |
 | S3 key | {key_prefix}/{Account}/{Stage}/terraform.tfstate |
 
 S3에는 계정별 foundation/workload 10개와 shared/connectivity 1개, 총 11개 상태와 선택 Bastion의 account1/bastion 상태 1개를 분리한다. Bastion을 포함하면 총 12개 상태 경로다. encrypt와 use_lockfile을 활성화하며 Terraform workspace는 default로 고정한다. shared Plan의 account_key 입력은 호환용 account1이고, 실제 연결 양쪽 프로필은 connectivity/providers.tf에 명시돼 있다.
 
 ## 변경할 때 함께 확인
 
-입력 검사·해시 범위는 [공통 함수 문서](lib/infra-common.ps1.md), 실행기 보호 동작은 [Python 테스트 문서](../tests/test_runner.py.md), 실제 옵션 안내는 [실행 README](../../../infra/scripts/scripts.md)를 함께 확인한다. 문서 파일은 fingerprint 대상에 포함되지 않는다.
+입력 검사·해시 범위는 [공통 함수 문서](lib/infra-common.ps1.md), 실제 옵션 안내는 [실행 README](../../../infra/scripts/scripts.md)를 함께 확인한다. 문서 파일은 fingerprint 대상에 포함되지 않는다.
 
 ## 진입 서버 단독 실행 모드
 

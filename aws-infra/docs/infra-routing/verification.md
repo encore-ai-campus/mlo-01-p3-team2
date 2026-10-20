@@ -29,10 +29,10 @@ routing-doc-sync 번들 AST 분석기의 인식 가능한 Python 참조는 39개
 | 코드 변경 | 연결 문서·반영 내용 |
 | --- | --- |
 | 전체 EC2 전원 실행기·계정별 작업자 | [power-all.ps1](scripts/power-all.ps1.md) · [infra-power.ps1](scripts/lib/infra-power.ps1.md). 구성·출력·소유자·태그·권한 검사, 전체 Check 이후 병렬 Change, 전환 대기·부분 실패 경계 |
-| 신규 Python 모의 전원 테스트 2개 | [전원 테스트 구조](tests/power-tests.md). AST로 추출한 함수 7개의 파일·정확한 인자·기본값과 호출 보조 근거 |
+| 신규 Python 모의 전원 테스트 2개 | 전원 테스트 구조. AST로 추출한 함수 7개의 파일·정확한 인자·기본값과 호출 보조 근거 |
 | 데이터 EBS lifecycle | [compute](terraform/README.md#compute) · [workload](terraform/stacks/workload.md#변경-시-경계) · [bastion](terraform/stacks/bastion.md). 현재 prevent_destroy=false로 설명을 맞춤 |
-| Backend API 수신 필터 | [통신 설정](config/README.md#애플리케이션-통신-확장) · [workload](terraform/stacks/workload.md) · [통신 테스트](tests/README.md). 현재 Backend 8000은 해당 Front·상대 Backend만 허용하며 Kafka·MySQL 출처는 제거 |
-| 삭제 허용 목록·PowerShell 회귀 검사 | [삭제 경계](scripts/lib/infra-destroy.ps1.md#삭제-계획의-경계) · [삭제 테스트](tests/destroy-tests.md). Front 두 역할의 정확한 송신 규칙 주소·기존 거부 조건 대조 |
+| Backend API 수신 필터 | [통신 설정](config/README.md#애플리케이션-통신-확장) · [workload](terraform/stacks/workload.md) · 통신 테스트. 현재 Backend 8000은 해당 Front·상대 Backend만 허용하며 Kafka·MySQL 출처는 제거 |
+| 삭제 허용 목록·PowerShell 회귀 검사 | [삭제 경계](scripts/lib/infra-destroy.ps1.md#삭제-계획의-경계) · 삭제 테스트. Front 두 역할의 정확한 송신 규칙 주소·기존 거부 조건 대조 |
 | Vault 입력 전달 | [deploy.ps1](scripts/deploy.ps1.md#프록시-실행) · [프록시 스크립트](../../../aws-platform/platform/docs/platform-routing/scripts/setup-proxy.sh.md). 기존 문서에 AskVaultPass 전달과 암호 저장 없음이 반영되어 있음을 확인 |
 
 첫 전체 문서 검사에서 나온 6개 불일치는 Terraform 주소와 Ansible 파일명을 Python 심볼로 해석한 경우였다. Terraform 주소는 HCL 블록으로, Ansible 파일명은 원본 링크로 명시했다. 새 테스트 함수 7개는 모두 signature_match이고 확정된 구조 불일치와 분석 진단은 0건이다.
@@ -127,7 +127,7 @@ account1의 최초 전체 Plan은 현재 AWS에서 사라진 ALB·HTTP listener�
 - 작업 시작 시 compute/main.tf의 보호 값은 이미 false였으며 이 파일의 바이트는 보존했다. 위의 이전 true 기록은 당시 상태다. 실제 AWS 조회·Plan/Apply·원격 설치나 삭제는 실행하지 않았다.
 - 작업 중 실행 안내가 infra/scripts/README.md에서 infra/scripts/scripts.md로 이동했다. 이동된 파일에 이번 명령 설명이 유지됨을 확인하고 삭제 문서의 링크만 새 경로로 맞췄다. 다른 영역의 문서 이동을 되돌리거나 조사하지 않았다.
 
-실행 방법은 [명령 안내](../operations-recovery.md#6-전체-인프라-삭제), 구현 흐름은 [삭제 실행기 문서](scripts/destroy-all.ps1.md), 모의 시험 선언은 [삭제 테스트 문서](tests/destroy-tests.md)에 있다. 이번 기준 사본·사전/사후 AST 보고서·최종 점검은 infra/.local/diagnostics/destroy-once-20261010/에 보관한다. 기존 문서 변경과 동시 이동은 이번 코드 변경으로 취급하지 않으며 추가 스테이징·커밋은 하지 않는다.
+실행 방법은 [명령 안내](../operations-recovery.md#6-전체-인프라-삭제), 구현 흐름은 [삭제 실행기 문서](scripts/destroy-all.ps1.md), 모의 시험 선언은 삭제 테스트 문서에 있다. 이번 기준 사본·사전/사후 AST 보고서·최종 점검은 infra/.local/diagnostics/destroy-once-20261010/에 보관한다. 기존 문서 변경과 동시 이동은 이번 코드 변경으로 취급하지 않으며 추가 스테이징·커밋은 하지 않는다.
 
 ## 2026-10-10 compute 변경에 한정한 문서 반영
 
@@ -182,10 +182,10 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 실제 변경 및 문서 차이는 다음과 같다.
 
-- [서비스 콘솔 SSH](terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위): 리전별 EC2 Instance Connect 관리형 IPv4 접두사 목록을 조회하고 서비스 SG에 TCP 22를 허용한다. 계정별 3 / 2 / 4 / 2 / 3개, 총 14개 SG가 대상이다. 기존 Bastion 규칙의 대상·주소는 유지한다. 이 경로와 [별도 모의 테스트](tests/README.md)를 탐색 목록에도 반영했다.
+- [서비스 콘솔 SSH](terraform/stacks/workload.md#콘솔-ssh-및-학원-ssh-규칙의-범위): 리전별 EC2 Instance Connect 관리형 IPv4 접두사 목록을 조회하고 서비스 SG에 TCP 22를 허용한다. 계정별 3 / 2 / 4 / 2 / 3개, 총 14개 SG가 대상이다. 기존 Bastion 규칙의 대상·주소는 유지한다. 이 경로와 별도 모의 테스트를 탐색 목록에도 반영했다.
 - [compute 모듈](terraform/README.md#compute): 작업 시작 시 데이터 EBS의 prevent_destroy가 이미 false였다. true로 설명하던 모듈·workload 문서와 무조건 보호 해제가 필요하다고 설명하던 전체 삭제·Bastion 문서를 현재 값과 조건에 맞췄다. 이번 작업은 보호 설정을 변경하지 않았다.
 - [계정별 SSH 키](scripts/account-keys.ps1.md): Write-KeyText·Get-KeyTag 함수의 위치를 추가하고 Protect-KeyFile이 기존 소유자를 확인한 뒤 ACL을 설정한다는 설명을 보완했다. 개인키·공개키 파일명 세 개가 Python 함수로 오인되던 Markdown 표기도 정리했다.
-- [테스트 지도](tests/README.md): 통과한 서비스 콘솔 SSH 검사와 기존 workload 테스트의 미해결 기대값 차이를 구분했다. 광고 서버 이동 당시의 미실행 기록을 최근의 별도 테스트 성공과 혼동하지 않도록 설명을 갱신했다.
+- 테스트 지도: 통과한 서비스 콘솔 SSH 검사와 기존 workload 테스트의 미해결 기대값 차이를 구분했다. 광고 서버 이동 당시의 미실행 기록을 최근의 별도 테스트 성공과 혼동하지 않도록 설명을 갱신했다.
 
 | 검사 | 결과 | 한계 |
 | --- | --- | --- |
@@ -255,7 +255,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 ## 남겨 둔 조건
 
-- [기존 workload 모의 테스트](tests/README.md#현재-입력과-모의-테스트의-범위)는 Account 1에 Bastion 포함 5대와 다른 계정의 bare SG ID를 기대하여 현재 구현과 불일치한다. 이번에는 차이만 기록하고 테스트 코드를 수정하지 않았다.
+- 기존 workload 모의 테스트는 Account 1에 Bastion 포함 5대와 다른 계정의 bare SG ID를 기대하여 현재 구현과 불일치한다. 이번에는 차이만 기록하고 테스트 코드를 수정하지 않았다.
 - 당시에는 전체 인프라 삭제 실행기가 없고 Delete 계획이 bastion 단계에만 허용됐다. 위 구현으로 전체 삭제 실행기가 추가됐으며 원본 서비스 데이터 EBS의 prevent_destroy는 계속 유지한다.
 - 루트 README·infra/README.md 등 라우팅 폴더 밖에 있는 이전 배치·Bastion·HTTPS 설명은 이번 수정 범위 밖이다.
 - 실제 AWS 생성·삭제, 접속·서비스·Proxy·데이터 보존 검증은 이번 문서 동기화에서 수행하지 않았다. 이 조건들이 남아 있어 자동 스테이징·커밋은 하지 않으며 기존 index를 유지한다.
@@ -279,7 +279,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 - JSON을 작업 시작 시점과 구조적으로 비교해 광고 서버의 account, 광고용 ALB 항목 세 개, ad 포트와 alb_ad 연결 외의 값이 같음을 확인했다.
 - 변경한 Terraform 3개 파일의 fmt -check와 workload의 validate가 통과했다. validate는 처음 샌드박스에서 provider 응답 오류가 발생했고, 승인된 샌드박스 밖 재실행에서 통과했다.
 - routing-doc-sync 분석기로 기존 Python 구조 문서의 참조를 재검사했다. Python 구조 검사는 Terraform·JSON의 동작 검증이 아니며, 이번 비Python 변경은 해당 원본과 라우팅 문서를 별도로 대조했다.
-- 최초에는 테스트 파일을 유지했으나 사용자 추가 승인 후 fixtures.json 및 foundation/workload 테스트 파일을 변경된 배치에 맞췄다. account1에 ad SG와 광고 노드를 포함하고 account2에서는 제외했다. workload에는 ALB→ad:8000 양방향 SG 참조 검사를 추가하고 닫힌 기본값 검사에서만 CIDR을 비웠다. 자세한 내용은 [테스트 지도](tests/README.md#현재-입력과-모의-테스트의-범위)에 기록했다.
+- 최초에는 테스트 파일을 유지했으나 사용자 추가 승인 후 fixtures.json 및 foundation/workload 테스트 파일을 변경된 배치에 맞췄다. account1에 ad SG와 광고 노드를 포함하고 account2에서는 제외했다. workload에는 ALB→ad:8000 양방향 SG 참조 검사를 추가하고 닫힌 기본값 검사에서만 CIDR을 비웠다. 자세한 내용은 테스트 지도에 기록했다.
 - 테스트 파일 두 개의 fmt -check와 fixture JSON의 계정별 역할 대조는 통과했다. workload 모의 테스트는 샌드박스 밖 실행 권한 요청이 거절되어 시작하지 못했다. foundation 모의 테스트도 이번에 실행하지 않았으므로 실행 통과 여부는 미확인이다.
 - 실제 AWS Plan·Apply, 서버 이동·삭제, Django 실행과 /ads/·헬스 체크 /의 응답 검증은 수행하지 않았다. Django 앱 소스가 없어 URL·ALLOWED_HOSTS 설정도 확인하지 못했다.
 - 모의 테스트 실행 검증이 남아 있어 자동 스테이징·커밋은 하지 않았다.
@@ -302,7 +302,7 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 
 분석기는 프로젝트 Python 코드를 import하거나 실행하지 않고 AST를 읽는다. 처음에 프로젝트 하위 폴더를 --repo로 지정한 실행은 Git 최상위 경로가 아니라는 execution_error로 중단됐다. 이후 C:/third_project를 지정해 정상 분석했다.
 
-정상 분석의 inventory에는 aws-infra/infra/tests/test_runner.py와 platform/tests/spark_integration.py 두 파일이 포함됐다. 이 문서 작업에서 함수 선언과 문서를 대조한 대상은 [test_runner.py 구조 문서](tests/test_runner.py.md)의 실행기 테스트 한 파일이다. platform의 문서는 대조 대상이 아니다.
+정상 분석의 inventory에는 aws-infra/infra/tests/test_runner.py와 platform/tests/spark_integration.py 두 파일이 포함됐다. 이 문서 작업에서 함수 선언과 문서를 대조한 대상은 test_runner.py 구조 문서의 실행기 테스트 한 파일이다. platform의 문서는 대조 대상이 아니다.
 
 수정 전 Python 문서의 정규 참조 세 개는 Git 기준 aws-infra/ 접두사가 없어 missing_file이었다. 원본 파일의 상대 링크는 맞았으며 함수 선언도 실제로 존재했다. 정규 참조만 Git 기준으로 수정했고, Python 코드는 변경하지 않았다.
 
@@ -332,8 +332,8 @@ deploy.ps1 문서의 데이터 EBS 설명은 실행기가 보호 값을 변경�
 - [설정 지도](config/README.md): 사용자 CIDR의 역할, Bastion 생성 대상과 빈 관리자 CIDR, S3·AMI 준비 상태, 공통 타입에만 남은 certificate_arn. 구체적인 접속 IP 값은 제외.
 - [bootstrap 경계](bootstrap/README.md): Front 정적 파일·Nginx 배포 미구현과 기존 Bastion 전원 스크립트의 범위.
 - [배스천 전원 제어](scripts/bastion.ps1.md): 현재 SSH 준비 상태와 과거 모의 검증 기록의 한계.
-- [Python 구조](tests/test_runner.py.md): Git 기준 정규 참조 경로와 현재 AST 분석 결과.
-- [테스트 지도](tests/README.md): 현재 사용자 CIDR 입력과 닫힌 기본값을 기대하는 workload 테스트의 차이.
+- Python 구조: Git 기준 정규 참조 경로와 현재 AST 분석 결과.
+- 테스트 지도: 현재 사용자 CIDR 입력과 닫힌 기본값을 기대하는 workload 테스트의 차이.
 
 ## 남아 있는 코드·검증 조건
 
