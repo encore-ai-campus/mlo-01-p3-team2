@@ -99,3 +99,13 @@ Python과 SQL 학습교실에서 배운 내용을 연습하고 부족한 부분�
 | 김남동 | 광고 서버 | [rlaskaehd](https://github.com/rlaskaehd) |
 | 이재원 | 플랫폼 | [vvjeffvv3](https://github.com/vvjeffvv3) |
 | 조성현 | 인프라 구축 | [seonghyeonjo2](https://github.com/seonghyeonjo2) |
+
+## 한 줄 회고
+
+| 이름 | 회고 |
+|---|---|
+| 신동엽 |  |
+| 강한솔 |  |
+| 김남동 |  |
+| 이재원 |  |
+| 조성현 |  |
